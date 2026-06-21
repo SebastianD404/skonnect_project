@@ -1,0 +1,254 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [vector]
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Role {
+  YOUTH         // public resident, no SKEAP record yet
+  GRANTEE       // approved SKEAP scholar
+  SK_OFFICIAL   // SK Chairperson / Councilors - admin dashboard access
+  SUPER_ADMIN   // system administration / governance
+}
+
+enum GranteeStatus {
+  ACTIVE
+  PROBATIONARY
+  GRADUATED
+  REMOVED
+}
+
+enum EventStatus {
+  UPCOMING
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  COMPLETED
+}
+
+enum SubmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum Language {
+  ENGLISH
+  FILIPINO
+  ILOCANO
+}
+
+// ─────────────────────────────────────────────
+// CORE USER & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(uuid())
+  // Mirrors the Supabase Auth user id (auth.users.id) - keep in sync, do not
+  // generate a separate auth system. This table holds app-level profile data.
+  authId        String   @unique
+  email         String   @unique
+  fullName      String
+  phoneNumber   String?
+  role          Role     @default(YOUTH)
+  languagePref  Language @default(ENGLISH)
+
+  barangay      String   @default("Pico")
+  isActive      Boolean  @default(true)
+
+  grantee       Grantee?
+  registrations Registration[]
+  inquiries     Inquiry[]
+  auditLogs     AuditLog[]       @relation("ActorAuditLogs")
+  eventsCreated Event[]          @relation("EventCreator")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// SKEAP SCHOLARSHIP MANAGEMENT
+// ─────────────────────────────────────────────
+
+model Grantee {
+  id              String        @id @default(uuid())
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status          GranteeStatus @default(ACTIVE)
+  yearLevel       String
+  school          String
+  generalAverage  Float?
+
+  submissions     Submission[]
+
+  dateEnrolled    DateTime @default(now())
+  dateRemoved     DateTime?
+  remarks         String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("grantees")
+}
+
+model Submission {
+  id              String           @id @default(uuid())
+  granteeId       String
+  grantee         Grantee          @relation(fields: [granteeId], references: [id], onDelete: Cascade)
+
+  semester        String           // e.g. "2026-1st Semester"
+  gradeFileUrl    String           // Supabase Storage path
+  coeFileUrl      String           // Certificate of Enrollment - Supabase Storage path
+  generalAverage  Float?
+
+  status          SubmissionStatus @default(PENDING)
+  reviewedById    String?
+  reviewNotes     String?
+
+  submittedAt     DateTime @default(now())
+  reviewedAt       DateTime?
+
+  @@map("submissions")
+}
+
+// ─────────────────────────────────────────────
+// EVENT MANAGEMENT
+// ─────────────────────────────────────────────
+
+model Event {
+  id              String      @id @default(uuid())
+  title           String
+  description     String
+  venue           String
+  eventDate       DateTime
+
+  maxSlots        Int
+  filledSlots     Int         @default(0)
+  status          EventStatus @default(UPCOMING)
+
+  isKatipunan     Boolean     @default(false) // Katipunan ng Kabataan special event type
+  payoutSchedule  String?
+
+  createdById     String
+  createdBy       User        @relation("EventCreator", fields: [createdById], references: [id])
+
+  registrations   Registration[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("events")
+}
+
+model Registration {
+  id          String   @id @default(uuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  registeredAt DateTime @default(now())
+
+  @@unique([eventId, userId]) // prevents double-registration
+  @@map("registrations")
+}
+
+// ─────────────────────────────────────────────
+// INQUIRIES (public Inquiry Form -> SK admin dashboard)
+// ─────────────────────────────────────────────
+
+model Inquiry {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subject     String
+  message     String
+  language    Language @default(ENGLISH)
+
+  isResolved  Boolean  @default(false)
+  response    String?
+  respondedAt DateTime?
+
+  createdAt   DateTime @default(now())
+
+  @@map("inquiries")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS (log of automated emails sent)
+// ─────────────────────────────────────────────
+
+model NotificationLog {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String   // "deadline_reminder" | "status_change" | "event_announcement" | "registration_confirmation"
+  channel     String   @default("email")
+  subject     String
+  sentAt      DateTime @default(now())
+  success     Boolean  @default(true)
+
+  @@map("notification_logs")
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOGGING (System Administration module)
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorId     String
+  actor       User     @relation("ActorAuditLogs", fields: [actorId], references: [id])
+
+  action      String   // e.g. "UPDATE_GRANTEE_STATUS", "DELETE_EVENT"
+  targetTable String   // e.g. "grantees"
+  targetId    String   // id of the affected row
+  beforeData  Json?
+  afterData   Json?
+
+  createdAt   DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// AI CHATBOT - RAG KNOWLEDGE BASE (pgvector)
+// ─────────────────────────────────────────────
+
+model ChatEmbedding {
+  id          String                 @id @default(uuid())
+  content     String                 // the source FAQ/info chunk, in its original language
+  language    Language
+  sourceType  String                 // "skeap_faq" | "event_info" | "general"
+  // pgvector column - Gemini text-embedding-004 outputs 768 dimensions
+  embedding   Unsupported("vector(768)")?
+
+  createdAt   DateTime @default(now())
+
+  @@map("chat_embeddings")
+}
+
+model ChatLog {
+  id          String   @id @default(uuid())
+  userId      String?  // nullable - allow anonymous youth visitors to use the chatbot
+  question    String
+  detectedLanguage Language
+  answer      String
+  wasEscalated Boolean @default(false) // true if bot couldn't answer and routed to Inquiry Form
+
+  createdAt   DateTime @default(now())
+
+  @@map("chat_logs")
+}
