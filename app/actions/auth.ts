@@ -69,7 +69,7 @@ export async function login(
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
@@ -78,11 +78,24 @@ export async function login(
     return { error: error.message };
   }
 
+  const authUserId = data.user?.id;
+
+  if (!authUserId) {
+    return { error: "Login succeeded, but no authenticated user was returned." };
+  }
+
   // Look up the user's role to decide where to send them
   const dbUser = await prisma.user.findUnique({
-    where: { email },
+    where: { authId: authUserId },
     select: { role: true },
   });
+
+  if (!dbUser) {
+    return {
+      error:
+        "Your account is authenticated, but your SKonnect profile was not found. Please contact the SK office.",
+    };
+  }
 
   switch (dbUser?.role) {
     case "SUPER_ADMIN":
