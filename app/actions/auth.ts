@@ -53,7 +53,7 @@ export async function signup(
     return { error: "Account created but profile setup failed. Please contact support." };
   }
 
-  redirect("/login?message=Check your email to confirm your account");
+  redirect("/login?notice=confirm_email");
 }
 
 export async function login(

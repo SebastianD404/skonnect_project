@@ -6,10 +6,12 @@ import { useEffect, useRef, useState } from "react";
 interface DashboardHeaderActionsProps {
   notifications?: string[];
   messages?: string[];
+  requiredRole?: string | string[];
 }
 
-export function DashboardHeaderActions({ notifications = [], messages = [] }: DashboardHeaderActionsProps) {
+export function DashboardHeaderActions({ notifications = [], messages = [], requiredRole }: DashboardHeaderActionsProps) {
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
+  const [serverRole, setServerRole] = useState<string | undefined>(undefined);
   const [profileName, setProfileName] = useState("Your account");
   const [profileEmail, setProfileEmail] = useState("");
   const [profileAvatar, setProfileAvatar] = useState("");
@@ -38,6 +40,39 @@ export function DashboardHeaderActions({ notifications = [], messages = [] }: Da
   }, []);
 
   useEffect(() => {
+    async function reconcileProfile() {
+      try {
+        const res = await fetch('/api/session');
+        if (!res.ok) return;
+        const body = await res.json();
+        const serverUser = body.user;
+        if (!serverUser) return; // not signed in
+        // Always sync profile name/email from server to avoid stale local data
+        if (serverUser.fullName) localStorage.setItem('skonnect-profile-name', serverUser.fullName);
+        if (serverUser.email) localStorage.setItem('skonnect-profile-email', serverUser.email);
+
+        // Prefer server-side avatar if present. If server has no avatar, remove any
+        // locally-stored avatar to avoid showing another user's picture.
+        const serverAvatar = serverUser.avatarUrl;
+        // expose server role for mismatch detection
+        try { setServerRole(serverUser.role || ""); } catch {}
+        if (serverAvatar) {
+          try { localStorage.setItem('skonnect-avatar', serverAvatar); } catch {}
+          setProfileAvatar(serverAvatar);
+        } else {
+          try { localStorage.removeItem('skonnect-avatar'); } catch {}
+          setProfileAvatar('');
+        }
+
+        // Notify other tabs/components that profile changed
+        window.dispatchEvent(new Event('skonnect-profile-updated'));
+      } catch (err) {
+        // ignore
+      }
+    }
+
+      reconcileProfile();
+
     function syncProfile() {
       try {
         setProfileName(localStorage.getItem("skonnect-profile-name") || "Your account");
@@ -66,8 +101,28 @@ export function DashboardHeaderActions({ notifications = [], messages = [] }: Da
       window.removeEventListener("skonnect-profile-updated", syncProfile as EventListener);
       window.removeEventListener("storage", syncTheme);
       window.removeEventListener("skonnect-theme-updated", syncTheme as EventListener);
+        // Removed focus and visibility listeners and polling
     };
   }, []);
+
+  // If this header is rendered on a role-protected page, ensure the current
+  // server session matches the required role. If not, clear the session and
+  // redirect to login so the user can authenticate with the appropriate account.
+  useEffect(() => {
+    if (!requiredRole) return;
+    if (serverRole === undefined) return; // not yet known
+
+    const required = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    if (serverRole && !required.includes(serverRole)) {
+      // sign out on server and redirect
+      (async () => {
+        try {
+          await fetch('/api/auth/signout', { method: 'POST' });
+        } catch (e) {}
+        window.location.href = '/login';
+      })();
+    }
+  }, [serverRole, requiredRole]);
 
   const initials =
     profileName

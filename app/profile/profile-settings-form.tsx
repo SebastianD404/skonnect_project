@@ -23,10 +23,22 @@ export function ProfileSettingsForm({ fullName, email, role, phoneNumber }: Prof
   }
 
   useEffect(() => {
-    const storedAvatar = localStorage.getItem("skonnect-avatar");
-    if (storedAvatar) {
-      setAvatarPreview(storedAvatar);
-    }
+    // Prefer server-stored avatar; fall back to local storage for older data
+    (async () => {
+      try {
+        const res = await fetch("/api/session");
+        if (res.ok) {
+          const body = await res.json();
+          const serverUser = body.user;
+          if (serverUser?.avatarUrl) {
+            setAvatarPreview(serverUser.avatarUrl);
+          } else {
+            const storedAvatar = localStorage.getItem("skonnect-avatar");
+            if (storedAvatar) setAvatarPreview(storedAvatar);
+          }
+        }
+      } catch {}
+    })();
 
     const storedName = localStorage.getItem("skonnect-profile-name");
     const storedEmail = localStorage.getItem("skonnect-profile-email");
@@ -76,22 +88,34 @@ export function ProfileSettingsForm({ fullName, email, role, phoneNumber }: Prof
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : null;
-      if (result) {
-        localStorage.setItem("skonnect-avatar", result);
-        setAvatarPreview(result);
-        broadcastProfileUpdate();
-      }
-    };
-    reader.readAsDataURL(file);
+    const form = new FormData();
+    form.append("avatar", file);
+
+    fetch("/api/avatar", { method: "POST", body: form })
+      .then((r) => r.json())
+      .then((body) => {
+        if (body.avatarUrl) {
+          setAvatarPreview(body.avatarUrl);
+          // Keep a local copy for backward compatibility
+          try { localStorage.setItem("skonnect-avatar", body.avatarUrl); } catch {}
+          broadcastProfileUpdate();
+        }
+      })
+      .catch(() => {});
   }
 
   function clearAvatar() {
-    localStorage.removeItem("skonnect-avatar");
-    setAvatarPreview(null);
-    broadcastProfileUpdate();
+    fetch("/api/avatar", { method: "DELETE" })
+      .then(() => {
+        localStorage.removeItem("skonnect-avatar");
+        setAvatarPreview(null);
+        broadcastProfileUpdate();
+      })
+      .catch(() => {
+        localStorage.removeItem("skonnect-avatar");
+        setAvatarPreview(null);
+        broadcastProfileUpdate();
+      });
   }
 
   return (

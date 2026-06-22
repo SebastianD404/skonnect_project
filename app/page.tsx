@@ -52,12 +52,14 @@ export default function HomePage() {
                 Sangguniang Kabataan · Barangay Pico
               </div>
               
-              <h1 className="text-6xl md:text-7xl font-black leading-[1.1] tracking-tight bg-gradient-to-r from-[#0F3D5C] via-[#0F3D5C] to-[#0D2E47] bg-clip-text text-transparent">
-                One record for every youth we serve.
+              <h1 className="text-4xl md:text-7xl font-black leading-[1.1] tracking-tight text-[#0F3D5C]">
+                A Legacy of{" "}
+                <span className="italic text-yellow-500">Service</span>{" "}
+                to Pico.
               </h1>
               
               <p className="text-xl text-[#555555] leading-relaxed max-w-2xl">
-                Scholarship tracking, event registration, and a multilingual helpdesk — all in one elegant platform replacing scattered Facebook posts and paper folders.
+                Empowering every resident through seamless scholarship tracking, streamlined event registration, and accessible multilingual support in one unified platform.
               </p>
               
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-4">
@@ -75,29 +77,76 @@ export default function HomePage() {
                   See what we offer
                 </a>
               </div>
+              {/* Stats row */}
+              <div className="mt-8 grid grid-cols-3 gap-6 max-w-md text-sm">
+                <div className="text-center">
+                  <div className="text-2xl font-extrabold text-[#0F3D5C]">1,240+</div>
+                  <div className="text-xs text-[#555555] uppercase tracking-wider mt-1">Youth registered</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-extrabold text-[#0F3D5C]">48</div>
+                  <div className="text-xs text-[#555555] uppercase tracking-wider mt-1">Active scholars</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-extrabold text-[#0F3D5C]">24h</div>
+                  <div className="text-xs text-[#555555] uppercase tracking-wider mt-1">Helpdesk response</div>
+                </div>
+              </div>
             </div>
 
-            {/* Right Visual */}
-            <div className="relative h-96 md:h-[500px] hidden lg:block">
-              <div className="absolute inset-0 bg-gradient-to-br from-[#00B4E5]/20 to-[#0F3D5C]/20 rounded-3xl"></div>
-              <svg viewBox="0 0 400 500" className="w-full h-full">
-                <defs>
-                  <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" style={{stopColor: "#00B4E5", stopOpacity: 0.3}} />
-                    <stop offset="100%" style={{stopColor: "#0F3D5C", stopOpacity: 0.3}} />
-                  </linearGradient>
-                  <pattern id="weave2" x="0" y="0" width="50" height="50" patternUnits="userSpaceOnUse">
-                    <rect width="50" height="50" fill="url(#grad1)" />
-                    <circle cx="25" cy="25" r="15" fill="none" stroke="#0F3D5C" strokeWidth="1.5" opacity="0.4" />
-                    <line x1="10" y1="25" x2="40" y2="25" stroke="#D4A574" strokeWidth="2" opacity="0.5" />
-                    <line x1="25" y1="10" x2="25" y2="40" stroke="#00B4E5" strokeWidth="2" opacity="0.5" />
-                  </pattern>
-                </defs>
-                <rect width="400" height="500" fill="url(#weave2)" />
-                <circle cx="200" cy="200" r="120" fill="none" stroke="#0F3D5C" strokeWidth="2" opacity="0.2" />
-                <circle cx="200" cy="200" r="100" fill="none" stroke="#00B4E5" strokeWidth="2" opacity="0.3" />
-              </svg>
-            </div>
+            {/* Right Visual — Barangay Hall illustration */}
+              <div className="relative h-96 md:h-[480px] hidden lg:flex items-center justify-center">
+                
+                {/* Main card frame */}
+                  <div className="relative w-full h-full rounded-3xl bg-gradient-to-br from-[#EEF3F8] to-[#E3ECF5] overflow-visible shadow-xl border border-white/60">
+                    
+                    {/* Subtle grid pattern background */}
+                    <div className="absolute inset-0 opacity-[0.08]" style={{
+                      backgroundImage: `radial-gradient(#0F3D5C 1.5px, transparent 1.5px)`,
+                      backgroundSize: '20px 20px'
+                    }}></div>
+
+                    {/* Soft sky gradient at top */}
+                    <div className="absolute top-0 left-0 right-0 h-2/3 bg-gradient-to-b from-[#B8D8F0]/60 to-transparent rounded-t-3xl"></div>
+                  {/* Building image */}
+                  <img
+                    src="/brgyhall.jpeg"
+                    alt="Pico Barangay Hall"
+                    className="absolute -bottom-16 left-1/2 -translate-x-1/2 w-[88%] object-contain drop-shadow-[0_20px_40px_rgba(15,61,92,0.2)]"
+                  />
+
+                  {/* Top-right badge — slightly outside frame */}
+                  <div className="absolute -top-4 -right-6 flex items-center gap-3 bg-white rounded-2xl px-4 py-3 shadow-xl border border-slate-100">
+                    <div className="w-8 h-8 rounded-full bg-[#0F3D5C] flex items-center justify-center">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-[#0F3D5C] leading-tight">Join your community</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 leading-tight">Register to get started</p>
+                    </div>
+                  </div>
+
+                  {/* Bottom-left badge — slightly outside frame */}
+                  <div className="absolute -bottom-4 -left-6 bg-[#0F3D5C] rounded-2xl px-4 py-3 shadow-xl max-w-[210px]">
+                    <div className="flex items-center gap-2 mb-1">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                      </svg>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">Barangay Pico</p>
+                    </div>
+                    <p className="text-xs font-bold text-white leading-snug">
+                      La Trinidad, <span className="text-amber-400">Benguet</span>
+                    </p>
+                  </div>
+
+                </div>
+              </div>
           </div>
         </div>
       </section>
