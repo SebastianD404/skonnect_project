@@ -180,22 +180,26 @@ export default function HomePage() {
               icon={<GraduationCapIcon />}
               title="SKEAP Scholarship"
               desc="Submit grades and Certificates of Enrollment each semester. Track your status — Active, Probationary, or Graduated — without a single trip to the SK office."
+              slug="skeap-scholarship"
             />
             <ServiceCard
               icon={<CalendarIcon />}
               title="Event Registration"
               desc="Browse Katipunan ng Kabataan and community events with live slot counts. Register in seconds; registration closes the moment slots fill."
+              slug="event-registration"
             />
             <ServiceCard
               icon={<BellIcon />}
               title="Automated Reminders"
               desc="Deadline reminders and status updates land in your inbox automatically — no more missed submissions because a Facebook post got buried."
+              slug="automated-reminders"
             />
             <ServiceCard
               icon={<ChatIcon />}
               title="Multilingual Helpdesk"
               desc="Ask in English, Filipino, or Ilocano. Answers come from real-time SKEAP and event data — available any hour, any day."
               id="chatbot"
+              slug="multilingual-helpdesk"
             />
           </div>
         </div>
@@ -271,11 +275,13 @@ function ServiceCard({
   title,
   desc,
   id,
+  slug,
 }: {
   icon: React.ReactNode;
   title: string;
   desc: string;
   id?: string;
+  slug?: string;
 }) {
   return (
     <div id={id} className="group relative rounded-2xl border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:border-[#0F3D5C]/30 hover:-translate-y-1">
@@ -293,8 +299,16 @@ function ServiceCard({
         {desc}
       </p>
       
-      <div className="mt-6 flex items-center text-sm font-bold text-[#0F3D5C] group-hover:translate-x-1 transition-transform duration-300">
-        Learn more →
+      <div className="mt-6">
+        {slug ? (
+          <Link href={`/programs/${slug}`} className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
+            Learn more →
+          </Link>
+        ) : (
+          <Link href="/chatbot" className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
+            Learn more →
+          </Link>
+        )}
       </div>
     </div>
   );
