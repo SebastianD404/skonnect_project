@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
+import { Role } from "@prisma/client";
 
 type Props = { params: Promise<{ slug: string | string[] }> };
 
@@ -7,6 +10,7 @@ type ProgramStatus = {
   label: string;
   summary: string;
   activeScholars: number;
+  totalScholars: number;
   nextReview: string;
   deadline: string;
 };
@@ -53,6 +57,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
       { title: "Active Scholar", description: "Fully qualified students receiving regular scholarship support while maintaining the SKEAP requirements." },
       { title: "Probationary Scholar", description: "Students under review who must submit missing documents or improve academic standing." },
       { title: "Graduated Scholar", description: "Alumni who completed their scholarship cycle and remain eligible for follow-up support." },
+      { title: "Removed Scholar", description: "Students who were removed from the program due to ineligibility, withdrawal, or other administrative reasons. Removed scholars are not currently receiving benefits." },
     ],
     howItWorks: [
       "Complete your SKonnect profile and submit the required enrollment documents.",
@@ -71,7 +76,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
     faq: [
       {
         q: "Who can apply for SKEAP?",
-        a: "Barangay Pico youth enrolled in school who meet the SK scholarship criteria may apply. Proof of residency and enrollment are required.",
+        a: "Barangay Pico youth aged 18 years old and above who are enrolled in school and meet the SK scholarship criteria may apply. Proof of residency and enrollment are required.",
       },
       {
         q: "What documents should I submit?",
@@ -82,8 +87,8 @@ const PROGRAMS: Record<string, ProgramPageData> = {
         a: "Applications are typically reviewed within 5 business days. Status updates are sent through SKonnect and the contact method you provide.",
       },
       {
-        q: "What happens if I am placed on probation?",
-        a: "Probationary scholars are notified of missing documents or eligibility gaps. Complete the requested updates quickly to return to Active status.",
+        q: "What is the minimum GPA to qualify for the SKEAP?",
+        a: "The minimum GPA to qualify is 80.",
       },
     ],
     cta: [
@@ -159,6 +164,20 @@ export default async function ProgramPage({ params }: Props) {
   const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
   const data = slug ? PROGRAMS[slug] : undefined;
   const status = slug ? await getProgramStatus(slug) : null;
+
+  // Determine current user's role (server-side). If not signed in or role is
+  // `YOUTH`, we will hide the detailed "Scholar status explained" section.
+  const supabase = await createClient();
+  const {
+    data: { user: supabaseUser },
+  } = await supabase.auth.getUser();
+
+  let appUser: { role: Role } | null = null;
+  if (supabaseUser) {
+    appUser = await prisma.user.findUnique({ where: { authId: supabaseUser.id }, select: { role: true } });
+  }
+
+  const showStatusSection = Boolean(appUser && appUser.role !== Role.YOUTH);
 
   if (!data) {
     return (
@@ -246,7 +265,22 @@ export default async function ProgramPage({ params }: Props) {
                   <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Active scholars</p>
                   <p className="mt-3 text-3xl font-semibold text-slate-900">{status?.activeScholars ?? "—"}</p>
                   <div className="mt-3 h-2 rounded-full bg-slate-200">
-                    <div className="h-2 w-3/4 rounded-full bg-teal-500" />
+                    {(() => {
+                      const active = status?.activeScholars ?? 0;
+                      const total = status?.totalScholars ?? 0;
+                      const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((active / total) * 100))) : 0;
+
+                      return (
+                        <div
+                          className="h-2 rounded-full bg-teal-500"
+                          role="progressbar"
+                          aria-valuenow={pct}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          style={{ width: `${pct}%` }}
+                        />
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -272,55 +306,12 @@ export default async function ProgramPage({ params }: Props) {
               </div>
             </div>
 
-            {data.statusTypes && (
-              <div id="status" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-                <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
-                  <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">02</span>
-                  <span>Scholar status explained</span>
-                </div>
-                <h2 className="mt-6 text-3xl font-bold text-slate-900">Scholar status explained</h2>
-                <div className="mt-8 grid gap-4 md:grid-cols-3">
-                  {data.statusTypes.map((statusType) => {
-                    const badgeColor =
-                      statusType.title === "Active Scholar"
-                        ? "bg-emerald-500"
-                        : statusType.title.includes("Probation")
-                        ? "bg-amber-500"
-                        : "bg-slate-500";
-                    const badgeText = statusType.title === "Active Scholar" ? "ACTIVE" : statusType.title.includes("Probation") ? "PROBATIONARY" : "GRADUATED";
-
-                    const badgeBg =
-                      statusType.title === "Active Scholar"
-                        ? "bg-emerald-50 border-emerald-100 text-emerald-700"
-                        : statusType.title.includes("Probation")
-                        ? "bg-amber-50 border-amber-100 text-amber-700"
-                        : "bg-sky-50 border-sky-100 text-sky-700";
-                    const badgeDot =
-                      statusType.title === "Active Scholar"
-                        ? "bg-emerald-500"
-                        : statusType.title.includes("Probation")
-                        ? "bg-amber-500"
-                        : "bg-sky-500";
-
-                    return (
-                      <div key={statusType.title} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
-                        <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[0.625rem] font-semibold uppercase tracking-[0.45em] shadow-sm ${badgeBg}`}>
-                          <span className={`h-2.5 w-2.5 rounded-full ${badgeDot}`} />
-                          <span className="tracking-[0.45em]">{badgeText}</span>
-                        </div>
-                        <h3 className="mt-4 text-lg font-semibold text-slate-900">{statusType.title}</h3>
-                        <p className="mt-3 text-sm leading-6 text-slate-600">{statusType.description}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {/* Scholar status section removed as requested */}
 
             {data.howItWorks && (
               <div id="how-it-works" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
                 <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
-                  <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">03</span>
+                  <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">02</span>
                   <span>How it works</span>
                 </div>
                 <h2 className="mt-6 text-3xl font-bold text-slate-900">How it works</h2>
@@ -338,7 +329,7 @@ export default async function ProgramPage({ params }: Props) {
             {data.requirements && (
               <div id="requirements" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
                 <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
-                  <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">04</span>
+                  <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">03</span>
                   <span>Requirements</span>
                 </div>
                 <h2 className="mt-6 text-3xl font-bold text-slate-900">Requirements</h2>
@@ -359,7 +350,7 @@ export default async function ProgramPage({ params }: Props) {
 
             <div id="faq" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
               <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
-                <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">05</span>
+                <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">04</span>
                 <span>FAQ</span>
               </div>
               <h2 className="mt-6 text-3xl font-bold text-slate-900">Frequently asked questions</h2>
@@ -368,7 +359,9 @@ export default async function ProgramPage({ params }: Props) {
                   <details key={qa.q} className="group rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 duration-300 open:bg-white transition hover:shadow-md hover:border-slate-300">
                     <summary className="flex cursor-pointer items-center justify-between gap-4 text-sm font-semibold text-slate-900 transition">
                       {qa.q}
-                      <span className="text-slate-400 transition group-open:rotate-180">+</span>
+                      <svg className="h-4 w-4 text-slate-400 transition group-open:-rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
                     </summary>
                     <p className="mt-4 text-sm leading-7 text-slate-600">{qa.a}</p>
                   </details>
@@ -382,7 +375,7 @@ export default async function ProgramPage({ params }: Props) {
               <p className="text-xs uppercase tracking-[0.35em] text-slate-500">On this page</p>
               <ul className="mt-4 space-y-3 text-sm text-slate-600">
                 <li><a href="#overview" className="hover:text-slate-900">Overview</a></li>
-                <li><a href="#status" className="hover:text-slate-900">Scholar status</a></li>
+                
                 <li><a href="#how-it-works" className="hover:text-slate-900">How it works</a></li>
                 <li><a href="#requirements" className="hover:text-slate-900">Requirements</a></li>
                 <li><a href="#faq" className="hover:text-slate-900">FAQ</a></li>

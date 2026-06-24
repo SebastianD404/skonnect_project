@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { Mail } from "lucide-react";
 
 export default function HomePage() {
   return (
@@ -6,7 +9,7 @@ export default function HomePage() {
       {/* ── NAV ── */}
       <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
+          <Link href="/" onClick={() => window.scrollTo(0, 0)} className="flex items-center gap-3">
             {/* Elegant SK Logo */}
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
               SK
@@ -14,11 +17,12 @@ export default function HomePage() {
             <span className="text-xl font-black tracking-tight text-[#0F3D5C]">
               SKonnect
             </span>
-          </div>
+          </Link>
           <nav className="hidden items-center gap-1 text-sm md:flex">
+            <Link href="/" className="px-4 py-2 font-semibold text-[#0F3D5C] transition-all bg-[#0F3D5C]/10 rounded-lg">Home</Link>
+            <Link href="/about" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">About</Link>
+            <Link href="/events" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Events</Link>
             <a href="#programs" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Programs</a>
-            <a href="#events" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Events</a>
-            <a href="#chatbot" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Ask SKonnect</a>
           </nav>
           <div className="flex items-center gap-3">
             <Link
@@ -59,7 +63,7 @@ export default function HomePage() {
               </h1>
               
               <p className="text-xl text-[#555555] leading-relaxed max-w-2xl">
-                Empowering every resident through seamless scholarship tracking, streamlined event registration, and accessible multilingual support in one unified platform.
+                Empowering Barangay Pico youth scholars with SKEAP event updates, scholarship tracking, and accessible multilingual support in one unified portal.
               </p>
               
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-4">
@@ -165,13 +169,13 @@ export default function HomePage() {
           <div className="mb-16 text-center">
             <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/20 bg-gradient-to-r from-[#0F3D5C]/8 to-[#00B4E5]/8 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0F3D5C] mb-6">
               <span className="w-2 h-2 bg-[#0F3D5C] rounded-full"></span>
-              Registry of Services
+              SKEAP Services
             </div>
             <h2 className="text-4xl md:text-5xl font-black tracking-tight bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] bg-clip-text text-transparent mb-4">
-              Everything you need
+              Support for scholars and youth events
             </h2>
             <p className="text-lg text-[#555555] max-w-2xl mx-auto">
-              One platform for scholarships, events, reminders, and real answers
+              One place for SKEAP paperwork, youth event registration, deadline reminders, and scholar support.
             </p>
           </div>
 
@@ -184,8 +188,8 @@ export default function HomePage() {
             />
             <ServiceCard
               icon={<CalendarIcon />}
-              title="Event Registration"
-              desc="Browse Katipunan ng Kabataan and community events with live slot counts. Register in seconds; registration closes the moment slots fill."
+              title="SKEAP Events"
+              desc="Browse SKEAP youth programs and scholarship events with live registration slot counts, like 20/30. Sign up while seats remain."
               slug="event-registration"
             />
             <ServiceCard
@@ -231,7 +235,7 @@ export default function HomePage() {
       {/* ── FOOTER ── */}
       <footer className="bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] text-white border-t border-white/10">
         <div className="mx-auto max-w-7xl px-6 py-12">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8 pb-8 border-b border-white/10">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8 pb-8 border-b border-white/10">
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10 text-xs font-black tracking-tighter">
@@ -239,8 +243,9 @@ export default function HomePage() {
                 </div>
                 <span className="font-bold text-lg">SKonnect</span>
               </div>
-              <p className="text-sm text-white/70">
-                Youth services platform for Barangay Pico
+              <p className="text-sm text-white/70 leading-6">
+                Youth services platform<br/>
+                for Barangay Pico
               </p>
             </div>
             <div>
@@ -248,16 +253,31 @@ export default function HomePage() {
               <ul className="space-y-2 text-sm text-white/70">
                 <li><a href="#programs" className="hover:text-white transition-colors">Programs</a></li>
                 <li><a href="#events" className="hover:text-white transition-colors">Events</a></li>
-                <li><a href="#chatbot" className="hover:text-white transition-colors">Ask SKonnect</a></li>
+                <li><Link href="/about" className="hover:text-white transition-colors">About</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="font-bold text-sm mb-3 uppercase tracking-wider">Contact</h4>
+              <h4 className="font-bold text-sm mb-3 uppercase tracking-wider">Address</h4>
               <p className="text-sm text-white/70">
-                Sangguniang Kabataan<br/>
-                Barangay Pico, La Trinidad<br/>
-                Benguet
+                JC-214 Km. 5, Pico<br/>
+                La Trinidad, Benguet<br/>
+                Philippines
               </p>
+            </div>
+            <div>
+              <h4 className="font-bold text-sm mb-3 uppercase tracking-wider">Contact</h4>
+              <div className="flex flex-col gap-2 text-sm text-white/70">
+                <a href="mailto:skbarangaypico@gmail.com" className="inline-flex items-center gap-2 text-white hover:text-[#E2E8F0]">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10">
+                    <Mail className="h-4 w-4" />
+                  </span>
+                  Gmail
+                </a>
+                <a href="https://www.facebook.com/skbarangay.pico" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-white hover:text-[#E2E8F0]">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-black">f</span>
+                  Facebook
+                </a>
+              </div>
             </div>
           </div>
           <div className="flex flex-col md:flex-row items-center justify-between text-xs text-white/60">

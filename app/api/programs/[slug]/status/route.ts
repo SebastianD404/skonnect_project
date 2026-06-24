@@ -16,10 +16,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
     return NextResponse.json({ error: "Program status not available" }, { status: 404 });
   }
 
-  const [activeScholars, probationaryScholars, graduatedScholars, pendingApplications] = await Promise.all([
+  const [activeScholars, probationaryScholars, graduatedScholars, removedScholars, pendingApplications] = await Promise.all([
     prisma.grantee.count({ where: { status: "ACTIVE" } }),
     prisma.grantee.count({ where: { status: "PROBATIONARY" } }),
     prisma.grantee.count({ where: { status: "GRADUATED" } }),
+    prisma.grantee.count({ where: { status: "REMOVED" } }),
     prisma.submission.count({ where: { status: "PENDING" } }),
   ]);
 
@@ -35,6 +36,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
     label: defaults.label,
     summary,
     activeScholars,
+    removedScholars,
+    totalScholars,
     nextReview: "TBA",
     deadline: "TBA",
   });
