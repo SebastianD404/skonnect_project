@@ -1,4 +1,5 @@
 import Link from "next/link";
+import KKProfilingForm from "@/app/programs/kk-profiling-form";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
@@ -157,16 +158,38 @@ const PROGRAMS: Record<string, ProgramPageData> = {
     ],
     cta: [{ label: "Start a conversation", href: "/chatbot" }],
   },
+  "kk-profiling": {
+    title: "Katipunan ng Kabataan (KK) Profiling",
+    subtitle: "Register as a member of the Katipunan ng Kabataan (KK) in Barangay Pico. Profiling helps the barangay understand youth demographics and ensure your voice is part of community planning.",
+    overview:
+      "Provide basic profile information so Barangay Pico can count youth membership and include you in upcoming initiatives.",
+    hero: "/brgyhall.jpeg",
+    features: [
+      { title: "Community representation", detail: "Make sure your voice is heard in youth planning and programs." },
+      { title: "Profile access", detail: "Update your information any time from your SKonnect account." },
+      { title: "Privacy-first", detail: "Profile data is used only for community programs and not shared publicly." },
+    ],
+    howItWorks: [
+      "Fill out the short profiling form below.",
+      "Staff will verify your residency and membership.",
+      "You'll receive confirmation when your KK profile is active.",
+    ],
+    requirements: ["Full name", "Date of birth", "Contact number or email", "Proof of residency (optional)"],
+    faq: [
+      { q: "Who can register?", a: "Any youth resident of Barangay Pico eligible to join the Katipunan ng Kabataan." },
+      { q: "Is my data private?", a: "Yes — data is used for program administration and not published publicly." },
+    ],
+    cta: [{ label: "Start profiling", href: "#kk-profiling-form" }],
+  },
 };
 
 export default async function ProgramPage({ params }: Props) {
   const { slug: rawSlug } = await params;
   const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
   const data = slug ? PROGRAMS[slug] : undefined;
-  const status = slug ? await getProgramStatus(slug) : null;
 
   // Determine current user's role (server-side). If not signed in or role is
-  // `YOUTH`, we will hide the detailed "Scholar status explained" section.
+  // `YOUTH`, we will hide board-only program status details.
   const supabase = await createClient();
   const {
     data: { user: supabaseUser },
@@ -178,6 +201,7 @@ export default async function ProgramPage({ params }: Props) {
   }
 
   const showStatusSection = Boolean(appUser && appUser.role !== Role.YOUTH);
+  const status = slug && showStatusSection ? await getProgramStatus(slug) : null;
 
   if (!data) {
     return (
@@ -223,6 +247,12 @@ export default async function ProgramPage({ params }: Props) {
                       <span className="font-semibold text-slate-900">EAP)</span>
                     </span>
                   </>
+                ) : slug === "kk-profiling" ? (
+                  <span className="block">
+                    <span className="text-blue-900">Katipunan ng Kabataan</span>{" "}
+                    <span className="text-blue-900">(KK)</span>{" "}
+                    <span className="text-red-700">Profiling</span>
+                  </span>
                 ) : (
                   data.title
                 )}
@@ -230,61 +260,72 @@ export default async function ProgramPage({ params }: Props) {
               <p className="max-w-3xl text-base leading-8 text-slate-600">{data.subtitle}</p>
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/signup"
-                className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
-              >
-                Apply for SKEAP →
-              </Link>
-              <Link
-                href="/chatbot"
-                className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
-              >
-                Get application help →
-              </Link>
-            </div>
+            {slug !== "kk-profiling" && (
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href="/signup"
+                  className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
+                >
+                  Apply for SKEAP →
+                </Link>
+                <Link
+                  href="/chatbot"
+                  className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
+                >
+                  Get application help →
+                </Link>
+              </div>
+            )}
           </div>
         </div>
+        
+        {slug === "kk-profiling" && (
+          <div id="kk-profiling-form" className="mb-8 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <KKProfilingForm />
+          </div>
+        )}
 
+        {slug !== "kk-profiling" && (
         <section className="grid gap-8 xl:grid-cols-[1.6fr_0.9fr]">
           <div className="space-y-8">
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-              <div className="grid gap-6 sm:grid-cols-3">
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
-                  <p className="text-xs uppercase tracking-[0.35em] text-slate-400">{status?.badge ?? "Program status"}</p>
-                  <h2 className="mt-3 text-lg font-semibold text-slate-900">{status?.label ?? "Status updated"}</h2>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{status?.summary ?? "Live SKEAP status is updating."}</p>
-                </div>
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
-                  <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Next review</p>
-                  <p className="mt-3 text-xl font-semibold text-slate-900">{status?.nextReview ?? "TBA"}</p>
-                  <p className="mt-2 text-sm text-slate-500">Deadline: {status?.deadline ?? "TBA"}</p>
-                </div>
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
-                  <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Active scholars</p>
-                  <p className="mt-3 text-3xl font-semibold text-slate-900">{status?.activeScholars ?? "—"}</p>
-                  <div className="mt-3 h-2 rounded-full bg-slate-200">
-                    {(() => {
-                      const active = status?.activeScholars ?? 0;
-                      const total = status?.totalScholars ?? 0;
-                      const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((active / total) * 100))) : 0;
+            {showStatusSection && (
+              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+                <div className="grid gap-6 sm:grid-cols-3">
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
+                    <p className="text-xs uppercase tracking-[0.35em] text-slate-400">{status?.badge ?? "Program status"}</p>
+                    <h2 className="mt-3 text-lg font-semibold text-slate-900">{status?.label ?? "Status updated"}</h2>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{status?.summary ?? "Live SKEAP status is updating."}</p>
+                  </div>
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
+                    <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Next review</p>
+                    <p className="mt-3 text-xl font-semibold text-slate-900">{status?.nextReview ?? "TBA"}</p>
+                    <p className="mt-2 text-sm text-slate-500">Deadline: {status?.deadline ?? "TBA"}</p>
+                  </div>
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
+                    <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Active scholars</p>
+                    <p className="mt-3 text-3xl font-semibold text-slate-900">{status?.activeScholars ?? "—"}</p>
+                    <div className="mt-3 h-2 rounded-full bg-slate-200">
+                      {(() => {
+                        const active = status?.activeScholars ?? 0;
+                        const total = status?.totalScholars ?? 0;
+                        const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((active / total) * 100))) : 0;
 
-                      return (
-                        <div
-                          className="h-2 rounded-full bg-teal-500"
-                          role="progressbar"
-                          aria-valuenow={pct}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          style={{ width: `${pct}%` }}
-                        />
-                      );
-                    })()}
+                        return (
+                          <div
+                            className="h-2 rounded-full bg-teal-500"
+                            role="progressbar"
+                            aria-valuenow={pct}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            style={{ width: `${pct}%` }}
+                          />
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div id="overview" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
               <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
@@ -417,6 +458,7 @@ export default async function ProgramPage({ params }: Props) {
             </div>
           </aside>
         </section>
+        )}
       </main>
     </div>
   );

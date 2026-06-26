@@ -1,45 +1,34 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Mail } from "lucide-react";
-
+import { PublicHeader } from "./components/PublicHeader";
 export default function HomePage() {
+  const pathname = usePathname();
+  const [activeLink, setActiveLink] = useState<string>(pathname);
+
+  useEffect(() => {
+    const currentHash = window.location.hash;
+    setActiveLink(currentHash === "#programs" ? "#programs" : pathname.startsWith("/programs") ? "/programs" : pathname);
+
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      setActiveLink(hash === "#programs" ? "#programs" : window.location.pathname.startsWith("/programs") ? "/programs" : window.location.pathname);
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, [pathname]);
+
+  const navLinkClass = (href: string) =>
+    `px-4 py-2 font-semibold transition-all rounded-lg ${activeLink === href ? "text-[#0F3D5C] bg-[#0F3D5C]/10" : "text-[#3C3C3C] hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5"}`;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
       {/* ── NAV ── */}
-      <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" onClick={() => window.scrollTo(0, 0)} className="flex items-center gap-3">
-            {/* Elegant SK Logo */}
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
-              SK
-            </div>
-            <span className="text-xl font-black tracking-tight text-[#0F3D5C]">
-              SKonnect
-            </span>
-          </Link>
-          <nav className="hidden items-center gap-1 text-sm md:flex">
-            <Link href="/" className="px-4 py-2 font-semibold text-[#0F3D5C] transition-all bg-[#0F3D5C]/10 rounded-lg">Home</Link>
-            <Link href="/about" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">About</Link>
-            <Link href="/events" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Events</Link>
-            <a href="#programs" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Programs</a>
-          </nav>
-          <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="text-sm font-semibold text-[#3C3C3C] transition-all px-4 py-2 hover:text-[#0F3D5C]"
-            >
-              Log in
-            </Link>
-            <Link
-              href="/signup"
-              className="rounded-xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-xl hover:scale-105 active:scale-95"
-            >
-              Sign up
-            </Link>
-          </div>
-        </div>
-      </header>
+      <PublicHeader />
 
       {/* ── HERO ── */}
       <section className="relative overflow-hidden pt-12 md:pt-24 pb-20">
@@ -169,41 +158,40 @@ export default function HomePage() {
           <div className="mb-16 text-center">
             <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/20 bg-gradient-to-r from-[#0F3D5C]/8 to-[#00B4E5]/8 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0F3D5C] mb-6">
               <span className="w-2 h-2 bg-[#0F3D5C] rounded-full"></span>
-              SKEAP Services
+              SKonnect Services
             </div>
             <h2 className="text-4xl md:text-5xl font-black tracking-tight bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] bg-clip-text text-transparent mb-4">
-              Support for scholars and youth events
+              Everything youth need in one place
             </h2>
             <p className="text-lg text-[#555555] max-w-2xl mx-auto">
-              One place for SKEAP paperwork, youth event registration, deadline reminders, and scholar support.
+              Apply for educational assistance, register for youth events, stay updated with official announcements, submit profiling data, and get support — all from one dashboard.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <ServiceCard
               icon={<GraduationCapIcon />}
-              title="SKEAP Scholarship"
-              desc="Submit grades and Certificates of Enrollment each semester. Track your status — Active, Probationary, or Graduated — without a single trip to the SK office."
+              title="SKEAP"
+              desc="The SK Educational Assistance Program provides financial support for qualified students in Barangay Pico. Skip the trips to the SK office and easily submit your documents online."
               slug="skeap-scholarship"
             />
             <ServiceCard
               icon={<CalendarIcon />}
-              title="SKEAP Events"
-              desc="Browse SKEAP youth programs and scholarship events with live registration slot counts, like 20/30. Sign up while seats remain."
-              slug="event-registration"
+              title="Youth Events"
+              desc="The central hub for official Barangay Pico youth programs and SK activities. Browse upcoming events, view live registration slot counts in real time, and secure your seat before spots fill up."
+              slug="/events"
             />
             <ServiceCard
               icon={<BellIcon />}
-              title="Automated Reminders"
-              desc="Deadline reminders and status updates land in your inbox automatically — no more missed submissions because a Facebook post got buried."
-              slug="automated-reminders"
+              title="KK Profiling"
+              desc="Register as an official member of the Katipunan ng Kabataan in Barangay Pico. Submit your profiling data online to ensure your voice is counted and help shape upcoming youth initiatives, policies, and community projects."
+              slug="kk-profiling"
             />
             <ServiceCard
               icon={<ChatIcon />}
-              title="Multilingual Helpdesk"
-              desc="Ask in English, Filipino, or Ilocano. Answers come from real-time SKEAP and event data — available any hour, any day."
-              id="chatbot"
-              slug="multilingual-helpdesk"
+              title="Official Announcements"
+              desc="Stay updated with the latest announcements from SK officials. Get important updates on programs, events, and community initiatives."
+              slug="/announcements"
             />
           </div>
         </div>
@@ -252,7 +240,7 @@ export default function HomePage() {
               <h4 className="font-bold text-sm mb-3 uppercase tracking-wider">Links</h4>
               <ul className="space-y-2 text-sm text-white/70">
                 <li><a href="#programs" className="hover:text-white transition-colors">Programs</a></li>
-                <li><a href="#events" className="hover:text-white transition-colors">Events</a></li>
+                <li><Link href="/events" className="hover:text-white transition-colors">Events</Link></li>
                 <li><Link href="/about" className="hover:text-white transition-colors">About</Link></li>
               </ul>
             </div>
@@ -320,12 +308,26 @@ function ServiceCard({
       </p>
       
       <div className="mt-6">
-        {slug ? (
-          <Link href={`/programs/${slug}`} className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
+        {/** prefer explicit paths (starting with /), otherwise use program slug, otherwise default to chatbot */}
+        {slug?.startsWith("/") ? (
+          // direct path (e.g., "/announcements", "/events")
+          <Link href={slug} className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
             Learn more →
           </Link>
+        ) : (slug && !slug.startsWith("/events")) || !slug ? (
+          // default behavior: link to program slug when provided, else chatbot
+          (slug ? (
+            <Link href={`/programs/${slug}`} className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
+              Learn more →
+            </Link>
+          ) : (
+            <Link href="/chatbot" className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
+              Learn more →
+            </Link>
+          ))
         ) : (
-          <Link href="/chatbot" className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
+          // fallback: if slug equals "/events" use that path
+          <Link href={slug} className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
             Learn more →
           </Link>
         )}

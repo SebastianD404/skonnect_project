@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DashboardHeaderActions } from "@/app/components/DashboardHeaderActions";
+import { GranteeEventSection } from "@/app/components/GranteeEventSection";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
@@ -153,16 +154,7 @@ export default async function GranteeDashboardPage() {
               </h2>
             </div>
             {upcomingEvents.length > 0 ? (
-              <div className="grid gap-6 md:grid-cols-2">
-                {upcomingEvents.map((event) => (
-                  <ProgramCard 
-                    key={event.id}
-                    title={event.title}
-                    description={event.description}
-                    badge={event.status === "REGISTRATION_OPEN" ? "Open" : "Upcoming"}
-                  />
-                ))}
-              </div>
+              <GranteeEventSection events={upcomingEvents} />
             ) : (
               <div className="rounded-[2rem] border border-[#0F3D5C]/10 bg-white p-8 text-center shadow-sm">
                 <p className="text-lg text-[#555555]">No upcoming events at this time. Check back soon!</p>
@@ -195,16 +187,3 @@ function InfoCard({ title, value, description }: { title: string; value: string;
   );
 }
 
-function ProgramCard({ title, description, badge }: { title: string; description: string; badge: string }) {
-  return (
-    <div className="rounded-[2rem] border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-8 shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-xl font-bold text-[#0F3D5C]">{title}</p>
-          <p className="mt-3 text-sm leading-6 text-[#555555]">{description}</p>
-        </div>
-        <span className="rounded-full bg-[#0F3D5C] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white">{badge}</span>
-      </div>
-    </div>
-  );
-}

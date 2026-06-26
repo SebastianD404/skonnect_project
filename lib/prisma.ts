@@ -3,8 +3,13 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
+const connectionString = process.env.DATABASE_URL || process.env.DIRECT_URL;
+if (!connectionString) {
+  throw new Error("Prisma requires DATABASE_URL or DIRECT_URL to be set.");
+}
+
 const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL,
+  connectionString,
 });
 
 export const prisma =

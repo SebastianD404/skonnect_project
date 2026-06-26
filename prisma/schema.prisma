@@ -64,6 +64,7 @@ model User {
   avatarUrl     String?
   role          Role     @default(YOUTH)
   languagePref  Language @default(ENGLISH)
+  settings      Json?
 
   barangay      String   @default("Pico")
   isActive      Boolean  @default(true)
@@ -139,6 +140,7 @@ model Event {
 
   maxSlots        Int
   filledSlots     Int         @default(0)
+  imageUrl        String?
   status          EventStatus @default(UPCOMING)
 
   isKatipunan     Boolean     @default(false) // Katipunan ng Kabataan special event type

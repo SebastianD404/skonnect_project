@@ -1,12 +1,11 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
+  output          = "./node_modules/@prisma/client/.prisma/client"
 }
 
 datasource db {
   provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  directUrl  = env("DIRECT_URL")
   extensions = [vector]
 }
 
@@ -23,7 +22,6 @@ enum Role {
 
 enum GranteeStatus {
   ACTIVE
-  PROBATIONARY
   GRADUATED
   REMOVED
 }
@@ -59,8 +57,10 @@ model User {
   email         String   @unique
   fullName      String
   phoneNumber   String?
+  avatarUrl     String?  // Supabase Storage path for user avatar
   role          Role     @default(YOUTH)
   languagePref  Language @default(ENGLISH)
+  settings      Json?
 
   barangay      String   @default("Pico")
   isActive      Boolean  @default(true)
@@ -68,6 +68,7 @@ model User {
   grantee       Grantee?
   registrations Registration[]
   inquiries     Inquiry[]
+  announcements Announcement[]
   auditLogs     AuditLog[]       @relation("ActorAuditLogs")
   eventsCreated Event[]          @relation("EventCreator")
 
@@ -136,6 +137,7 @@ model Event {
 
   maxSlots        Int
   filledSlots     Int         @default(0)
+  imageUrl        String?
   status          EventStatus @default(UPCOMING)
 
   isKatipunan     Boolean     @default(false) // Katipunan ng Kabataan special event type
@@ -221,6 +223,27 @@ model AuditLog {
   createdAt   DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// ANNOUNCEMENTS (SK Officials Announcements)
+// ─────────────────────────────────────────────
+
+model Announcement {
+  id          String   @id @default(uuid())
+  title       String
+  content     String   // Full announcement content
+  imageUrl    String?  // Supabase Storage path for announcement image
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+
+  isPublished Boolean  @default(true)
+  publishedAt DateTime @default(now())
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("announcements")
 }
 
 // ─────────────────────────────────────────────

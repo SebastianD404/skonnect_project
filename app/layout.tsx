@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { Fraunces, Inter } from "next/font/google";
 import Script from "next/script";
+import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -30,16 +30,16 @@ export default function RootLayout({
       <body
         className={`${fraunces.variable} ${inter.variable} font-sans antialiased`}
       >
-        <Script id="theme-bootstrap" strategy="beforeInteractive">
+        <Script id="theme-script" strategy="beforeInteractive">
           {`(() => {
-            try {
-              const savedTheme = localStorage.getItem('skonnect-theme');
-              const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-              const shouldUseDark = savedTheme === 'dark' || (!savedTheme && systemPrefersDark);
-              document.documentElement.classList.toggle('dark', shouldUseDark);
-              document.documentElement.dataset.theme = shouldUseDark ? 'dark' : (savedTheme || 'light');
-            } catch (error) {}
-          })();`}
+              try {
+                const savedTheme = localStorage.getItem('skonnect-theme');
+                const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const shouldUseDark = savedTheme === 'dark' || (!savedTheme && systemPrefersDark);
+                document.documentElement.classList.toggle('dark', shouldUseDark);
+                document.documentElement.dataset.theme = shouldUseDark ? 'dark' : (savedTheme || 'light');
+              } catch (error) {}
+            })();`}
         </Script>
         {children}
       </body>

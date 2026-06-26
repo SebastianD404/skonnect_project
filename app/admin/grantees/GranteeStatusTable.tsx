@@ -1,0 +1,173 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { ArrowRight, Search } from "lucide-react";
+
+export interface GranteeTableRow {
+  id: string;
+  fullName: string;
+  email: string;
+  school: string;
+  yearLevel: string;
+  status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED";
+  generalAverage: number | null;
+  dateEnrolled: string;
+  updatedAt: string;
+}
+
+const STATUS_LABELS: Record<GranteeTableRow["status"], string> = {
+  ACTIVE: "Active",
+  PROBATIONARY: "Active",
+  GRADUATED: "Graduated",
+  REMOVED: "Removed",
+};
+
+const STATUS_CLASSES: Record<GranteeTableRow["status"], string> = {
+  ACTIVE: "bg-emerald-100 text-emerald-700",
+  PROBATIONARY: "bg-emerald-100 text-emerald-700",
+  GRADUATED: "bg-slate-100 text-slate-700",
+  REMOVED: "bg-rose-100 text-rose-700",
+};
+
+const FILTERS: Array<{ label: string; value: "ALL" | GranteeTableRow["status"] }> = [
+  { label: "All", value: "ALL" },
+  { label: "Active", value: "ACTIVE" },
+  { label: "Graduated", value: "GRADUATED" },
+  { label: "Removed", value: "REMOVED" },
+];
+
+export function GranteeStatusTable({
+  grantees,
+  searchQuery: externalSearchQuery,
+  onSearchQueryChange,
+}: {
+  grantees: GranteeTableRow[];
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | GranteeTableRow["status"]>("ALL");
+  const effectiveQuery = externalSearchQuery !== undefined ? externalSearchQuery : query;
+
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    onSearchQueryChange?.(value);
+  };
+
+  const filteredGrantees = useMemo(() => {
+    return grantees.filter((grantee) => {
+      const matchesStatus = statusFilter === "ALL" || grantee.status === statusFilter;
+      const lowerQuery = effectiveQuery.toLowerCase();
+      const matchesQuery =
+        grantee.fullName.toLowerCase().includes(lowerQuery) ||
+        grantee.email.toLowerCase().includes(lowerQuery) ||
+        grantee.school.toLowerCase().includes(lowerQuery) ||
+        grantee.yearLevel.toLowerCase().includes(lowerQuery);
+      return matchesStatus && matchesQuery;
+    });
+  }, [grantees, effectiveQuery, statusFilter]);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-[1.1fr_0.9fr]">
+        <label className="relative block w-full">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            placeholder="Search grantees, school, email..."
+            value={effectiveQuery}
+            onChange={(event) => handleQueryChange(event.target.value)}
+            className="w-full rounded-full border border-slate-200 bg-white py-3 pl-12 pr-4 text-sm text-slate-700 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+          />
+        </label>
+
+        <div className="flex flex-wrap gap-2">
+          {FILTERS.map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => setStatusFilter(filter.value)}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                statusFilter === filter.value
+                  ? "bg-[#0F3D5C] text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">Scholar</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">School / Year</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">Status</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">Average</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">Enrolled</th>
+              <th className="px-6 py-4 text-right font-semibold text-slate-500">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {filteredGrantees.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-16 text-center text-sm text-slate-500">
+                  No grantees match that search or filter.
+                </td>
+              </tr>
+            ) : (
+              filteredGrantees.map((grantee) => (
+                <tr key={grantee.id} className="transition hover:bg-slate-50">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
+                        {grantee.fullName
+                          .split(" ")
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => part[0]?.toUpperCase())
+                          .join("")}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-slate-900">{grantee.fullName}</div>
+                        <div className="truncate text-xs text-slate-500">{grantee.email}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-slate-900 font-medium">{grantee.school}</div>
+                    <div className="text-xs text-slate-500">{grantee.yearLevel}</div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
+                      {STATUS_LABELS[grantee.status]}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-slate-900">
+                    {grantee.generalAverage !== null ? grantee.generalAverage.toFixed(2) : "—"}
+                  </td>
+                  <td className="px-6 py-4 text-slate-500">
+                    {new Date(grantee.dateEnrolled).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <button className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-700 transition hover:bg-slate-200">
+                      Details
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

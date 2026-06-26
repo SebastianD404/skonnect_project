@@ -78,26 +78,76 @@ export async function login(
     return { error: error.message };
   }
 
-  const authUserId = data.user?.id;
+  const authUser = data.user;
+  const authUserId = authUser?.id;
 
   if (!authUserId) {
     return { error: "Login succeeded, but no authenticated user was returned." };
   }
 
-  // Look up the user's role to decide where to send them
-  const dbUser = await prisma.user.findUnique({
+  // Look up the user's role to decide where to send them.
+  // If the Supabase auth identity exists but the app profile row is missing,
+  // recover by linking or creating the missing user profile.
+  let dbUser = await prisma.user.findUnique({
     where: { authId: authUserId },
     select: { role: true },
   });
 
   if (!dbUser) {
-    return {
-      error:
-        "Your account is authenticated, but your SKonnect profile was not found. Please contact the SK office.",
-    };
+    const email = authUser?.email;
+
+    if (!email) {
+      return {
+        error:
+          "Your account is authenticated, but we could not identify your email address to create a profile. Please contact support.",
+      };
+    }
+
+    const existingByEmail = await prisma.user.findUnique({
+      where: { email },
+      select: { authId: true, role: true },
+    });
+
+    if (existingByEmail) {
+      if (existingByEmail.authId !== authUserId) {
+        await prisma.user.update({
+          where: { email },
+          data: { authId: authUserId },
+        });
+      }
+
+      dbUser = {
+        role: existingByEmail.role,
+      };
+    } else {
+      const metadata = authUser.user_metadata as Record<string, unknown> | undefined;
+      const fullName =
+        (typeof metadata?.full_name === "string" && metadata.full_name) ||
+        email ||
+        "SK Youth";
+
+      try {
+        dbUser = await prisma.user.create({
+          data: {
+            authId: authUserId,
+            email,
+            fullName,
+            role: "YOUTH",
+          },
+          select: { role: true },
+        });
+      } catch (dbError) {
+        console.error("Failed to create fallback User row:", dbError);
+
+        return {
+          error:
+            "Your account is authenticated, but profile setup failed. Please contact support.",
+        };
+      }
+    }
   }
 
-  switch (dbUser?.role) {
+  switch (dbUser.role) {
     case "SUPER_ADMIN":
       redirect("/system-admin");
     case "SK_OFFICIAL":
