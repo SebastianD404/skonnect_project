@@ -1,5 +1,5 @@
 ﻿import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { prisma, getProfilingRegistrationCount } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import AdminDashboardPageClient from "./AdminDashboardPageClient";
 
@@ -19,6 +19,7 @@ export default async function SKOfficialDashboardPage() {
     openInquiryCount,
     upcomingEventCount,
     pendingSubmissionCount,
+    profilingRegistrationCount,
     upcomingEvents,
     recentInquiries,
     newGranteesLast30Days,
@@ -33,7 +34,24 @@ export default async function SKOfficialDashboardPage() {
     prisma.grantee.findMany({
       take: 6,
       orderBy: { updatedAt: "desc" },
-      include: { user: true },
+      select: {
+        id: true,
+        status: true,
+        yearLevel: true,
+        school: true,
+        generalAverage: true,
+        createdAt: true,
+        updatedAt: true,
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            avatarUrl: true,
+            role: true,
+          },
+        },
+      },
     }),
     prisma.inquiry.count({
       where: { isResolved: false },
@@ -48,6 +66,7 @@ export default async function SKOfficialDashboardPage() {
     prisma.submission.count({
       where: { status: "PENDING" },
     }),
+    getProfilingRegistrationCount(),
     prisma.event.findMany({
       take: 4,
       orderBy: { eventDate: "asc" },
@@ -190,6 +209,7 @@ export default async function SKOfficialDashboardPage() {
       openInquiryCount={openInquiryCount}
       pendingSubmissionCount={pendingSubmissionCount}
       stats={stats}
+      profilingRegistrationCount={profilingRegistrationCount}
       upcomingEvents={upcomingEvents.map((event) => ({
         ...event,
         eventDate: event.eventDate.toISOString(),

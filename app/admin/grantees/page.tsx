@@ -61,7 +61,25 @@ export default async function AdminGranteesPage() {
   ] = await Promise.all([
     prisma.grantee.findMany({
       orderBy: { updatedAt: "desc" },
-      include: { user: true },
+      select: {
+        id: true,
+        status: true,
+        yearLevel: true,
+        school: true,
+        generalAverage: true,
+        dateEnrolled: true,
+        createdAt: true,
+        updatedAt: true,
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            avatarUrl: true,
+            role: true,
+          },
+        },
+      },
     }),
     prisma.inquiry.count({ where: { isResolved: false } }),
     prisma.submission.count({ where: { status: "PENDING" } }),

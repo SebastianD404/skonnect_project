@@ -2,20 +2,27 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users } from "lucide-react";
+import { CalendarDays, ClipboardList, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 
 interface AdminSidebarProps {
   upcomingEventCount: number;
   openInquiryCount: number;
   pendingDocumentCount: number;
+  profilingRegistrationCount: number;
 }
 
-export default function AdminSidebar({ upcomingEventCount, openInquiryCount, pendingDocumentCount }: AdminSidebarProps) {
+export default function AdminSidebar({
+  upcomingEventCount,
+  openInquiryCount,
+  pendingDocumentCount,
+  profilingRegistrationCount,
+}: AdminSidebarProps) {
   const pathname = usePathname();
 
   const navItems = [
     { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+    { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: profilingRegistrationCount },
     { label: "Events", href: "/admin/events", icon: CalendarDays, badge: upcomingEventCount },
     { label: "Document Reviews", href: "/admin/submissions", icon: FileText, badge: pendingDocumentCount },
     { label: "Announcements", href: "/admin/announcements", icon: Megaphone },

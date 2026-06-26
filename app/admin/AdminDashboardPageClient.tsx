@@ -44,6 +44,7 @@ interface AdminDashboardPageClientProps {
   stats: StatItem[];
   upcomingEvents: EventItem[];
   recentInquiries: InquiryItem[];
+  profilingRegistrationCount: number;
 }
 
 const taskItems = [
@@ -71,6 +72,7 @@ export default function AdminDashboardPageClient({
   stats,
   upcomingEvents,
   recentInquiries,
+  profilingRegistrationCount,
 }: AdminDashboardPageClientProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -117,8 +119,8 @@ export default function AdminDashboardPageClient({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm uppercase tracking-[0.3em] text-[#0F3D5C]">Youth participation</p>
-                  <div className="mt-1 flex items-baseline gap-2">
-                    <span className="text-3xl font-semibold text-slate-950">1,284</span>
+                          <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-3xl font-semibold text-slate-950">{profilingRegistrationCount.toLocaleString()}</span>
                     <span className="text-xs font-medium text-emerald-600">+18.2%</span>
                   </div>
                 </div>

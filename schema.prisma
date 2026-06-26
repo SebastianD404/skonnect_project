@@ -1,12 +1,11 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
-  output          = "./node_modules/@prisma/client/.prisma/client"
 }
 
 datasource db {
   provider   = "postgresql"
-  extensions = [vector]
+  extensions = [vector, pgcrypto, uuid_ossp(map: "uuid-ossp"), pg_stat_statements, supabase_vault]
 }
 
 // ─────────────────────────────────────────────
@@ -65,12 +64,13 @@ model User {
   barangay      String   @default("Pico")
   isActive      Boolean  @default(true)
 
-  grantee       Grantee?
-  registrations Registration[]
-  inquiries     Inquiry[]
-  announcements Announcement[]
-  auditLogs     AuditLog[]       @relation("ActorAuditLogs")
-  eventsCreated Event[]          @relation("EventCreator")
+  grantee                 Grantee?
+  registrations           Registration[]
+  profilingRegistrations ProfilingRegistration[]
+  inquiries               Inquiry[]
+  announcements           Announcement[]
+  auditLogs               AuditLog[]       @relation("ActorAuditLogs")
+  eventsCreated           Event[]          @relation("EventCreator")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -165,6 +165,37 @@ model Registration {
 
   @@unique([eventId, userId]) // prevents double-registration
   @@map("registrations")
+}
+
+model ProfilingRegistration {
+  id                    String   @id @default(uuid())
+  program               String   @default("KK")
+  userId                String?
+  user                  User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fullName              String
+  address               String
+  sex                   String
+  age                   Int
+  birthDate             DateTime
+  email                 String
+  facebook              String
+  contactNumber         String
+  civilStatus           String
+  youthClassification   String
+  youthAgeGroup         String
+  workStatus            String
+  educationalBackground String
+  registeredSKVoter     String
+  votedLastSK           String
+  registeredNationalVoter String
+  attendedKKAssembly    String
+  assemblyTimes         String?
+  noAssemblyReason      String?
+  consent               Boolean  @default(true)
+  submittedAt           DateTime @default(now())
+
+  @@map("kk_profiling_registrations")
 }
 
 // ─────────────────────────────────────────────
