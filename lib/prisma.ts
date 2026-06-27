@@ -67,6 +67,77 @@ export async function getProfilingRegistrationCount() {
   }
 }
 
+export async function getWeeklyProfilingRegistrationCount() {
+  if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
+    return 0;
+  }
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  try {
+    return await prisma.profilingRegistration.count({
+      where: {
+        submittedAt: {
+          gte: sevenDaysAgo,
+        },
+      },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
+export async function getMonthlyProfilingRegistrationCount() {
+  if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
+    return 0;
+  }
+
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  try {
+    return await prisma.profilingRegistration.count({
+      where: {
+        submittedAt: {
+          gte: startOfMonth,
+        },
+      },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
+export async function getWeeklyProfilingRegistrationCountByClassification(classification: string) {
+  if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
+    return 0;
+  }
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  try {
+    return await prisma.profilingRegistration.count({
+      where: {
+        youthClassification: classification,
+        submittedAt: {
+          gte: sevenDaysAgo,
+        },
+      },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
 export async function listProfilingRegistrations(args?: any) {
   if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
     return [];

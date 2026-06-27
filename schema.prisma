@@ -21,6 +21,7 @@ enum Role {
 
 enum GranteeStatus {
   ACTIVE
+  PROBATIONARY
   GRADUATED
   REMOVED
 }

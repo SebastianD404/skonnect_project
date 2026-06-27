@@ -3,6 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import AdminGranteesPageClient from "../AdminGranteesPageClient";
 import type { GranteeTableRow } from "../grantees/GranteeStatusTable";
+import {
+  GRANTEE_PLACEHOLDER_SCHOOL,
+  GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+} from "@/lib/grantee-profile";
 
 export default async function AdminGranteesPage() {
   const now = new Date();
@@ -364,6 +368,25 @@ export default async function AdminGranteesPage() {
     ],
   };
 
+  const granteeUsersWithoutProfile = await prisma.user.findMany({
+    where: {
+      role: "GRANTEE",
+      grantee: {
+        is: null,
+      },
+    },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    orderBy: {
+      updatedAt: "desc",
+    },
+  });
+
   const granteeRows: GranteeTableRow[] = grantees.map((grantee) => ({
     id: grantee.id,
     fullName: grantee.user.fullName,
@@ -375,6 +398,22 @@ export default async function AdminGranteesPage() {
     dateEnrolled: grantee.dateEnrolled.toISOString(),
     updatedAt: grantee.updatedAt.toISOString(),
   }));
+
+  const fallbackRows: GranteeTableRow[] = granteeUsersWithoutProfile.map((user) => ({
+    id: `user-${user.id}`,
+    fullName: user.fullName,
+    email: user.email,
+    school: GRANTEE_PLACEHOLDER_SCHOOL,
+    yearLevel: GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+    status: "PROBATIONARY",
+    generalAverage: null,
+    dateEnrolled: user.createdAt.toISOString(),
+    updatedAt: user.updatedAt.toISOString(),
+  }));
+
+  const allGranteeRows = [...granteeRows, ...fallbackRows].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
 
   const initials = appUser.fullName
     .split(" ")
@@ -390,7 +429,7 @@ export default async function AdminGranteesPage() {
       pendingSubmissionCount={pendingSubmissionCount}
       stats={statsByPeriod.Month}
       statsByPeriod={statsByPeriod}
-      grantees={granteeRows}
+      grantees={allGranteeRows}
     />
   );
 }

@@ -2,33 +2,59 @@
 
 import React, { useState } from "react";
 
-export default function KKProfilingForm() {
-  const [form, setForm] = useState({
-    fullName: "",
-    address: "",
-    sex: "",
-    age: "",
-    birthDate: "",
-    email: "",
-    facebook: "",
-    contactNumber: "",
-    civilStatus: "",
-    youthClassification: "",
-    youthAgeGroup: "",
-    workStatus: "",
-    educationalBackground: "",
-    registeredSKVoter: "",
-    votedLastSK: "",
-    registeredNationalVoter: "",
-    attendedKKAssembly: "",
-    assemblyTimes: "",
-    noAssemblyReason: "",
-    consent: false,
-  });
+const initialForm = {
+  fullName: "",
+  address: "",
+  sex: "",
+  age: "",
+  birthDate: "",
+  email: "",
+  facebook: "",
+  contactNumber: "",
+  civilStatus: "",
+  youthClassification: "",
+  youthAgeGroup: "",
+  workStatus: "",
+  educationalBackground: "",
+  registeredSKVoter: "",
+  votedLastSK: "",
+  registeredNationalVoter: "",
+  attendedKKAssembly: "",
+  assemblyTimes: "",
+  noAssemblyReason: "",
+  consent: false,
+};
 
+const demoFormValues = {
+  fullName: "Juan Dela Cruz",
+  address: "Brgy. Pico, La Trinidad, Benguet",
+  sex: "Male",
+  age: "19",
+  birthDate: "2007-08-15",
+  email: "juan.delacruz@example.com",
+  facebook: "Juan Dela Cruz",
+  contactNumber: "09171234567",
+  civilStatus: "Single",
+  youthClassification: "In school Youth",
+  youthAgeGroup: "Core Youth (18-24 yrs old)",
+  workStatus: "Unemployed",
+  educationalBackground: "High school Graduate",
+  registeredSKVoter: "Yes",
+  votedLastSK: "No",
+  registeredNationalVoter: "Yes",
+  attendedKKAssembly: "Yes",
+  assemblyTimes: "1-2 Times",
+  noAssemblyReason: "",
+  consent: true,
+};
+
+export default function KKProfilingForm() {
+  const [form, setForm] = useState(initialForm);
+  const [prefillDemo, setPrefillDemo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   function setField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
     setForm((s) => ({ ...s, [key]: value }));
@@ -66,29 +92,10 @@ export default function KKProfilingForm() {
 
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
-        setMessage("Registration submitted — thank you!");
-        setForm({
-          fullName: "",
-          address: "",
-          sex: "",
-          age: "",
-          birthDate: "",
-          email: "",
-          facebook: "",
-          contactNumber: "",
-          civilStatus: "",
-          youthClassification: "",
-          youthAgeGroup: "",
-          workStatus: "",
-          educationalBackground: "",
-          registeredSKVoter: "",
-          votedLastSK: "",
-          registeredNationalVoter: "",
-          attendedKKAssembly: "",
-          assemblyTimes: "",
-          noAssemblyReason: "",
-          consent: false,
-        });
+        setForm(initialForm);
+        setPrefillDemo(false);
+        setMessage(null);
+        setShowSuccessModal(true);
       } else {
         setMessage(body?.error ?? "Failed to submit. Please try again.");
       }
@@ -100,8 +107,9 @@ export default function KKProfilingForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
-      <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
+    <>
+      <form onSubmit={handleSubmit} className="grid gap-4">
+        <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
 
       <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
         <div className="min-w-0 pr-24">
@@ -112,6 +120,20 @@ export default function KKProfilingForm() {
           <button type="button" onClick={() => setShowConsentModal(true)} className="text-sm underline text-slate-700 transition duration-200 hover:text-slate-900 hover:bg-slate-100 hover:no-underline rounded-md px-2 py-1">View full consent</button>
         </div>
       </div>
+
+      <label className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={prefillDemo}
+          onChange={(e) => {
+            const isChecked = e.target.checked;
+            setPrefillDemo(isChecked);
+            setForm(isChecked ? demoFormValues : initialForm);
+          }}
+          className="h-4 w-4 rounded border-slate-300 text-[#0F3D5C] focus:ring-[#0F3D5C]"
+        />
+        <span className="text-sm font-semibold">Prefill for demo purposes</span>
+      </label>
 
       <h4 className="text-lg font-semibold">PART I: Profile</h4>
       <p className="text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
@@ -332,5 +354,29 @@ export default function KKProfilingForm() {
         {message && <p className="text-sm text-slate-700">{message}</p>}
       </div>
     </form>
+
+    {showSuccessModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 py-6">
+        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl ring-1 ring-slate-200">
+          <div className="flex flex-col items-center gap-6 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill ="currentColor" className="h-10 w-10">
+                <path fillRule="evenodd" d="M12 2.25a9.75 9.75 0 1 0 0 19.5 9.75 9.75 0 0 0 0-19.5Zm4.72 7.78a.75.75 0 0 1 0 1.06l-5.5 5.5a.75.75 0 0 1-1.06 0l-2.5-2.5a.75.75 0 0 1 1.06-1.06l1.97 1.97 4.97-4.97a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">Thank you for registering!</h2>
+              <p className="mt-2 text-sm text-slate-600">Your KK Profiling registration has been submitted and your data is now on record.</p>
+            </div>
+            <div className="flex w-full justify-center">
+              <button type="button" onClick={() => setShowSuccessModal(false)} className="inline-flex justify-center rounded-lg bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700">
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

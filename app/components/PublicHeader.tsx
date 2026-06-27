@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 interface SessionUser {
   fullName?: string;
@@ -11,7 +11,7 @@ interface SessionUser {
 }
 
 function navLinkClass(activePath: string, href: string) {
-  const base = "px-4 py-2 font-semibold rounded-lg transition-all";
+  const base = "inline-flex items-center justify-center px-4 py-2 font-semibold rounded-lg transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C]/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
   return activePath === href
     ? `${base} text-[#0F3D5C] bg-[#0F3D5C]/10`
     : `${base} text-[#3C3C3C] hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5`;
@@ -19,10 +19,37 @@ function navLinkClass(activePath: string, href: string) {
 
 export function PublicHeader() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const [authLoading, setAuthLoading] = useState(true);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
+  const [isScrolledToProgramsSection, setIsScrolledToProgramsSection] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const handleNavigation = (href: string) => {
+    startTransition(() => {
+      router.push(href);
+    });
+  };
+
+  // Detect when #programs section is in view
+  useEffect(() => {
+    const handleScroll = () => {
+      const programsSection = document.getElementById("programs");
+      if (!programsSection) {
+        setIsScrolledToProgramsSection(false);
+        return;
+      }
+
+      const rect = programsSection.getBoundingClientRect();
+      // Highlight Programs button when the section is near the top of viewport
+      setIsScrolledToProgramsSection(rect.top < 200 && rect.bottom > 0);
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   useEffect(() => {
     function closePanel(event: MouseEvent | KeyboardEvent) {
@@ -64,10 +91,14 @@ export function PublicHeader() {
     fetchSession();
   }, []);
 
-  const activePath = pathname.startsWith("/events")
+  const activePath = pathname.startsWith("/programs")
+    ? "/programs"
+    : pathname.startsWith("/events")
     ? "/events"
     : pathname.startsWith("/about")
     ? "/about"
+    : isScrolledToProgramsSection && pathname === "/"
+    ? "/programs"
     : "/";
 
   const initials = sessionUser?.fullName
@@ -91,16 +122,27 @@ export function PublicHeader() {
           <span className="text-xl font-black tracking-tight text-[#0F3D5C]">SKonnect</span>
         </Link>
 
-        <nav className="hidden items-center gap-1 text-sm md:flex">
-          <Link href="/" className={navLinkClass(activePath, "/")}>Home</Link>
-          <Link href="/about" className={navLinkClass(activePath, "/about")}>About</Link>
-          <Link href="/events" className={navLinkClass(activePath, "/events")}>Events</Link>
-          <a href="/#programs" className={navLinkClass(activePath, "/")}>Programs</a>
+        <nav className="hidden items-center gap-1 text-sm md:flex relative">
+          <button onClick={() => handleNavigation("/")} className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 ${isPending ? "opacity-70" : "opacity-100"}`}>Home</button>
+          <button onClick={() => handleNavigation("/about")} className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 ${isPending ? "opacity-70" : "opacity-100"}`}>About</button>
+          <button onClick={() => handleNavigation("/events")} className={`${navLinkClass(activePath, "/events")} transition-opacity duration-200 ${isPending ? "opacity-70" : "opacity-100"}`}>Events</button>
+          <button onClick={() => {
+              const programsSection = document.getElementById("programs");
+              if (programsSection) {
+                programsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+              } else {
+                router.push("/#programs");
+              }
+            }}
+            className={`${navLinkClass(isScrolledToProgramsSection ? "/programs" : "", "/programs")} transition-opacity duration-200 ${isPending ? "opacity-70" : "opacity-100"}`}
+          >
+            Programs
+          </button>
         </nav>
 
         <div className="flex items-center gap-3">
           {authLoading ? (
-            <span className="text-sm text-slate-500 px-4 py-2">Checking session...</span>
+            <div className="h-10 w-32 rounded-full bg-slate-200/70 animate-pulse" />
           ) : sessionUser ? (
             <div className="relative flex items-center gap-3" ref={wrapperRef}>
               <button

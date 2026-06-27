@@ -3,20 +3,64 @@
 import { useEffect, useState } from "react";
 import { useActionState } from "react";
 import { updateProfileName } from "@/app/actions/profile";
+import {
+  GRANTEE_PLACEHOLDER_SCHOOL,
+  GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+} from "@/lib/grantee-profile";
 
 type ProfileSettingsFormProps = {
   fullName: string;
   email: string;
   role: string;
   phoneNumber: string | null;
+  school: string;
+  yearLevel: string;
+  needsGranteeProfile: boolean;
 };
 
-export function ProfileSettingsForm({ fullName, email, role, phoneNumber }: ProfileSettingsFormProps) {
+function looksLikeEmail(value: string) {
+  return value.includes("@");
+}
+
+function toDisplayName(name: string, email: string) {
+  const cleanName = name.trim();
+  if (cleanName && !looksLikeEmail(cleanName)) {
+    return cleanName;
+  }
+
+  const localPart = email.split("@")[0]?.trim();
+  if (!localPart) {
+    return "Your account";
+  }
+
+  return localPart
+    .replace(/[._-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export function ProfileSettingsForm({
+  fullName,
+  email,
+  role,
+  phoneNumber,
+  school,
+  yearLevel,
+  needsGranteeProfile,
+}: ProfileSettingsFormProps) {
   const [state, formAction, isPending] = useActionState(updateProfileName, null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [draftFullName, setDraftFullName] = useState(fullName);
+  const [draftFullName, setDraftFullName] = useState(toDisplayName(fullName, email));
   const [draftEmail, setDraftEmail] = useState(email);
   const [draftPhoneNumber, setDraftPhoneNumber] = useState(phoneNumber ?? "");
+  const [draftSchool, setDraftSchool] = useState(
+    school === GRANTEE_PLACEHOLDER_SCHOOL ? "" : school
+  );
+  const [draftYearLevel, setDraftYearLevel] = useState(
+    yearLevel === GRANTEE_PLACEHOLDER_YEAR_LEVEL ? "" : yearLevel
+  );
 
   function broadcastProfileUpdate() {
     window.dispatchEvent(new Event("skonnect-profile-updated"));
@@ -45,7 +89,7 @@ export function ProfileSettingsForm({ fullName, email, role, phoneNumber }: Prof
     const storedPhoneNumber = localStorage.getItem("skonnect-profile-phone");
 
     if (storedName) {
-      setDraftFullName(storedName);
+      setDraftFullName(toDisplayName(storedName, storedEmail || email));
     }
 
     if (storedEmail) {
@@ -56,7 +100,7 @@ export function ProfileSettingsForm({ fullName, email, role, phoneNumber }: Prof
       setDraftPhoneNumber(storedPhoneNumber);
     }
 
-    localStorage.setItem("skonnect-profile-name", fullName);
+    localStorage.setItem("skonnect-profile-name", toDisplayName(fullName, email));
     localStorage.setItem("skonnect-profile-email", email);
 
     if (phoneNumber) {
@@ -68,7 +112,7 @@ export function ProfileSettingsForm({ fullName, email, role, phoneNumber }: Prof
 
   useEffect(() => {
     if (state?.message) {
-      localStorage.setItem("skonnect-profile-name", draftFullName);
+      localStorage.setItem("skonnect-profile-name", toDisplayName(draftFullName, draftEmail));
       localStorage.setItem("skonnect-profile-email", draftEmail);
 
       if (draftPhoneNumber.trim()) {
@@ -159,6 +203,12 @@ export function ProfileSettingsForm({ fullName, email, role, phoneNumber }: Prof
         <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]">Personal details</p>
 
         <form action={formAction} className="mt-6 space-y-5">
+          {role === "GRANTEE" && needsGranteeProfile ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Complete your grantee profile to unlock document submissions.
+            </div>
+          ) : null}
+
           <div>
             <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 mb-2">
               Full name
@@ -197,6 +247,35 @@ export function ProfileSettingsForm({ fullName, email, role, phoneNumber }: Prof
               />
             </div>
           </div>
+
+          {role === "GRANTEE" ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label htmlFor="school" className="block text-sm font-medium text-slate-700 mb-2">School</label>
+                <input
+                  id="school"
+                  name="school"
+                  value={draftSchool}
+                  onChange={(event) => setDraftSchool(event.target.value)}
+                  placeholder="Enter your school"
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
+                />
+              </div>
+              <div>
+                <label htmlFor="yearLevel" className="block text-sm font-medium text-slate-700 mb-2">Year level</label>
+                <input
+                  id="yearLevel"
+                  name="yearLevel"
+                  value={draftYearLevel}
+                  onChange={(event) => setDraftYearLevel(event.target.value)}
+                  placeholder="e.g. 1st Year"
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
+                />
+              </div>
+            </div>
+          ) : null}
 
           {state?.error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

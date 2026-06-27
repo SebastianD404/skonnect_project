@@ -1,257 +1,289 @@
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { DashboardHeaderActions } from "@/app/components/DashboardHeaderActions";
+import Link from "next/link";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowUpRight,
+  ScrollText,
+  ShieldCheck,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 
 export default async function SystemAdminDashboardPage() {
-  const [activeUserCount, roleUpdateCount, recentUsers, recentAudits] = await Promise.all([
-    prisma.user.count({
-      where: { isActive: true },
-    }),
-    prisma.auditLog.count({
-      where: {
-        action: {
-          contains: "ROLE",
-          mode: "insensitive",
-        },
-      },
-    }),
-    prisma.user.findMany({
-      take: 4,
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        role: true,
-        isActive: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.auditLog.findMany({
-      take: 6,
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        action: true,
-        targetTable: true,
-        targetId: true,
-        createdAt: true,
-        actor: {
-          select: {
-            fullName: true,
-            email: true,
+  const [activeUserCount, roleUpdateCount, auditCount, recentAudits, roleCounts] =
+    await Promise.all([
+      prisma.user.count({
+        where: { isActive: true },
+      }),
+      prisma.auditLog.count({
+        where: {
+          action: {
+            contains: "ROLE",
+            mode: "insensitive",
           },
         },
-      },
-    }),
-  ]);
+      }),
+      prisma.auditLog.count(),
+      prisma.auditLog.findMany({
+        take: 4,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          action: true,
+          targetTable: true,
+          createdAt: true,
+          actor: {
+            select: {
+              fullName: true,
+            },
+          },
+        },
+      }),
+      prisma.user.groupBy({
+        by: ["role"],
+        _count: {
+          role: true,
+        },
+      }),
+    ]);
+
+  const totalUsers = Math.max(
+    1,
+    roleCounts.reduce((acc, item) => acc + item._count.role, 0)
+  );
+  const roleMap = new Map(roleCounts.map((item) => [item.role, item._count.role]));
+
+  const roleDistribution = [
+    { label: "Youth", count: roleMap.get("YOUTH") ?? 0, tone: "bg-[#2B8CD6]" },
+    { label: "Grantee", count: roleMap.get("GRANTEE") ?? 0, tone: "bg-emerald-500" },
+    {
+      label: "SK Official",
+      count: roleMap.get("SK_OFFICIAL") ?? 0,
+      tone: "bg-amber-500",
+    },
+    {
+      label: "Super Admin",
+      count: roleMap.get("SUPER_ADMIN") ?? 0,
+      tone: "bg-[#0F3D5C]",
+    },
+  ];
+
+  const stats = [
+    {
+      label: "Active Users",
+      value: activeUserCount,
+      delta: "Currently active accounts",
+      icon: Users,
+      tone: "bg-[#0F3D5C]/10 text-[#0F3D5C]",
+    },
+    {
+      label: "Role Updates",
+      value: roleUpdateCount,
+      delta: "Role-related log entries",
+      icon: ShieldCheck,
+      tone: "bg-sky-100 text-sky-700",
+    },
+    {
+      label: "Audit Entries",
+      value: auditCount,
+      delta: "All recorded governance logs",
+      icon: ScrollText,
+      tone: "bg-emerald-100 text-emerald-700",
+    },
+    {
+      label: "Pending Reviews",
+      value: 0,
+      delta: "No pending review workflows",
+      icon: AlertTriangle,
+      tone: "bg-amber-100 text-amber-700",
+    },
+  ] as const;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
-      <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
-              SK
-            </div>
-            <span className="text-xl font-black tracking-tight text-[#0F3D5C]">SKonnect</span>
-          </Link>
-          <nav className="hidden items-center gap-1 text-sm md:flex">
-            <Link href="#overview" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Overview</Link>
-            <Link href="#users" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Users</Link>
-            <Link href="#audit" className="px-4 py-2 font-semibold text-[#3C3C3C] transition-all hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5 rounded-lg">Audit</Link>
-          </nav>
-          <DashboardHeaderActions requiredRole="SUPER_ADMIN" />
-        </div>
-      </header>
+    <div className="mx-auto max-w-7xl space-y-8">
+      <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+        <span className="text-slate-900">System Admin</span>
+        <span>/</span>
+        <span>Dashboard</span>
+      </div>
 
-      <main className="relative overflow-hidden pt-14 pb-20">
-        <div className="absolute top-24 right-0 w-96 h-96 bg-gradient-to-br from-[#0F3D5C]/10 to-[#00B4E5]/5 rounded-full blur-3xl -z-10"></div>
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-12 lg:grid-cols-[1.25fr_0.85fr] items-center">
-            <div className="space-y-6">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/20 bg-gradient-to-r from-[#0F3D5C]/8 to-[#00B4E5]/8 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0F3D5C]">
-                <span className="w-2 h-2 bg-[#0F3D5C] rounded-full"></span>
-                System Admin Console
-              </div>
-              <h1 className="text-5xl md:text-6xl font-black leading-[1.05] tracking-tight bg-gradient-to-r from-[#0F3D5C] via-[#0F3D5C] to-[#0D2E47] bg-clip-text text-transparent">
-                Oversee users, permissions, and audit history.
-              </h1>
-              <p className="text-xl text-[#555555] max-w-2xl leading-relaxed">
-                Manage roles, review system logs, and keep the SKonnect platform secure and compliant for Barangay Pico.
-              </p>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-4">
-                <a href="#users" className="group px-8 py-4 bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] text-white font-bold rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 flex items-center gap-2">
-                  Manage users
-                  <span className="group-hover:translate-x-1 transition-transform">→</span>
-                </a>
-                <a href="#audit" className="px-8 py-4 border-2 border-[#0F3D5C]/30 text-[#0F3D5C] font-bold rounded-xl hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 transition-all duration-300">
-                  Audit history
-                </a>
-              </div>
-            </div>
-
-            <div className="rounded-[2rem] border border-[#0F3D5C]/10 bg-white/80 p-10 shadow-xl backdrop-blur-xl">
-              <div className="mb-6 rounded-3xl bg-gradient-to-r from-[#0F3D5C] to-[#00B4E5] p-8 text-white shadow-lg">
-                <p className="text-sm uppercase tracking-[0.3em] text-slate-200">System overview</p>
-                <h2 className="mt-4 text-3xl font-black">Governance at a glance</h2>
-                <p className="mt-3 text-sm leading-6 text-slate-200">
-                  Quickly identify account activity, role assignments, and potential data issues.
-                </p>
-              </div>
-              <div className="space-y-4">
-                <StatCard title="Active users" value={activeUserCount.toString()} note="Includes youth, grantees, and officials." />
-                <StatCard title="Role updates" value={roleUpdateCount.toString()} note="Review role-related audit entries." />
-                <StatCard title="Recent audits" value={recentAudits.length.toString()} note="Track the latest admin actions." />
-              </div>
+      <section className="relative overflow-hidden rounded-3xl border border-[#14476B]/20 bg-gradient-to-br from-[#0F3D5C] via-[#1B5F86] to-[#24A4D8] p-8 text-white shadow-xl lg:p-12">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.22),transparent_45%),radial-gradient(circle_at_100%_100%,rgba(255,255,255,0.18),transparent_40%)]" />
+        <div className="relative grid gap-8 lg:grid-cols-[1.35fr_1fr] lg:items-center">
+          <div className="space-y-5">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-200" />
+              System Admin Console
+            </span>
+            <h1 className="text-4xl font-black leading-[1.02] tracking-tight sm:text-5xl lg:text-6xl">
+              Oversee users,
+              <br />
+              permissions, and
+              <br />
+              audit history.
+            </h1>
+            <p className="max-w-xl text-base text-slate-100/85 sm:text-lg">
+              Manage roles, review system logs, and keep the SKonnect platform secure and
+              compliant for Barangay Pico.
+            </p>
+            <div className="flex flex-wrap gap-3 pt-2">
+              <Link
+                href="/system-admin/users"
+                className="group inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-[#0F3D5C] transition hover:bg-white/90"
+              >
+                Manage users
+                <ArrowUpRight className="h-4 w-4 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+              </Link>
+              <Link
+                href="/system-admin/audit"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/35 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
+              >
+                Audit history
+              </Link>
             </div>
           </div>
 
-          <section id="users" className="mt-24">
-            <div className="mb-10 text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/20 bg-gradient-to-r from-[#0F3D5C]/8 to-[#00B4E5]/8 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0F3D5C]">
-                User management
-              </div>
-              <h2 className="mt-6 text-4xl font-black tracking-tight bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] bg-clip-text text-transparent">
-                Control access and role assignments.
-              </h2>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2">
-              {recentUsers.length > 0 ? (
-                recentUsers.map((user) => (
-                  <UserCard
-                    key={user.id}
-                    name={user.fullName}
-                    email={user.email}
-                    role={user.role}
-                    active={user.isActive}
-                    updatedAt={user.updatedAt.toLocaleDateString()}
-                  />
-                ))
-              ) : (
-                <div className="md:col-span-2 rounded-[2rem] border border-[#0F3D5C]/10 bg-white p-10 shadow-sm">
-                  <p className="text-lg font-semibold text-[#0F3D5C]">No users found.</p>
-                  <p className="mt-3 text-sm leading-6 text-[#555555]">Once user profiles exist in the database, they will appear here automatically.</p>
+          <div className="rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-100/80">
+              Governance pulse
+            </p>
+            <p className="mt-2 text-3xl font-black">Today at a glance</p>
+            <div className="mt-5 space-y-4">
+              {[
+                { label: "Sign-ins (24h)", value: "--", trend: "live" },
+                { label: "Role changes", value: String(roleUpdateCount), trend: "records" },
+                { label: "Security alerts", value: "0", trend: "stable" },
+              ].map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-center justify-between border-b border-white/15 pb-3 last:border-0 last:pb-0"
+                >
+                  <span className="text-sm text-slate-100/80">{row.label}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl font-bold tabular-nums">{row.value}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-cyan-200">
+                      {row.trend}
+                    </span>
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
-          </section>
+          </div>
+        </div>
+      </section>
 
-          <section id="audit" className="mt-24 pb-16">
-            <div className="mb-10 text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/20 bg-gradient-to-r from-[#0F3D5C]/8 to-[#00B4E5]/8 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0F3D5C]">
-                Audit logs
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map(({ label, value, delta, icon: Icon, tone }) => (
+          <div
+            key={label}
+            className="rounded-2xl border border-[#D6E1EC] bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  {label}
+                </p>
+                <p className="mt-3 text-4xl font-black tabular-nums text-slate-900">{value}</p>
               </div>
-              <h2 className="mt-6 text-4xl font-black tracking-tight bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] bg-clip-text text-transparent">
-                Monitor system activity and changes.
-              </h2>
+              <div className={`grid h-10 w-10 place-items-center rounded-xl ${tone}`}>
+                <Icon className="h-4 w-4" />
+              </div>
             </div>
-            <div className="grid gap-6 md:grid-cols-2">
-              {recentAudits.length > 0 ? (
-                recentAudits.map((audit) => (
-                  <AuditCard
-                    key={audit.id}
-                    action={audit.action}
-                    targetTable={audit.targetTable}
-                    targetId={audit.targetId}
-                    actorName={audit.actor.fullName}
-                    actorEmail={audit.actor.email}
-                    createdAt={audit.createdAt.toLocaleDateString()}
-                  />
-                ))
-              ) : (
-                <div className="md:col-span-2 rounded-[2rem] border border-[#0F3D5C]/10 bg-white p-10 shadow-sm">
-                  <p className="text-lg font-semibold text-[#0F3D5C]">No audit entries found.</p>
-                  <p className="mt-3 text-sm leading-6 text-[#555555]">Audit entries will appear here once the app starts writing system change logs.</p>
-                </div>
-              )}
+            <p className="mt-3 text-xs text-slate-500">{delta}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 overflow-hidden rounded-2xl border border-[#D6E1EC] bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-[#E4ECF3] px-6 py-4">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-[#0F3D5C]" />
+              <h2 className="text-xl font-black text-slate-900">Recent activity</h2>
             </div>
-          </section>
+            <Link href="/system-admin/audit" className="text-xs font-semibold text-[#0F3D5C] hover:underline">
+              View all
+            </Link>
+          </div>
+
+          {recentAudits.length > 0 ? (
+            <ul className="divide-y divide-[#E8EEF5]">
+              {recentAudits.map((audit) => (
+                <li key={audit.id} className="flex items-start gap-4 px-6 py-4">
+                  <div className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-700">
+                    <ScrollText className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <p className="font-semibold text-slate-900">
+                        {audit.action.replaceAll("_", " ").toLowerCase()}
+                      </p>
+                      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                        {audit.targetTable}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      by {audit.actor.fullName} ·{" "}
+                      {new Date(audit.createdAt).toISOString().replace("T", " ").slice(0, 16)} UTC
+                    </p>
+                  </div>
+                  <ArrowUpRight className="h-4 w-4 text-slate-400" />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="px-6 py-8 text-sm text-slate-500">No recent audit activity yet.</p>
+          )}
         </div>
-      </main>
-    </div>
-  );
-}
 
-function StatCard({ title, value, note }: { title: string; value: string; note: string }) {
-  return (
-    <div className="rounded-3xl border border-[#0F3D5C]/10 bg-white p-6 shadow-sm">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]/70">{title}</p>
-      <p className="mt-4 text-4xl font-black text-[#0F3D5C]">{value}</p>
-      <p className="mt-3 text-sm leading-6 text-[#5F6F84]">{note}</p>
-    </div>
-  );
-}
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[#D6E1EC] bg-white p-6 shadow-sm">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-[#0F3D5C]" />
+              <h3 className="text-lg font-black text-slate-900">Quick actions</h3>
+            </div>
+            <div className="mt-4 space-y-2">
+              {[
+                { label: "Assign a new role", href: "/system-admin/users" },
+                { label: "Review audit logs", href: "/system-admin/audit" },
+                { label: "Export user report", href: "/system-admin/users" },
+              ].map((item) => (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className="flex items-center justify-between rounded-xl border border-[#D6E1EC] bg-[#F9FBFD] px-4 py-3 text-sm font-medium text-slate-800 transition hover:border-[#C0D4E5] hover:bg-[#F2F7FC]"
+                >
+                  {item.label}
+                  <ArrowUpRight className="h-4 w-4 text-slate-400" />
+                </Link>
+              ))}
+            </div>
+          </div>
 
-function ActionCard({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="rounded-[2rem] border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-8 shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
-      <p className="text-xl font-bold text-[#0F3D5C]">{title}</p>
-      <p className="mt-4 text-sm leading-6 text-[#555555]">{description}</p>
-    </div>
-  );
-}
-
-function UserCard({
-  name,
-  email,
-  role,
-  active,
-  updatedAt,
-}: {
-  name: string;
-  email: string;
-  role: string;
-  active: boolean;
-  updatedAt: string;
-}) {
-  return (
-    <div className="rounded-[2rem] border border-[#0F3D5C]/10 bg-white p-8 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-lg font-bold text-[#0F3D5C]">{name}</p>
-          <p className="mt-2 text-sm text-[#5F6F84]">{email}</p>
+          <div className="rounded-2xl border border-[#D6E1EC] bg-gradient-to-b from-white to-[#F3F8FC] p-6 shadow-sm">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Role distribution
+            </p>
+            <div className="mt-4 space-y-3">
+              {roleDistribution.map((role) => {
+                const pct = (role.count / totalUsers) * 100;
+                return (
+                  <div key={role.label}>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-900">{role.label}</span>
+                      <span className="tabular-nums text-slate-500">{role.count}</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                      <div className={`h-full rounded-full ${role.tone}`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
-          {active ? "Active" : "Inactive"}
-        </span>
-      </div>
-      <div className="mt-5 space-y-2 text-sm text-[#5F6F84]">
-        <p><span className="font-semibold text-[#0F3D5C]">Role:</span> {role}</p>
-        <p><span className="font-semibold text-[#0F3D5C]">Updated:</span> {updatedAt}</p>
-      </div>
-    </div>
-  );
-}
-
-function AuditCard({
-  action,
-  targetTable,
-  targetId,
-  actorName,
-  actorEmail,
-  createdAt,
-}: {
-  action: string;
-  targetTable: string;
-  targetId: string;
-  actorName: string;
-  actorEmail: string;
-  createdAt: string;
-}) {
-  return (
-    <div className="rounded-[2rem] border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-8 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-lg font-bold text-[#0F3D5C]">{action}</p>
-          <p className="mt-2 text-sm text-[#5F6F84]">{actorName} · {actorEmail}</p>
-        </div>
-        <span className="rounded-full bg-[#0F3D5C]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0F3D5C]">{targetTable}</span>
-      </div>
-      <div className="mt-5 space-y-2 text-sm text-[#5F6F84]">
-        <p><span className="font-semibold text-[#0F3D5C]">Target ID:</span> {targetId}</p>
-        <p><span className="font-semibold text-[#0F3D5C]">Recorded:</span> {createdAt}</p>
-      </div>
+      </section>
     </div>
   );
 }

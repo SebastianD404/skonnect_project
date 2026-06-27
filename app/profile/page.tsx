@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { SettingsShell } from "@/app/components/SettingsShell";
 import { ProfileSettingsForm } from "./profile-settings-form";
+import { isGranteeProfileComplete } from "@/lib/grantee-profile";
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -21,12 +22,21 @@ export default async function ProfilePage() {
       email: true,
       phoneNumber: true,
       role: true,
+      grantee: {
+        select: {
+          school: true,
+          yearLevel: true,
+        },
+      },
     },
   });
 
   if (!profile) {
     redirect("/login");
   }
+
+  const needsGranteeProfile =
+    profile.role === "GRANTEE" && !isGranteeProfileComplete(profile.grantee);
 
   return (
     <SettingsShell title="Profile settings" description="Edit your personal details and profile photo.">
@@ -43,6 +53,9 @@ export default async function ProfilePage() {
         email={profile.email}
         phoneNumber={profile.phoneNumber}
         role={profile.role}
+        school={profile.grantee?.school ?? ""}
+        yearLevel={profile.grantee?.yearLevel ?? ""}
+        needsGranteeProfile={needsGranteeProfile}
       />
     </SettingsShell>
   );

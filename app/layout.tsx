@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
+import { HeaderShell } from "./components/HeaderShell";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -41,6 +42,7 @@ export default function RootLayout({
               } catch (error) {}
             })();`}
         </Script>
+        <HeaderShell />
         {children}
       </body>
     </html>

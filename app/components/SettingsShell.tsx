@@ -10,6 +10,29 @@ type SettingsShellProps = {
 	children: React.ReactNode;
 };
 
+function looksLikeEmail(value: string) {
+	return value.includes("@");
+}
+
+function toDisplayName(name: string, email: string) {
+	const cleanName = name.trim();
+	if (cleanName && !looksLikeEmail(cleanName)) {
+		return cleanName;
+	}
+
+	const localPart = email.split("@")[0]?.trim();
+	if (!localPart) {
+		return "Your account";
+	}
+
+	return localPart
+		.replace(/[._-]+/g, " ")
+		.split(" ")
+		.filter(Boolean)
+		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+		.join(" ");
+}
+
 export function SettingsShell({ title, description, children }: SettingsShellProps) {
 	const router = useRouter();
 	const [profileName, setProfileName] = useState("Your account");
@@ -19,8 +42,10 @@ export function SettingsShell({ title, description, children }: SettingsShellPro
 	useEffect(() => {
 		function syncProfile() {
 			try {
-				setProfileName(localStorage.getItem("skonnect-profile-name") || "Your account");
-				setProfileEmail(localStorage.getItem("skonnect-profile-email") || "");
+				const storedName = localStorage.getItem("skonnect-profile-name") || "";
+				const storedEmail = localStorage.getItem("skonnect-profile-email") || "";
+				setProfileName(toDisplayName(storedName, storedEmail));
+				setProfileEmail(storedEmail);
 				setProfileAvatar(localStorage.getItem("skonnect-avatar") || "");
 			} catch (error) {}
 		}

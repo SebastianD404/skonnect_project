@@ -2,6 +2,10 @@
 
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import {
+  GRANTEE_PLACEHOLDER_SCHOOL,
+  GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+} from "@/lib/grantee-profile";
 
 export type ProfileState = {
   error?: string;
@@ -16,6 +20,8 @@ export async function updateProfileName(
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const phoneNumberRaw = String(formData.get("phoneNumber") ?? "").trim();
   const phoneNumber = phoneNumberRaw.length > 0 ? phoneNumberRaw : null;
+  const school = String(formData.get("school") ?? "").trim();
+  const yearLevel = String(formData.get("yearLevel") ?? "").trim();
 
   if (!fullName || !email) {
     return { error: "Your name and email are required." };
@@ -30,7 +36,7 @@ export async function updateProfileName(
 
   const profile = await prisma.user.findUnique({
     where: { authId: user.id },
-    select: { id: true },
+    select: { id: true, role: true },
   });
 
   if (!profile) {
@@ -58,6 +64,10 @@ export async function updateProfileName(
     }
   }
 
+  if (profile.role === "GRANTEE" && (!school || !yearLevel)) {
+    return { error: "School and year level are required for grantee profiles." };
+  }
+
   await prisma.user.update({
     where: { id: profile.id },
     data: {
@@ -66,6 +76,22 @@ export async function updateProfileName(
       phoneNumber,
     },
   });
+
+  if (profile.role === "GRANTEE") {
+    await prisma.grantee.upsert({
+      where: { userId: profile.id },
+      create: {
+        userId: profile.id,
+        school: school || GRANTEE_PLACEHOLDER_SCHOOL,
+        yearLevel: yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+        status: "ACTIVE",
+      },
+      update: {
+        school,
+        yearLevel,
+      },
+    });
+  }
 
   return { message: "Your profile was updated." };
 }

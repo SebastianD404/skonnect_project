@@ -203,6 +203,20 @@ model ProfilingRegistration {
   @@map("kk_profiling_registrations")
 }
 
+model Announcement {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  isPublished Boolean  @default(true)
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("announcements")
+}
+
 // ─────────────────────────────────────────────
 // INQUIRIES (public Inquiry Form -> SK admin dashboard)
 // ─────────────────────────────────────────────

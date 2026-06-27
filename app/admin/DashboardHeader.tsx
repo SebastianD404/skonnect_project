@@ -56,42 +56,10 @@ export default function DashboardHeader({
   const [searchQuery, setSearchQuery] = useState("");
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [showNewEventModal, setShowNewEventModal] = useState(false);
-  const [newEventData, setNewEventData] = useState({
-    title: "",
-    description: "",
-    venue: "",
-    eventDate: "",
-    maxSlots: "",
-  });
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     onSearch(query);
-  };
-
-  const handleNewEventSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const response = await fetch("/api/events/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newEventData),
-      });
-      if (response.ok) {
-        setShowNewEventModal(false);
-        setNewEventData({
-          title: "",
-          description: "",
-          venue: "",
-          eventDate: "",
-          maxSlots: "",
-        });
-        router.refresh();
-      }
-    } catch (error) {
-      console.error("Failed to create event:", error);
-    }
   };
 
   return (
@@ -190,7 +158,7 @@ export default function DashboardHeader({
               )}
             </div>
             <button
-              onClick={() => setShowNewEventModal(true)}
+              onClick={() => router.push("/admin/events?new=1")}
               className="inline-flex items-center gap-2 rounded-full bg-[#0F3D5C] px-4 py-1.5 text-sm font-semibold text-white shadow-md transition hover:bg-[#0D2E47] active:scale-95"
               title="Create new event"
             >
@@ -260,7 +228,7 @@ export default function DashboardHeader({
                     </div>
                   </div>
                   <div className="mt-6">
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">{stat.label}</p>
+                    <p className={`text-xs font-semibold uppercase tracking-[0.25em] text-slate-500 ${stat.label === "Pending Document Reviews" ? "text-[0.65rem]" : ""}`}>{stat.label}</p>
                     <div className="mt-3 flex items-baseline gap-2">
                       <span className="text-4xl font-black tracking-tight text-slate-950">{stat.value}</span>
                       <span className="text-xs text-slate-500">{stat.sub}</span>
@@ -339,148 +307,6 @@ export default function DashboardHeader({
                 Close
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* New Event Modal */}
-      {showNewEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="rounded-3xl bg-white shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-slate-900">Create New Event</h2>
-              <button
-                onClick={() => {
-                  setShowNewEventModal(false);
-                  setNewEventData({
-                    title: "",
-                    description: "",
-                    venue: "",
-                    eventDate: "",
-                    maxSlots: "",
-                  });
-                }}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleNewEventSubmit} className="px-6 py-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-900 mb-2">
-                  Event Title
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newEventData.title}
-                  onChange={(e) =>
-                    setNewEventData({ ...newEventData, title: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0F3D5C]/20 focus:border-[#0F3D5C] outline-none"
-                  placeholder="Youth Summit 2024"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-900 mb-2">
-                  Description
-                </label>
-                <textarea
-                  required
-                  value={newEventData.description}
-                  onChange={(e) =>
-                    setNewEventData({
-                      ...newEventData,
-                      description: e.target.value,
-                    })
-                  }
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0F3D5C]/20 focus:border-[#0F3D5C] outline-none"
-                  rows={3}
-                  placeholder="Event description..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-900 mb-2">
-                  Venue
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newEventData.venue}
-                  onChange={(e) =>
-                    setNewEventData({ ...newEventData, venue: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0F3D5C]/20 focus:border-[#0F3D5C] outline-none"
-                  placeholder="Barangay Hall"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-900 mb-2">
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={newEventData.eventDate}
-                    onChange={(e) =>
-                      setNewEventData({
-                        ...newEventData,
-                        eventDate: e.target.value,
-                      })
-                    }
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0F3D5C]/20 focus:border-[#0F3D5C] outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-900 mb-2">
-                    Max Slots
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    value={newEventData.maxSlots}
-                    onChange={(e) =>
-                      setNewEventData({
-                        ...newEventData,
-                        maxSlots: e.target.value,
-                      })
-                    }
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0F3D5C]/20 focus:border-[#0F3D5C] outline-none"
-                    placeholder="100"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowNewEventModal(false);
-                    setNewEventData({
-                      title: "",
-                      description: "",
-                      venue: "",
-                      eventDate: "",
-                      maxSlots: "",
-                    });
-                  }}
-                  className="flex-1 rounded-full border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 rounded-full bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0D2E47] transition"
-                >
-                  Create Event
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

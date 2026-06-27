@@ -1,15 +1,42 @@
-import { prisma, getProfilingRegistrationCount, listProfilingRegistrations } from "@/lib/prisma";
+import { prisma, getProfilingRegistrationCount, getWeeklyProfilingRegistrationCount, getWeeklyProfilingRegistrationCountByClassification, getMonthlyProfilingRegistrationCount, listProfilingRegistrations } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Role } from "@prisma/client";
 import Link from "next/link";
+import { TrendingUp } from "lucide-react";
+import { KKProfilingPagination } from "./KKProfilingPagination";
+import { KKProfilingRegistrationsTable } from "@/app/admin/kk-profiling/KKProfilingRegistrationsTable";
+import TotalRegisteredProfilesCard from "./TotalRegisteredProfilesCard";
 
-export default async function AdminKKProfilingPage() {
+const PAGE_SIZE = 7;
+
+export default async function AdminKKProfilingPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
-  const [registrations, totalCount] = await Promise.all([
+  const resolvedSearchParams = await searchParams;
+  const pageNumber = Math.max(1, Number(resolvedSearchParams.page || 1));
+  const skip = (pageNumber - 1) * PAGE_SIZE;
+
+  const [
+    totalCount,
+    weeklyCount,
+    monthlyCount,
+    inSchoolWeeklyCount,
+    outOfSchoolWeeklyCount,
+    workingWeeklyCount,
+    registrations,
+    classificationGroups,
+    ageGroupCounts,
+  ] = await Promise.all([
+    getProfilingRegistrationCount(),
+    getWeeklyProfilingRegistrationCount(),
+    getMonthlyProfilingRegistrationCount(),
+    getWeeklyProfilingRegistrationCountByClassification("In school Youth"),
+    getWeeklyProfilingRegistrationCountByClassification("Out of School Youth"),
+    getWeeklyProfilingRegistrationCountByClassification("Working Youth"),
     listProfilingRegistrations({
       orderBy: { submittedAt: "desc" },
-      take: 100,
+      take: PAGE_SIZE,
+      skip,
       include: {
         user: {
           select: {
@@ -19,7 +46,18 @@ export default async function AdminKKProfilingPage() {
         },
       },
     }),
-    getProfilingRegistrationCount(),
+    prisma.profilingRegistration.groupBy({
+      by: ["youthClassification"],
+      _count: {
+        _all: true,
+      },
+    }),
+    prisma.profilingRegistration.groupBy({
+      by: ["youthAgeGroup"],
+      _count: {
+        _all: true,
+      },
+    }),
   ]);
 
   const ageGroups = {
@@ -33,33 +71,39 @@ export default async function AdminKKProfilingPage() {
   const voters = { yes: 0, no: 0, unknown: 0 };
   const assemblies = { attended: 0, notAttended: 0 };
 
-  registrations.forEach((registration) => {
-    const group = registration.youthAgeGroup?.trim();
-    if (group && ageGroups[group] !== undefined) {
-      ageGroups[group] += 1;
+  classificationGroups.forEach((group) => {
+    const classification = group.youthClassification?.trim() || "Unknown";
+    classifications.set(classification, group._count._all);
+  });
+
+  ageGroupCounts.forEach((group) => {
+    const label = group.youthAgeGroup?.trim();
+    if (label && ageGroups[label] !== undefined) {
+      ageGroups[label] = group._count._all;
     } else {
-      ageGroups.Other += 1;
-    }
-
-    const classification = registration.youthClassification?.trim() || "Unknown";
-    classifications.set(classification, (classifications.get(classification) ?? 0) + 1);
-
-    const skVoter = registration.registeredSKVoter?.toLowerCase();
-    if (skVoter === "yes") voters.yes += 1;
-    else if (skVoter === "no") voters.no += 1;
-    else voters.unknown += 1;
-
-    if (registration.attendedKKAssembly === "Yes") {
-      assemblies.attended += 1;
-    } else {
-      assemblies.notAttended += 1;
+      ageGroups.Other += group._count._all;
     }
   });
 
   const inSchoolYouthCount = classifications.get("In school Youth") ?? 0;
   const outOfSchoolYouthCount = classifications.get("Out of School Youth") ?? 0;
   const workingYouthCount = classifications.get("Working Youth") ?? 0;
-  const latestRegistrations = registrations.slice(0, 50);
+
+  // Prepare a compact top-classifications list that excludes the three core summary cards
+  const coreClassifications = new Set(["In school Youth", "Out of School Youth", "Working Youth"]);
+  const otherClassifications = Array.from(classifications.entries()).filter(([k]) => !coreClassifications.has(k));
+  const sortedOther = otherClassifications.sort((a, b) => b[1] - a[1]);
+  const topClassifications = sortedOther.length > 0 ? sortedOther.slice(0, 5) : Array.from(classifications.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  const latestRegistrations = registrations;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  const weeklyMomentum = weeklyCount;
+  const weeklyBadges = {
+    inSchool: inSchoolWeeklyCount,
+    outOfSchool: outOfSchoolWeeklyCount,
+    working: workingWeeklyCount,
+  };
 
   return (
     <div className="min-h-screen bg-[#F8FBFF] text-slate-950">
@@ -72,59 +116,57 @@ export default async function AdminKKProfilingPage() {
                 <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">
                   Registered youth profiling data
                 </h1>
-                <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600">
+                <p className="mt-4 text-sm leading-7 text-slate-600">
                   Review Katipunan ng Kabataan profiling registrations submitted by SK officials and youth participants. Use this page to monitor demographic coverage, confirm SK voter status, and identify youth who still need follow-up.
                 </p>
-              </div>
-
-              <div className="flex flex-col gap-3 rounded-[1.75rem] border border-slate-200 bg-slate-50 px-6 py-5 text-sm text-slate-700 shadow-sm">
-                <span className="text-slate-500">Total KK registrations</span>
-                <span className="text-4xl font-black text-[#0F3D5C]">{totalCount}</span>
-                <Link
-                  href="/admin"
-                  className="inline-flex w-fit items-center justify-center rounded-full bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0D2E47]"
-                >
-                  Back to dashboard
-                </Link>
               </div>
             </div>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1.75fr_0.9fr]">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-sm uppercase tracking-[0.35em] text-slate-500">In-school youth</p>
-                <p className="mt-4 text-3xl font-black text-slate-950">{inSchoolYouthCount}</p>
-                <p className="mt-2 text-sm text-slate-500">Profiles classified as in-school youth</p>
-              </div>
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-sm uppercase tracking-[0.35em] text-slate-500">Out-of-school youth</p>
-                <p className="mt-4 text-3xl font-black text-slate-950">{outOfSchoolYouthCount}</p>
-                <p className="mt-2 text-sm text-slate-500">Profiles classified as out-of-school youth</p>
-              </div>
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-sm uppercase tracking-[0.35em] text-slate-500">Working youth</p>
-                <p className="mt-4 text-3xl font-black text-slate-950">{workingYouthCount}</p>
-                <p className="mt-2 text-sm text-slate-500">Profiles classified as working youth</p>
-              </div>
-            </div>
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.35em] text-slate-500">Youth classification</p>
-                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">Breakdown</h2>
-                </div>
-              </div>
-
-              <div className="mt-6 space-y-3">
-                {Array.from(classifications.entries()).map(([classification, count]) => (
-                  <div key={classification} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <span className="text-sm text-slate-700">{classification}</span>
-                    <span className="text-sm font-semibold text-slate-950">{count}</span>
+              <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm min-h-0 h-full grid grid-rows-[4rem_auto_auto] gap-4">
+                <div className="flex items-start justify-between gap-4">
+                  <p className="text-sm uppercase tracking-[0.35em] text-slate-500">In-school youth</p>
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[0.7rem] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                    <TrendingUp className="h-3 w-3" />
+                    <span>+{weeklyBadges.inSchool}</span>
                   </div>
-                ))}
+                </div>
+                <p className="text-3xl font-black text-slate-950">{inSchoolYouthCount}</p>
+                <p className="text-sm text-slate-500">Profiles classified as in-school youth</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm min-h-0 h-full grid grid-rows-[4rem_auto_auto] gap-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm uppercase tracking-[0.35em] text-slate-500">Out-of-school youth</p>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[0.7rem] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                    <TrendingUp className="h-3 w-3" />
+                    <span>+{weeklyBadges.outOfSchool}</span>
+                  </div>
+                </div>
+                <p className="text-3xl font-black text-slate-950">{outOfSchoolYouthCount}</p>
+                <p className="text-sm text-slate-500">Profiles classified as out-of-school youth</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm min-h-0 h-full grid grid-rows-[4rem_auto_auto] gap-4">
+                <div className="flex items-start justify-between gap-4">
+                  <p className="text-sm uppercase tracking-[0.35em] text-slate-500">Working youth</p>
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[0.7rem] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                    <TrendingUp className="h-3 w-3" />
+                    <span>+{weeklyBadges.working}</span>
+                  </div>
+                </div>
+                <p className="text-3xl font-black text-slate-950">{workingYouthCount}</p>
+                <p className="text-sm text-slate-500">Profiles classified as working youth</p>
               </div>
             </div>
+            <TotalRegisteredProfilesCard
+              allTimeCount={totalCount}
+              monthlyCount={monthlyCount}
+              weeklyCount={weeklyCount}
+              weeklyMomentum={weeklyMomentum}
+            />
           </div>
 
           <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -132,45 +174,14 @@ export default async function AdminKKProfilingPage() {
               <div>
                 <p className="text-sm uppercase tracking-[0.35em] text-[#0F3D5C]">Latest entries</p>
                 <h2 className="mt-2 text-2xl font-semibold text-slate-950">Recent KK profiling submissions</h2>
-                <p className="mt-2 text-sm text-slate-500">Showing the most recent {latestRegistrations.length} registration records.</p>
               </div>
             </div>
 
             <div className="mt-6 overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-slate-600">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold uppercase tracking-[0.2em]">Name</th>
-                    <th className="px-4 py-3 font-semibold uppercase tracking-[0.2em]">Age group</th>
-                    <th className="px-4 py-3 font-semibold uppercase tracking-[0.2em]">Classification</th>
-                    <th className="px-4 py-3 font-semibold uppercase tracking-[0.2em]">SK Voter</th>
-                    <th className="px-4 py-3 font-semibold uppercase tracking-[0.2em]">Submitted</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 bg-white text-slate-700">
-                  {latestRegistrations.map((registration) => (
-                    <tr key={registration.id}>
-                      <td className="px-4 py-4">
-                        <div className="font-medium text-slate-950">
-                          {registration.fullName}
-                        </div>
-                        <div className="text-xs text-slate-500">{registration.email}</div>
-                      </td>
-                      <td className="px-4 py-4">{registration.youthAgeGroup}</td>
-                      <td className="px-4 py-4">{registration.youthClassification}</td>
-                      <td className="px-4 py-4">{registration.registeredSKVoter}</td>
-                      <td className="px-4 py-4 text-slate-500">
-                        {new Date(registration.submittedAt).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <KKProfilingRegistrationsTable registrations={latestRegistrations} />
             </div>
+
+            {totalPages > 1 && <KKProfilingPagination pageNumber={pageNumber} totalPages={totalPages} />}
           </div>
         </div>
       </div>

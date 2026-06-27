@@ -1,11 +1,8 @@
 import Link from "next/link";
-import { PublicHeader } from "../components/PublicHeader";
 
 export default function AboutPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-slate-900">
-      <PublicHeader />
-
       <main className="mx-auto max-w-6xl px-6 py-16">
         <div className="space-y-6 rounded-[2rem] border border-slate-200 bg-white p-10 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
           <div className="space-y-4">

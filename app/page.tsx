@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Mail } from "lucide-react";
-import { PublicHeader } from "./components/PublicHeader";
 export default function HomePage() {
   const pathname = usePathname();
   const [activeLink, setActiveLink] = useState<string>(pathname);
@@ -27,9 +26,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
-      {/* ── NAV ── */}
-      <PublicHeader />
-
       {/* ── HERO ── */}
       <section className="relative overflow-hidden pt-12 md:pt-24 pb-20">
         {/* Animated gradient orbs */}

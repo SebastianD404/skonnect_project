@@ -1,9 +1,51 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { CalendarDays, ClipboardList, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
+import { SignOutButton } from "@/app/components/SignOutButton";
+
+type SessionUser = {
+  fullName?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+};
+
+function toTitleCase(value: string) {
+  return value
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function deriveDisplayName(fullName?: string | null, email?: string | null) {
+  const normalizedFullName = (fullName || "").trim();
+  if (normalizedFullName && !normalizedFullName.includes("@")) {
+    return normalizedFullName;
+  }
+
+  const localPart = (email || "").split("@")[0]?.trim();
+  if (!localPart) {
+    return "Admin account";
+  }
+
+  const cleaned = localPart
+    .replace(/[._-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\d+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) {
+    return "Admin account";
+  }
+
+  return toTitleCase(cleaned);
+}
 
 interface AdminSidebarProps {
   upcomingEventCount: number;
@@ -19,6 +61,43 @@ export default function AdminSidebar({
   profilingRegistrationCount,
 }: AdminSidebarProps) {
   const pathname = usePathname();
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const displayName = useMemo(
+    () => deriveDisplayName(sessionUser?.fullName, sessionUser?.email),
+    [sessionUser?.fullName, sessionUser?.email]
+  );
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchSessionProfile() {
+      try {
+        const response = await fetch("/api/session", { cache: "no-store" });
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (!mounted) return;
+
+        setSessionUser(data?.user ?? null);
+      } catch {
+        if (mounted) setSessionUser(null);
+      }
+    }
+
+    fetchSessionProfile();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const initials = useMemo(() => {
+    const value = (displayName || sessionUser?.email || "A").trim();
+    const parts = value.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "A";
+    if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+    return `${parts[0].slice(0, 1)}${parts[parts.length - 1].slice(0, 1)}`.toUpperCase();
+  }, [displayName, sessionUser?.email]);
 
   const navItems = [
     { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
@@ -67,6 +146,33 @@ export default function AdminSidebar({
           );
         })}
       </nav>
+
+      <div className="mt-auto border-t border-slate-200 px-2 pt-4">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+          <div className="flex items-center gap-3">
+            {sessionUser?.avatarUrl ? (
+              <img
+                src={sessionUser.avatarUrl}
+                alt={sessionUser.fullName || sessionUser.email || "Admin account"}
+                className="h-10 w-10 rounded-full object-cover ring-2 ring-white"
+              />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
+                {initials}
+              </div>
+            )}
+
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-slate-900">
+                {displayName}
+              </p>
+              <p className="truncate text-xs text-slate-500">{sessionUser?.email || "No email available"}</p>
+            </div>
+
+            <SignOutButton />
+          </div>
+        </div>
+      </div>
     </aside>
   );
 }
