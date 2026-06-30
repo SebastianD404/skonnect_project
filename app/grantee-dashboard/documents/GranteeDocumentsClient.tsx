@@ -456,7 +456,7 @@ function FileDrop({
       <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
       <input
         type="file"
-        accept="application/pdf,image/png,image/jpeg,image/webp"
+        accept="application/pdf,image/png,image/jpeg,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.doc,.docx"
         className="hidden"
         disabled={disabled}
         onChange={(e) => {

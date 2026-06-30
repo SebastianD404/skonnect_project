@@ -8,6 +8,20 @@ interface SessionUser {
   fullName?: string;
   email?: string;
   avatarUrl?: string;
+  role?: "YOUTH" | "GRANTEE" | "SK_OFFICIAL" | "SUPER_ADMIN";
+}
+
+function getRoleHomePath(role?: SessionUser["role"]) {
+  switch (role) {
+    case "GRANTEE":
+      return "/grantee-dashboard";
+    case "SK_OFFICIAL":
+      return "/admin";
+    case "SUPER_ADMIN":
+      return "/system-admin";
+    default:
+      return null;
+  }
 }
 
 function navLinkClass(activePath: string, href: string) {
@@ -79,7 +93,15 @@ export function PublicHeader() {
         }
 
         const data = await response.json();
-        setSessionUser(data?.user || null);
+        const user = data?.user || null;
+        const destination = getRoleHomePath(user?.role);
+
+        if (destination) {
+          router.replace(destination);
+          return;
+        }
+
+        setSessionUser(user);
       } catch (error) {
         console.error("Failed to fetch session:", error);
         setSessionUser(null);
@@ -89,7 +111,7 @@ export function PublicHeader() {
     }
 
     fetchSession();
-  }, []);
+  }, [router]);
 
   const activePath = pathname.startsWith("/programs")
     ? "/programs"

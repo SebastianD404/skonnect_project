@@ -2,30 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
-
-interface RegistrationSummary {
-  id: string;
-  fullName: string;
-  email: string;
-  youthAgeGroup: string;
-  youthClassification: string;
-  registeredSKVoter: string;
-  submittedAt: Date | string;
-  address: string;
-  sex: string;
-  age: number;
-  birthDate: Date | string;
-  facebook: string;
-  contactNumber: string;
-  civilStatus: string;
-  workStatus: string;
-  educationalBackground: string;
-  votedLastSK: string;
-  registeredNationalVoter: string;
-  attendedKKAssembly: string;
-  assemblyTimes?: string | null;
-  noAssemblyReason?: string | null;
-}
+import type { KKProfilingRegistration } from "./types";
 
 const deleteRegistration = async (id: string) => {
   const response = await fetch(`/api/admin/kk-profiling/${id}`, {
@@ -38,7 +15,7 @@ const deleteRegistration = async (id: string) => {
   }
 };
 
-export function KKProfilingRegistrationsTable({ registrations }: { registrations: RegistrationSummary[] }) {
+export function KKProfilingRegistrationsTable({ registrations }: { registrations: KKProfilingRegistration[] }) {
   const [rows, setRows] = useState(registrations);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,7 +33,7 @@ export function KKProfilingRegistrationsTable({ registrations }: { registrations
     }
   };
 
-  const handleUpdate = (updatedRegistration: RegistrationSummary) => {
+  const handleUpdate = (updatedRegistration: KKProfilingRegistration) => {
     setRows((current) =>
       current.map((row) => (row.id === updatedRegistration.id ? updatedRegistration : row))
     );

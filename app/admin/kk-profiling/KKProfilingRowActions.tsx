@@ -3,36 +3,12 @@
 import { useEffect, useState } from "react";
 import { FileText, Trash2, X } from "lucide-react";
 import { AdminKKProfilingFormView } from "./AdminKKProfilingFormView";
-
-interface Registration {
-  id: string;
-  fullName: string;
-  email: string;
-  address: string;
-  sex: string;
-  age: number;
-  birthDate: string;
-  facebook: string;
-  contactNumber: string;
-  civilStatus: string;
-  youthClassification: string;
-  youthAgeGroup: string;
-  workStatus: string;
-  educationalBackground: string;
-  registeredSKVoter: string;
-  votedLastSK: string;
-  registeredNationalVoter: string;
-  attendedKKAssembly: string;
-  assemblyTimes?: string | null;
-  noAssemblyReason?: string | null;
-  consent?: boolean;
-  submittedAt: string;
-}
+import type { KKProfilingRegistration } from "./types";
 
 interface RegistrationRowActionsProps {
-  registration: Registration;
+  registration: KKProfilingRegistration;
   onDelete: (id: string) => Promise<void>;
-  onUpdate: (registration: Registration) => void;
+  onUpdate: (registration: KKProfilingRegistration) => void;
 }
 
 export function KKProfilingRowActions({ registration, onDelete, onUpdate }: RegistrationRowActionsProps) {
@@ -42,7 +18,7 @@ export function KKProfilingRowActions({ registration, onDelete, onUpdate }: Regi
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Registration>(registration);
+  const [editForm, setEditForm] = useState<KKProfilingRegistration>(registration);
 
   useEffect(() => {
     setEditForm(registration);
@@ -79,7 +55,7 @@ export function KKProfilingRowActions({ registration, onDelete, onUpdate }: Regi
         throw new Error(data?.error || "Failed to save registration");
       }
 
-      onUpdate(data as Registration);
+      onUpdate(data as KKProfilingRegistration);
       setShowEdit(false);
     } catch (error) {
       setEditError(error instanceof Error ? error.message : "Failed to save registration");

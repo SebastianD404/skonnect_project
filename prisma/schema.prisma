@@ -49,6 +49,11 @@ enum Language {
   ILOCANO
 }
 
+enum ChatMessageRole {
+  USER
+  ASSISTANT
+}
+
 // ─────────────────────────────────────────────
 // CORE USER & AUTH
 // ─────────────────────────────────────────────
@@ -76,6 +81,7 @@ model User {
   announcements           Announcement[]
   auditLogs               AuditLog[]       @relation("ActorAuditLogs")
   eventsCreated           Event[]          @relation("EventCreator")
+  chatMessages            ChatMessage[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -207,6 +213,7 @@ model Announcement {
   id          String   @id @default(uuid())
   title       String
   content     String
+  imageUrl    String?
   authorId    String
   author      User     @relation(fields: [authorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   isPublished Boolean  @default(true)
@@ -230,9 +237,10 @@ model Inquiry {
   message     String
   language    Language @default(ENGLISH)
 
-  isResolved  Boolean  @default(false)
-  response    String?
-  respondedAt DateTime?
+  isResolved    Boolean  @default(false)
+  response      String?
+  respondedAt   DateTime?
+  reviewThread  Json?
 
   createdAt   DateTime @default(now())
 
@@ -284,8 +292,8 @@ model ChatEmbedding {
   content     String                 // the source FAQ/info chunk, in its original language
   language    Language
   sourceType  String                 // "skeap_faq" | "event_info" | "general"
-  // pgvector column - Gemini text-embedding-004 outputs 768 dimensions
-  embedding   Unsupported("vector(768)")?
+  // pgvector column - Gemini embeddings currently stored as 3072 dimensions
+  embedding   Unsupported("vector(3072)")?
 
   createdAt   DateTime @default(now())
 
@@ -303,4 +311,17 @@ model ChatLog {
   createdAt   DateTime @default(now())
 
   @@map("chat_logs")
+}
+
+model ChatMessage {
+  id          String          @id @default(uuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        ChatMessageRole
+  content     String
+  language    Language
+  createdAt   DateTime        @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("chat_messages")
 }

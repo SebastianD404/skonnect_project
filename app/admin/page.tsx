@@ -14,6 +14,15 @@ export default async function SKOfficialDashboardPage() {
   const next60Days = new Date(now);
   next60Days.setDate(now.getDate() + 60);
 
+  const supportInquiryFilter = {
+    NOT: {
+      subject: {
+        contains: "SKEAP application",
+        mode: "insensitive" as const,
+      },
+    },
+  };
+
   const [
     grantees,
     openInquiryCount,
@@ -54,7 +63,7 @@ export default async function SKOfficialDashboardPage() {
       },
     }),
     prisma.inquiry.count({
-      where: { isResolved: false },
+      where: { ...supportInquiryFilter, isResolved: false },
     }),
     prisma.event.count({
       where: {
@@ -89,7 +98,7 @@ export default async function SKOfficialDashboardPage() {
     prisma.inquiry.findMany({
       take: 4,
       orderBy: { createdAt: "desc" },
-      where: { isResolved: false },
+      where: { ...supportInquiryFilter, isResolved: false },
       select: {
         id: true,
         subject: true,
@@ -106,8 +115,8 @@ export default async function SKOfficialDashboardPage() {
     }),
     prisma.grantee.count({ where: { createdAt: { gte: last30Days } } }),
     prisma.grantee.count({ where: { createdAt: { gte: prev30Days, lt: last30Days } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: last30Days } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: prev30Days, lt: last30Days } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: last30Days } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: prev30Days, lt: last30Days } } }),
     prisma.submission.count({ where: { submittedAt: { gte: last30Days }, status: "PENDING" } }),
     prisma.submission.count({ where: { submittedAt: { gte: prev30Days, lt: last30Days }, status: "PENDING" } }),
     prisma.event.count({

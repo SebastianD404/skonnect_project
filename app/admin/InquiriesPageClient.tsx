@@ -1,9 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { ArrowRight, Search } from "lucide-react";
 import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 import type { TimePeriod } from "./DashboardHeaderWrapper";
+
+function extractUrls(text: string) {
+  const urlRegex = /https?:\/\/[\w\-./?=&%]+/g;
+  return Array.from(text.match(urlRegex) || []);
+}
+
+function isImageUrl(url: string) {
+  return /(\.jpg|\.jpeg|\.png|\.gif|\.webp|\.avif|\.svg)(\?|$)/i.test(url);
+}
 
 interface InquiryRow {
   id: string;
@@ -89,19 +98,25 @@ export default function InquiriesPageClient({
         onSearch={setSearchQuery}
       />
 
-      <div className="flex-1 py-4">
-        <div className="px-8 space-y-4">
+      <div className="flex-1 py-0 mt-8">
+        <div className="px-8 space-y-6">
           <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-6 py-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm uppercase tracking-[0.28em] text-[#0F3D5C]">Inquiry log</p>
-                  <h2 className="mt-2 text-2xl font-black text-slate-950">All inquiries</h2>
+                  <p className="text-sm uppercase tracking-[0.28em] text-[#0F3D5C]">Support inquiries</p>
+                  <h2 className="mt-2 text-2xl font-black text-slate-950">General support questions</h2>
                 </div>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
-                    <Search className="h-4 w-4" />
-                    Search applied across subject, message, and email
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full">
+                  <div className="relative flex-1 min-w-[300px]">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="search"
+                      placeholder="Search subject, message, email..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full rounded-full border border-slate-200 bg-white py-2 pl-11 pr-4 text-sm text-slate-700 placeholder-slate-500 outline-none transition focus:ring-2 focus:ring-[#0F3D5C]/20 focus:border-[#0F3D5C]"
+                    />
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {INQUIRY_FILTERS.map((filter) => (
@@ -139,15 +154,15 @@ export default function InquiriesPageClient({
                   {filteredInquiries.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-16 text-center text-sm text-slate-500">
-                        No inquiries match that search or filter.
+                        No support inquiries match that search or filter.
                       </td>
                     </tr>
                   ) : (
                     filteredInquiries.map((inquiry) => {
                       const isExpanded = expandedId === inquiry.id;
                       return (
-                        <>
-                          <tr key={inquiry.id} className="transition hover:bg-slate-50">
+                        <Fragment key={inquiry.id}>
+                          <tr className="transition hover:bg-slate-50">
                             <td className="px-6 py-4">
                               <div className="font-semibold text-slate-900">{inquiry.subject}</div>
                               <div className="text-xs text-slate-500 line-clamp-1">{inquiry.message}</div>
@@ -200,7 +215,20 @@ export default function InquiriesPageClient({
                                 <div className="grid gap-5 lg:grid-cols-[1.35fr_0.9fr]">
                                   <div className="rounded-3xl border border-slate-200 bg-white p-5">
                                     <p className="text-xs uppercase tracking-[0.28em] text-[#0F3D5C]">Message</p>
-                                    <p className="mt-3 text-sm leading-relaxed text-slate-700">{inquiry.message}</p>
+                                    <div className="mt-3 text-sm leading-relaxed text-slate-700 space-y-4">
+                                      <p>{inquiry.message}</p>
+                                      {extractUrls(inquiry.message).filter(isImageUrl).length > 0 ? (
+                                        <div className="grid gap-4 sm:grid-cols-2">
+                                          {extractUrls(inquiry.message)
+                                            .filter(isImageUrl)
+                                            .map((url) => (
+                                              <div key={url} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 shadow-sm">
+                                                <img src={url} alt="Uploaded document" className="h-48 w-full object-cover" />
+                                              </div>
+                                            ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   </div>
                                   <div className="rounded-3xl border border-slate-200 bg-white p-5">
                                     <p className="text-xs uppercase tracking-[0.28em] text-[#0F3D5C]">Response</p>
@@ -212,7 +240,7 @@ export default function InquiriesPageClient({
                               </td>
                             </tr>
                           ) : null}
-                        </>
+                        </Fragment>
                       );
                     })
                   )}

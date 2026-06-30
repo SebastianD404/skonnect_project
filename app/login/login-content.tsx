@@ -3,11 +3,13 @@
 import { Suspense } from "react";
 import { useActionState } from "react";
 import { login } from "@/app/actions/auth";
+import { useSearchParams } from "next/navigation";
 
 type LoginContentProps = {};
 
 function LoginForm() {
   const [state, formAction] = useActionState(login, null);
+  const search = useSearchParams();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
@@ -28,6 +30,7 @@ function LoginForm() {
         )}
 
         <form action={formAction} className="space-y-4">
+          {search.get("next") && <input type="hidden" name="next" value={search.get("next") ?? ""} />}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">
               Email
@@ -64,7 +67,7 @@ function LoginForm() {
 
         <p className="mt-4 text-center text-sm text-slate-500">
           Don&apos;t have an account?{" "}
-          <a href="/signup" className="text-blue-600 font-medium hover:underline">
+          <a href={`/signup${search.get("next") ? `?next=${encodeURIComponent(search.get("next") ?? "")}` : ""}`} className="text-blue-600 font-medium hover:underline">
             Sign up
           </a>
         </p>

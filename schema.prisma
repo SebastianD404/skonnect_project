@@ -1,6 +1,7 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
+  output          = "./node_modules/@prisma/client/.prisma/client"
 }
 
 datasource db {
@@ -45,6 +46,11 @@ enum Language {
   ILOCANO
 }
 
+enum ChatMessageRole {
+  USER
+  ASSISTANT
+}
+
 // ─────────────────────────────────────────────
 // CORE USER & AUTH
 // ─────────────────────────────────────────────
@@ -72,6 +78,7 @@ model User {
   announcements           Announcement[]
   auditLogs               AuditLog[]       @relation("ActorAuditLogs")
   eventsCreated           Event[]          @relation("EventCreator")
+  chatMessages            ChatMessage[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -212,9 +219,13 @@ model Inquiry {
   message     String
   language    Language @default(ENGLISH)
 
-  isResolved  Boolean  @default(false)
-  response    String?
-  respondedAt DateTime?
+  isResolved    Boolean  @default(false)
+  response      String?
+  respondedAt   DateTime?
+  reviewThread  Json?
+  reviewStatus  String   @default("Pending review")
+  lastUpdatedBy String?
+  resubmittedAt DateTime?
 
   createdAt   DateTime @default(now())
 
@@ -306,4 +317,17 @@ model ChatLog {
   createdAt   DateTime @default(now())
 
   @@map("chat_logs")
+}
+
+model ChatMessage {
+  id          String          @id @default(uuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        ChatMessageRole
+  content     String
+  language    Language
+  createdAt   DateTime        @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("chat_messages")
 }

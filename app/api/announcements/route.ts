@@ -30,18 +30,15 @@ export async function GET() {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : "";
+    // Log full details server-side for troubleshooting
     console.error("Failed to fetch announcements:", {
       message: errorMessage,
       stack,
       error,
     });
-    return NextResponse.json(
-      {
-        error: "Failed to fetch announcements",
-        details: errorMessage,
-        stack: process.env.NODE_ENV === "development" ? stack : undefined,
-      },
-      { status: 500 }
-    );
+
+    // Don't surface a 500 to clients — treat as no announcements available
+    // to avoid noisy console.errors in the browser while keeping server logs.
+    return NextResponse.json([], { status: 200 });
   }
 }

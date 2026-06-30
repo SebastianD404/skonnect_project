@@ -170,16 +170,16 @@ export default function DashboardHeader({
       </div>
 
       {/* Main Content Header */}
-      <div className={`flex-1 ${compact ? "py-0" : "py-1"}`}>
-        <div className={`px-8 flex flex-col ${compact ? "gap-0" : "gap-1"}`}>
-          <p className={`text-xs uppercase tracking-[0.35em] font-semibold text-[#0F3D5C] ${compact ? "leading-none" : ""}`}>
+      <div className="pt-6 pb-2">
+        <div className="px-8 flex flex-col gap-0">
+          <p className="text-xs uppercase tracking-[0.35em] font-semibold text-[#0F3D5C] leading-none">
             {dateLabel}
           </p>
 
           {/* Title and Time Period Selector */}
-          <div className="flex flex-col gap-1 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-col gap-0 lg:flex-row lg:items-end lg:justify-between lg:gap-4">
             <div className="lg:flex-1">
-              <h1 className="text-4xl lg:text-5xl font-black tracking-tight text-slate-950 leading-tight">
+              <h1 className="text-4xl lg:text-5xl font-black tracking-tight text-slate-950 leading-tight -mb-2">
                 Here&apos;s what&apos;s happening in your barangay.
               </h1>
             </div>
@@ -205,8 +205,8 @@ export default function DashboardHeader({
 
       {/* Stats Grid */}
       {stats && stats.length > 0 && (
-        <div className={`px-8 ${compact ? "py-0" : "py-4"}`}>
-          <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="px-8 py-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {stats.map((stat) => {
               const Icon = stat.icon;
               return (

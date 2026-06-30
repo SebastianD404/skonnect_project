@@ -102,7 +102,7 @@ export default async function GranteeOverviewPage() {
               </h1>
 
               <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600">
-                Track approvals, return-for-edit requests, and your next required action in one elegant workspace built for grantees.
+                Track approvals and return-for-edit requests, see your next required action, and stay updated on SK events.
               </p>
 
               <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -163,12 +163,6 @@ export default async function GranteeOverviewPage() {
                     >
                       <ArrowUpRight className="h-4 w-4" />
                     </Link>
-                  </div>
-
-                  <div className="mt-5 grid grid-cols-3 gap-2 text-center">
-                    <MiniStat label="Upcoming" value={upcomingRegistered.length.toString()} />
-                    <MiniStat label="Pending" value={pendingCount.toString()} />
-                    <MiniStat label="Approved" value={approvedCount.toString()} />
                   </div>
                 </div>
               </div>

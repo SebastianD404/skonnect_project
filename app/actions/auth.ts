@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { ensureProfile, getRoleHomePath } from "@/lib/auth";
 
 export type AuthState = {
   error?: string;
@@ -53,7 +54,9 @@ export async function signup(
     return { error: "Account created but profile setup failed. Please contact support." };
   }
 
-  redirect("/login?notice=confirm_email");
+  const next = (formData.get("next") as string) || "";
+  const nextQuery = next ? `&next=${encodeURIComponent(next)}` : "";
+  redirect(`/login?notice=confirm_email${nextQuery}`);
 }
 
 export async function login(
@@ -79,88 +82,35 @@ export async function login(
   }
 
   const authUser = data.user;
-  const authUserId = authUser?.id;
 
-  if (!authUserId) {
+  if (!authUser) {
     return { error: "Login succeeded, but no authenticated user was returned." };
   }
 
-  // Look up the user's role to decide where to send them.
-  // If the Supabase auth identity exists but the app profile row is missing,
-  // recover by linking or creating the missing user profile.
-  let dbUser = await prisma.user.findUnique({
-    where: { authId: authUserId },
-    select: { role: true },
-  });
-
-  if (!dbUser) {
-    const email = authUser?.email;
-
-    if (!email) {
-      return {
-        error:
-          "Your account is authenticated, but we could not identify your email address to create a profile. Please contact support.",
-      };
-    }
-
-    const existingByEmail = await prisma.user.findUnique({
-      where: { email },
-      select: { authId: true, role: true },
-    });
-
-    if (existingByEmail) {
-      if (existingByEmail.authId !== authUserId) {
-        await prisma.user.update({
-          where: { email },
-          data: { authId: authUserId },
-        });
-      }
-
-      dbUser = {
-        role: existingByEmail.role,
-      };
-    } else {
-      const metadata = authUser.user_metadata as Record<string, unknown> | undefined;
-      const fullName =
-        (typeof metadata?.full_name === "string" && metadata.full_name) ||
-        email ||
-        "SK Youth";
-
-      try {
-        dbUser = await prisma.user.create({
-          data: {
-            authId: authUserId,
-            email,
-            fullName,
-            role: "YOUTH",
-          },
-          select: { role: true },
-        });
-      } catch (dbError) {
-        console.error("Failed to create fallback User row:", dbError);
-
-        return {
-          error:
-            "Your account is authenticated, but profile setup failed. Please contact support.",
-        };
-      }
-    }
+  const profile = await ensureProfile(authUser);
+  if (!profile) {
+    return {
+      error:
+        "Your account is authenticated, but profile setup failed. Please contact support.",
+    };
   }
 
-  switch (dbUser.role) {
-    case "SUPER_ADMIN":
-      redirect("/system-admin");
-    case "SK_OFFICIAL":
-      redirect("/admin");
-    case "GRANTEE":
-      redirect("/grantee-dashboard");
-    default:
-      redirect("/");
+  // If the login form included a `next` param, prefer redirecting there.
+  const next = (formData.get("next") as string) || "";
+  if (next && next.startsWith("/")) {
+    return redirect(next);
   }
+
+  const destination = getRoleHomePath(profile.role);
+  if (destination) {
+    return redirect(destination);
+  }
+
+  return redirect("/");
 }
 
 export async function logout() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/login");
+  return redirect("/login");
 }

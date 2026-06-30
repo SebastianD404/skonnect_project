@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -192,7 +192,7 @@ export async function DELETE(
             role: target.role,
             isActive: target.isActive,
           },
-          afterData: null,
+          afterData: Prisma.JsonNull,
         },
       });
 

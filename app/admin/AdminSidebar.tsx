@@ -50,6 +50,7 @@ function deriveDisplayName(fullName?: string | null, email?: string | null) {
 interface AdminSidebarProps {
   upcomingEventCount: number;
   openInquiryCount: number;
+  skeapApplicationCount: number;
   pendingDocumentCount: number;
   profilingRegistrationCount: number;
 }
@@ -57,6 +58,7 @@ interface AdminSidebarProps {
 export default function AdminSidebar({
   upcomingEventCount,
   openInquiryCount,
+  skeapApplicationCount,
   pendingDocumentCount,
   profilingRegistrationCount,
 }: AdminSidebarProps) {
@@ -103,7 +105,7 @@ export default function AdminSidebar({
     { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
     { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: profilingRegistrationCount },
     { label: "Events", href: "/admin/events", icon: CalendarDays, badge: upcomingEventCount },
-    { label: "Document Reviews", href: "/admin/submissions", icon: FileText, badge: pendingDocumentCount },
+    { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: skeapApplicationCount },
     { label: "Announcements", href: "/admin/announcements", icon: Megaphone },
     { label: "Inquiries", href: "/admin/inquiries", icon: Inbox, badge: openInquiryCount },
     { label: "Grantees", href: "/admin/grantees", icon: Users },
@@ -111,12 +113,13 @@ export default function AdminSidebar({
   ];
 
   return (
-    <aside className="sticky top-0 flex h-screen w-72 shrink-0 flex-col border-r border-slate-200 bg-white px-4 py-6">
-      <AdminSidebarBrand />
+    <aside className="flex h-full w-72 flex-shrink-0 flex-col justify-between border-r border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-6 w-full">
+        <AdminSidebarBrand />
 
-      <div className="mt-8 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">Menu</div>
-      <nav className="mt-3 flex flex-col gap-1">
-        {navItems.map((item) => {
+        <div className="px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">Menu</div>
+        <nav className="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-220px)] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent hover:scrollbar-thumb-slate-300">
+          {navItems.map((item) => {
           const isActive =
             pathname === item.href ||
             (item.href !== "/admin" && pathname.startsWith(item.href));
@@ -139,15 +142,16 @@ export default function AdminSidebar({
                     isActive ? "bg-white/15 text-white" : "bg-slate-900 text-white"
                   }`}
                 >
-                  {item.badge}
+                  {item.badge > 9 ? "9+" : item.badge}
                 </span>
               ) : null}
             </Link>
           );
         })}
       </nav>
+      </div>
 
-      <div className="mt-auto border-t border-slate-200 px-2 pt-4">
+      <div className="mt-auto border-t border-slate-200 pt-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
           <div className="flex items-center gap-3">
             {sessionUser?.avatarUrl ? (

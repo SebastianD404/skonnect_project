@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 
 const ALLOWED_TYPES = new Set([
   "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/png",
   "image/jpeg",
   "image/jpg",
@@ -29,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     if (!ALLOWED_TYPES.has(file.type)) {
       return NextResponse.json(
-        { error: "Only PDF, PNG, JPG, and WEBP files are allowed" },
+        { error: "Only PDF, DOC/DOCX, PNG, JPG, and WEBP files are allowed" },
         { status: 400 }
       );
     }

@@ -10,7 +10,16 @@ export default async function AdminLayout({
 }>) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
-  const [upcomingEventCount, openInquiryCount, pendingDocumentCount, profilingRegistrationCount] = await Promise.all([
+  const supportInquiryFilter = {
+    NOT: {
+      subject: {
+        contains: "SKEAP application",
+        mode: "insensitive" as const,
+      },
+    },
+  };
+
+  const [upcomingEventCount, openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount] = await Promise.all([
     prisma.event.count({
       where: {
         status: {
@@ -19,22 +28,34 @@ export default async function AdminLayout({
       },
     }),
     prisma.inquiry.count({
-      where: { isResolved: false },
+      where: { ...supportInquiryFilter, isResolved: false },
+    }),
+    prisma.inquiry.count({
+      where: {
+        subject: { contains: "SKEAP application", mode: "insensitive" },
+        NOT: {
+          reviewStatus: {
+            contains: "cancel",
+            mode: "insensitive",
+          },
+        },
+      },
     }),
     prisma.submission.count({ where: { status: "PENDING" } }),
     getProfilingRegistrationCount(),
   ]);
 
   return (
-    <div className="min-h-screen bg-[#F8FBFF] text-slate-950">
-      <div className="mx-auto flex min-h-screen max-w-[1480px]">
+    <div className="h-screen w-screen overflow-hidden bg-[#F8FBFF] text-slate-950">
+      <div className="mx-auto flex h-full max-w-[1480px]">
         <AdminSidebar
           upcomingEventCount={upcomingEventCount}
           openInquiryCount={openInquiryCount}
+          skeapApplicationCount={skeapApplicationCount}
           pendingDocumentCount={pendingDocumentCount}
           profilingRegistrationCount={profilingRegistrationCount}
         />
-        <main className="flex-1 flex flex-col">{children}</main>
+        <main className="flex-1 h-full overflow-y-auto p-8">{children}</main>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import LoginContent from "./login-content";
+import { redirectIfSignedIn } from "@/lib/auth";
 
 type LoginPageProps = {
   searchParams?: Promise<{
@@ -9,6 +10,7 @@ type LoginPageProps = {
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
+  await redirectIfSignedIn();
   const supabase = await createClient();
   const {
     data: { user },

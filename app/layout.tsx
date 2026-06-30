@@ -3,6 +3,7 @@ import Script from "next/script";
 import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 import { HeaderShell } from "./components/HeaderShell";
+import { ChatWidget } from "./components/chatbot/ChatWidget";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -44,6 +45,7 @@ export default function RootLayout({
         </Script>
         <HeaderShell />
         {children}
+        <ChatWidget />
       </body>
     </html>
   );

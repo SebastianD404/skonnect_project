@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
-import { Role } from "@prisma/client";
+import { Role, type Prisma } from "@prisma/client";
 import InquiriesPageClient from "../InquiriesPageClient";
 import type { TimePeriod } from "../DashboardHeaderWrapper";
 
@@ -56,6 +56,15 @@ export default async function AdminInquiriesPage() {
   const prevQuarter = new Date(startOfQuarter);
   prevQuarter.setDate(startOfQuarter.getDate() - 90);
 
+  const supportInquiryFilter: Prisma.InquiryWhereInput = {
+    NOT: {
+      subject: {
+        contains: "SKEAP application",
+        mode: "insensitive" as const,
+      },
+    },
+  };
+
   const [
     openInquiryCount,
     pendingSubmissionCount,
@@ -85,9 +94,10 @@ export default async function AdminInquiriesPage() {
     resolvedThisQuarter,
     resolvedLastQuarter,
   ] = await Promise.all([
-    prisma.inquiry.count({ where: { isResolved: false } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false } }),
     prisma.submission.count({ where: { status: "PENDING" } }),
     prisma.inquiry.findMany({
+      where: supportInquiryFilter,
       orderBy: { createdAt: "desc" },
       include: {
         user: {
@@ -98,45 +108,45 @@ export default async function AdminInquiriesPage() {
         },
       },
     }),
-    prisma.inquiry.count({ where: { isResolved: false, createdAt: { gte: startOfToday } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfToday } } }),
     prisma.inquiry.count({
-      where: { isResolved: false, createdAt: { gte: prevDay, lt: startOfToday } },
+      where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: prevDay, lt: startOfToday } },
     }),
-    prisma.inquiry.count({ where: { isResolved: false, createdAt: { gte: startOfWeek } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfWeek } } }),
     prisma.inquiry.count({
-      where: { isResolved: false, createdAt: { gte: prevWeek, lt: startOfWeek } },
+      where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: prevWeek, lt: startOfWeek } },
     }),
-    prisma.inquiry.count({ where: { isResolved: false, createdAt: { gte: startOfMonth } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfMonth } } }),
     prisma.inquiry.count({
-      where: { isResolved: false, createdAt: { gte: prevMonth, lt: startOfMonth } },
+      where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: prevMonth, lt: startOfMonth } },
     }),
-    prisma.inquiry.count({ where: { isResolved: false, createdAt: { gte: startOfQuarter } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfQuarter } } }),
     prisma.inquiry.count({
-      where: { isResolved: false, createdAt: { gte: prevQuarter, lt: startOfQuarter } },
+      where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: prevQuarter, lt: startOfQuarter } },
     }),
-    prisma.inquiry.count({ where: { createdAt: { gte: startOfToday } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: prevDay, lt: startOfToday } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: startOfWeek } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: prevWeek, lt: startOfWeek } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: startOfMonth } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: prevMonth, lt: startOfMonth } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: startOfQuarter } } }),
-    prisma.inquiry.count({ where: { createdAt: { gte: prevQuarter, lt: startOfQuarter } } }),
-    prisma.inquiry.count({ where: { isResolved: true, respondedAt: { gte: startOfToday } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: startOfToday } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: prevDay, lt: startOfToday } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: startOfWeek } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: prevWeek, lt: startOfWeek } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: startOfMonth } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: prevMonth, lt: startOfMonth } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: startOfQuarter } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: prevQuarter, lt: startOfQuarter } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: true, respondedAt: { gte: startOfToday } } }),
     prisma.inquiry.count({
-      where: { isResolved: true, respondedAt: { gte: prevDay, lt: startOfToday } },
+      where: { ...supportInquiryFilter, isResolved: true, respondedAt: { gte: prevDay, lt: startOfToday } },
     }),
-    prisma.inquiry.count({ where: { isResolved: true, respondedAt: { gte: startOfWeek } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: true, respondedAt: { gte: startOfWeek } } }),
     prisma.inquiry.count({
-      where: { isResolved: true, respondedAt: { gte: prevWeek, lt: startOfWeek } },
+      where: { ...supportInquiryFilter, isResolved: true, respondedAt: { gte: prevWeek, lt: startOfWeek } },
     }),
-    prisma.inquiry.count({ where: { isResolved: true, respondedAt: { gte: startOfMonth } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: true, respondedAt: { gte: startOfMonth } } }),
     prisma.inquiry.count({
-      where: { isResolved: true, respondedAt: { gte: prevMonth, lt: startOfMonth } },
+      where: { ...supportInquiryFilter, isResolved: true, respondedAt: { gte: prevMonth, lt: startOfMonth } },
     }),
-    prisma.inquiry.count({ where: { isResolved: true, respondedAt: { gte: startOfQuarter } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: true, respondedAt: { gte: startOfQuarter } } }),
     prisma.inquiry.count({
-      where: { isResolved: true, respondedAt: { gte: prevQuarter, lt: startOfQuarter } },
+      where: { ...supportInquiryFilter, isResolved: true, respondedAt: { gte: prevQuarter, lt: startOfQuarter } },
     }),
   ]);
 

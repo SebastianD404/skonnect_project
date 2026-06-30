@@ -1,38 +1,14 @@
 "use client";
 
 import { Pencil, X } from "lucide-react";
-
-interface Registration {
-  id: string;
-  fullName: string;
-  email: string;
-  address: string;
-  sex: string;
-  age: number;
-  birthDate: string;
-  facebook: string;
-  contactNumber: string;
-  civilStatus: string;
-  youthClassification: string;
-  youthAgeGroup: string;
-  workStatus: string;
-  educationalBackground: string;
-  registeredSKVoter: string;
-  votedLastSK: string;
-  registeredNationalVoter: string;
-  attendedKKAssembly: string;
-  assemblyTimes?: string | null;
-  noAssemblyReason?: string | null;
-  consent?: boolean;
-  submittedAt: string;
-}
+import type { KKProfilingRegistration } from "./types";
 
 export function AdminKKProfilingFormView({
   registration,
   onClose,
   onEdit,
 }: {
-  registration: Registration;
+  registration: KKProfilingRegistration;
   onClose: () => void;
   onEdit?: () => void;
 }) {

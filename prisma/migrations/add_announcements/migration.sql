@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "announcements" (
+CREATE TABLE IF NOT EXISTS "announcements" (
     "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "content" TEXT NOT NULL,

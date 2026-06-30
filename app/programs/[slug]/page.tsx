@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ProgramApplyClient from "@/app/programs/ProgramApplyClient";
 import KKProfilingForm from "@/app/programs/kk-profiling-form";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
@@ -17,16 +18,19 @@ type ProgramStatus = {
 };
 
 async function getProgramStatus(slug: string): Promise<ProgramStatus | null> {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-  const response = await fetch(new URL(`/api/programs/${slug}/status`, baseUrl).toString(), {
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`/api/programs/${slug}/status`, {
+      cache: "no-store",
+    });
 
-  if (!response.ok) {
+    if (!response.ok) {
+      return null;
+    }
+
+    return response.json();
+  } catch {
     return null;
   }
-
-  return response.json();
 }
 
 type ProgramPageData = {
@@ -262,12 +266,16 @@ export default async function ProgramPage({ params }: Props) {
 
             {slug !== "kk-profiling" && (
               <div className="flex flex-wrap gap-3">
-                <Link
-                  href="/signup"
-                  className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
-                >
-                  Apply for SKEAP →
-                </Link>
+                  {supabaseUser ? (
+                    <ProgramApplyClient slug={slug} requirements={data.requirements} />
+                  ) : (
+                    <Link
+                      href={`/signup?next=${encodeURIComponent(`/programs/${slug}?openApply=1`)}`}
+                      className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
+                    >
+                      Apply for SKEAP →
+                    </Link>
+                  )}
                 <Link
                   href="/chatbot"
                   className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
@@ -439,14 +447,31 @@ export default async function ProgramPage({ params }: Props) {
               <h3 className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Quick actions</h3>
               <div className="mt-4 space-y-3">
                 {data.cta.map((c) => (
-                  <Link
-                    key={c.href}
-                    href={c.href}
-                    className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-300 hover:bg-slate-100"
-                  >
-                    {c.label}
-                    <span className="text-slate-400">→</span>
-                  </Link>
+                  c.href === "/signup" ? (
+                    supabaseUser ? (
+                      <div key={c.href} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900">
+                        <ProgramApplyClient slug={slug} requirements={data.requirements} />
+                      </div>
+                    ) : (
+                      <Link
+                        key={c.href}
+                        href={`/signup?next=${encodeURIComponent(`/programs/${slug}?openApply=1`)}`}
+                        className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-300 hover:bg-slate-100"
+                      >
+                        {c.label}
+                        <span className="text-slate-400">→</span>
+                      </Link>
+                    )
+                  ) : (
+                    <Link
+                      key={c.href}
+                      href={c.href}
+                      className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-300 hover:bg-slate-100"
+                    >
+                      {c.label}
+                      <span className="text-slate-400">→</span>
+                    </Link>
+                  )
                 ))}
                 <Link
                   href="/"

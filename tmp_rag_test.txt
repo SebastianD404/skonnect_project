@@ -1,0 +1,43 @@
+﻿FILIPINO:
+{
+  response: 'Oo ΓÇö may 1 paparating na kaganapan:\n' +
+    '\n' +
+    '- Badminton ΓÇö 2026-07-01 @ BSU Covered Court (natitirang slots: 10)\n' +
+    '\n' +
+    'Pumunta sa SKonnect portal para magrehistro.',
+  chunksUsed: 5
+}
+
+ILOCANO:
+{
+  response: 'Wen ΓÇö adda 1 a sumaruno a pasamak:\n' +
+    '\n' +
+    '- Badminton ΓÇö 2026-07-01 @ BSU Covered Court (natengnga a slots: 10)\n' +
+    '\n' +
+    'Sumrek ka iti SKonnect portal tapno agparehistro.',
+  chunksUsed: 5
+}
+
+ILOCANO topic basketball (awan ti basketball?):
+node.exe : Topic existence lookup failed: TypeError: localizeNoEvents is not a 
+function
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\New User\AppData\Roami ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Topic existence... not a function 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    at runRagAnswer (C:\Users\New User\skonnect\lib\chatbot\rag.ts:73:26)
+    at process.processTicksAndRejections 
+(node:internal/process/task_queues:103:5)
+    at async [eval]:9:15
+{
+  response: 'Wen ΓÇö adda impormasyon maipanggep iti sumaruno a pasamak idiay SKonnect.\n' +
+    '\n' +
+    '- SK Pico holds approximately 7 to 10 events per year. The types of events regularly organized by the SK include: (1) Katipunan ng Kabataan ΓÇö a youth assembly and payout event where SKEAP scholarship...\n' +
+    '- Katipunan ng Kabataan: This is the primary youth assembly event organized by the SK of Barangay Pico. It serves as both a youth gathering and the payout event where active SKEAP grantees receive th...\n' +
+    '\n' +
+    'Para iti amin a detalye, sumaruno ka iti SKonnect portal wenno ibaga "lista dagiti pasamak".',
+  chunksUsed: 5
+}
