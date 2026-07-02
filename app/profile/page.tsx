@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 import { SettingsShell } from "@/app/components/SettingsShell";
 import { ProfileSettingsForm } from "./profile-settings-form";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
@@ -15,8 +16,13 @@ export default async function ProfilePage() {
     redirect("/login");
   }
 
-  const profile = await prisma.user.findUnique({
-    where: { authId: user.id },
+  const baseProfile = await ensureProfile(user);
+  if (!baseProfile) {
+    redirect("/login");
+  }
+
+  const appUser = await prisma.user.findUnique({
+    where: { id: baseProfile.id },
     select: {
       fullName: true,
       email: true,
@@ -31,12 +37,12 @@ export default async function ProfilePage() {
     },
   });
 
-  if (!profile) {
+  if (!appUser) {
     redirect("/login");
   }
 
   const needsGranteeProfile =
-    profile.role === "GRANTEE" && !isGranteeProfileComplete(profile.grantee);
+    appUser.role === "GRANTEE" && !isGranteeProfileComplete(appUser.grantee);
 
   return (
     <SettingsShell title="Profile settings" description="Edit your personal details and profile photo.">
@@ -49,12 +55,12 @@ export default async function ProfilePage() {
       </div>
 
       <ProfileSettingsForm
-        fullName={profile.fullName}
-        email={profile.email}
-        phoneNumber={profile.phoneNumber}
-        role={profile.role}
-        school={profile.grantee?.school ?? ""}
-        yearLevel={profile.grantee?.yearLevel ?? ""}
+        fullName={appUser.fullName}
+        email={appUser.email}
+        phoneNumber={appUser.phoneNumber}
+        role={appUser.role}
+        school={appUser.grantee?.school ?? ""}
+        yearLevel={appUser.grantee?.yearLevel ?? ""}
         needsGranteeProfile={needsGranteeProfile}
       />
     </SettingsShell>

@@ -1,7 +1,6 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
-  output          = "./node_modules/@prisma/client/.prisma/client"
 }
 
 datasource db {
@@ -38,6 +37,7 @@ enum SubmissionStatus {
   PENDING
   APPROVED
   REJECTED
+  RETURNED_FOR_EDIT
 }
 
 enum Language {
@@ -70,6 +70,7 @@ model User {
 
   barangay      String   @default("Pico")
   isActive      Boolean  @default(true)
+  hasSeenOnboarding Boolean @default(false)
 
   grantee                 Grantee?
   registrations           Registration[]
@@ -125,6 +126,7 @@ model Submission {
   status          SubmissionStatus @default(PENDING)
   reviewedById    String?
   reviewNotes     String?
+  flaggedFields   String[]         @default([])
 
   submittedAt     DateTime @default(now())
   reviewedAt       DateTime?
@@ -262,6 +264,7 @@ model AuditLog {
   targetId    String   // id of the affected row
   beforeData  Json?
   afterData   Json?
+  metadata    Json?
 
   createdAt   DateTime @default(now())
 

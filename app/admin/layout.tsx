@@ -19,7 +19,17 @@ export default async function AdminLayout({
     },
   };
 
-  const [upcomingEventCount, openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount] = await Promise.all([
+  const skeapReviewBaseWhere = {
+    subject: { contains: "SKEAP application", mode: "insensitive" as const },
+    NOT: [
+      { reviewStatus: { contains: "cancel", mode: "insensitive" as const } },
+      { reviewStatus: { contains: "approve", mode: "insensitive" as const } },
+      { response: { contains: "cancel", mode: "insensitive" as const } },
+      { response: { contains: "approve", mode: "insensitive" as const } },
+    ],
+  };
+
+  const [upcomingEventCount, openInquiryCount, pendingSkeapReviewCount, resubmittedSkeapReviewCount, pendingDocumentCount, profilingRegistrationCount] = await Promise.all([
     prisma.event.count({
       where: {
         status: {
@@ -32,19 +42,27 @@ export default async function AdminLayout({
     }),
     prisma.inquiry.count({
       where: {
-        subject: { contains: "SKEAP application", mode: "insensitive" },
-        NOT: {
-          reviewStatus: {
-            contains: "cancel",
-            mode: "insensitive",
-          },
-        },
+        ...skeapReviewBaseWhere,
+        OR: [
+          { reviewStatus: { contains: "pending", mode: "insensitive" as const } },
+          { response: { contains: "pending", mode: "insensitive" as const } },
+        ],
+      },
+    }),
+    prisma.inquiry.count({
+      where: {
+        ...skeapReviewBaseWhere,
+        OR: [
+          { reviewStatus: { contains: "resubm", mode: "insensitive" as const } },
+          { response: { contains: "resubm", mode: "insensitive" as const } },
+        ],
       },
     }),
     prisma.submission.count({ where: { status: "PENDING" } }),
     getProfilingRegistrationCount(),
   ]);
 
+  const skeapApplicationCount = pendingSkeapReviewCount + resubmittedSkeapReviewCount;
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#F8FBFF] text-slate-950">
       <div className="mx-auto flex h-full max-w-[1480px]">

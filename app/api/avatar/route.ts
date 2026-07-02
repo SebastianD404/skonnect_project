@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import { ensureProfile } from "@/lib/auth";
 
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+    const profile = await ensureProfile(user);
+    if (!profile) {
+      return NextResponse.json({ error: "User not found" }, { status: 401 });
+    }
 
     const form = await req.formData();
     const file = form.get("avatar");
@@ -68,7 +74,7 @@ export async function POST(req: Request) {
 
     // Store the storage path in DB
     try {
-      await prisma.user.update({ where: { authId: user.id }, data: { avatarUrl: path } });
+      await prisma.user.update({ where: { id: profile.id }, data: { avatarUrl: path } });
     } catch (e) {
       console.error("Prisma update avatarUrl failed:", e);
     }
@@ -94,14 +100,19 @@ export async function DELETE(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
+  const linkedUser = await ensureProfile(user);
+  if (!linkedUser) {
+    return NextResponse.json({ error: "User not found" }, { status: 401 });
+  }
+
   const profile = await prisma.user.findUnique({
-    where: { authId: user.id },
+    where: { id: linkedUser.id },
     select: { avatarUrl: true },
   });
 
   if (!profile || !profile.avatarUrl) {
     try {
-      await prisma.user.update({ where: { authId: user.id }, data: { avatarUrl: null } });
+      await prisma.user.update({ where: { id: linkedUser.id }, data: { avatarUrl: null } });
     } catch (e) {
       console.error("Prisma clear avatarUrl failed:", e);
     }
@@ -117,7 +128,7 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    await prisma.user.update({ where: { authId: user.id }, data: { avatarUrl: null } });
+    await prisma.user.update({ where: { id: linkedUser.id }, data: { avatarUrl: null } });
   } catch (e) {
     console.error("Prisma clear avatarUrl failed:", e);
   }

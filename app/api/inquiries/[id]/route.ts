@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 
 interface AttachedFileNote {
   fileId: string;
@@ -30,7 +31,7 @@ async function authorizeReviewUser() {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
-  const appUser = await prisma.user.findUnique({ where: { authId: user.id }, select: { role: true } });
+  const appUser = await ensureProfile(user);
   if (!appUser) {
     return { error: NextResponse.json({ error: "User not found" }, { status: 401 }) };
   }

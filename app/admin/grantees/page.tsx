@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import AdminGranteesPageClient from "../AdminGranteesPageClient";
 import type { GranteeTableRow } from "../grantees/GranteeStatusTable";
+import { ensureProfile } from "@/lib/auth";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -177,10 +178,7 @@ export default async function AdminGranteesPage() {
     redirect("/login");
   }
 
-  const appUser = await prisma.user.findUnique({
-    where: { authId: user.id },
-    select: { fullName: true, role: true, avatarUrl: true },
-  });
+  const appUser = await ensureProfile(user);
 
   if (!appUser) {
     redirect("/login");

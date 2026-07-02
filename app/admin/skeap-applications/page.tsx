@@ -72,13 +72,12 @@ function extractUrls(input: string) {
 }
 
 function isValidReviewThreadItem(item: unknown): item is ApplicationMessage {
+  if (typeof item !== "object" || item === null) return false;
+  const candidate = item as Record<string, unknown>;
   return (
-    typeof item === "object" &&
-    item !== null &&
-    (item as any).role &&
-    ((item as any).role === "admin" || (item as any).role === "applicant") &&
-    typeof (item as any).createdAt === "string" &&
-    typeof (item as any).text === "string"
+    (candidate.role === "admin" || candidate.role === "applicant") &&
+    typeof candidate.createdAt === "string" &&
+    typeof candidate.text === "string"
   );
 }
 
@@ -131,26 +130,41 @@ function mapInquiryToApplication(inquiry: {
 
   const responseText = inquiry.response?.trim();
   const status = (() => {
+    const resubmittedMatcher = /resubm|resubmit|resubmitted/i;
+    const returnedMatcher = /returned|correction|required|revise|revision/i;
+
     if (inquiry.reviewStatus) {
-      if (/returned|correction|required|resubmit|revise|revision/i.test(inquiry.reviewStatus)) {
+      if (resubmittedMatcher.test(inquiry.reviewStatus)) {
+        return "Resubmitted";
+      }
+      if (returnedMatcher.test(inquiry.reviewStatus)) {
         return "Returned";
       }
       if (/approve|approved/i.test(inquiry.reviewStatus)) {
         return "Approved";
       }
-      if (/rejected|ineligible/i.test(inquiry.reviewStatus)) {
+      if (/rejected/i.test(inquiry.reviewStatus)) {
+        return "Rejected";
+      }
+      if (/ineligible/i.test(inquiry.reviewStatus)) {
         return "Ineligible";
       }
       return inquiry.reviewStatus;
     }
     if (responseText) {
-      if (/returned|correction|required|resubmit|revise|revision/i.test(responseText)) {
+      if (resubmittedMatcher.test(responseText)) {
+        return "Resubmitted";
+      }
+      if (returnedMatcher.test(responseText)) {
         return "Returned";
       }
       if (/approve|approved/i.test(responseText)) {
         return "Approved";
       }
-      if (/rejected|ineligible/i.test(responseText)) {
+      if (/rejected/i.test(responseText)) {
+        return "Rejected";
+      }
+      if (/ineligible/i.test(responseText)) {
         return "Ineligible";
       }
       return inquiry.isResolved ? "Responded" : "Pending Review";
@@ -227,7 +241,7 @@ export default async function SkeapApplicationsPage() {
     const or: Array<Prisma.InquiryWhereInput> = patterns.flatMap((p) =>
       fields.map((field) => ({
         [field]: { contains: p, mode: Prisma.QueryMode.insensitive },
-      } as any))
+      } as Prisma.InquiryWhereInput))
     );
     return { OR: or };
   }
@@ -240,13 +254,19 @@ export default async function SkeapApplicationsPage() {
   const pendingCount = await prisma.inquiry.count({
     where: {
       ...queueBaseWhere,
-      AND: [statusOrWhere(["pending"], statusFields)],
+      AND: [statusOrWhere(["pending", "resubm"], statusFields)],
     },
   });
   const returnedCount = await prisma.inquiry.count({
     where: {
       ...queueBaseWhere,
-      AND: [statusOrWhere(["return", "correction", "resubm"], statusFields)],
+      AND: [statusOrWhere(["return", "correction"], statusFields)],
+    },
+  });
+  const resubmittedCount = await prisma.inquiry.count({
+    where: {
+      ...queueBaseWhere,
+      AND: [statusOrWhere(["resubm"], statusFields)],
     },
   });
   const approvedCount = await prisma.inquiry.count({
@@ -301,7 +321,12 @@ export default async function SkeapApplicationsPage() {
   return (
     <SkeapApplicationsClient
       applications={applications}
-      counts={{ pending: pendingCount, returned: returnedCount, approved: approvedCount }}
+      counts={{
+        pending: pendingCount,
+        returned: returnedCount,
+        resubmitted: resubmittedCount,
+        approved: approvedCount,
+      }}
     />
   );
 }

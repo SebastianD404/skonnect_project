@@ -210,7 +210,7 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                       </div>
                       <ul className="grid gap-2 text-sm text-slate-700 break-words">
                         {requirements.map((r, i) => (
-                          <li key={i} className="flex items-start gap-3">
+                          <li key={`${r}-${i}`} className="flex items-start gap-3">
                             <span className="mt-1 h-2 w-2 rounded-full bg-slate-900" />
                             <span>{r}</span>
                           </li>

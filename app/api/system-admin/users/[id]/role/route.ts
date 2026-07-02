@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -23,10 +24,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const actor = await prisma.user.findUnique({
-      where: { authId: user.id },
-      select: { id: true, role: true, fullName: true, email: true },
-    });
+    const actor = await ensureProfile(user);
 
     if (!actor || actor.role !== Role.SUPER_ADMIN) {
       return NextResponse.json(
@@ -37,6 +35,9 @@ export async function PATCH(
 
     const body = await request.json();
     const requestedRole = String(body?.role ?? "").trim() as Role;
+    const rawForwardedFor = request.headers.get("x-forwarded-for") || "";
+    const ipAddress = rawForwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
+    const userAgent = request.headers.get("user-agent") || "unknown";
 
     if (!ALLOWED_ROLES.includes(requestedRole)) {
       return NextResponse.json({ error: "Invalid role value." }, { status: 400 });
@@ -108,6 +109,15 @@ export async function PATCH(
             role: requestedRole,
             fullName: target.fullName,
             email: target.email,
+          },
+          metadata: {
+            targetUserId: target.id,
+            targetUserName: target.fullName,
+            targetUserEmail: target.email,
+            oldRole: target.role,
+            newRole: requestedRole,
+            ipAddress,
+            userAgent,
           },
         },
       });

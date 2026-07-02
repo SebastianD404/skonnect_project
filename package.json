@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:audit": "vitest run lib/audit/metadata.test.ts",
     "reconcile:users": "node scripts/reconcile-auth-users.js",
     "reconcile:users:apply": "node scripts/reconcile-auth-users.js --apply",
     "postinstall": "prisma generate"
@@ -16,6 +18,7 @@
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "dotenv": "^17.4.2",
+    "framer-motion": "^12.42.2",
     "lucide-react": "^1.21.0",
     "next": "16.2.9",
     "pg": "^8.22.0",
@@ -33,6 +36,7 @@
     "eslint-config-next": "16.2.9",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.9"
   }
 }

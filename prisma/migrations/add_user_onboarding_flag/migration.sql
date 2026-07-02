@@ -1,0 +1,2 @@
+ALTER TABLE "users"
+ADD COLUMN IF NOT EXISTS "hasSeenOnboarding" BOOLEAN NOT NULL DEFAULT false;

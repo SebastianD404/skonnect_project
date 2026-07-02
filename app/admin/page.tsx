@@ -2,6 +2,7 @@
 import { prisma, getProfilingRegistrationCount } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import AdminDashboardPageClient from "./AdminDashboardPageClient";
+import { ensureProfile } from "@/lib/auth";
 
 export default async function SKOfficialDashboardPage() {
   const now = new Date();
@@ -203,10 +204,7 @@ export default async function SKOfficialDashboardPage() {
     redirect("/login");
   }
 
-  const appUser = await prisma.user.findUnique({
-    where: { authId: user.id },
-    select: { fullName: true, role: true, avatarUrl: true },
-  });
+  const appUser = await ensureProfile(user);
 
   if (!appUser) {
     redirect("/login");

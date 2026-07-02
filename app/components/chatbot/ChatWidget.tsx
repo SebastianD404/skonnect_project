@@ -32,16 +32,14 @@ function computePanelPosition(params: {
   const { buttonX, buttonY, viewportWidth, viewportHeight } = params;
 
   const gap = 12;
-  const openLeft = buttonX - PANEL_WIDTH - gap;
-  const openRight = buttonX + BUTTON_SIZE + gap;
-  const shouldOpenLeft = openRight + PANEL_WIDTH > viewportWidth - VIEWPORT_MARGIN;
-
+  // Keep the panel visually attached to the widget by default.
+  const attachedLeft = buttonX + BUTTON_SIZE - PANEL_WIDTH;
   const openAbove = buttonY - PANEL_HEIGHT - gap;
   const openBelow = buttonY + BUTTON_SIZE + gap;
   const shouldOpenAbove = openBelow + PANEL_HEIGHT > viewportHeight - VIEWPORT_MARGIN;
 
   const left = clamp(
-    shouldOpenLeft ? openLeft : openRight,
+    attachedLeft,
     VIEWPORT_MARGIN,
     viewportWidth - PANEL_WIDTH - VIEWPORT_MARGIN
   );
@@ -57,11 +55,10 @@ function computePanelPosition(params: {
 
 export function ChatWidget() {
   const pathname = usePathname();
-  const forceDefaultPosition = pathname?.startsWith("/applications") ?? false;
   const [isOpen, setIsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  const { position, isDragging, hasHydrated, isDefaultPosition, dragHandlers, consumeDragged } = useDraggablePosition({
+  const { position, isDragging, hasHydrated, dragHandlers, consumeDragged } = useDraggablePosition({
     storageKey: "skonnect.chat.widget.position.v2",
     buttonSize: BUTTON_SIZE,
     viewportMargin: VIEWPORT_MARGIN,
@@ -69,6 +66,23 @@ export function ChatWidget() {
   });
 
   const { messages, error, isLoadingHistory, isSending, canSend, loadHistory, sendMessage, startNewConversation } = useChatSession();
+
+  const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const id = "skonnect-chat-portal";
+    let el = document.getElementById(id) as HTMLElement | null;
+    if (!el) {
+      el = document.createElement("div");
+      el.id = id;
+      document.body.appendChild(el);
+    }
+    setPortalEl(el);
+    return () => {
+      // keep the portal element for future navigations; do not remove it to avoid flicker
+      setPortalEl(null);
+    };
+  }, []);
 
   useEffect(() => {
     const onResize = () => {
@@ -111,23 +125,6 @@ export function ChatWidget() {
     return null;
   }
 
-  const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const id = "skonnect-chat-portal";
-    let el = document.getElementById(id) as HTMLElement | null;
-    if (!el) {
-      el = document.createElement("div");
-      el.id = id;
-      document.body.appendChild(el);
-    }
-    setPortalEl(el);
-    return () => {
-      // keep the portal element for future navigations; do not remove it to avoid flicker
-      setPortalEl(null);
-    };
-  }, []);
-
   const widget = (
     <>
       <button
@@ -139,48 +136,37 @@ export function ChatWidget() {
           }
           setIsOpen((prev) => !prev);
         }}
-        className={`fixed z-[9999] grid place-items-center rounded-full bg-[#0F3D5C] text-white shadow-xl ring-4 ring-white/70 transition ${
-          isDragging ? "cursor-grabbing scale-105" : "cursor-grab hover:bg-[#0D2E47]"
+        className={`fixed z-[9999] grid place-items-center rounded-full bg-[#0F3D5C] text-white shadow-xl ring-4 ring-white/70 ${
+          isDragging
+            ? "cursor-grabbing scale-105 transition-none"
+            : "cursor-grab transition-[left,top,transform,background-color] duration-200 ease-out hover:bg-[#0D2E47]"
         }`}
-        style={
-          hasHydrated && !isDefaultPosition && !forceDefaultPosition
-            ? {
-                left: `${position.x}px`,
-                top: `${position.y}px`,
-                width: `${BUTTON_SIZE}px`,
-                height: `${BUTTON_SIZE}px`,
-                touchAction: "none",
-              }
-            : {
-              right: "124px",
-              bottom: "124px",
-                width: `${BUTTON_SIZE}px`,
-                height: `${BUTTON_SIZE}px`,
-                touchAction: "none",
-              }
-        }
+        style={{
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          width: `${BUTTON_SIZE}px`,
+          height: `${BUTTON_SIZE}px`,
+          touchAction: "none",
+          visibility: hasHydrated ? "visible" : "hidden",
+        }}
         {...dragHandlers}
       >
         <MessageCircle className="h-6 w-6" />
       </button>
 
-      <div className="fixed inset-0 z-[9998] pointer-events-none" aria-hidden={!isOpen}>
-        <div className="pointer-events-auto">
-          <ChatPanel
-            isOpen={isOpen}
-            panelPosition={panelPosition}
-            isMobile={isMobile}
-            messages={messages}
-            isLoadingHistory={isLoadingHistory}
-            isSending={isSending}
-            error={error}
-            canSend={canSend}
-            onClose={() => setIsOpen(false)}
-            onSend={sendMessage}
-            onStartNewConversation={() => startNewConversation()}
-          />
-        </div>
-      </div>
+      <ChatPanel
+        isOpen={isOpen}
+        panelPosition={panelPosition}
+        isMobile={isMobile}
+        messages={messages}
+        isLoadingHistory={isLoadingHistory}
+        isSending={isSending}
+        error={error}
+        canSend={canSend}
+        onClose={() => setIsOpen(false)}
+        onSend={sendMessage}
+        onStartNewConversation={() => startNewConversation()}
+      />
     </>
   );
 

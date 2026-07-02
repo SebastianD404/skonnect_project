@@ -110,7 +110,7 @@ export function SettingsShell({ title, description, children }: SettingsShellPro
 				</div>
 
 				<div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-					<aside className="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900">
+					<aside className="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900">
 						<div className="flex items-center gap-3 rounded-[1.5rem] bg-slate-50 px-4 py-4 transition-colors dark:bg-slate-800/70">
 							<div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-base font-bold text-white shadow-sm">
 								{profileAvatar ? <img src={profileAvatar} alt={profileName} className="h-full w-full object-cover" /> : initials}

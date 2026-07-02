@@ -10,6 +10,9 @@ export default async function SystemAdminAuditPage() {
       action: true,
       targetTable: true,
       targetId: true,
+      beforeData: true,
+      afterData: true,
+      metadata: true,
       createdAt: true,
       actor: {
         select: {
@@ -42,6 +45,9 @@ export default async function SystemAdminAuditPage() {
           action: audit.action,
           targetTable: audit.targetTable,
           targetId: audit.targetId,
+          beforeData: audit.beforeData,
+          afterData: audit.afterData,
+          metadata: audit.metadata,
           createdAt: audit.createdAt.toISOString(),
           actorFullName: audit.actor.fullName,
           actorEmail: audit.actor.email,

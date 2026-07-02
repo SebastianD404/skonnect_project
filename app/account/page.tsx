@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { SettingsShell } from "@/app/components/SettingsShell";
 import { AccountPreferencesForm } from "./account-preferences-form";
+import { ensureProfile } from "@/lib/auth";
 
 export default async function AccountPage() {
   const supabase = await createClient();
@@ -12,19 +13,16 @@ export default async function AccountPage() {
     redirect("/login");
   }
 
-  const profile = await prisma.user.findUnique({
-    where: { authId: user.id },
-    select: {
-      fullName: true,
-      email: true,
-      role: true,
-      languagePref: true,
-    },
-  });
+  const profile = await ensureProfile(user);
 
   if (!profile) {
     redirect("/login");
   }
+
+  const account = await prisma.user.findUnique({
+    where: { id: profile.id },
+    select: { languagePref: true },
+  });
 
   return (
     <SettingsShell title="Account preferences" description="Choose how SKonnect looks and feels.">
@@ -40,7 +38,7 @@ export default async function AccountPage() {
         fullName={profile.fullName}
         email={profile.email}
         role={profile.role}
-        languagePref={profile.languagePref}
+        languagePref={account?.languagePref ?? "English"}
       />
     </SettingsShell>
   );

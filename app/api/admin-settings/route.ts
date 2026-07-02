@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { ensureProfile } from "@/lib/auth";
 
 const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
@@ -17,9 +18,10 @@ type AppUserWithSettings = {
   settings: { inquiryAlerts: boolean; submissionAlerts: boolean } | null;
 };
 
-async function getAppUser(authId: string | null): Promise<AppUserWithSettings | null> {
-  if (!authId) return null;
-  return prisma.user.findUnique({ where: { authId } }) as Promise<AppUserWithSettings | null>;
+async function getAppUser(authUser: any): Promise<AppUserWithSettings | null> {
+  const linkedUser = await ensureProfile(authUser);
+  if (!linkedUser) return null;
+  return prisma.user.findUnique({ where: { id: linkedUser.id } }) as Promise<AppUserWithSettings | null>;
 }
 
 export async function GET() {
@@ -32,7 +34,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const appUser = await getAppUser(user.id);
+  const appUser = await getAppUser(user);
   if (!appUser || (appUser.role !== Role.SK_OFFICIAL && appUser.role !== Role.SUPER_ADMIN)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const appUser = await getAppUser(user.id);
+  const appUser = await getAppUser(user);
   if (!appUser || (appUser.role !== Role.SK_OFFICIAL && appUser.role !== Role.SUPER_ADMIN)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -87,7 +89,7 @@ export async function POST(request: Request) {
 
   try {
     await prisma.user.update({
-      where: { authId: user.id },
+      where: { id: appUser.id },
       data: {
         fullName,
         email,

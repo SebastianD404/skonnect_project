@@ -1,6 +1,90 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse, NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const appUser = await ensureProfile(user);
+
+    if (!appUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (appUser.role !== "SK_OFFICIAL" && appUser.role !== "SUPER_ADMIN") {
+      return NextResponse.json(
+        { error: "Only SK officials can view event attendance" },
+        { status: 403 }
+      );
+    }
+
+    const event = await prisma.event.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        registrations: {
+          orderBy: {
+            registeredAt: "desc",
+          },
+          select: {
+            id: true,
+            registeredAt: true,
+            user: {
+              select: {
+                fullName: true,
+                email: true,
+                role: true,
+                phoneNumber: true,
+                barangay: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    const participants = event.registrations.map((registration) => ({
+      id: registration.id,
+      name: registration.user.fullName,
+      email: registration.user.email,
+      role: registration.user.role,
+      contact: registration.user.phoneNumber,
+      barangay: registration.user.barangay,
+      registeredAt: registration.registeredAt.toISOString(),
+    }));
+
+    return NextResponse.json({
+      eventId: event.id,
+      eventTitle: event.title,
+      participants,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Failed to fetch event attendance:", errorMessage, error);
+    return NextResponse.json(
+      { error: "Failed to fetch event attendance", details: errorMessage },
+      { status: 500 }
+    );
+  }
+}
 
 export async function POST(
   req: NextRequest,
@@ -17,17 +101,20 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const appUser = await prisma.user.findUnique({
-      where: { authId: user.id },
-      select: { id: true, role: true },
-    });
+    const appUser = await ensureProfile(user);
 
     if (!appUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    if (!["YOUTH", "GRANTEE"].includes(appUser.role)) {
-      return NextResponse.json({ error: "Only youth or grantee users can register for events" }, { status: 403 });
+    const allowedRoles = ["YOUTH", "GRANTEE"];
+    const userRole = appUser.role?.toUpperCase() || "";
+
+    if (!allowedRoles.includes(userRole)) {
+      return NextResponse.json(
+        { error: "Forbidden: Grantees and Youth accounts only are permitted to register for programs." },
+        { status: 403 }
+      );
     }
 
     const event = await prisma.event.findUnique({
@@ -92,10 +179,7 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const appUser = await prisma.user.findUnique({
-      where: { authId: user.id },
-      select: { id: true, role: true },
-    });
+    const appUser = await ensureProfile(user);
 
     if (!appUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -169,10 +253,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const appUser = await prisma.user.findUnique({
-      where: { authId: user.id },
-      select: { id: true, role: true },
-    });
+    const appUser = await ensureProfile(user);
 
     if (!appUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });

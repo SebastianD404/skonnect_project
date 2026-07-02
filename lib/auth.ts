@@ -38,7 +38,7 @@ export async function ensureProfile(authUser: any) {
 
   let profile = await prisma.user.findUnique({
     where: { authId },
-    select: { fullName: true, email: true, role: true, avatarUrl: true },
+    select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
   });
 
   if (!profile) {
@@ -51,7 +51,7 @@ export async function ensureProfile(authUser: any) {
       profile = await prisma.user.update({
         where: { id: existingByEmail.id },
         data: { authId },
-        select: { fullName: true, email: true, role: true, avatarUrl: true },
+        select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
       });
     } else {
       profile = await prisma.user.create({
@@ -61,7 +61,7 @@ export async function ensureProfile(authUser: any) {
           fullName: resolveFullName(authUser),
           role: "YOUTH",
         },
-        select: { fullName: true, email: true, role: true, avatarUrl: true },
+        select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
       });
     }
   }

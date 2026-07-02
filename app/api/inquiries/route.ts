@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const appUser = await prisma.user.findUnique({ where: { authId: user.id }, select: { id: true } });
+    const appUser = await ensureProfile(user);
     if (!appUser) {
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }

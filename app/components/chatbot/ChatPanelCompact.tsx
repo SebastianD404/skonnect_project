@@ -160,19 +160,11 @@ export function ChatPanelCompact({
       role="dialog"
       aria-modal="true"
       aria-label="SKonnect multilingual assistant"
-      className={
-        isMobile
-          ? `${baseClass} left-3 right-3 top-16 bottom-3 flex flex-col rounded-3xl`
-          : `${baseClass} flex h-[520px] w-[360px] flex-col`
-      }
-      style={
-        isMobile
-          ? undefined
-          : {
-              left: panelPosition.left,
-              top: panelPosition.top,
-            }
-      }
+      className={`${baseClass} flex h-[520px] w-[360px] max-w-[calc(100vw-24px)] flex-col`}
+      style={{
+        left: panelPosition.left,
+        top: panelPosition.top,
+      }}
     >
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <div>

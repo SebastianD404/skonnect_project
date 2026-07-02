@@ -163,7 +163,7 @@ export function ProfileSettingsForm({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+    <div className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
       <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]">Preview</p>
         <div className="mt-6 flex flex-col items-center gap-4 text-center">
@@ -242,7 +242,8 @@ export function ProfileSettingsForm({
                 type="tel"
                 value={draftPhoneNumber}
                 onChange={(event) => setDraftPhoneNumber(event.target.value)}
-                placeholder="Optional"
+                placeholder="Enter your phone number"
+                required
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
               />
             </div>

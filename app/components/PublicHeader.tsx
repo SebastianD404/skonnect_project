@@ -24,6 +24,15 @@ function getRoleHomePath(role?: SessionUser["role"]) {
   }
 }
 
+function shouldRedirectSignedInFromPath(pathname: string) {
+  if (pathname === "/") return true;
+  if (pathname.startsWith("/about")) return true;
+  if (pathname.startsWith("/events")) return true;
+  if (pathname.startsWith("/programs")) return true;
+  if (pathname.startsWith("/announcements")) return true;
+  return false;
+}
+
 function navLinkClass(activePath: string, href: string) {
   const base = "inline-flex items-center justify-center px-4 py-2 font-semibold rounded-lg transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C]/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
   return activePath === href
@@ -96,7 +105,7 @@ export function PublicHeader() {
         const user = data?.user || null;
         const destination = getRoleHomePath(user?.role);
 
-        if (destination) {
+        if (destination && shouldRedirectSignedInFromPath(pathname)) {
           router.replace(destination);
           return;
         }
@@ -111,7 +120,7 @@ export function PublicHeader() {
     }
 
     fetchSession();
-  }, [router]);
+  }, [router, pathname]);
 
   const activePath = pathname.startsWith("/programs")
     ? "/programs"

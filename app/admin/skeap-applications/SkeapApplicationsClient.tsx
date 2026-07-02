@@ -1,7 +1,8 @@
 ﻿"use client";
 
-import { useMemo, useState } from "react";
-import { ArrowUpRight, CheckCircle2, ClipboardList, Send, FileText, Image, X, Download } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle2, ClipboardList, Send, FileText, FolderOpen, X, Download } from "lucide-react";
+import RejectApplicationModal from "./RejectApplicationModal";
 
 interface DocumentItem {
   id: string;
@@ -43,18 +44,6 @@ interface ApplicationRecord {
   messages: ApplicationMessage[];
 }
 
-function isValidAttachedFileNote(note: unknown): note is AttachedFileNote {
-  return (
-    typeof note === "object" &&
-    note !== null &&
-    typeof (note as any).fileId === "string" &&
-    typeof (note as any).fileName === "string" &&
-    typeof (note as any).fileUrl === "string" &&
-    typeof (note as any).fileType === "string" &&
-    typeof (note as any).adminRemark === "string"
-  );
-}
-
 function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMessage[]) {
   if (doc.status === "Returned") return "Returned";
 
@@ -80,18 +69,22 @@ function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMes
 
 function normalizeApplicationStatus(status: string) {
   const normalized = (status || "").trim().toLowerCase();
-  if (/returned|correction|required|resubmit|revise|revision/.test(normalized)) return "Returned";
+  if (/resubm|resubmit|resubmitted/.test(normalized)) return "Resubmitted";
+  if (/returned|correction|required|revise|revision/.test(normalized)) return "Returned";
   if (/approve|approved/.test(normalized)) return "Approved";
-  if (/rejected|ineligible/.test(normalized)) return "Ineligible";
+  if (/rejected/.test(normalized)) return "Rejected";
+  if (/ineligible/.test(normalized)) return "Ineligible";
   if (/responded/.test(normalized)) return "Responded";
   return "Pending Review";
 }
 
 function statusFromReviewText(text: string) {
   const normalized = (text || "").trim();
-  if (/returned|correction|required|resubmit|revise|revision/i.test(normalized)) return "Returned";
+  if (/resubm|resubmit|resubmitted/i.test(normalized)) return "Resubmitted";
+  if (/returned|correction|required|revise|revision/i.test(normalized)) return "Returned";
   if (/approve|approved/i.test(normalized)) return "Approved";
-  if (/rejected|ineligible/i.test(normalized)) return "Ineligible";
+  if (/rejected/i.test(normalized)) return "Rejected";
+  if (/ineligible/i.test(normalized)) return "Ineligible";
   return null;
 }
 
@@ -167,34 +160,59 @@ export default function SkeapApplicationsClient({
   counts,
 }: {
   applications: ApplicationRecord[];
-  counts?: { pending: number; returned: number; approved: number };
+  counts?: { pending: number; returned: number; resubmitted?: number; approved: number };
 }) {
   const [applications, setApplications] = useState<ApplicationRecord[]>(initialApplications);
   const [selectedAppId, setSelectedAppId] = useState<string>(initialApplications[0]?.id ?? "");
+  const [viewFilter, setViewFilter] = useState<"review" | "returned" | "approved">("review");
   const [messageDraft, setMessageDraft] = useState("");
   const [attachedFileNotes, setAttachedFileNotes] = useState<AttachedFileNote[]>([]);
   const [showApprovePreview, setShowApprovePreview] = useState(false);
+  const [showApprovalWarning, setShowApprovalWarning] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [rejectError, setRejectError] = useState<string | null>(null);
   const [activeReviewFile, setActiveReviewFile] = useState<string | null>(null);
   const [reviewModalNote, setReviewModalNote] = useState("");
 
-  const visibleApplications = useMemo(
+  const displayedApplications = useMemo(
     () => applications.filter((app) => {
-      const s = normalizeApplicationStatus(app.status);
-      return s === "Pending Review" || s === "Returned";
+      const status = normalizeApplicationStatus(app.status);
+      if (viewFilter === "review") return status === "Pending Review" || status === "Resubmitted";
+      if (viewFilter === "returned") return status === "Returned";
+      if (viewFilter === "approved") return status === "Approved";
+      return true;
     }),
-    [applications]
+    [applications, viewFilter]
   );
 
   const selectedApplication =
-    applications.find((app) => app.id === selectedAppId) ?? visibleApplications[0] ?? applications[0];
+    displayedApplications.find((app) => app.id === selectedAppId) ?? displayedApplications[0] ?? null;
 
-  console.log("RAW WORKSPACE DATA:", applications.map((a) => ({ name: a.applicantName, status: a.status })));
+  const selectedStatus = normalizeApplicationStatus(selectedApplication?.status ?? "");
+  const isApproved = selectedStatus === "Approved";
+  const queueTitle =
+    viewFilter === "review"
+      ? "Open applications"
+      : viewFilter === "approved"
+      ? "Approved Archive"
+      : "Returned / Correction Queue";
 
   const stats = useMemo(() => {
-    if (counts) return counts;
+    if (counts) {
+      return {
+        pending: counts.pending,
+        returned: counts.returned,
+        resubmitted: counts.resubmitted ??
+          applications.filter((app) => normalizeApplicationStatus(app.status) === "Resubmitted").length,
+        approved: counts.approved,
+      };
+    }
     return {
       pending: applications.filter((app) => normalizeApplicationStatus(app.status) === "Pending Review").length,
       returned: applications.filter((app) => normalizeApplicationStatus(app.status) === "Returned").length,
+      resubmitted: applications.filter((app) => normalizeApplicationStatus(app.status) === "Resubmitted").length,
       approved: applications.filter((app) => normalizeApplicationStatus(app.status) === "Approved").length,
     };
   }, [applications, counts]);
@@ -203,6 +221,17 @@ export default function SkeapApplicationsClient({
     () => selectedApplication?.documents.filter((doc) => doc.verified).length ?? 0,
     [selectedApplication]
   );
+
+  const isFullyVerified = useMemo(
+    () => selectedApplication?.documents.every((doc) => doc.verified) ?? false,
+    [selectedApplication]
+  );
+
+  useEffect(() => {
+    if (!selectedAppId || !displayedApplications.some((app) => app.id === selectedAppId)) {
+      setSelectedAppId(displayedApplications[0]?.id ?? "");
+    }
+  }, [displayedApplications, selectedAppId]);
 
   function updateSelectedApplication(
     updater: (application: ApplicationRecord) => ApplicationRecord
@@ -284,6 +313,66 @@ export default function SkeapApplicationsClient({
     }
   }
 
+  async function rejectApplication(reason: string) {
+    if (!selectedApplication) throw new Error("No application selected");
+
+    const response = await fetch(`/api/inquiries/${selectedApplication.id}/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body?.error || "Failed to reject application");
+    }
+
+    return response.json();
+  }
+
+  async function handleConfirmReject() {
+    if (!selectedApplication || !rejectionReason.trim()) return;
+
+    setIsRejecting(true);
+    setRejectError(null);
+
+    try {
+      await rejectApplication(rejectionReason.trim());
+      updateSelectedApplication((application) => ({
+        ...application,
+        status: "REJECTED",
+        messages: [
+          {
+            id: `admin-reject-${Date.now()}`,
+            role: "admin",
+            createdAt: new Date().toISOString(),
+            text: `Application rejected: ${rejectionReason.trim()}`,
+          },
+          ...application.messages,
+        ],
+      }));
+      setSelectedAppId((currentSelectedId) => {
+        const nextOpenApplication = displayedApplications.find((app) => app.id !== currentSelectedId);
+        return nextOpenApplication?.id ?? currentSelectedId;
+      });
+      setShowRejectModal(false);
+      setRejectionReason("");
+    } catch (error) {
+      setRejectError(error instanceof Error ? error.message : "Unable to reject application.");
+      console.error(error);
+    } finally {
+      setIsRejecting(false);
+    }
+  }
+
+  function handleApproveClick() {
+    if (!isFullyVerified) {
+      setShowApprovalWarning(true);
+      return;
+    }
+    setShowApprovePreview(true);
+  }
+
   async function handleApprove() {
     if (!selectedApplication) return;
 
@@ -335,19 +424,59 @@ export default function SkeapApplicationsClient({
                   Select an application to inspect uploaded files, leave reviewer notes, and approve or return applicants.
                 </p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-700 shadow-sm">
-                  <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Pending</p>
-                  <p className="mt-3 text-2xl font-black text-slate-950">{stats.pending}</p>
-                </div>
-                <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900 shadow-sm">
-                  <p className="text-xs uppercase tracking-[0.35em] text-amber-500">Returned</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setViewFilter("review")}
+                  aria-pressed={viewFilter === "review"}
+                  className={`rounded-[1.5rem] border px-5 py-4 text-sm shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
+                    viewFilter === "review"
+                      ? "border-slate-900 bg-slate-100 text-slate-950 shadow-sm"
+                      : "bg-slate-50/60 border border-slate-200 text-slate-700 p-4 rounded-xl flex flex-col items-center justify-center text-center transition-all hover:border-slate-300 hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Pending</span>
+                  <p className="mt-3 text-2xl font-bold text-slate-950">{stats.pending}</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewFilter("review")}
+                  aria-pressed={viewFilter === "review"}
+                  className={`rounded-[1.5rem] border px-5 py-4 text-sm shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                    viewFilter === "review"
+                      ? "border-blue-400 bg-blue-100 text-blue-900 shadow-sm"
+                      : "bg-blue-50/40 border border-blue-200 text-blue-700 p-4 rounded-xl flex flex-col items-center justify-center text-center transition-all hover:border-blue-300 hover:bg-blue-100"
+                  }`}
+                >
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Resubmitted</span>
+                  <p className="mt-3 text-2xl font-bold text-slate-950">{stats.resubmitted}</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewFilter("returned")}
+                  aria-pressed={viewFilter === "returned"}
+                  className={`rounded-[1.5rem] border px-5 py-4 text-sm shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+                    viewFilter === "returned"
+                      ? "border-amber-700 bg-amber-100 text-amber-900"
+                      : "border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-300 hover:bg-amber-100"
+                  }`}
+                >
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">Returned</span>
                   <p className="mt-3 text-2xl font-black text-slate-950">{stats.returned}</p>
-                </div>
-                <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900 shadow-sm">
-                  <p className="text-xs uppercase tracking-[0.35em] text-emerald-500">Approved</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewFilter("approved")}
+                  aria-pressed={viewFilter === "approved"}
+                  className={`rounded-[1.5rem] border px-5 py-4 text-sm shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+                    viewFilter === "approved"
+                      ? "border-emerald-700 bg-emerald-100 text-emerald-900"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-300 hover:bg-emerald-100"
+                  }`}
+                >
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">Approved</span>
                   <p className="mt-3 text-2xl font-black text-slate-950">{stats.approved}</p>
-                </div>
+                </button>
               </div>
             </div>
           </header>
@@ -357,7 +486,7 @@ export default function SkeapApplicationsClient({
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Applicant queue</p>
-                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">Open applications</h2>
+                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">{queueTitle}</h2>
                 </div>
                 <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200">
                   <ClipboardList className="h-4 w-4" />
@@ -366,14 +495,23 @@ export default function SkeapApplicationsClient({
               </div>
 
               <div className="mt-6 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent hover:scrollbar-thumb-slate-300">
-                {visibleApplications.length === 0 ? (
+                {displayedApplications.length === 0 ? (
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12">
-                    <ClipboardList className="h-10 w-10 text-slate-400" />
-                    <p className="text-sm font-semibold text-slate-700">No open applications</p>
-                    <p className="text-xs text-slate-500">There are no pending or returned applications to review.</p>
+                    <FolderOpen className="mb-3 h-12 w-12 stroke-[1.5] text-slate-300" />
+                    <p className="text-sm font-semibold text-slate-700">No applications found</p>
+                    <div className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      <span>
+                        {viewFilter === "review"
+                          ? "There are no pending or resubmitted applications in the review queue."
+                          : viewFilter === "returned"
+                          ? "There are no returned applications available right now."
+                          : "There are no approved applications in the archive."}
+                      </span>
+                    </div>
                   </div>
                 ) : (
-                  visibleApplications.map((application) => (
+                  displayedApplications.map((application) => (
                     <button
                       key={application.id}
                       type="button"
@@ -396,9 +534,15 @@ export default function SkeapApplicationsClient({
                         <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.35em] ${
                           normalizeApplicationStatus(application.status) === "Returned"
                             ? "bg-amber-50 text-amber-700 border border-amber-200"
+                            : normalizeApplicationStatus(application.status) === "Resubmitted"
+                            ? "bg-blue-50 text-blue-700 border border-blue-200"
                             : "bg-slate-100 text-slate-600"
                         }`}>
-                          {normalizeApplicationStatus(application.status) === "Returned" ? "Returned" : application.status}
+                          {normalizeApplicationStatus(application.status) === "Returned"
+                            ? "Returned"
+                            : normalizeApplicationStatus(application.status) === "Resubmitted"
+                            ? "Resubmitted"
+                            : application.status}
                         </span>
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-500">
@@ -412,56 +556,93 @@ export default function SkeapApplicationsClient({
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Application details</p>
-                    <h2 className="mt-3 text-2xl font-semibold text-slate-950">{selectedApplication?.applicantName ?? "No applicant selected"}</h2>
-                    <p className="mt-2 text-sm text-slate-600">{selectedApplication?.applicantEmail ?? ""}</p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
+              {selectedApplication ? (
+                <>
+                  <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Application details</p>
+                        <h2 className="mt-3 text-2xl font-semibold text-slate-950">{selectedApplication.applicantName}</h2>
+                        <p className="mt-2 text-sm text-slate-600">{selectedApplication.applicantEmail}</p>
+                      </div>
+                    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 min-w-0">
                     <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                    <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Status</p>
-                    <p className="mt-2 text-sm font-semibold">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${
-                          selectedApplication?.status === "Returned"
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">STATUS</span>
+                        <span className={`inline-flex w-fit max-w-full truncate whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          selectedStatus === "Returned"
                             ? "bg-amber-50 text-amber-700 border border-amber-200"
-                            : selectedApplication?.status === "Approved"
+                            : selectedStatus === "Resubmitted"
+                            ? "bg-blue-50 text-blue-700 border border-blue-200"
+                            : selectedStatus === "Approved"
                             ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                            : selectedApplication?.status === "Ineligible"
+                            : selectedStatus === "Rejected"
+                            ? "bg-rose-50 text-rose-700 border border-rose-200"
+                            : selectedStatus === "Ineligible"
                             ? "bg-rose-50 text-rose-700 border border-rose-200"
                             : "bg-slate-100 text-slate-700 border border-slate-200"
-                        }`}
-                      >
-                        {selectedApplication?.status === "Returned" ? "Correction Required" : selectedApplication?.status}
-                      </span>
-                    </p>
-                  </div>
-                    <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Submitted</p>
-                      <p className="mt-2 font-semibold text-slate-950">{formatDate(selectedApplication?.submittedAt ?? "")}</p>
+                        }`}>
+                          {selectedStatus === "Returned"
+                            ? "Correction Required"
+                            : selectedStatus === "Resubmitted"
+                            ? "Resubmitted"
+                            : selectedStatus}
+                        </span>
+                      </div>
                     </div>
                     <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Verified docs</p>
-                      <p className="mt-2 font-semibold text-slate-950">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">SUBMITTED</span>
+                      <p className="mt-2 font-semibold text-slate-950 truncate">{formatDate(selectedApplication?.submittedAt ?? "")}</p>
+                    </div>
+                    <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">VERIFIED DOCS</span>
+                      <p className="mt-2 font-semibold text-slate-950 truncate">
                         {verifiedCount}/{selectedApplication?.documents.length ?? 0}
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setShowApprovePreview(true)}
-                    className="flex w-full items-center justify-center gap-2 rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    Approve Application
-                  </button>
-                </div>
-              </div>
+                {isApproved ? (
+                  <div className="w-full space-y-3">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-normal text-slate-600">
+                      <div className="mb-2 flex items-center gap-2 font-semibold text-slate-700">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        <span>Application Approved:</span>
+                      </div>
+                      All {verifiedCount}/{selectedApplication?.documents.length ?? 0} mandatory documents have been cross-verified. To finalize onboarding, this user's account permissions must be provisioned.
+                    </div>
+                    <a
+                      href={`/admin/grantees?search=${encodeURIComponent(selectedApplication?.applicantEmail ?? "")}`}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-2xs hover:bg-indigo-700"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Promote Account to Grantee Role
+                    </a>
+                  </div>
+                ) : (
+                  <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={handleApproveClick}
+                      className="flex w-full items-center justify-center gap-2 rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Approve Application
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRejectError(null);
+                        setShowRejectModal(true);
+                      }}
+                      className="flex w-full items-center justify-center rounded-lg border border-rose-200 bg-white px-4 py-2.5 text-xs font-bold text-rose-600 transition-all hover:bg-rose-50"
+                    >
+                      Reject Application
+                    </button>
+                  </div>
+                )}
 
               <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center justify-between gap-4">
@@ -478,7 +659,7 @@ export default function SkeapApplicationsClient({
                   <div className="divide-y divide-slate-200 bg-white">
                     {(selectedApplication?.documents || []).map((doc) => (
                       <div key={doc.id} className="w-full">
-                        <div className="flex items-center gap-4 px-6 py-4 transition hover:bg-slate-50">
+                        <div className={`flex items-center gap-4 px-6 py-4 transition ${isApproved ? "" : "hover:bg-slate-50"}`}>
                           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
                             {doc.isImage ? (
                               <img
@@ -506,36 +687,46 @@ export default function SkeapApplicationsClient({
                             >
                               <Download className="h-4 w-4" />
                             </a>
-                            <span
-                              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                                getDocumentReviewStatus(doc, selectedApplication?.messages ?? []) === "Returned"
-                                  ? "bg-red-50 text-red-600 border border-red-100"
-                                  : doc.verified
-                                  ? "bg-emerald-100 text-emerald-700 border border-emerald-100"
-                                  : "bg-slate-100 text-slate-600 border border-slate-200"
-                              }`}
-                            >
-                              {getDocumentReviewStatus(doc, selectedApplication?.messages ?? [])}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setActiveReviewFile(doc.id)}
-                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-700 transition hover:bg-slate-200"
-                            >
-                              Review
-                            </button>
+                            {(() => {
+                              const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
+                              const isResubmittedDoc = selectedStatus === "Resubmitted" && docStatus === "Returned";
+                              const badgeClass = isResubmittedDoc
+                                ? "bg-sky-50 text-sky-700 border border-sky-200"
+                                : docStatus === "Returned"
+                                ? "bg-red-50 text-red-600 border border-red-100"
+                                : doc.verified
+                                ? "bg-emerald-100 text-emerald-700 border border-emerald-100"
+                                : "bg-slate-100 text-slate-600 border border-slate-200";
+                              const statusText = isResubmittedDoc ? "Resubmitted" : docStatus;
+
+                              return (
+                                <>
+                                  <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                                    {statusText}
+                                  </span>
+                                  {!isApproved && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveReviewFile(doc.id)}
+                                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-700 transition hover:bg-slate-200"
+                                    >
+                                      Review
+                                    </button>
+                                  )}
+                                  {!isResubmittedDoc && docStatus === "Returned" ? (
+                                    <div className="ml-20 rounded-r-lg border-l-2 border-red-400 bg-slate-50/70 p-2.5 text-xs text-slate-600">
+                                      <div className="flex items-center gap-2 font-semibold text-red-600">
+                                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
+                                        Reviewer Note:
+                                      </div>
+                                      <p className="mt-1 leading-5">{getDocumentInlineRemark(doc, selectedApplication?.messages ?? [])}</p>
+                                    </div>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
-
-                        {getDocumentReviewStatus(doc, selectedApplication?.messages ?? []) === "Returned" ? (
-                          <div className="ml-20 rounded-r-lg border-l-2 border-red-400 bg-slate-50/70 p-2.5 text-xs text-slate-600">
-                            <div className="flex items-center gap-2 font-semibold text-red-600">
-                              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
-                              Reviewer Note:
-                            </div>
-                            <p className="mt-1 leading-5">{getDocumentInlineRemark(doc, selectedApplication?.messages ?? [])}</p>
-                          </div>
-                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -688,27 +879,46 @@ export default function SkeapApplicationsClient({
                   </div>
                 )}
 
-                <div className="mt-6">
-                  <label className="block text-sm font-semibold text-slate-900">Write a note to the applicant</label>
-                  <textarea
-                    value={messageDraft}
-                    onChange={(event) => setMessageDraft(event.target.value)}
-                    rows={4}
-                    placeholder="Explain what is missing or how to improve the upload."
-                    className="mt-3 w-full rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSendMessage}
-                    disabled={!messageDraft.trim() && attachedFileNotes.length === 0}
-                    className="mt-4 inline-flex items-center gap-2 rounded-3xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Send className="h-4 w-4" />
-                    Send message
-                  </button>
-                </div>
+                {isApproved ? (
+                  <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    Thread locked — application finalized.
+                  </div>
+                ) : (
+                  <div className="mt-6">
+                    <label className="block text-sm font-semibold text-slate-900">Write a note to the applicant</label>
+                    <textarea
+                      value={messageDraft}
+                      onChange={(event) => setMessageDraft(event.target.value)}
+                      rows={4}
+                      placeholder="Explain what is missing or how to improve the upload."
+                      className="mt-3 w-full rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSendMessage}
+                      disabled={!messageDraft.trim() && attachedFileNotes.length === 0}
+                      className="mt-4 inline-flex items-center gap-2 rounded-3xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Send className="h-4 w-4" />
+                      Send message
+                    </button>
+                  </div>
+                )}
               </div>
+            </>
+          ) : (
+            <div className="min-h-[400px] flex flex-col items-center justify-center rounded-[2rem] border border-dashed border-slate-200 bg-white p-12 text-center">
+              <FolderOpen className="mb-3 h-12 w-12 stroke-[1.5] text-slate-300" />
+              <h3 className="mt-4 text-xl font-semibold text-slate-900">All caught up!</h3>
+              <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                {viewFilter === "review"
+                  ? "All open applications have been processed. Select a row on the left to view details, or choose Returned / Approved above to browse archives."
+                  : "Select a profile row from the archive list on the left to review its locked data history."
+                }
+              </p>
             </div>
+          )}
+              </div>
           </section>
         </main>
       </div>
@@ -874,6 +1084,66 @@ export default function SkeapApplicationsClient({
               </div>
             </div>
           )}
+        </div>
+      ) : null}
+
+      {showRejectModal ? (
+        <RejectApplicationModal
+          applicantName={selectedApplication?.applicantName ?? "Applicant"}
+          rejectionReason={rejectionReason}
+          onReasonChange={setRejectionReason}
+          onClose={() => {
+            setShowRejectModal(false);
+            setRejectionReason("");
+            setRejectError(null);
+          }}
+          onConfirm={handleConfirmReject}
+          submitting={isRejecting}
+          error={rejectError}
+        />
+      ) : null}
+
+      {showApprovalWarning ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-200">
+            <div className="bg-slate-950/5 px-6 py-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-200 via-amber-100 to-slate-50 text-amber-700 shadow-inner">
+                  <AlertTriangle className="h-7 w-7" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Action blocked</p>
+                  <h3 className="mt-2 text-xl font-semibold text-slate-950">Incomplete file verification</h3>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-6">
+              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                <p className="text-sm leading-7 text-slate-700">
+                  Approval is temporarily disabled because some documents are still pending verification. All files must be reviewed and marked <span className="font-semibold text-slate-950">Verified</span> before final approval can be completed.
+                </p>
+                <p className="mt-4 text-sm text-slate-500">
+                  This helps keep the application process consistent and ensures every required document has been confirmed by the review team.
+                </p>
+              </div>
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowApprovalWarning(false)}
+                  className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  Review files
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowApprovalWarning(false)}
+                  className="inline-flex items-center justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  Close alert
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
 

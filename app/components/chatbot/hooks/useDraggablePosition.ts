@@ -11,6 +11,8 @@ type Options = {
   topBoundary: number;
 };
 
+const SNAP_THRESHOLD = 28;
+
 function getDefaultPosition(buttonSize: number, viewportMargin: number, topBoundary: number): Position {
   if (typeof window === "undefined") {
     return { x: 0, y: 0 };
@@ -46,6 +48,44 @@ function clampToViewport(params: {
   return {
     x: clamp(position.x, minX, Math.max(minX, maxX)),
     y: clamp(position.y, minY, Math.max(minY, maxY)),
+  };
+}
+
+function snapToViewportBoundary(params: {
+  position: Position;
+  buttonSize: number;
+  viewportMargin: number;
+  topBoundary: number;
+}) {
+  const { position, buttonSize, viewportMargin, topBoundary } = params;
+
+  if (typeof window === "undefined") {
+    return position;
+  }
+
+  const minX = viewportMargin;
+  const maxX = Math.max(minX, window.innerWidth - buttonSize - viewportMargin);
+  const minY = topBoundary;
+  const maxY = Math.max(minY, window.innerHeight - buttonSize - viewportMargin);
+
+  const clamped = clampToViewport({
+    position,
+    buttonSize,
+    viewportMargin,
+    topBoundary,
+  });
+
+  const distLeft = Math.abs(clamped.x - minX);
+  const distRight = Math.abs(maxX - clamped.x);
+  const distTop = Math.abs(clamped.y - minY);
+  const distBottom = Math.abs(maxY - clamped.y);
+
+  const snapX = Math.min(distLeft, distRight) <= SNAP_THRESHOLD;
+  const snapY = Math.min(distTop, distBottom) <= SNAP_THRESHOLD;
+
+  return {
+    x: snapX ? (distLeft <= distRight ? minX : maxX) : clamped.x,
+    y: snapY ? (distTop <= distBottom ? minY : maxY) : clamped.y,
   };
 }
 
@@ -282,6 +322,8 @@ export function useDraggablePosition(options: Options) {
           return;
         }
 
+        const didMove = pointerStateRef.current.moved;
+
         pointerStateRef.current.pointerId = null;
         setIsDragging(false);
         try {
@@ -290,8 +332,16 @@ export function useDraggablePosition(options: Options) {
           // no-op
         }
         // If the pointer session moved the widget, ensure we persist that the user moved it
-        if (pointerStateRef.current.moved) {
+        if (didMove) {
           userMovedRef.current = true;
+          setPosition((prev) =>
+            snapToViewportBoundary({
+              position: prev,
+              buttonSize,
+              viewportMargin,
+              topBoundary,
+            })
+          );
         }
       },
       onPointerCancel: (event: React.PointerEvent<HTMLButtonElement>) => {

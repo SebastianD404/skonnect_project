@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, createProfilingRegistration } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 
 export async function POST(req: Request) {
   try {
@@ -44,10 +45,7 @@ export async function POST(req: Request) {
 
     let userId: string | undefined;
     if (user) {
-      const appUser = await prisma.user.findUnique({
-        where: { authId: user.id },
-        select: { id: true },
-      });
+      const appUser = await ensureProfile(user);
       if (appUser) {
         userId = appUser.id;
       }

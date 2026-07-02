@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download, FileText, Image, Upload, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, FileText, Upload, X } from "lucide-react";
 
 type ReviewAttachment = {
   fileId: string;
@@ -84,6 +84,13 @@ function stripDatabasePrefix(filename: string) {
   return filename.replace(/^\d+-/, "");
 }
 
+function getCleanFilename(rawName: string) {
+  if (!rawName) return "";
+  let cleanName = rawName.replace(/^\d{10,14}-/, "");
+  cleanName = cleanName.replace(/\s*\(\d+\)\s*/g, " ").trim();
+  return cleanName;
+}
+
 function normalizeDocumentLabel(raw: string) {
   const label = raw.trim();
   const keyword = label.toLowerCase();
@@ -111,9 +118,34 @@ function isCorrectionNote(text: string) {
   return /correction|required|missing|incorrect|resubmit|return(ed)?/i.test(text);
 }
 
+type AttachmentPreview = {
+  url: string;
+  cleanName: string;
+  isImage: boolean;
+};
+
+function getFileMetadata(url: string) {
+  try {
+    const decodedUrl = decodeURIComponent(url);
+    let fileNameWithTokens = decodedUrl.substring(decodedUrl.lastIndexOf("/") + 1);
+    fileNameWithTokens = fileNameWithTokens.split("?")[0].split("#")[0];
+    const cleanName = fileNameWithTokens.replace(/^\d+-/, "") || "Attachment File";
+    const isImage = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanName);
+    return { cleanName, isImage };
+  } catch {
+    return { cleanName: "Attachment File", isImage: false };
+  }
+}
+
 function createFileLabel(url: string, index: number) {
   const filename = getFilenameFromUrl(url);
   return normalizeDocumentLabel(filename) || `Document ${index + 1}`;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function getFileActionHint(reviewThread: ReviewMessage[], file: SubmittedFile) {
@@ -190,7 +222,61 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   }, [stagedReplacements]);
 
   const reviewStatusLabel = application.reviewStatus || "Pending review";
-  const hasActionRequired = activeCorrections.length > 0;
+  const normalizedStatus = reviewStatusLabel.toUpperCase();
+  const isApproved = normalizedStatus === "APPROVED";
+  const isResubmitted = normalizedStatus === "RESUBMITTED";
+  const isRejected = normalizedStatus === "REJECTED";
+  const hasStagedChanges = stagedReplacements.length > 0;
+  const pendingReplacements = stagedReplacements.length;
+  const latestRejectionNote = useMemo(() => {
+    return application.reviewThread
+      .filter((message) => message.role === "admin" && /rejected/i.test(message.text))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.text;
+  }, [application.reviewThread]);
+  const hasActionRequired = !isRejected && activeCorrections.length > 0 && !isResubmitted;
+  const currentDisplayStatus = isRejected
+    ? "REJECTED"
+    : isResubmitted
+    ? "RESUBMITTED"
+    : isApproved
+    ? "APPROVED"
+    : hasStagedChanges
+    ? "READY TO RESUBMIT"
+    : reviewStatusLabel;
+  const statusBadgeClass = isRejected
+    ? "bg-rose-50 text-rose-700 border border-rose-200"
+    : isApproved
+    ? "bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold"
+    : isResubmitted
+    ? "bg-emerald-100 text-emerald-700"
+    : hasStagedChanges
+    ? "bg-emerald-100 text-emerald-700"
+    : reviewStatusLabel.toLowerCase() === "returned"
+    ? "bg-rose-100 text-rose-700"
+    : "bg-slate-100 text-slate-700";
+  const headerBadgeClass = isApproved
+    ? "bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold"
+    : "bg-slate-100 text-slate-700";
+  const bannerBgClass = isRejected
+    ? "bg-rose-50 text-rose-900 border border-rose-200"
+    : isResubmitted
+    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+    : hasStagedChanges
+    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+    : "bg-rose-50 text-rose-700 border-rose-100";
+  const bannerMessage = isRejected
+    ? "This application has been rejected and is now closed. No further updates are possible."
+    : isResubmitted
+    ? "Your updated application packet has been delivered to the review team. No further action is required at this time."
+    : hasStagedChanges
+    ? "All flagged files have been successfully replaced. Review your submission details below."
+    : "Fix the flagged files below and resubmit your application.";
+  const headerSubtext = isRejected
+    ? "Your application process has been finalized. Review the administrative decision details below."
+    : "Review feedback is shown first so you can resolve corrections immediately.";
+  const isEditLocked = isResubmitted || isRejected;
+  const disableResubmit = isResubmitted || isRejected || pendingReplacements === 0 || submitting;
+  const disableDelete = isResubmitted || isRejected || submitting;
   const updateCount = application.reviewThread.length;
   const fileCount = submittedFiles.length;
   const resubmittedAtText = application.resubmittedAt ? new Date(application.resubmittedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "numeric" }) : null;
@@ -214,16 +300,6 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
       ...current.filter((replacement) => replacement.originalUrl !== originalUrl),
       { originalUrl, file, previewUrl, status: "pending" },
     ]);
-  };
-
-  const handleCancelReplacement = (originalUrl: string) => {
-    setStagedReplacements((current) => {
-      const next = current.filter((replacement) => replacement.originalUrl !== originalUrl);
-      const removed = current.find((replacement) => replacement.originalUrl === originalUrl);
-      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-      return next;
-    });
-    setError(null);
   };
 
   const handleChooseFile = (originalUrl: string) => {
@@ -311,7 +387,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
       router.push("/");
       try {
         router.refresh();
-      } catch (e) {
+      } catch {
         // ignore refresh errors
       }
     } catch (err) {
@@ -322,15 +398,64 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     }
   }
 
-  const pendingReplacements = stagedReplacements.length;
-  const applicationHighlights = hasActionRequired ? "Correction required" : application.reviewStatus;
+  const activityEvents = useMemo(
+    () =>
+      application.reviewThread.map((message) => {
+        const date = new Date(message.createdAt).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+        const isSystemNote =
+          message.role === "applicant" &&
+          !message.attachments?.length &&
+          /resubmitted|uploaded|submitted|replacement/i.test(message.text);
+
+        const inlineUrls = extractUrls(message.text || "");
+        const attachmentPreviews: AttachmentPreview[] = (message.attachments ?? [])
+          .map((attachment) => {
+            const url = attachment.fileUrl || "";
+            const { cleanName, isImage } = getFileMetadata(url || attachment.fileName || "");
+            return {
+              url,
+              cleanName: attachment.fileName || cleanName,
+              isImage,
+            };
+          })
+          .filter((attachment) => attachment.url);
+
+        const inlineAttachmentPreviews = inlineUrls.map((url) => {
+          const { cleanName, isImage } = getFileMetadata(url);
+          return { url, cleanName, isImage };
+        });
+
+        const content = inlineUrls.length
+          ? message.text
+              .split("\n")
+              .filter((line) => !extractUrls(line).length)
+              .join(" ")
+              .trim() || message.text.trim()
+          : message.text.trim();
+
+        return {
+          id: message.id,
+          type: isSystemNote ? "system" : message.role === "admin" ? "reviewer" : "applicant",
+          actor: isSystemNote ? "SYSTEM" : message.role === "admin" ? "SK REVIEW TEAM" : "APPLICANT",
+          date,
+          content,
+          attachments: attachmentPreviews.length > 0 ? attachmentPreviews : inlineAttachmentPreviews,
+        };
+      }),
+    [application.reviewThread]
+  );
+  const applicationHighlights = isResubmitted ? "RESUBMITTED" : hasActionRequired ? "Correction required" : application.reviewStatus;
 
   return (
     <div className="space-y-6 pb-32">
       <div className="rounded-3xl border border-slate-100 bg-slate-950/5 p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-4">
-            <Link href="/programs" className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-slate-950">
+            <Link href="/#programs" className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-slate-950">
               <span className="text-lg">←</span>
               Return to programs
             </Link>
@@ -338,12 +463,12 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
               <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Application review</p>
               <h1 className="mt-3 text-3xl font-semibold text-slate-950">Application status</h1>
               <p className="mt-3 max-w-2xl text-sm text-slate-600">
-                Review feedback is shown first so you can resolve corrections immediately.
+                {headerSubtext}
               </p>
             </div>
           </div>
           <div className="space-y-2 text-right">
-            <span className="inline-flex rounded-full bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-700">
+            <span className={`inline-flex rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] ${headerBadgeClass}`}>
               {applicationHighlights}
             </span>
             <p className="text-sm text-slate-500">
@@ -355,6 +480,48 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           </div>
         </div>
       </div>
+
+      {isApproved ? (
+        <div className="mb-6 p-6 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-start gap-4 shadow-xs">
+          <div className="p-3 bg-emerald-500 text-white rounded-lg text-lg shadow-sm">
+            <CheckCircle2 className="h-6 w-6" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-emerald-900 tracking-tight">
+              Congratulations! Your application has been approved.
+            </h3>
+            <p className="text-xs text-emerald-800 font-medium mt-1 leading-relaxed">
+              You are officially selected as a program grantee!
+            </p>
+            <div className="mt-3 p-3 bg-white/80 border border-emerald-100 rounded-lg text-xs text-slate-600 space-y-1.5">
+              <p className="font-bold text-slate-700">What happens next?</p>
+              <p>
+                Our system administrators are currently configuring your portal environment. Once they manually transition your account permissions to a <strong>Grantee Profile</strong>, your main dashboard will automatically update.
+              </p>
+              <p className="text-slate-400 text-[11px] italic">
+                No further actions or document resubmissions are required from your end right now.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isRejected ? (
+        <div className="mb-6 p-5 bg-rose-50/50 border border-rose-200 rounded-xl flex items-start gap-4">
+          <div className="p-2 bg-rose-100 text-rose-600 rounded-lg">
+            <AlertCircle className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-rose-900">Application Rejection Notice</h3>
+            <p className="text-xs text-rose-700 font-semibold mt-1">
+              Reason: {latestRejectionNote || "Does not meet eligibility criteria."}
+            </p>
+            <p className="text-xs text-slate-400 mt-2">
+              If you believe this was an error, please contact the SK Review administration directly.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
         <div className="space-y-6">
@@ -375,67 +542,53 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                   No reviewer comments have been posted yet.
                 </div>
               ) : (
-                application.reviewThread.map((message) => {
-                  const urls = extractUrls(message.text);
-                  const trimmed = urls.reduce((text, url) => text.replace(url, ""), message.text).trim();
-                  return (
-                    <div key={message.id} className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="space-y-1">
-                          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-                            {message.role === "admin" ? "SK review team" : "Applicant"}
-                          </p>
-                          <p className="text-sm text-slate-700">{new Date(message.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
-                        </div>
-                        {isCorrectionNote(message.text) ? (
-                          <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-rose-700">
-                            Correction requested
+                <div className="space-y-4">
+                  {activityEvents.map((event) => (
+                    <div key={event.id} className="relative pl-6">
+                      <div className={`absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full ${event.type === "system" ? "bg-indigo-500" : "bg-slate-400"} ring-4 ring-white`} />
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className={`font-semibold tracking-tight ${event.type === "system" ? "text-slate-500" : "text-slate-700"}`}>
+                            {event.actor}
                           </span>
+                          <span className="text-slate-400">{event.date}</span>
+                        </div>
+                        <p className={`text-sm leading-6 ${event.type === "system" ? "text-slate-600" : "text-slate-700"}`}>
+                          {event.content}
+                        </p>
+                        {event.attachments.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-3 w-full">
+                            {event.attachments.map((attachment) => (
+                              <a
+                                key={attachment.url}
+                                href={attachment.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`group ${attachment.isImage ? "relative w-16 h-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm transition-all hover:border-indigo-400" : "inline-flex max-w-xs items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-100"}`}
+                                title={attachment.cleanName}
+                              >
+                                {attachment.isImage ? (
+                                  <img
+                                    src={attachment.url}
+                                    alt={attachment.cleanName}
+                                    className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                                  />
+                                ) : (
+                                  <>
+                                    <span className="text-slate-400 flex-shrink-0">
+                                      <FileText className="h-4 w-4" />
+                                    </span>
+                                    <span className="truncate">{attachment.cleanName}</span>
+                                  </>
+                                )}
+                              </a>
+                            ))}
+                          </div>
                         ) : null}
                       </div>
-                      {trimmed ? <p className="mt-4 text-sm leading-7 text-slate-800 whitespace-pre-wrap">{trimmed}</p> : null}
-                      {urls.length > 0 && (
-                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                          {urls.map((url) => (
-                            <a
-                              key={url}
-                              href={url}
-                              target="_blank"
-                              rel="noreferrer noopener"
-                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                            >
-                              <FileText className="h-4 w-4" />
-                              <span className="truncate">{getFilenameFromUrl(url)}</span>
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                      {message.attachments?.length ? (
-                        <div className="mt-4 space-y-3">
-                          {message.attachments.map((attachment) => (
-                            <div key={attachment.fileId} className="rounded-3xl border border-slate-200 bg-white p-4">
-                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-slate-900">{attachment.fileName}</p>
-                                  <p className="mt-1 text-xs text-slate-500">{attachment.adminRemark}</p>
-                                </div>
-                                <a
-                                  href={attachment.fileUrl}
-                                  target="_blank"
-                                  rel="noreferrer noopener"
-                                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-                                >
-                                  <Download className="h-4 w-4" />
-                                  Download
-                                </a>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
                     </div>
-                  );
-                })
+                  ))}
+                </div>
               )}
             </div>
           </div>
@@ -446,17 +599,56 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
               <div className="mt-4 space-y-4 text-sm text-slate-600">
                 <div className="flex items-center justify-between gap-2">
                   <span>Status</span>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-slate-700">{reviewStatusLabel}</span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] ${statusBadgeClass}`}>
+                    {currentDisplayStatus}
+                  </span>
                 </div>
-                {hasActionRequired ? (
-                  <div className="rounded-2xl bg-rose-50 px-3 py-3 text-sm text-rose-700">
-                    Fix the flagged files below and resubmit your application.
+                {isRejected ? (
+                  <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Available Actions & Next Steps
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-500 leading-normal">
+                        While this specific application is finalized, your account remains active. You can browse other available financial aid, grants, or community programs you may qualify for.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <a
+                        href="/#programs"
+                        className="flex-1 text-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-all shadow-2xs"
+                      >
+                        Explore Other Programs
+                      </a>
+                      <a
+                        href="/support/tickets/new"
+                        className="flex-1 text-center bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold px-4 py-2.5 rounded-lg transition-all"
+                      >
+                        File an Eligibility Appeal
+                      </a>
+                    </div>
+                  </div>
+                ) : isApproved ? (
+                  <div className="mt-4 rounded-3xl bg-emerald-50 p-4 border border-emerald-200 text-slate-900">
+                    <p className="text-sm font-semibold text-emerald-900">Application finalized</p>
+                    <p className="mt-2 text-sm text-slate-700">
+                      Your approval is complete and this submission is locked. The review team will finish manual onboarding and update your dashboard when the Grantee Profile is configured.
+                    </p>
+                  </div>
+                ) : isResubmitted ? (
+                  <div className={`rounded-2xl border px-3 py-3 text-sm ${bannerBgClass}`}>
+                    {bannerMessage}
+                  </div>
+                ) : hasActionRequired ? (
+                  <div className={`rounded-2xl border px-3 py-3 text-sm ${bannerBgClass}`}>
+                    {bannerMessage}
                   </div>
                 ) : (
                   <p className="text-sm text-slate-600">No active corrections are required right now.</p>
                 )}
                 {application.lastUpdatedBy ? <p className="text-sm text-slate-600">Last updated by {application.lastUpdatedBy}</p> : null}
 
+                {!isRejected && !isApproved ? (
                   <div className="mt-4 rounded-3xl bg-slate-50 p-4">
                     <p className="text-sm font-semibold text-slate-900">Ready to resubmit</p>
                     <p className="mt-2 text-sm text-slate-600">
@@ -467,22 +659,23 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                     <div className="mt-4 flex flex-col sm:flex-row items-center gap-3">
                       <button
                         type="button"
-                        disabled={pendingReplacements === 0 || submitting}
+                        disabled={disableResubmit}
                         onClick={handleResubmit}
-                        className="flex-1 w-full sm:w-auto inline-flex items-center justify-center rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className={`flex-1 w-full sm:w-auto inline-flex items-center justify-center rounded-3xl px-5 py-3 text-sm font-semibold transition ${disableResubmit ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}
                       >
                         {submitting ? "Resubmitting..." : "Resubmit application"}
                       </button>
                       <button
                         type="button"
                         onClick={() => setShowDeleteConfirm(true)}
-                        disabled={submitting}
-                        className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 font-medium text-sm transition-all duration-200 active:scale-[0.98]"
+                        disabled={disableDelete}
+                        className={`w-full sm:w-auto px-5 py-2.5 rounded-xl border font-medium text-sm transition duration-200 ${disableDelete ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed" : "border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 active:scale-[0.98]"}`}
                       >
                         Delete Application
                       </button>
                     </div>
                   </div>
+                ) : null}
               </div>
             </div>
           </aside>
@@ -502,13 +695,19 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           <div className="mt-6 flex flex-col gap-2.5">
             {submittedFiles.map((file) => {
               const staged = stagedMap[file.originalUrl];
+              const isReplacementActive = Boolean(staged);
               const correction = getFileActionHint(application.reviewThread, file);
               const previewSrc = staged?.previewUrl ?? file.originalUrl;
-              const displayName = stripDatabasePrefix(file.fileName);
+              const displayName = staged?.file.name ?? getCleanFilename(stripDatabasePrefix(file.fileName));
+              const displayType = staged ? getFileTypeLabel(staged.file.name) : file.typeLabel;
+              const displaySize = staged ? formatBytes(staged.file.size) : null;
+              const downloadHref = staged?.previewUrl ?? file.originalUrl;
+              const downloadName = staged?.file.name ?? file.fileName;
+
               return (
                 <div
                   key={file.id}
-                  className={`flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-3 transition hover:bg-slate-50 ${correction ? "border-rose-200 bg-rose-50/40" : ""}`}
+                  className={`flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-3 transition ${isReplacementActive ? "border-indigo-200 bg-indigo-50/30" : correction ? "border-rose-200 bg-rose-50/40" : ""}`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50">
@@ -531,28 +730,34 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                        <span className="truncate">{file.typeLabel}</span>
-                        {correction ? (
+                        <span className="truncate">{displayType}</span>
+                        {displaySize ? <span className="truncate">• {displaySize}</span> : null}
+                        {isReplacementActive ? (
+                          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-700">Updated file</span>
+                        ) : isResubmitted ? (
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Awaiting review</span>
+                        ) : correction && !isRejected ? (
                           <span className="rounded-full bg-rose-50 px-2 py-0.5 text-red-600">Correction required</span>
-                        ) : null}
-                        {staged ? (
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">{staged.status === "uploading" ? "Uploading" : "Replacement ready"}</span>
                         ) : null}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleChooseFile(file.originalUrl)}
-                      className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Replace
-                    </button>
+                    {!isRejected && !isApproved && (
+                      <button
+                        type="button"
+                        disabled={isEditLocked}
+                        onClick={() => handleChooseFile(file.originalUrl)}
+                        className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${isEditLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}`}
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        Replace
+                      </button>
+                    )}
                     <a
-                      href={file.originalUrl}
+                      href={downloadHref}
+                      download={downloadName}
                       target="_blank"
                       rel="noreferrer noopener"
                       className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"

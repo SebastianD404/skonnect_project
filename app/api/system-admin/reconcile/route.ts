@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { createClient as createSupabaseAdmin, type SupabaseClient } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 
 type SupabaseAdminClient = SupabaseClient<any, "public", "public", any, any>;
 
@@ -16,10 +17,7 @@ async function getActor() {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
-  const actor = await prisma.user.findUnique({
-    where: { authId: user.id },
-    select: { id: true, role: true, fullName: true, email: true },
-  });
+  const actor = await ensureProfile(user);
 
   if (!actor || actor.role !== Role.SUPER_ADMIN) {
     return {

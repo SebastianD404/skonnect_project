@@ -19,13 +19,7 @@ export default async function GranteeDocumentsPage() {
       OR: [{ authId: user.id }, { email: user.email ?? "" }],
     },
     include: {
-      grantee: {
-        include: {
-          submissions: {
-            orderBy: { submittedAt: "desc" },
-          },
-        },
-      },
+      grantee: true,
     },
   });
 
@@ -44,13 +38,70 @@ export default async function GranteeDocumentsPage() {
     redirect("/login");
   }
 
-  const submissions = appUser.grantee?.submissions ?? [];
+  let submissions: Array<{
+    id: string;
+    semester: string;
+    status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
+    generalAverage: number | null;
+    reviewNotes: string | null;
+    flaggedFields: string[];
+    submittedAt: Date;
+    reviewedAt: Date | null;
+    gradeFileUrl: string;
+    coeFileUrl: string;
+  }> = [];
+
+  if (appUser.grantee?.id) {
+    try {
+      submissions = await prisma.submission.findMany({
+        where: { granteeId: appUser.grantee.id },
+        orderBy: { submittedAt: "desc" },
+        select: {
+          id: true,
+          semester: true,
+          status: true,
+          generalAverage: true,
+          reviewNotes: true,
+          flaggedFields: true,
+          submittedAt: true,
+          reviewedAt: true,
+          gradeFileUrl: true,
+          coeFileUrl: true,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/flaggedFields|does not exist/i.test(message)) {
+        throw error;
+      }
+
+      const fallback = await prisma.submission.findMany({
+        where: { granteeId: appUser.grantee.id },
+        orderBy: { submittedAt: "desc" },
+        select: {
+          id: true,
+          semester: true,
+          status: true,
+          generalAverage: true,
+          reviewNotes: true,
+          submittedAt: true,
+          reviewedAt: true,
+          gradeFileUrl: true,
+          coeFileUrl: true,
+        },
+      });
+
+      submissions = fallback.map((item) => ({ ...item, flaggedFields: [] }));
+    }
+  }
+
   const serialized = submissions.map((submission) => ({
     id: submission.id,
     semester: submission.semester,
     status: submission.status,
     generalAverage: submission.generalAverage,
     reviewNotes: submission.reviewNotes,
+    flaggedFields: submission.flaggedFields,
     submittedAt: submission.submittedAt.toISOString(),
     reviewedAt: submission.reviewedAt ? submission.reviewedAt.toISOString() : null,
     gradeFileUrl: submission.gradeFileUrl,

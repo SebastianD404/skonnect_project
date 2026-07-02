@@ -43,6 +43,14 @@ export default async function GranteeEventsPage() {
     },
     orderBy: { eventDate: "asc" },
     include: {
+      registrations: {
+        where: {
+          userId: appUser.id,
+        },
+        select: {
+          id: true,
+        },
+      },
       createdBy: {
         select: {
           id: true,
@@ -56,6 +64,7 @@ export default async function GranteeEventsPage() {
   const serializedEvents = events.map((event) => ({
     ...event,
     eventDate: event.eventDate.toISOString(),
+    isRegistered: event.registrations.length > 0,
   }));
 
   return (
@@ -70,7 +79,7 @@ export default async function GranteeEventsPage() {
         </div>
 
         {serializedEvents.length > 0 ? (
-          <GranteeEventSection events={serializedEvents} />
+          <GranteeEventSection events={serializedEvents} currentUserRole={appUser.role} />
         ) : (
           <div className="rounded-[2rem] border border-[#0F3D5C]/10 bg-white p-8 text-center shadow-sm">
             <p className="text-lg text-[#555555]">No upcoming events at this time. Check back soon!</p>

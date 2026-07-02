@@ -2,6 +2,7 @@ import Link from "next/link";
 import ProgramApplyClient from "@/app/programs/ProgramApplyClient";
 import KKProfilingForm from "@/app/programs/kk-profiling-form";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
 
@@ -201,7 +202,7 @@ export default async function ProgramPage({ params }: Props) {
 
   let appUser: { role: Role } | null = null;
   if (supabaseUser) {
-    appUser = await prisma.user.findUnique({ where: { authId: supabaseUser.id }, select: { role: true } });
+    appUser = await ensureProfile(supabaseUser);
   }
 
   const showStatusSection = Boolean(appUser && appUser.role !== Role.YOUTH);
@@ -366,7 +367,7 @@ export default async function ProgramPage({ params }: Props) {
                 <h2 className="mt-6 text-3xl font-bold text-slate-900">How it works</h2>
                 <ol className="mt-8 space-y-4">
                   {data.howItWorks.map((step, index) => (
-                    <li key={index} className="flex gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
+                    <li key={`${step}-${index}`} className="flex gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
                       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white shadow-sm">{index + 1}</span>
                       <p className="text-sm leading-7 text-slate-600">{step}</p>
                     </li>
@@ -384,7 +385,7 @@ export default async function ProgramPage({ params }: Props) {
                 <h2 className="mt-6 text-3xl font-bold text-slate-900">Requirements</h2>
                 <div className="mt-8 grid gap-4 sm:grid-cols-2">
                   {data.requirements.map((requirement, index) => (
-                    <div key={index} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
+                    <div key={`${requirement}-${index}`} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
                       <div className="flex items-start gap-3">
                         <svg className="h-5 w-5 flex-shrink-0 text-emerald-500 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />

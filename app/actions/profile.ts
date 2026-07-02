@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -18,13 +19,12 @@ export async function updateProfileName(
 ): Promise<ProfileState> {
   const fullName = String(formData.get("fullName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  const phoneNumberRaw = String(formData.get("phoneNumber") ?? "").trim();
-  const phoneNumber = phoneNumberRaw.length > 0 ? phoneNumberRaw : null;
+  const phoneNumber = String(formData.get("phoneNumber") ?? "").trim();
   const school = String(formData.get("school") ?? "").trim();
   const yearLevel = String(formData.get("yearLevel") ?? "").trim();
 
-  if (!fullName || !email) {
-    return { error: "Your name and email are required." };
+  if (!fullName || !email || !phoneNumber) {
+    return { error: "Your name, email, and phone number are required." };
   }
 
   const supabase = await createClient();
@@ -34,27 +34,13 @@ export async function updateProfileName(
     return { error: "You must be logged in to update your profile." };
   }
 
-  const profile = await prisma.user.findUnique({
-    where: { authId: user.id },
-    select: { id: true, role: true },
-  });
+  const profile = await ensureProfile(user);
 
   if (!profile) {
     return { error: "We could not find your SKonnect profile." };
   }
 
-  const currentProfile = await prisma.user.findUnique({
-    where: { id: profile.id },
-    select: {
-      email: true,
-    },
-  });
-
-  if (!currentProfile) {
-    return { error: "We could not load your current profile details." };
-  }
-
-  if (currentProfile.email !== email) {
+  if (profile.email !== email) {
     const { error: authUpdateError } = await supabase.auth.updateUser({
       email,
     });

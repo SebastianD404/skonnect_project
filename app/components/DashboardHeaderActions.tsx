@@ -198,7 +198,7 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
               {notifications.length > 0 ? (
                 <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
                   {notifications.map((notification, idx) => (
-                    <div key={idx} className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800">{notification}</div>
+                    <div key={`${notification}-${idx}`} className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800">{notification}</div>
                   ))}
                 </div>
               ) : (
@@ -213,7 +213,7 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
               {messages.length > 0 ? (
                 <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
                   {messages.map((message, idx) => (
-                    <div key={idx} className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800">{message}</div>
+                    <div key={`${message}-${idx}`} className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800">{message}</div>
                   ))}
                 </div>
               ) : (

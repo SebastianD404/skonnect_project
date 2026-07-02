@@ -6,6 +6,7 @@ import {
   Calendar,
   MapPin,
   Users,
+  UserCheck,
   Search,
   Plus,
   MoreHorizontal,
@@ -13,6 +14,8 @@ import {
   Trash2,
   Hash,
   ArrowUpRight,
+  ArrowLeft,
+  Download,
   Filter,
   X,
 } from "lucide-react";
@@ -37,6 +40,16 @@ interface Event {
 
 type FilterTab = "all" | "upcoming" | "drafts" | "archived";
 
+type AttendanceParticipant = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  contact?: string | null;
+  barangay?: string | null;
+  registeredAt: string;
+};
+
 export default function AdminEventsPage() {
   const EVENTS_PER_PAGE = 3;
   const router = useRouter();
@@ -51,6 +64,10 @@ export default function AdminEventsPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageTitle, setSelectedImageTitle] = useState<string>("");
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [viewMode, setViewMode] = useState<"details" | "attendance">("details");
+  const [attendanceParticipants, setAttendanceParticipants] = useState<AttendanceParticipant[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -138,6 +155,69 @@ export default function AdminEventsPage() {
 
   const closeDetails = () => {
     setSelectedEvent(null);
+    setViewMode("details");
+    setAttendanceParticipants([]);
+    setAttendanceError(null);
+  };
+
+  const openAttendanceView = async () => {
+    if (!selectedEvent) return;
+
+    setViewMode("attendance");
+    setAttendanceError(null);
+    setAttendanceLoading(true);
+
+    try {
+      const response = await fetch(`/api/events/${selectedEvent.id}`);
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Unable to load attendance roster.");
+      }
+
+      setAttendanceParticipants(Array.isArray(payload?.participants) ? payload.participants : []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load attendance roster.";
+      setAttendanceParticipants([]);
+      setAttendanceError(message);
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  const downloadAttendanceCSV = () => {
+    if (!selectedEvent || attendanceParticipants.length === 0) return;
+
+    const csvHeaders = [
+      "FULL NAME",
+      "CONTACT NUMBER",
+      "RESIDENT BARANGAY",
+      "SIGNATURE",
+    ];
+    const csvRows = attendanceParticipants.map((participant) => [
+      participant.name.toUpperCase(),
+      participant.contact || "",
+      participant.barangay || "N/A",
+      "",
+    ]);
+
+    const csvContent = [
+      `EVENT ATTENDANCE ROSTER - ${selectedEvent.title.toUpperCase()}`,
+      "",
+      csvHeaders.join(","),
+      ...csvRows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeTitle = selectedEvent.title.replace(/[^a-zA-Z0-9-_]+/g, "_");
+    link.href = url;
+    link.setAttribute("download", `Attendance_Sheet_${safeTitle || "Event"}_${new Date().getFullYear()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const filteredEvents = useMemo(() => {
@@ -805,7 +885,12 @@ export default function AdminEventsPage() {
 
                             <button
                               type="button"
-                              onClick={() => setSelectedEvent(event)}
+                              onClick={() => {
+                                setSelectedEvent(event);
+                                setViewMode("details");
+                                setAttendanceParticipants([]);
+                                setAttendanceError(null);
+                              }}
                               className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900"
                             >
                               View details
@@ -918,96 +1003,200 @@ export default function AdminEventsPage() {
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className="flex items-start justify-between border-b border-slate-200 bg-white px-6 py-5">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                      {selectedEvent.isKatipunan ? "KK Event" : "SK Event"}
-                    </p>
-                    <h3 className="mt-2 text-2xl font-bold text-slate-900">{selectedEvent.title}</h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={closeDetails}
-                    aria-label="Close event details"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-
-                <div className="max-h-[80vh] space-y-6 overflow-y-auto px-6 py-6">
-                  {selectedEvent.imageUrl ? (
+                  {viewMode === "attendance" ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedImage(selectedEvent.imageUrl ?? null);
-                        setSelectedImageTitle(selectedEvent.title);
-                      }}
-                      className="group relative block w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100"
+                      onClick={() => setViewMode("details")}
+                      className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 transition hover:text-slate-900"
                     >
-                      <img
-                        src={selectedEvent.imageUrl}
-                        alt={selectedEvent.title}
-                        className="h-auto max-h-[60vh] w-full object-contain"
-                      />
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/55 to-transparent px-4 py-3 text-left opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
-                        <p className="text-xs font-medium text-white">Click image for full-screen preview</p>
-                      </div>
+                      <ArrowLeft className="h-4 w-4" />
+                      Back to Event Details
                     </button>
-                  ) : null}
+                  ) : (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
+                        {selectedEvent.isKatipunan ? "KK Event" : "SK Event"}
+                      </p>
+                      <h3 className="mt-2 text-2xl font-bold text-slate-900">{selectedEvent.title}</h3>
+                    </div>
+                  )}
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Description</p>
-                    <p className="mt-3 text-sm leading-7 text-slate-600">{selectedEvent.description}</p>
+                  <div className="flex items-center gap-2">
+                    {viewMode === "attendance" ? (
+                      <button
+                        type="button"
+                        onClick={downloadAttendanceCSV}
+                        disabled={attendanceParticipants.length === 0}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-[#0B192C] px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download Attendance
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={closeDetails}
+                      aria-label="Close event details"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
                   </div>
+                </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-                      <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                        Date and time
-                      </p>
-                      <p className="mt-2 text-sm font-semibold text-slate-900">
-                        {new Date(selectedEvent.eventDate).toLocaleDateString("en-US", {
-                          weekday: "long",
-                          month: "long",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {new Date(selectedEvent.eventDate).toLocaleTimeString("en-US", {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </p>
+                <div className="max-h-[80vh] overflow-y-auto bg-slate-50/50 px-6 py-6">
+                  {viewMode === "details" ? (
+                    <div className="space-y-6">
+                      {selectedEvent.imageUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedImage(selectedEvent.imageUrl ?? null);
+                            setSelectedImageTitle(selectedEvent.title);
+                          }}
+                          className="group relative block w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100"
+                        >
+                          <img
+                            src={selectedEvent.imageUrl}
+                            alt={selectedEvent.title}
+                            className="h-auto max-h-[60vh] w-full object-contain"
+                          />
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/55 to-transparent px-4 py-3 text-left opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
+                            <p className="text-xs font-medium text-white">Click image for full-screen preview</p>
+                          </div>
+                        </button>
+                      ) : null}
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Description</p>
+                        <p className="mt-3 text-sm leading-7 text-slate-600">{selectedEvent.description}</p>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                            <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                            Date and time
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-slate-900">
+                            {new Date(selectedEvent.eventDate).toLocaleDateString("en-US", {
+                              weekday: "long",
+                              month: "long",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </p>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {new Date(selectedEvent.eventDate).toLocaleTimeString("en-US", {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                            <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                            Venue
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-slate-900">{selectedEvent.venue}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={openAttendanceView}
+                          className="group relative rounded-2xl border-2 border-indigo-100 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-500 active:translate-y-0 sm:p-5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-indigo-600">
+                                Registration (Click to open)
+                              </p>
+                              <p className="mt-2 text-sm font-semibold text-slate-900">
+                                {selectedEvent.filledSlots}/{selectedEvent.maxSlots} registered
+                              </p>
+                              <p className="mt-1 text-sm text-slate-600">
+                                {Math.max(selectedEvent.maxSlots - selectedEvent.filledSlots, 0)} slots remaining
+                              </p>
+                            </div>
+                            <div className="rounded-lg bg-indigo-50 p-2 text-indigo-600 transition group-hover:bg-indigo-600 group-hover:text-white">
+                              <Users className="h-5 w-5" />
+                            </div>
+                          </div>
+                          <span className="mt-3 inline-flex text-[10px] font-semibold text-indigo-600">
+                            View Roster Sheet →
+                          </span>
+                        </button>
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                            <Hash className="h-3.5 w-3.5 text-slate-400" />
+                            Event code
+                          </p>
+                          <p className="mt-2 break-all text-sm font-semibold text-slate-900">{selectedEvent.id}</p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-                      <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        <MapPin className="h-3.5 w-3.5 text-slate-400" />
-                        Venue
-                      </p>
-                      <p className="mt-2 text-sm font-semibold text-slate-900">{selectedEvent.venue}</p>
+                  ) : (
+                    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                        <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                          <UserCheck className="h-4 w-4 text-emerald-600" />
+                          Registered Participants ({attendanceParticipants.length})
+                        </span>
+                      </div>
+
+                      {attendanceLoading ? (
+                        <div className="px-4 py-8 text-sm text-slate-500">Loading attendance roster...</div>
+                      ) : attendanceError ? (
+                        <div className="px-4 py-8 text-sm text-rose-600">{attendanceError}</div>
+                      ) : attendanceParticipants.length === 0 ? (
+                        <div className="px-4 py-8 text-sm text-slate-500">No participants registered yet.</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse text-left">
+                            <thead>
+                              <tr className="border-b border-slate-100 bg-slate-50/40">
+                                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Full Name</th>
+                                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Contact Number</th>
+                                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Email Address</th>
+                                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">System Role</th>
+                                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Barangay</th>
+                                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Registration Date</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                              {attendanceParticipants.map((participant) => (
+                                <tr key={participant.id} className="transition hover:bg-slate-50/70">
+                                  <td className="px-4 py-3 font-semibold text-slate-900">{participant.name}</td>
+                                  <td className="px-4 py-3 text-slate-600">{participant.contact || "N/A"}</td>
+                                  <td className="px-4 py-3 font-mono text-slate-500">{participant.email}</td>
+                                  <td className="px-4 py-3">
+                                    <span
+                                      className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold ${
+                                        participant.role === "GRANTEE"
+                                          ? "border-indigo-100 bg-indigo-50 text-indigo-700"
+                                          : "border-amber-100 bg-amber-50 text-amber-700"
+                                      }`}
+                                    >
+                                      {participant.role}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-600">{participant.barangay || "N/A"}</td>
+                                  <td className="px-4 py-3 text-slate-500">
+                                    {new Date(participant.registeredAt).toLocaleString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                      hour: "numeric",
+                                      minute: "2-digit",
+                                    })}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-                      <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        <Users className="h-3.5 w-3.5 text-slate-400" />
-                        Registration
-                      </p>
-                      <p className="mt-2 text-sm font-semibold text-slate-900">
-                        {selectedEvent.filledSlots}/{selectedEvent.maxSlots} registered
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {Math.max(selectedEvent.maxSlots - selectedEvent.filledSlots, 0)} slots remaining
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-                      <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        <Hash className="h-3.5 w-3.5 text-slate-400" />
-                        Event code
-                      </p>
-                      <p className="mt-2 break-all text-sm font-semibold text-slate-900">{selectedEvent.id}</p>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>

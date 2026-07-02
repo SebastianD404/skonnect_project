@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import GranteeDashboardHeader from "./GranteeDashboardHeader";
+import GranteeWelcomeGate from "./GranteeWelcomeGate";
 
 export default async function GranteeDashboardLayout({
   children,
@@ -19,7 +20,7 @@ export default async function GranteeDashboardLayout({
     where: {
       OR: [{ authId: user.id }, { email: user.email ?? "" }],
     },
-    select: { id: true, authId: true, role: true },
+    select: { id: true, authId: true, role: true, hasSeenOnboarding: true },
   });
 
   // Repair stale auth links when the email matches an existing account.
@@ -40,6 +41,7 @@ export default async function GranteeDashboardLayout({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
+      <GranteeWelcomeGate initialShouldShow={!appUser.hasSeenOnboarding} />
       <GranteeDashboardHeader />
       {children}
     </div>

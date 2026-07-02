@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users } from "lucide-react";
+import { CalendarDays, ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 
@@ -106,6 +106,7 @@ export default function AdminSidebar({
     { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: profilingRegistrationCount },
     { label: "Events", href: "/admin/events", icon: CalendarDays, badge: upcomingEventCount },
     { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: skeapApplicationCount },
+    { label: "Submissions", href: "/admin/submissions", icon: FileCheck, badge: pendingDocumentCount },
     { label: "Announcements", href: "/admin/announcements", icon: Megaphone },
     { label: "Inquiries", href: "/admin/inquiries", icon: Inbox, badge: openInquiryCount },
     { label: "Grantees", href: "/admin/grantees", icon: Users },
@@ -136,10 +137,12 @@ export default function AdminSidebar({
             >
               <Icon className="h-4 w-4" />
               <span className="flex-1 text-left">{item.label}</span>
-              {item.badge ? (
+              {item.badge && item.badge > 0 ? (
                 <span
-                  className={`flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
-                    isActive ? "bg-white/15 text-white" : "bg-slate-900 text-white"
+                  className={`ml-auto flex min-w-[1.25rem] items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold text-center transition-colors duration-150 ${
+                    isActive
+                      ? "bg-white/20 text-white border-white/20 backdrop-blur-xs"
+                      : "border-slate-200/70 bg-slate-100 text-slate-600"
                   }`}
                 >
                   {item.badge > 9 ? "9+" : item.badge}

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ApplicationReviewClient from "./ApplicationReviewClient";
@@ -33,7 +34,7 @@ export default async function ApplicationPage({ params }: Props) {
 
   let currentUserId: string | null = null;
   if (user) {
-    const appUser = await prisma.user.findUnique({ where: { authId: user.id }, select: { id: true } });
+    const appUser = await ensureProfile(user);
     if (appUser) currentUserId = appUser.id;
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 
 async function getActor() {
   const supabase = await createClient();
@@ -13,10 +14,7 @@ async function getActor() {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
-  const actor = await prisma.user.findUnique({
-    where: { authId: user.id },
-    select: { id: true, role: true, fullName: true, email: true },
-  });
+  const actor = await ensureProfile(user);
 
   if (!actor || actor.role !== Role.SUPER_ADMIN) {
     return {

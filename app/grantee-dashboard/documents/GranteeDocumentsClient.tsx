@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -8,17 +8,20 @@ import {
   CheckCircle2,
   Clock,
   FileText,
+  Image as ImageIcon,
   ShieldCheck,
   Sparkles,
   Upload,
+  X,
 } from "lucide-react";
 
 type SubmissionItem = {
   id: string;
   semester: string;
-  status: "PENDING" | "APPROVED" | "REJECTED";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
   generalAverage: number | null;
   reviewNotes: string | null;
+  flaggedFields?: string[];
   submittedAt: string;
   reviewedAt: string | null;
   gradeFileUrl: string;
@@ -39,6 +42,11 @@ type UploadState = {
   generalAverage: string;
 };
 
+type PendingSnapshot = {
+  semester: string;
+  generalAverage: string;
+};
+
 const INITIAL_FORM: UploadState = {
   gradeFile: null,
   coeFile: null,
@@ -50,10 +58,11 @@ const INITIAL_FORM: UploadState = {
 
 const BRAND = "#0F3D5C";
 const BRAND_DARK = "#0A2A40";
+const REQUIRED_DOCUMENTS_PER_SEMESTER = 2;
 
 function statusLabel(status: SubmissionItem["status"]) {
   if (status === "APPROVED") return "Approved";
-  if (status === "REJECTED") return "Needs editing";
+  if (status === "REJECTED" || status === "RETURNED_FOR_EDIT") return "Needs editing";
   return "Pending review";
 }
 
@@ -66,7 +75,7 @@ function statusTone(status: SubmissionItem["status"]) {
     };
   }
 
-  if (status === "REJECTED") {
+  if (status === "REJECTED" || status === "RETURNED_FOR_EDIT") {
     return {
       bar: "bg-rose-900/60",
       chip: "bg-rose-50 text-rose-900 ring-1 ring-rose-100",
@@ -88,11 +97,23 @@ function getAcademicYear(semester: string) {
   return `${start} - ${start + 1}`;
 }
 
+function getFilenameFromUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const name = parsed.pathname.split("/").pop() || url;
+    return decodeURIComponent(name.replace(/\+/g, " "));
+  } catch {
+    const parts = url.split("/");
+    return decodeURIComponent(parts.pop() || url);
+  }
+}
+
 function buildSemesterTracker(submissions: SubmissionItem[]) {
   const current = submissions[0]?.semester ?? "Current term";
   const inTerm = submissions.filter((s) => s.semester === current);
-  const approved = inTerm.filter((s) => s.status === "APPROVED").length;
-  const total = Math.max(inTerm.length, 1);
+  const hasApprovedBundle = inTerm.some((s) => s.status === "APPROVED");
+  const approved = hasApprovedBundle ? REQUIRED_DOCUMENTS_PER_SEMESTER : 0;
+  const total = REQUIRED_DOCUMENTS_PER_SEMESTER;
   const pct = Math.round((approved / total) * 100);
   return { current, approved, total, pct };
 }
@@ -100,17 +121,147 @@ function buildSemesterTracker(submissions: SubmissionItem[]) {
 export default function GranteeDocumentsClient({ submissions, canSubmit }: Props) {
   const router = useRouter();
   const [form, setForm] = useState<UploadState>(INITIAL_FORM);
+  const hydratedSubmissionIdRef = useRef<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingGrade, setUploadingGrade] = useState(false);
   const [uploadingCoe, setUploadingCoe] = useState(false);
+  const [optimisticPending, setOptimisticPending] = useState<PendingSnapshot | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const stats = useMemo(() => {
     const pending = submissions.filter((s) => s.status === "PENDING").length;
     const approved = submissions.filter((s) => s.status === "APPROVED").length;
-    const needsEdit = submissions.filter((s) => s.status === "REJECTED").length;
+    const needsEdit = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
     return { pending, approved, needsEdit };
   }, [submissions]);
+
+  const activeReturnedSubmission = useMemo(() => {
+    if (form.semester) {
+      return (
+        submissions.find(
+          (submission) => submission.semester === form.semester && submission.status === "RETURNED_FOR_EDIT"
+        ) ?? null
+      );
+    }
+
+    return submissions.find((submission) => submission.status === "RETURNED_FOR_EDIT") ?? null;
+  }, [form.semester, submissions]);
+
+  const activeFlaggedFields = useMemo(
+    () => new Set(activeReturnedSubmission?.flaggedFields ?? []),
+    [activeReturnedSubmission]
+  );
+
+  const hasExistingGradeReport = Boolean(activeReturnedSubmission?.gradeFileUrl);
+  const hasExistingCoe = Boolean(activeReturnedSubmission?.coeFileUrl);
+  const isGradeReportFlagged = activeFlaggedFields.has("GRADE_REPORT");
+  const isCoeFlagged = activeFlaggedFields.has("COE");
+  const existingGradeReportName = activeReturnedSubmission?.gradeFileUrl
+    ? getFilenameFromUrl(activeReturnedSubmission.gradeFileUrl)
+    : "Grade_Report.pdf";
+  const existingCoeName = activeReturnedSubmission?.coeFileUrl
+    ? getFilenameFromUrl(activeReturnedSubmission.coeFileUrl)
+    : "Certificate_of_Enrollment.pdf";
+
+  const correctionText =
+    activeReturnedSubmission?.reviewNotes?.trim() || "Please re-upload a clear and readable copy.";
+
+  const hasReturnedSubmission = useMemo(
+    () => submissions.some((submission) => submission.status === "RETURNED_FOR_EDIT"),
+    [submissions]
+  );
+
+  const pendingSnapshot = useMemo(() => {
+    if (optimisticPending) return optimisticPending;
+
+    const latestPending = submissions.find((submission) => submission.status === "PENDING");
+    if (!latestPending) return null;
+
+    return {
+      semester: latestPending.semester,
+      generalAverage:
+        latestPending.generalAverage !== null && latestPending.generalAverage !== undefined
+          ? latestPending.generalAverage.toFixed(2)
+          : "",
+    };
+  }, [optimisticPending, submissions]);
+
+  const showPendingLockView = Boolean(canSubmit && pendingSnapshot && !hasReturnedSubmission);
+
+  useEffect(() => {
+    const fetchedSubmissionData =
+      submissions.find((submission) => submission.status === "RETURNED_FOR_EDIT") ?? submissions[0] ?? null;
+
+    if (!fetchedSubmissionData) {
+      return;
+    }
+
+    // Hydrate once per returned/active record so polling refreshes do not wipe user input.
+    if (hydratedSubmissionIdRef.current === fetchedSubmissionData.id) {
+      return;
+    }
+
+    setForm((current) => {
+      const hasUserInput =
+        Boolean(current.semester) ||
+        Boolean(current.generalAverage) ||
+        Boolean(current.gradeFile) ||
+        Boolean(current.coeFile) ||
+        Boolean(current.gradeFileUrl) ||
+        Boolean(current.coeFileUrl);
+
+      if (hasUserInput) {
+        return current;
+      }
+
+      hydratedSubmissionIdRef.current = fetchedSubmissionData.id;
+      return {
+        ...current,
+        semester: fetchedSubmissionData.semester || "",
+        generalAverage:
+          fetchedSubmissionData.generalAverage !== null && fetchedSubmissionData.generalAverage !== undefined
+            ? String(fetchedSubmissionData.generalAverage)
+            : "",
+      };
+    });
+  }, [submissions]);
+
+  useEffect(() => {
+    if (!optimisticPending) return;
+
+    const isPersisted = submissions.some(
+      (submission) => submission.semester === optimisticPending.semester && submission.status === "PENDING"
+    );
+
+    if (isPersisted) {
+      setOptimisticPending(null);
+    }
+  }, [optimisticPending, submissions]);
+
+  useEffect(() => {
+    const syncDashboardData = () => {
+      router.refresh();
+    };
+
+    const pollingInterval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        syncDashboardData();
+      }
+    }, 10000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncDashboardData();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(pollingInterval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [router]);
 
   const semesterOptions = useMemo(() => {
     const now = new Date();
@@ -158,6 +309,13 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     if (!file) return;
     setMessage(null);
 
+    // Optimistically mirror local file state so preview mounts immediately.
+    if (kind === "grade") {
+      setForm((prev) => ({ ...prev, gradeFile: file }));
+    } else {
+      setForm((prev) => ({ ...prev, coeFile: file }));
+    }
+
     try {
       if (kind === "grade") setUploadingGrade(true);
       if (kind === "coe") setUploadingCoe(true);
@@ -183,8 +341,29 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
       return;
     }
 
-    if (!form.semester || !form.gradeFileUrl || !form.coeFileUrl) {
-      setMessage({ type: "error", text: "Please complete semester, grade report, and COE before submitting." });
+    if (!form.semester) {
+      setMessage({ type: "error", text: "Please select a semester before submitting." });
+      return;
+    }
+
+    const referenceSubmission = submissions.find((submission) => submission.semester === form.semester) ?? null;
+    const referenceFlags = new Set(referenceSubmission?.flaggedFields ?? []);
+
+    const finalGradeFileUrl =
+      form.gradeFileUrl ||
+      (referenceSubmission && !referenceFlags.has("GRADE_REPORT") ? referenceSubmission.gradeFileUrl : "");
+    const finalCoeFileUrl =
+      form.coeFileUrl ||
+      (referenceSubmission && !referenceFlags.has("COE") ? referenceSubmission.coeFileUrl : "");
+
+    if (!finalGradeFileUrl || !finalCoeFileUrl) {
+      setMessage({
+        type: "error",
+        text:
+          referenceSubmission?.status === "RETURNED_FOR_EDIT"
+            ? "Please upload each document flagged for correction before submitting."
+            : "Please complete semester, grade report, and COE before submitting.",
+      });
       return;
     }
 
@@ -195,8 +374,8 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           semester: form.semester,
-          gradeFileUrl: form.gradeFileUrl,
-          coeFileUrl: form.coeFileUrl,
+          gradeFileUrl: finalGradeFileUrl,
+          coeFileUrl: finalCoeFileUrl,
           generalAverage: form.generalAverage,
         }),
       });
@@ -206,7 +385,17 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
         throw new Error(result?.error || "Failed to submit documents");
       }
 
-      setForm(INITIAL_FORM);
+      setOptimisticPending({
+        semester: form.semester,
+        generalAverage: form.generalAverage,
+      });
+      setForm((current) => ({
+        ...current,
+        gradeFile: null,
+        coeFile: null,
+        gradeFileUrl: "",
+        coeFileUrl: "",
+      }));
       setMessage({ type: "success", text: "Documents submitted successfully. Status is now pending review." });
       router.refresh();
     } catch (error) {
@@ -269,19 +458,46 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
               </div>
             ) : null}
 
-            {message ? (
-              <div
-                className={`rounded-xl border px-4 py-3 text-sm ${
-                  message.type === "success"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-rose-200 bg-rose-50 text-rose-700"
-                }`}
-              >
-                {message.text}
-              </div>
-            ) : null}
+            <div className="min-h-[3.5rem]">
+              {message ? (
+                <div
+                  className={`rounded-xl border px-4 py-3 text-sm transition-all duration-300 ${
+                    message.type === "success"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-rose-200 bg-rose-50 text-rose-700"
+                  }`}
+                >
+                  {message.text}
+                </div>
+              ) : null}
+            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            {showPendingLockView ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-6 transition-all duration-300">
+                <div className="mx-auto flex max-w-md flex-col items-center gap-4 py-4 text-center">
+                  <div className="grid h-16 w-16 place-items-center rounded-2xl border border-slate-200 bg-white text-indigo-600 shadow-sm">
+                    <Clock className="h-8 w-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-slate-900">Verification in Progress</h3>
+                    <p className="text-xs leading-relaxed text-slate-500">
+                      Your submission is locked and currently being evaluated by the review team.
+                    </p>
+                  </div>
+                  <div className="grid w-full grid-cols-2 gap-2 pt-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-left">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Term</span>
+                      <span className="text-xs font-semibold text-slate-800">{pendingSnapshot?.semester || "Not selected"}</span>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-left">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">GWA Passed</span>
+                      <span className="text-xs font-semibold text-slate-800">{pendingSnapshot?.generalAverage || "Not provided"}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Academic Term">
                   <select
@@ -317,21 +533,73 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
 
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Upload Grade Report">
-                  <FileDrop
-                    title={uploadingGrade ? "Uploading grade report..." : form.gradeFile ? `${form.gradeFile.name} uploaded` : "Drop grade report here"}
-                    subtitle="PDF, JPG, PNG, WEBP - max 10MB"
-                    onChange={(file) => handleFileChange(file, "grade")}
-                    disabled={!canSubmit || submitting || uploadingGrade}
-                  />
+                  {hasExistingGradeReport && !isGradeReportFlagged && !form.gradeFile ? (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/60 bg-slate-50/80 p-5 shadow-xs">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-emerald-600">
+                          <CheckCircle2 className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-slate-800">{existingGradeReportName}</span>
+                          <span className="text-[11px] font-medium text-emerald-600">Previously uploaded and retained</span>
+                        </div>
+                      </div>
+                      <span className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        Valid
+                      </span>
+                    </div>
+                  ) : (
+                    <FileDrop
+                      file={form.gradeFile}
+                      uploading={uploadingGrade}
+                      emptyTitle="Click to upload"
+                      emptySubtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                      subtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                      onChange={(file) => handleFileChange(file, "grade")}
+                      onRemoveFile={() => setForm((prev) => ({ ...prev, gradeFile: null, gradeFileUrl: "" }))}
+                      disabled={!canSubmit || submitting || uploadingGrade}
+                    />
+                  )}
+                  {activeReturnedSubmission && activeFlaggedFields.has("GRADE_REPORT") && !form.gradeFile ? (
+                    <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+                      {`⚠️ Correction required: ${correctionText}. Please re-upload a clear copy.`}
+                    </div>
+                  ) : null}
                 </Field>
 
                 <Field label="Upload Certificate of Enrollment">
-                  <FileDrop
-                    title={uploadingCoe ? "Uploading COE..." : form.coeFile ? `${form.coeFile.name} uploaded` : "Drop COE file here"}
-                    subtitle="PDF, JPG, PNG, WEBP - max 10MB"
-                    onChange={(file) => handleFileChange(file, "coe")}
-                    disabled={!canSubmit || submitting || uploadingCoe}
-                  />
+                  {hasExistingCoe && !isCoeFlagged && !form.coeFile ? (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/60 bg-slate-50/80 p-5 shadow-xs">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-emerald-600">
+                          <CheckCircle2 className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-slate-800">{existingCoeName}</span>
+                          <span className="text-[11px] font-medium text-emerald-600">Previously uploaded and retained</span>
+                        </div>
+                      </div>
+                      <span className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        Valid
+                      </span>
+                    </div>
+                  ) : (
+                    <FileDrop
+                      file={form.coeFile}
+                      uploading={uploadingCoe}
+                      emptyTitle="Click to upload"
+                      emptySubtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                      subtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                      onChange={(file) => handleFileChange(file, "coe")}
+                      onRemoveFile={() => setForm((prev) => ({ ...prev, coeFile: null, coeFileUrl: "" }))}
+                      disabled={!canSubmit || submitting || uploadingCoe}
+                    />
+                  )}
+                  {activeReturnedSubmission && activeFlaggedFields.has("COE") && !form.coeFile ? (
+                    <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+                      {`⚠️ Correction required: ${correctionText}. Please re-upload a clear copy.`}
+                    </div>
+                  ) : null}
                 </Field>
               </div>
 
@@ -353,7 +621,8 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                   {submitting ? "Submitting..." : "Submit for Review"}
                 </button>
               </div>
-            </form>
+              </form>
+            )}
           </div>
         </section>
 
@@ -403,17 +672,37 @@ function Field({
 }
 
 function FileDrop({
-  title,
+  file,
+  uploading,
+  emptyTitle,
+  emptySubtitle,
   subtitle,
   onChange,
+  onRemoveFile,
   disabled,
 }: {
-  title: string;
+  file: File | null;
+  uploading?: boolean;
+  emptyTitle: string;
+  emptySubtitle: string;
   subtitle: string;
   onChange: (file: File | null) => void;
+  onRemoveFile: () => void;
   disabled?: boolean;
 }) {
   const [isDragging, setIsDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  function formatFileSize(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function isDocumentFile(name: string) {
+    return /\.(pdf|doc|docx)$/i.test(name);
+  }
 
   function handleDragOver(event: React.DragEvent<HTMLLabelElement>) {
     event.preventDefault();
@@ -436,11 +725,56 @@ function FileDrop({
     onChange(file);
   }
 
+  if (file) {
+    const fileIsDocument = isDocumentFile(file.name);
+    const fileSize = formatFileSize(file.size);
+
+    return (
+      <div className="relative flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-slate-50/60 p-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-[#0B192C] flex">
+            {fileIsDocument ? (
+              <FileText className="h-5 w-5 text-slate-600" />
+            ) : (
+              <ImageIcon className="h-5 w-5 text-slate-600" />
+            )}
+          </div>
+          <div className="min-w-0 flex flex-col">
+            <span className="max-w-[200px] truncate pr-2 text-sm font-medium text-slate-900">{file.name}</span>
+            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {uploading ? "Uploading..." : `Ready for submission${fileSize ? ` • ${fileSize}` : ""}`}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {uploading ? (
+            <span className="inline-flex h-6 items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 text-[10px] font-semibold text-sky-700">
+              Uploading...
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={onRemoveFile}
+            disabled={disabled}
+            className="rounded-lg border border-transparent p-1.5 text-slate-400 transition-all duration-150 hover:border-red-100 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Remove file"
+            aria-label="Remove file"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <label
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onClick={() => inputRef.current?.click()}
       className={`block rounded-2xl border-2 border-dashed p-6 text-center transition ${
         disabled
           ? "cursor-not-allowed border-slate-200 bg-slate-100/80"
@@ -452,9 +786,10 @@ function FileDrop({
       <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[#0F3D5C]/10">
         <Upload className="h-5 w-5 text-[#0F3D5C]" />
       </div>
-      <p className="text-sm font-medium text-slate-700">{isDragging ? "Drop file to upload" : title}</p>
-      <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+      <p className="text-sm font-medium text-slate-700">{isDragging ? "Drop file to upload" : emptyTitle}</p>
+      <p className="mt-1 text-xs text-slate-500">{emptySubtitle || subtitle}</p>
       <input
+        ref={inputRef}
         type="file"
         accept="application/pdf,image/png,image/jpeg,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.doc,.docx"
         className="hidden"

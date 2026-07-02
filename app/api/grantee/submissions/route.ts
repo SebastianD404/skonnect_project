@@ -55,9 +55,9 @@ export async function POST(request: NextRequest) {
       ? null
       : Number(averageRaw);
 
-    if (!semester || !gradeFileUrl || !coeFileUrl) {
+    if (!semester) {
       return NextResponse.json(
-        { error: "Semester, grade report, and COE are required" },
+        { error: "Semester is required" },
         { status: 400 }
       );
     }
@@ -72,7 +72,20 @@ export async function POST(request: NextRequest) {
         semester,
       },
       orderBy: { submittedAt: "desc" },
+      select: {
+        id: true,
+        status: true,
+        gradeFileUrl: true,
+        coeFileUrl: true,
+        flaggedFields: true,
+      },
     });
+
+    const flaggedSet = new Set(existing?.flaggedFields ?? []);
+    const mergedGradeFileUrl =
+      gradeFileUrl || (existing && existing.status === "RETURNED_FOR_EDIT" && !flaggedSet.has("GRADE_REPORT") ? existing.gradeFileUrl : "");
+    const mergedCoeFileUrl =
+      coeFileUrl || (existing && existing.status === "RETURNED_FOR_EDIT" && !flaggedSet.has("COE") ? existing.coeFileUrl : "");
 
     if (existing && (existing.status === "PENDING" || existing.status === "APPROVED")) {
       return NextResponse.json(
@@ -81,18 +94,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!semester || !mergedGradeFileUrl || !mergedCoeFileUrl) {
+      return NextResponse.json(
+        {
+          error:
+            existing?.status === "RETURNED_FOR_EDIT"
+              ? "Please upload all flagged documents before submitting for review."
+              : "Semester, grade report, and COE are required",
+        },
+        { status: 400 }
+      );
+    }
+
     const payload = {
       semester,
-      gradeFileUrl,
-      coeFileUrl,
+      gradeFileUrl: mergedGradeFileUrl,
+      coeFileUrl: mergedCoeFileUrl,
       generalAverage,
       status: "PENDING" as const,
       reviewNotes: null,
+      flaggedFields: [],
       reviewedAt: null,
       submittedAt: new Date(),
     };
 
-    const submission = existing && existing.status === "REJECTED"
+    const submission = existing && (existing.status === "REJECTED" || existing.status === "RETURNED_FOR_EDIT")
       ? await prisma.submission.update({
           where: { id: existing.id },
           data: payload,

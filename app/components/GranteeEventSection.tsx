@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, Calendar, MapPin, Users, X } from "lucide-react";
+import { ArrowUpRight, Calendar, Hash, Mail, MapPin, Phone, User, Users, X } from "lucide-react";
 
 interface EventItem {
   id: string;
@@ -12,22 +12,73 @@ interface EventItem {
   status: string;
   maxSlots: number;
   filledSlots: number;
+  isRegistered?: boolean;
   imageUrl?: string | null;
   isKatipunan?: boolean;
 }
 
 interface Props {
   events: EventItem[];
+  currentUserRole?: string | null;
 }
 
-export function GranteeEventSection({ events }: Props) {
+type SessionUser = {
+  fullName?: string;
+  email?: string;
+};
+
+function toTitleCase(value: string) {
+  return value
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function toFirstAndLastName(value: string) {
+  const words = value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => toTitleCase(word));
+
+  if (words.length === 0) return "";
+  if (words.length === 1) return words[0];
+
+  return `${words[0]} ${words[words.length - 1]}`;
+}
+
+function deriveNameFromEmail(email: string) {
+  const localPart = email.split("@")[0] || "";
+  const spaced = localPart
+    .replace(/[._-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\d+/g, " ")
+    .trim();
+
+  return toFirstAndLastName(spaced);
+}
+
+export function GranteeEventSection({ events, currentUserRole }: Props) {
   const [eventList, setEventList] = useState(events);
   const [registeringId, setRegisteringId] = useState<string | null>(null);
+  const [selectedRegisterEvent, setSelectedRegisterEvent] = useState<EventItem | null>(null);
+  const [registerFormError, setRegisterFormError] = useState<string | null>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageTitle, setSelectedImageTitle] = useState<string>("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [registerForm, setRegisterForm] = useState({
+    fullName: "",
+    email: "",
+    phoneNumber: "",
+    address: "",
+    age: "",
+    sex: "",
+  });
 
   useEffect(() => {
     setEventList(events);
@@ -40,6 +91,20 @@ export function GranteeEventSection({ events }: Props) {
   }, [selectedImage]);
 
   useEffect(() => {
+    async function fetchSession() {
+      try {
+        const response = await fetch("/api/session");
+        const data = await response.json();
+        setSessionUser(data?.user ?? null);
+      } catch {
+        setSessionUser(null);
+      }
+    }
+
+    fetchSession();
+  }, []);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         if (selectedImage) {
@@ -49,15 +114,18 @@ export function GranteeEventSection({ events }: Props) {
         if (selectedEvent) {
           setSelectedEvent(null);
         }
+        if (selectedRegisterEvent) {
+          setSelectedRegisterEvent(null);
+        }
       }
     }
 
-    if (selectedImage || selectedEvent) {
+    if (selectedImage || selectedEvent || selectedRegisterEvent) {
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
     }
     return;
-  }, [selectedImage, selectedEvent]);
+  }, [selectedImage, selectedEvent, selectedRegisterEvent]);
 
   const handleRegister = async (eventId: string) => {
     setNotification(null);
@@ -75,15 +143,31 @@ export function GranteeEventSection({ events }: Props) {
           return;
         }
 
+        if (result?.error === "Already registered for this event") {
+          setSelectedRegisterEvent(null);
+          setEventList((current) =>
+            current.map((event) =>
+              event.id === eventId
+                ? {
+                    ...event,
+                    isRegistered: true,
+                  }
+                : event
+            )
+          );
+        }
+
         setNotification({ type: "error", message: result?.error || "Registration failed. Please try again." });
       } else {
         setNotification({ type: "success", message: "You have successfully registered for this event." });
+        setSelectedRegisterEvent(null);
         setEventList((current) =>
           current.map((event) =>
             event.id === eventId
               ? {
                   ...event,
                   filledSlots: Math.min(event.filledSlots + 1, event.maxSlots),
+                  isRegistered: true,
                 }
               : event
           )
@@ -94,6 +178,52 @@ export function GranteeEventSection({ events }: Props) {
     } finally {
       setRegisteringId(null);
     }
+  };
+
+  const getAutofilledFullName = () => {
+    const rawFullName = (sessionUser?.fullName || "").trim();
+    if (rawFullName && !rawFullName.includes("@")) {
+      return toFirstAndLastName(rawFullName.replace(/\s+/g, " "));
+    }
+
+    const candidateEmail = (sessionUser?.email || rawFullName).trim();
+    if (!candidateEmail) return "";
+
+    return deriveNameFromEmail(candidateEmail);
+  };
+
+  const openRegisterModal = (event: EventItem) => {
+    setRegisterFormError(null);
+    setSelectedRegisterEvent(event);
+    setRegisterForm({
+      fullName: getAutofilledFullName(),
+      email: sessionUser?.email || "",
+      phoneNumber: "",
+      address: "",
+      age: "",
+      sex: "",
+    });
+  };
+
+  const handleRegisterFormSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!selectedRegisterEvent) {
+      return;
+    }
+
+    if (
+      !registerForm.fullName.trim() ||
+      !registerForm.email.trim() ||
+      !registerForm.address.trim() ||
+      !registerForm.age.trim() ||
+      !registerForm.sex.trim()
+    ) {
+      setRegisterFormError("Full name, email, address, age, and sex are required.");
+      return;
+    }
+
+    await handleRegister(selectedRegisterEvent.id);
   };
 
   const orderedEvents = useMemo(() => {
@@ -137,7 +267,11 @@ export function GranteeEventSection({ events }: Props) {
         {orderedEvents.map((event) => {
           const pct = event.maxSlots > 0 ? Math.round((event.filledSlots / event.maxSlots) * 100) : 0;
           const isFull = event.filledSlots >= event.maxSlots;
-          const isOpen = event.status === "REGISTRATION_OPEN";
+          const isOpen = ["REGISTRATION_OPEN", "UPCOMING"].includes(event.status);
+          const isRegistered = Boolean(event.isRegistered);
+          const isAllowedToRegister = ["YOUTH", "GRANTEE"].includes((currentUserRole || "").toUpperCase());
+          const isLoading = registeringId === event.id;
+          const isButtonDisabled = isRegistered || !isAllowedToRegister || !isOpen || isFull || isLoading;
           const eventDate = new Date(event.eventDate);
 
           return (
@@ -234,16 +368,23 @@ export function GranteeEventSection({ events }: Props) {
                 <div className="mt-auto pt-6">
                   <button
                     type="button"
-                    onClick={() => handleRegister(event.id)}
-                    disabled={!isOpen || isFull || registeringId === event.id}
-                    className={
-                      "inline-flex w-full items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition " +
-                      (!isOpen || isFull
-                        ? "border border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
-                        : "bg-[#0F3D5C] text-white shadow-lg hover:bg-[#0D2E47]")
-                    }
+                    onClick={() => openRegisterModal(event)}
+                    disabled={isButtonDisabled}
+                    className={`w-full h-11 text-xs font-semibold rounded-xl transition-all duration-150 flex items-center justify-center gap-2 border ${
+                      isButtonDisabled
+                        ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                        : "bg-[#0B192C] hover:bg-slate-800 text-white border-transparent cursor-pointer active:scale-[0.99]"
+                    }`}
                   >
-                    {registeringId === event.id ? "Registering..." : isFull ? "Registration closed" : "Register now"}
+                    {isLoading
+                      ? "Registering..."
+                      : isRegistered
+                      ? "Already registered"
+                      : !isAllowedToRegister
+                      ? "Role Restricted"
+                      : !isOpen || isFull
+                      ? "Registration closed"
+                      : "Register now"}
                   </button>
                 </div>
               </div>
@@ -343,6 +484,170 @@ export function GranteeEventSection({ events }: Props) {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedRegisterEvent ? (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px] px-4 py-6"
+          onClick={() => setSelectedRegisterEvent(null)}
+        >
+          <div
+            className="relative w-full max-w-2xl overflow-hidden rounded-[1.75rem] border border-slate-200 bg-gradient-to-b from-white to-slate-50 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between border-b border-slate-200 bg-gradient-to-r from-white to-sky-50/60 px-6 py-5">
+              <div>
+                <p className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600">
+                  Event registration
+                </p>
+                <h3 className="mt-2 text-2xl font-bold text-slate-900">Register for {selectedRegisterEvent.title}</h3>
+                <p className="mt-2 text-sm text-slate-600">
+                  {new Date(selectedRegisterEvent.eventDate).toLocaleDateString("en-US", {
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                  {" · "}
+                  {selectedRegisterEvent.venue}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedRegisterEvent(null)}
+                aria-label="Close registration form"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRegisterFormSubmit} className="space-y-5 px-6 py-6">
+              {registerFormError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+                  {registerFormError}
+                </div>
+              ) : null}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    <User className="h-3.5 w-3.5 text-slate-400" />
+                    Full name
+                  </span>
+                  <input
+                    type="text"
+                    value={registerForm.fullName}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                    className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400"
+                    placeholder="Juan Dela Cruz"
+                    required
+                  />
+                </label>
+
+                <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    <Mail className="h-3.5 w-3.5 text-slate-400" />
+                    Email
+                  </span>
+                  <input
+                    type="email"
+                    value={registerForm.email}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, email: e.target.value }))}
+                    className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400"
+                    placeholder="you@example.com"
+                    required
+                    readOnly={Boolean(sessionUser?.email)}
+                  />
+                  {sessionUser?.email ? (
+                    <p className="mt-1 text-[11px] text-slate-500">Auto-filled from your account</p>
+                  ) : null}
+                </label>
+
+                <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                    Address
+                  </span>
+                  <input
+                    type="text"
+                    value={registerForm.address}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, address: e.target.value }))}
+                    className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400"
+                    placeholder="Your complete address"
+                    required
+                  />
+                </label>
+
+                <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    <Hash className="h-3.5 w-3.5 text-slate-400" />
+                    Age
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={registerForm.age}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, age: e.target.value }))}
+                    className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400"
+                    placeholder="Your age"
+                    required
+                  />
+                </label>
+
+                <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    <User className="h-3.5 w-3.5 text-slate-400" />
+                    Sex
+                  </span>
+                  <select
+                    value={registerForm.sex}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, sex: e.target.value }))}
+                    className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                    required
+                  >
+                    <option value="" className="text-slate-400">
+                      Select sex
+                    </option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </label>
+
+                <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    <Phone className="h-3.5 w-3.5 text-slate-400" />
+                    Contact number
+                  </span>
+                  <input
+                    type="tel"
+                    value={registerForm.phoneNumber}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
+                    className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400"
+                    placeholder="09xxxxxxxxx"
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="submit"
+                  disabled={registeringId === selectedRegisterEvent.id}
+                  className="inline-flex flex-1 items-center justify-center rounded-full bg-[#0F3D5C] px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0D2E47] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {registeringId === selectedRegisterEvent.id ? "Registering..." : "Confirm registration"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRegisterEvent(null)}
+                  className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

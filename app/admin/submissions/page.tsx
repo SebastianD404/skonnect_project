@@ -18,32 +18,89 @@ export default async function AdminSubmissionsPage() {
     redirect("/login");
   }
 
-  const submissions = await prisma.submission.findMany({
-    where: { status: "PENDING" },
-    orderBy: { submittedAt: "asc" },
-    select: {
-      id: true,
-      semester: true,
-      gradeFileUrl: true,
-      coeFileUrl: true,
-      generalAverage: true,
-      status: true,
-      reviewNotes: true,
-      submittedAt: true,
-      grantee: {
-        select: {
-          school: true,
-          yearLevel: true,
-          user: {
-            select: {
-              fullName: true,
-              email: true,
+  let submissions: Array<{
+    id: string;
+    semester: string;
+    gradeFileUrl: string;
+    coeFileUrl: string;
+    generalAverage: number | null;
+    status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
+    reviewNotes: string | null;
+    flaggedFields: string[];
+    submittedAt: Date;
+    grantee: {
+      school: string;
+      yearLevel: string;
+      user: {
+        fullName: string;
+        email: string;
+      };
+    };
+  }>;
+
+  try {
+    submissions = await prisma.submission.findMany({
+      where: { status: "PENDING" },
+      orderBy: { submittedAt: "asc" },
+      select: {
+        id: true,
+        semester: true,
+        gradeFileUrl: true,
+        coeFileUrl: true,
+        generalAverage: true,
+        status: true,
+        reviewNotes: true,
+        flaggedFields: true,
+        submittedAt: true,
+        grantee: {
+          select: {
+            school: true,
+            yearLevel: true,
+            user: {
+              select: {
+                fullName: true,
+                email: true,
+              },
             },
           },
         },
       },
-    },
-  });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/flaggedFields|does not exist/i.test(message)) {
+      throw error;
+    }
+
+    const fallback = await prisma.submission.findMany({
+      where: { status: "PENDING" },
+      orderBy: { submittedAt: "asc" },
+      select: {
+        id: true,
+        semester: true,
+        gradeFileUrl: true,
+        coeFileUrl: true,
+        generalAverage: true,
+        status: true,
+        reviewNotes: true,
+        submittedAt: true,
+        grantee: {
+          select: {
+            school: true,
+            yearLevel: true,
+            user: {
+              select: {
+                fullName: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    submissions = fallback.map((item) => ({ ...item, flaggedFields: [] }));
+  }
 
   const pendingCount = submissions.length;
   const serializedSubmissions = submissions.map((submission) => ({
@@ -63,7 +120,7 @@ export default async function AdminSubmissionsPage() {
                   Review scholarship documents
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm text-slate-500">
-                  Approve or reject Certificate of Enrollment and grade reports for every pending grantee submission.
+                  Approve compliant uploads or return specific files for correction with clear guidance.
                 </p>
               </div>
 

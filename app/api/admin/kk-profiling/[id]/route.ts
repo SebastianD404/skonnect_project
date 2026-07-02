@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 
 async function authorizeUser() {
   const supabase = await createClient();
@@ -12,10 +13,7 @@ async function authorizeUser() {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
-  const appUser = await prisma.user.findUnique({
-    where: { authId: user.id },
-    select: { role: true },
-  });
+  const appUser = await ensureProfile(user);
 
   if (!appUser) {
     return { error: NextResponse.json({ error: "User not found" }, { status: 404 }) };
@@ -136,10 +134,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const appUser = await prisma.user.findUnique({
-      where: { authId: user.id },
-      select: { role: true },
-    });
+    const appUser = await ensureProfile(user);
 
     if (!appUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
