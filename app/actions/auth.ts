@@ -95,8 +95,15 @@ export async function login(
     };
   }
 
-  // If the login form included a `next` param, prefer redirecting there.
   const next = (formData.get("next") as string) || "";
+  if (profile.mustSecureAccount) {
+    const secureRedirect = next && next.startsWith("/")
+      ? `/secure-account?redirect=${encodeURIComponent(next)}`
+      : "/secure-account";
+    return redirect(secureRedirect);
+  }
+
+  // If the login form included a `next` param, prefer redirecting there.
   if (next && next.startsWith("/")) {
     return redirect(next);
   }

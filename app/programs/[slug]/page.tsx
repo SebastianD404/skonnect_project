@@ -72,7 +72,6 @@ const PROGRAMS: Record<string, ProgramPageData> = {
       "Keep your records up to date each semester to remain eligible for ongoing support.",
     ],
     requirements: [
-      "Application form",
       "Birth Certificate / Valid ID",
       "Barangay Certificate of Residency",
       "Certificate of Enrollment",
@@ -98,7 +97,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
       },
     ],
     cta: [
-      { label: "Apply for SKEAP", href: "/signup" },
+      { label: "Start KK profiling", href: "/programs/kk-profiling" },
       { label: "Get application help", href: "/chatbot" },
     ],
   },
@@ -267,16 +266,7 @@ export default async function ProgramPage({ params }: Props) {
 
             {slug !== "kk-profiling" && (
               <div className="flex flex-wrap gap-3">
-                  {supabaseUser ? (
-                    <ProgramApplyClient slug={slug} requirements={data.requirements} />
-                  ) : (
-                    <Link
-                      href={`/signup?next=${encodeURIComponent(`/programs/${slug}?openApply=1`)}`}
-                      className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
-                    >
-                      Apply for SKEAP →
-                    </Link>
-                  )}
+                <ProgramApplyClient slug={slug} requirements={data.requirements} />
                 <Link
                   href="/chatbot"
                   className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"

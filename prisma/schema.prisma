@@ -84,6 +84,7 @@ model User {
   auditLogs               AuditLog[]       @relation("ActorAuditLogs")
   eventsCreated           Event[]          @relation("EventCreator")
   chatMessages            ChatMessage[]
+  skeapApplications       SkeapApplication[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -136,6 +137,42 @@ model Submission {
   reviewedAt       DateTime?
 
   @@map("submissions")
+}
+
+model SkeapApplication {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  currentCourse      String
+  yearLevel          String
+  gwa                Float?
+
+  enrollmentFileUrl  String
+  reportCardFileUrl  String
+
+  applicantName      String?
+  permanentAddress   String?
+  dateOfBirth        DateTime?
+  placeOfBirth       String?
+  age                Int?
+  civilStatus        String?
+  fathersName        String?
+  fathersOccupation  String?
+  fathersContact     String?
+  mothersMaidenName  String?
+  mothersOccupation  String?
+  contactNumber      String?
+  emailAddress       String?
+  uploadedFiles      Json?
+  photoFileUrl       String?
+
+  status             SubmissionStatus @default(PENDING)
+  submittedAt        DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId, submittedAt(sort: Desc)])
+  @@map("skeap_applications")
 }
 
 // ─────────────────────────────────────────────

@@ -61,12 +61,17 @@ model User {
   // generate a separate auth system. This table holds app-level profile data.
   authId        String   @unique
   email         String   @unique
+  username      String?  @unique
   fullName      String
   phoneNumber   String?
   avatarUrl     String?  // Supabase Storage path for user avatar
   role          Role     @default(YOUTH)
   languagePref  Language @default(ENGLISH)
   settings      Json?
+  mustSecureAccount    Boolean  @default(false)
+  usesTemporaryPassword Boolean @default(false)
+  kkProfileId          String?  @unique
+  kkProfile            KKProfile? @relation(fields: [kkProfileId], references: [id], onDelete: SetNull)
 
   barangay      String   @default("Pico")
   isActive      Boolean  @default(true)
@@ -80,11 +85,52 @@ model User {
   auditLogs               AuditLog[]       @relation("ActorAuditLogs")
   eventsCreated           Event[]          @relation("EventCreator")
   chatMessages            ChatMessage[]
+  skeapApplications       SkeapApplication[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@map("users")
+}
+
+model KKProfile {
+  id            String   @id @default(uuid())
+  firstName     String
+  middleName    String?
+  lastName      String
+  fullName      String
+  purok         String
+  addressLine   String
+  barangay      String   @default("Pico")
+  birthDate     DateTime
+  contactNumber String
+  email         String   @unique
+  isVerified    Boolean  @default(true)
+
+  user          User?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([lastName, firstName])
+  @@map("kk_profiles")
+}
+
+model SkeapApplication {
+  id                String           @id @default(uuid())
+  userId            String
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentCourse     String
+  yearLevel         String
+  gwa               Decimal?         @db.Decimal(4, 2)
+  enrollmentFileUrl String
+  reportCardFileUrl String
+  status            SubmissionStatus @default(PENDING)
+  submittedAt       DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([userId, submittedAt(sort: Desc)])
+  @@map("skeap_applications")
 }
 
 // ─────────────────────────────────────────────

@@ -28,6 +28,10 @@ export async function proxy(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
+  const mustSecureAccount = Boolean(
+    user?.user_metadata?.must_secure_account || user?.user_metadata?.temporary_credential
+  );
+
   // Redirect unauthenticated users away from protected routes
   if (!user && request.nextUrl.pathname.startsWith("/grantee-dashboard")) {
     return NextResponse.redirect(new URL("/login", request.url));
@@ -39,6 +43,12 @@ export async function proxy(request: NextRequest) {
 
   if (!user && request.nextUrl.pathname.startsWith("/profile")) {
     return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  if (user && mustSecureAccount && !request.nextUrl.pathname.startsWith("/secure-account")) {
+    const secureUrl = new URL("/secure-account", request.url);
+    secureUrl.searchParams.set("redirect", request.nextUrl.pathname + request.nextUrl.search);
+    return NextResponse.redirect(secureUrl);
   }
 
   return supabaseResponse;

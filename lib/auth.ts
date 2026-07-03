@@ -38,20 +38,47 @@ export async function ensureProfile(authUser: any) {
 
   let profile = await prisma.user.findUnique({
     where: { authId },
-    select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+      avatarUrl: true,
+      username: true,
+      mustSecureAccount: true,
+      usesTemporaryPassword: true,
+    },
   });
 
   if (!profile) {
     const existingByEmail = await prisma.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
-      select: { id: true, role: true, fullName: true, email: true, avatarUrl: true },
+      select: {
+        id: true,
+        role: true,
+        fullName: true,
+        email: true,
+        avatarUrl: true,
+        username: true,
+        mustSecureAccount: true,
+        usesTemporaryPassword: true,
+      },
     });
 
     if (existingByEmail) {
       profile = await prisma.user.update({
         where: { id: existingByEmail.id },
         data: { authId },
-        select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          role: true,
+          avatarUrl: true,
+          username: true,
+          mustSecureAccount: true,
+          usesTemporaryPassword: true,
+        },
       });
     } else {
       profile = await prisma.user.create({
@@ -61,7 +88,16 @@ export async function ensureProfile(authUser: any) {
           fullName: resolveFullName(authUser),
           role: "YOUTH",
         },
-        select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          role: true,
+          avatarUrl: true,
+          username: true,
+          mustSecureAccount: true,
+          usesTemporaryPassword: true,
+        },
       });
     }
   }
@@ -94,6 +130,10 @@ export async function redirectIfSignedIn() {
 
   const appUser = await ensureProfile(user);
   if (!appUser) return;
+
+  if (appUser.mustSecureAccount) {
+    redirect("/secure-account");
+  }
 
   const destination = getRoleHomePath(appUser.role);
   if (destination) {
