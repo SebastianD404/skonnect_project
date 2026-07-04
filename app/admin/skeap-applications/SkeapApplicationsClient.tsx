@@ -1,8 +1,10 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle2, ClipboardList, Send, FileText, FolderOpen, X, Download } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
+import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
+import { CORE_UPLOAD_KEYS, SKEAP_UPLOAD_KEY, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
 
 interface DocumentItem {
   id: string;
@@ -32,6 +34,16 @@ interface AttachedFileNote {
   fileStatus?: "FLAGGED" | "REJECTED" | "PENDING" | string;
 }
 
+interface UploadGroup {
+  key: string;
+  label: string;
+  name?: string;
+  url: string;
+  type: string;
+  isImage: boolean;
+  verified?: boolean;
+}
+
 interface ApplicationRecord {
   id: string;
   applicantName: string;
@@ -41,6 +53,28 @@ interface ApplicationRecord {
   submittedAt: string;
   status: string;
   documents: DocumentItem[];
+  uploadGroups?: UploadGroup[];
+  application?: {
+    currentCourse?: string;
+    yearLevel?: string;
+    gwa?: number | null;
+    applicantName?: string;
+    permanentAddress?: string;
+    dateOfBirth?: string;
+    placeOfBirth?: string;
+    age?: number;
+    civilStatus?: string;
+    gender?: string;
+    fathersName?: string;
+    fathersOccupation?: string;
+    fathersContact?: string;
+    mothersMaidenName?: string;
+    mothersOccupation?: string;
+    mothersContact?: string;
+    contactNumber?: string;
+    emailAddress?: string;
+    photoFileUrl?: string;
+  };
   messages: ApplicationMessage[];
 }
 
@@ -65,6 +99,26 @@ function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMes
   if (flaggedAttachment) return "Returned";
   if (doc.verified) return "Verified";
   return "Pending";
+}
+
+function buildDownloadHref(url: string) {
+  if (!url) return "";
+  try {
+    new URL(url);
+    return `/api/download?url=${encodeURIComponent(url)}`;
+  } catch {
+    return url;
+  }
+}
+
+function getFilenameFromUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return decodeURIComponent(parsed.pathname.split("/").pop() || "file");
+  } catch {
+    const parts = url.split("/");
+    return decodeURIComponent(parts.pop() || "file");
+  }
 }
 
 function normalizeApplicationStatus(status: string) {
@@ -110,7 +164,7 @@ function isImageUrl(url: string) {
 }
 
 function isPdfUrl(url: string) {
-  return /\.pdf(\?|$)/i.test(url);
+  return /\.pdfm?(\?|$)/i.test(url);
 }
 
 function getFileTypeFromUrl(url: string): "image" | "pdf" | "office" | "document" {
@@ -118,6 +172,27 @@ function getFileTypeFromUrl(url: string): "image" | "pdf" | "office" | "document
   if (isPdfUrl(url)) return "pdf";
   if (/\.(docx?|xlsx?|pptx?)(\?|$)/i.test(url)) return "office";
   return "document";
+}
+
+function normalizeUrlForMatch(url: string): string {
+  const candidate = String(url || "").trim();
+  try {
+    const parsed = new URL(candidate);
+    parsed.hash = "";
+    parsed.search = "";
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    return parsed.toString().toLowerCase();
+  } catch {
+    return candidate.replace(/\/+$/, "").toLowerCase();
+  }
+}
+
+function isPlaceholderUrl(url: string) {
+  return /^(?:https?:\/\/)?(?:www\.)?example\.com(?:[\/\?#]|$)/i.test(String(url || "").trim());
+}
+
+function isValidPreviewUrl(url: string) {
+  return typeof url === "string" && url.trim().length > 0 && !isPlaceholderUrl(url);
 }
 
 function extractFileNameFromUrl(url: string): string {
@@ -144,6 +219,81 @@ function normalizeDocumentLabel(raw: string): string {
   return stripped || "Document";
 }
 
+function areDocumentLabelsEquivalent(a: string, b: string) {
+  const normalize = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const normalizedA = normalize(a);
+  const normalizedB = normalize(b);
+  if (normalizedA === normalizedB) return true;
+  if (normalizedA.includes(normalizedB) || normalizedB.includes(normalizedA)) return true;
+  if (/(barangay|residency|residence)/.test(normalizedA) && /(barangay|residency|residence)/.test(normalizedB)) return true;
+  if (/(enrollment|certificate)/.test(normalizedA) && /(enrollment|certificate)/.test(normalizedB)) return true;
+  if (/(grade|report|transcript)/.test(normalizedA) && /(grade|report|transcript)/.test(normalizedB)) return true;
+  return false;
+}
+
+function findDocumentByReviewKey(application: ApplicationRecord, reviewKey: string): DocumentItem | undefined {
+  if (reviewKey.startsWith("url-")) {
+    const targetUrl = reviewKey.replace(/^url-/, "");
+    const normalizedTargetUrl = normalizeUrlForMatch(targetUrl);
+    const urlMatch = application.documents.find((doc) => normalizeUrlForMatch(doc.previewUrl) === normalizedTargetUrl);
+    if (urlMatch) return urlMatch;
+
+    const groupMatch = application.uploadGroups?.find((group) => normalizeUrlForMatch(group.url) === normalizedTargetUrl);
+    if (groupMatch) {
+      return {
+        id: groupMatch.key,
+        label: groupMatch.label,
+        type: groupMatch.type,
+        previewUrl: groupMatch.url,
+        verified: groupMatch.verified ?? false,
+        comment: "",
+        isImage: groupMatch.isImage,
+      };
+    }
+
+    return undefined;
+  }
+
+  const directMatch = application.documents.find((doc) => doc.id === reviewKey);
+  if (directMatch) return directMatch;
+
+  const group = application.uploadGroups?.find((upload) => upload.key === reviewKey);
+  if (!group) return undefined;
+
+  const normalizedGroupUrl = normalizeUrlForMatch(group.url);
+  const urlMatch = application.documents.find((doc) => normalizeUrlForMatch(doc.previewUrl) === normalizedGroupUrl);
+  if (urlMatch) return urlMatch;
+
+  const labelMatch = application.documents.find((doc) => {
+    const lowerLabel = doc.label.toLowerCase();
+    const lowerGroupLabel = group.label.toLowerCase();
+    return (
+      doc.id === group.key ||
+      lowerLabel === lowerGroupLabel ||
+      lowerLabel.includes(lowerGroupLabel) ||
+      lowerGroupLabel.includes(lowerLabel)
+    );
+  });
+  if (labelMatch) return labelMatch;
+
+  return {
+    id: group.key,
+    label: group.label,
+    type: group.type,
+    previewUrl: group.url,
+    verified: group.verified ?? false,
+    comment: "",
+    isImage: group.isImage,
+  };
+}
+
 function getDocumentInlineRemark(doc: DocumentItem, reviewThread: ApplicationMessage[]) {
   return (
     reviewThread
@@ -167,6 +317,7 @@ export default function SkeapApplicationsClient({
   const [viewFilter, setViewFilter] = useState<"review" | "returned" | "approved">("review");
   const [messageDraft, setMessageDraft] = useState("");
   const [attachedFileNotes, setAttachedFileNotes] = useState<AttachedFileNote[]>([]);
+  const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [showApprovePreview, setShowApprovePreview] = useState(false);
   const [showApprovalWarning, setShowApprovalWarning] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -199,39 +350,163 @@ export default function SkeapApplicationsClient({
       ? "Approved Archive"
       : "Returned / Correction Queue";
 
+  const initialStatusMap = useMemo(
+    () => new Map(initialApplications.map((app) => [app.id, normalizeApplicationStatus(app.status)])),
+    [initialApplications]
+  );
+
+  const statusDelta = useMemo(() => {
+    const delta = {
+      pending: 0,
+      returned: 0,
+      resubmitted: 0,
+      approved: 0,
+    };
+
+    const normalizedToKey = (status: string) => {
+      const normalized = normalizeApplicationStatus(status);
+      if (normalized === "Approved") return "approved" as const;
+      if (normalized === "Resubmitted") return "resubmitted" as const;
+      if (normalized === "Returned") return "returned" as const;
+      return "pending" as const;
+    };
+
+    applications.forEach((application) => {
+      const previous = initialStatusMap.get(application.id) ?? normalizeApplicationStatus(application.status);
+      const current = normalizeApplicationStatus(application.status);
+      if (previous === current) return;
+      delta[normalizedToKey(current)] += 1;
+      delta[normalizedToKey(previous)] -= 1;
+    });
+
+    return delta;
+  }, [applications, initialStatusMap]);
+
   const stats = useMemo(() => {
-    if (counts) {
-      return {
-        pending: counts.pending,
-        returned: counts.returned,
-        resubmitted: counts.resubmitted ??
-          applications.filter((app) => normalizeApplicationStatus(app.status) === "Resubmitted").length,
-        approved: counts.approved,
-      };
-    }
-    return {
+    const derived = {
       pending: applications.filter((app) => normalizeApplicationStatus(app.status) === "Pending Review").length,
       returned: applications.filter((app) => normalizeApplicationStatus(app.status) === "Returned").length,
       resubmitted: applications.filter((app) => normalizeApplicationStatus(app.status) === "Resubmitted").length,
       approved: applications.filter((app) => normalizeApplicationStatus(app.status) === "Approved").length,
     };
-  }, [applications, counts]);
 
-  const verifiedCount = useMemo(
-    () => selectedApplication?.documents.filter((doc) => doc.verified).length ?? 0,
+    if (!counts) {
+      return derived;
+    }
+
+    return {
+      pending: counts.pending + statusDelta.pending,
+      returned: counts.returned + statusDelta.returned,
+      resubmitted: (counts.resubmitted ?? 0) + statusDelta.resubmitted,
+      approved: counts.approved + statusDelta.approved,
+    };
+  }, [applications, counts, statusDelta]);
+
+  const uploadGroups = useMemo(
+    () => selectedApplication?.uploadGroups ?? [],
     [selectedApplication]
   );
 
-  const isFullyVerified = useMemo(
-    () => selectedApplication?.documents.every((doc) => doc.verified) ?? false,
+  const applicationDetails = selectedApplication?.application;
+
+  const documentMapByUrl = useMemo(
+    () =>
+      new Map<string, DocumentItem>(
+        (selectedApplication?.documents ?? []).map((doc) => [normalizeUrlForMatch(doc.previewUrl), doc])
+      ),
     [selectedApplication]
+  );
+
+  const [showApplicationForm, setShowApplicationForm] = useState(false);
+
+  const verifyUploadGroups = useMemo(
+    () => uploadGroups.filter((group) => group.key !== SKEAP_UPLOAD_KEY.PHOTO && group.key !== SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE),
+    [uploadGroups]
+  );
+
+  const visibleVerifyDocuments = useMemo(() => {
+    if (verifyUploadGroups.length > 0) {
+      return CORE_UPLOAD_KEYS.map((key) => {
+        const group = verifyUploadGroups.find((groupItem) => groupItem.key === key);
+        const groupUrl = group?.url ?? "";
+        const normalizedGroupUrl = normalizeUrlForMatch(groupUrl);
+        const matchedDoc = selectedApplication?.documents.find((doc) => {
+          const normalizedDocUrl = normalizeUrlForMatch(doc.previewUrl);
+          return (
+            normalizedDocUrl === normalizedGroupUrl ||
+            doc.id === key ||
+            areDocumentLabelsEquivalent(doc.label, SKEAP_UPLOAD_LABELS[key])
+          );
+        });
+
+        return {
+          id: key,
+          label: SKEAP_UPLOAD_LABELS[key],
+          type: matchedDoc?.type ?? group?.type ?? "Document",
+          previewUrl: matchedDoc?.previewUrl ?? groupUrl,
+          verified:
+            matchedDoc?.verified ??
+            documentMapByUrl.get(normalizeUrlForMatch(groupUrl))?.verified ??
+            group?.verified ??
+            false,
+          comment:
+            matchedDoc?.comment ?? documentMapByUrl.get(normalizeUrlForMatch(groupUrl))?.comment ?? "",
+          isImage: matchedDoc?.isImage ?? group?.isImage ?? false,
+        };
+      });
+    }
+    if (!selectedApplication) return [];
+    return CORE_UPLOAD_KEYS.map((key) => {
+      const doc = selectedApplication.documents.find((item) => item.id === key || areDocumentLabelsEquivalent(item.label, SKEAP_UPLOAD_LABELS[key]));
+      return {
+        id: key,
+        label: SKEAP_UPLOAD_LABELS[key],
+        type: doc?.type ?? "Document",
+        previewUrl: doc?.previewUrl ?? "",
+        verified: doc?.verified ?? false,
+        comment: doc?.comment ?? "",
+        isImage: doc?.isImage ?? false,
+      };
+    });
+  }, [verifyUploadGroups, selectedApplication, documentMapByUrl]);
+
+  const verifiedCount = useMemo(
+    () => visibleVerifyDocuments.filter((doc) => doc.verified).length,
+    [visibleVerifyDocuments]
+  );
+
+  const verifyDocumentCount = visibleVerifyDocuments.length;
+
+  const isFullyVerified = useMemo(
+    () => visibleVerifyDocuments.every((doc) => doc.verified) ?? false,
+    [visibleVerifyDocuments]
+  );
+
+  const activeReviewDocument = useMemo(() => {
+    if (!selectedApplication || !activeReviewFile) return undefined;
+    return findDocumentByReviewKey(selectedApplication, activeReviewFile);
+  }, [selectedApplication, activeReviewFile]);
+
+  const activeReviewGroup = useMemo(
+    () => selectedApplication?.uploadGroups?.find((group) => group.key === activeReviewFile || normalizeUrlForMatch(group.url) === normalizeUrlForMatch(activeReviewFile ?? "")),
+    [selectedApplication, activeReviewFile]
+  );
+
+  const activeReviewPreviewUrl = activeReviewDocument?.previewUrl ?? activeReviewGroup?.url ?? "";
+  const activeReviewLabel = activeReviewDocument?.label ?? activeReviewGroup?.label ?? "Document preview";
+
+  const activeReviewVerified = activeReviewDocument?.verified ?? activeReviewGroup?.verified ?? false;
+
+  const resolvedSelectedAppId = useMemo(
+    () => (displayedApplications.some((app) => app.id === selectedAppId) ? selectedAppId : displayedApplications[0]?.id ?? ""),
+    [displayedApplications, selectedAppId]
   );
 
   useEffect(() => {
-    if (!selectedAppId || !displayedApplications.some((app) => app.id === selectedAppId)) {
-      setSelectedAppId(displayedApplications[0]?.id ?? "");
+    if (resolvedSelectedAppId !== selectedAppId) {
+      setSelectedAppId(resolvedSelectedAppId);
     }
-  }, [displayedApplications, selectedAppId]);
+  }, [resolvedSelectedAppId, selectedAppId]);
 
   function updateSelectedApplication(
     updater: (application: ApplicationRecord) => ApplicationRecord
@@ -245,12 +520,40 @@ export default function SkeapApplicationsClient({
 
   function toggleDocumentVerified(documentId: string) {
     if (!selectedApplication) return;
-    updateSelectedApplication((application) => ({
-      ...application,
-      documents: application.documents.map((document) =>
-        document.id === documentId ? { ...document, verified: !document.verified } : document
-      ),
-    }));
+    const matchedDocument = findDocumentByReviewKey(selectedApplication, documentId);
+    if (!matchedDocument) return;
+
+    const normalizedMatchedUrl = normalizeUrlForMatch(matchedDocument.previewUrl);
+    const matchedDocumentId = matchedDocument.id;
+    const matchedLabel = matchedDocument.label;
+
+    const shouldMatch = (id: string, label: string, url: string) => {
+      const normalizedUrl = normalizeUrlForMatch(url);
+      const isUrlMatch = normalizedUrl && normalizedMatchedUrl && normalizedUrl === normalizedMatchedUrl;
+      const isLabelMatch = areDocumentLabelsEquivalent(label, matchedLabel);
+      const isIdMatch = id === matchedDocumentId || id === documentId;
+      return isIdMatch || isUrlMatch || isLabelMatch;
+    };
+
+    updateSelectedApplication((application) => {
+      const updatedDocuments = application.documents.map((document) =>
+        shouldMatch(document.id, document.label, document.previewUrl)
+          ? { ...document, verified: !document.verified }
+          : document
+      );
+
+      const updatedUploadGroups = application.uploadGroups?.map((group) =>
+        shouldMatch(group.key, group.label, group.url)
+          ? { ...group, verified: !(group.verified ?? false) }
+          : group
+      );
+
+      return {
+        ...application,
+        documents: updatedDocuments,
+        uploadGroups: updatedUploadGroups,
+      };
+    });
   }
 
   async function saveReviewUpdate(action: "message" | "approve", text: string, attachments: AttachedFileNote[]) {
@@ -377,7 +680,8 @@ export default function SkeapApplicationsClient({
     if (!selectedApplication) return;
 
     try {
-      const result = await saveReviewUpdate("approve", "Application approved. We will move this applicant to the next step.", []);
+      const approvalText = "Application approved. The applicant will be upgraded to Grantee access automatically.";
+      const result = await saveReviewUpdate("approve", approvalText, []);
       const reviewThread = result?.reviewThread;
       if (reviewThread) {
         updateSelectedApplication((application) => ({
@@ -396,7 +700,7 @@ export default function SkeapApplicationsClient({
               id: `msg-${Date.now()}`,
               role: "admin",
               createdAt: new Date().toISOString(),
-              text: "Application approved. We will move this applicant to the next step.",
+              text: approvalText,
             },
             ...application.messages,
           ],
@@ -566,8 +870,16 @@ export default function SkeapApplicationsClient({
                         <p className="mt-2 text-sm text-slate-600">{selectedApplication.applicantEmail}</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowApplicationForm(true)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          <Download className="h-4 w-4" />
+                          View compiled form
+                        </button>
                         <a
-                          href={`/api/admin/skeap-applications/${selectedApplication?.id}/download`}
+                          href={`/api/applications/${selectedApplication?.id}/download`}
                           className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                         >
                           <Download className="h-4 w-4" />
@@ -575,7 +887,7 @@ export default function SkeapApplicationsClient({
                         </a>
                       </div>
                     </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 min-w-0">
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[0.86fr_0.98fr] min-w-0">
                     <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
                       <div className="flex flex-col min-w-0">
                         <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">STATUS</span>
@@ -607,11 +919,52 @@ export default function SkeapApplicationsClient({
                     <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
                       <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">VERIFIED DOCS</span>
                       <p className="mt-2 font-semibold text-slate-950 truncate">
-                        {verifiedCount}/{selectedApplication?.documents.length ?? 0}
+                        {verifiedCount}/{verifyDocumentCount}
                       </p>
                     </div>
                   </div>
                 </div>
+
+                {applicationDetails ? (
+                  <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {applicationDetails.currentCourse ? (
+                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Course</p>
+                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.currentCourse}</p>
+                      </div>
+                    ) : null}
+                    {applicationDetails.yearLevel ? (
+                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Year level</p>
+                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.yearLevel}</p>
+                      </div>
+                    ) : null}
+                    {applicationDetails.age != null ? (
+                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Age</p>
+                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.age}</p>
+                      </div>
+                    ) : null}
+                    {applicationDetails.dateOfBirth ? (
+                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Date of birth</p>
+                        <p className="mt-2 font-semibold text-slate-950 truncate">{formatDate(applicationDetails.dateOfBirth)}</p>
+                      </div>
+                    ) : null}
+                    {applicationDetails.contactNumber ? (
+                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Phone</p>
+                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.contactNumber}</p>
+                      </div>
+                    ) : null}
+                    {applicationDetails.emailAddress ? (
+                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Email</p>
+                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.emailAddress}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {isApproved ? (
                   <div className="w-full space-y-3">
@@ -620,7 +973,7 @@ export default function SkeapApplicationsClient({
                         <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                         <span>Application Approved:</span>
                       </div>
-                      All {verifiedCount}/{selectedApplication?.documents.length ?? 0} mandatory documents have been cross-verified. To finalize onboarding, this user's account permissions must be provisioned.
+                      All {verifiedCount}/{verifyDocumentCount} mandatory documents have been cross-verified. To finalize onboarding, this user's account permissions must be provisioned.
                     </div>
                     <a
                       href={`/admin/grantees?search=${encodeURIComponent(selectedApplication?.applicantEmail ?? "")}`}
@@ -660,90 +1013,78 @@ export default function SkeapApplicationsClient({
                     <h2 className="mt-3 text-2xl font-semibold text-slate-950">Documents to verify</h2>
                   </div>
                   <div className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
-                    {verifiedCount}/{selectedApplication?.documents.length ?? 0}
+                    {verifiedCount}/{verifyDocumentCount}
                   </div>
                 </div>
 
                 <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-slate-200">
                   <div className="divide-y divide-slate-200 bg-white">
-                    {(selectedApplication?.documents || []).map((doc) => (
-                      <div key={doc.id} className="w-full">
-                        <div className={`flex items-center gap-4 px-6 py-4 transition ${isApproved ? "" : "hover:bg-slate-50"}`}>
-                          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
-                            {doc.isImage ? (
-                              <img
-                                src={doc.previewUrl}
-                                alt={doc.label}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
-                                <FileText className="h-5 w-5" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="truncate text-sm font-semibold text-slate-900">{doc.label}</p>
-                            <p className="truncate text-xs text-slate-500">{doc.type}</p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <a
-                              href={doc.previewUrl}
-                              download
-                              target="_blank"
-                              rel="noreferrer noopener"
-                              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200"
-                            >
-                              <Download className="h-4 w-4" />
-                            </a>
-                            <a
-                              href={`/api/admin/skeap-applications/${selectedApplication?.id}/download`}
-                              className="ml-2 inline-flex items-center justify-center rounded-full border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100"
-                            >
-                              <Download className="h-4 w-4" />
-                            </a>
-                            {(() => {
-                              const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
-                              const isResubmittedDoc = selectedStatus === "Resubmitted" && docStatus === "Returned";
-                              const badgeClass = isResubmittedDoc
-                                ? "bg-sky-50 text-sky-700 border border-sky-200"
-                                : docStatus === "Returned"
-                                ? "bg-red-50 text-red-600 border border-red-100"
-                                : doc.verified
-                                ? "bg-emerald-100 text-emerald-700 border border-emerald-100"
-                                : "bg-slate-100 text-slate-600 border border-slate-200";
-                              const statusText = isResubmittedDoc ? "Resubmitted" : docStatus;
+                    {visibleVerifyDocuments.map((doc) => {
+                      const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
+                      const isResubmittedDoc = selectedStatus === "Resubmitted" && docStatus === "Returned";
+                      const badgeClass = isResubmittedDoc
+                        ? "bg-sky-50 text-sky-700 border border-sky-200"
+                        : docStatus === "Returned"
+                        ? "bg-red-50 text-red-600 border border-red-100"
+                        : doc.verified
+                        ? "bg-emerald-100 text-emerald-700 border border-emerald-100"
+                        : "bg-slate-100 text-slate-600 border border-slate-200";
+                      const statusText = isResubmittedDoc ? "Resubmitted" : docStatus;
 
-                              return (
-                                <>
-                                  <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
-                                    {statusText}
-                                  </span>
-                                  {!isApproved && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setActiveReviewFile(doc.id)}
-                                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-700 transition hover:bg-slate-200"
-                                    >
-                                      Review
-                                    </button>
-                                  )}
-                                  {!isResubmittedDoc && docStatus === "Returned" ? (
-                                    <div className="ml-20 rounded-r-lg border-l-2 border-red-400 bg-slate-50/70 p-2.5 text-xs text-slate-600">
-                                      <div className="flex items-center gap-2 font-semibold text-red-600">
-                                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
-                                        Reviewer Note:
-                                      </div>
-                                      <p className="mt-1 leading-5">{getDocumentInlineRemark(doc, selectedApplication?.messages ?? [])}</p>
-                                    </div>
-                                  ) : null}
-                                </>
-                              );
-                            })()}
+                      return (
+                        <div key={doc.id} className="w-full">
+                          <div className={`flex items-center gap-4 px-6 py-4 transition ${isApproved ? "" : "hover:bg-slate-50"}`}>
+                            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                              {doc.isImage ? (
+                                <img
+                                  src={doc.previewUrl}
+                                  alt={doc.label}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
+                                  <FileText className="h-5 w-5" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="truncate text-sm font-semibold text-slate-900">{doc.label}</p>
+                              <p className="truncate text-xs text-slate-500">{doc.type}</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <a
+                                href={buildDownloadHref(doc.previewUrl)}
+                                download={getFilenameFromUrl(doc.previewUrl)}
+                                className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200"
+                              >
+                                <Download className="h-4 w-4" />
+                              </a>
+                              {!isApproved && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveReviewFile(doc.id)}
+                                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-700 transition hover:bg-slate-200"
+                                >
+                                  Review
+                                </button>
+                              )}
+                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                                {statusText}
+                              </span>
+                            </div>
                           </div>
+                          {!isResubmittedDoc && docStatus === "Returned" ? (
+                            <div className="ml-20 rounded-r-lg border-l-2 border-red-400 bg-slate-50/70 p-2.5 text-xs text-slate-600">
+                              <div className="flex items-center gap-2 font-semibold text-red-600">
+                                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
+                                Reviewer Note:
+                              </div>
+                              <p className="mt-1 leading-5">{getDocumentInlineRemark(doc, selectedApplication?.messages ?? [])}</p>
+                            </div>
+                          ) : null}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -780,15 +1121,15 @@ export default function SkeapApplicationsClient({
                           {textWithoutUrls && <p className="mt-3 leading-7 text-sm">{textWithoutUrls}</p>}
                           {urls.length > 0 && (
                             <div className="mt-4 flex flex-wrap gap-3">
-                              {urls.map((url) => {
+                              {urls.map((url, urlIndex) => {
                                 const fileType = getFileTypeFromUrl(url);
                                 const fileName = extractFileNameFromUrl(url);
                                 return (
-                                  <div key={url}>
+                                  <div key={`${message.id}-url-${urlIndex}`}>
                                     {fileType === "image" ? (
                                       <button
                                         type="button"
-                                        onClick={() => setActiveReviewFile(`url-${url}`)}
+                                        onClick={() => setActiveReviewFile(`url-${message.id}-${urlIndex}`)}
                                         className="overflow-hidden rounded-lg border border-slate-200 hover:shadow-md transition"
                                       >
                                         <img src={url} alt={fileName} className="h-16 w-16 object-cover" />
@@ -811,9 +1152,9 @@ export default function SkeapApplicationsClient({
                           )}
                           {message.attachments && message.attachments.length > 0 && (
                             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                              {message.attachments.map((attachment) => (
+                              {message.attachments.map((attachment, attachmentIndex) => (
                                 <div
-                                  key={`${message.id}-${attachment.fileId}`}
+                                  key={`${message.id}-${attachment.fileId}-${attachmentIndex}`}
                                   className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
                                 >
                                   <div className="flex items-start gap-3">
@@ -835,9 +1176,8 @@ export default function SkeapApplicationsClient({
                                   </div>
                                   <div className="mt-4 flex items-center justify-between gap-2">
                                     <a
-                                      href={attachment.fileUrl}
-                                      target="_blank"
-                                      rel="noreferrer noopener"
+                                      href={buildDownloadHref(attachment.fileUrl)}
+                                      download={getFilenameFromUrl(attachment.fileUrl)}
                                       className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200"
                                     >
                                       <Download className="h-4 w-4" />
@@ -859,7 +1199,7 @@ export default function SkeapApplicationsClient({
                     <div className="space-y-2">
                       {attachedFileNotes.map((attachment, index) => (
                         <div
-                          key={`${attachment.fileId}-${index}`}
+                          key={`${attachment.fileId}-${attachment.fileUrl ?? index}-${index}`}
                           className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:bg-slate-100"
                         >
                           <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100">
@@ -902,6 +1242,7 @@ export default function SkeapApplicationsClient({
                   <div className="mt-6">
                     <label className="block text-sm font-semibold text-slate-900">Write a note to the applicant</label>
                     <textarea
+                      ref={noteTextareaRef}
                       value={messageDraft}
                       onChange={(event) => setMessageDraft(event.target.value)}
                       rows={4}
@@ -938,6 +1279,13 @@ export default function SkeapApplicationsClient({
         </main>
       </div>
 
+      <SkeapApplicationFormModal
+        isOpen={showApplicationForm}
+        onClose={() => setShowApplicationForm(false)}
+        application={selectedApplication?.application}
+        downloadHref={`/api/applications/${selectedApplication?.id}/download`}
+      />
+
       {activeReviewFile ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           {activeReviewFile.startsWith("url-") ? (
@@ -961,20 +1309,9 @@ export default function SkeapApplicationsClient({
               <div className="sticky top-0 flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Document review</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-950">
-                    {selectedApplication?.documents.find((d) => d.id === activeReviewFile)?.label}
-                  </h2>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-950">{activeReviewLabel}</h2>
                 </div>
                 <div className="flex items-center gap-2">
-                  <a
-                    href={selectedApplication?.documents.find((d) => d.id === activeReviewFile)?.previewUrl}
-                    download
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200"
-                  >
-                    <Download className="h-4 w-4" />
-                  </a>
                   <button
                     type="button"
                     onClick={() => {
@@ -990,19 +1327,19 @@ export default function SkeapApplicationsClient({
 
               <div className="p-6 space-y-6">
                 <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 overflow-hidden">
-                  {selectedApplication?.documents.find((d) => d.id === activeReviewFile)?.isImage ? (
+                  {activeReviewGroup?.isImage || activeReviewDocument?.isImage ? (
                     <img
-                      src={selectedApplication?.documents.find((d) => d.id === activeReviewFile)?.previewUrl}
+                      src={activeReviewPreviewUrl}
                       alt="Document preview"
                       className="w-full h-auto max-h-96 object-contain"
                     />
-                  ) : isPdfUrl(selectedApplication?.documents.find((d) => d.id === activeReviewFile)?.previewUrl || "") ? (
+                  ) : isPdfUrl(activeReviewPreviewUrl) && isValidPreviewUrl(activeReviewPreviewUrl) ? (
                     <iframe
-                      src={selectedApplication?.documents.find((d) => d.id === activeReviewFile)?.previewUrl}
+                      src={activeReviewPreviewUrl}
                       title="PDF preview"
                       className="h-[560px] w-full bg-white"
                     />
-                  ) : selectedApplication?.documents.find((d) => d.id === activeReviewFile) ? (
+                  ) : activeReviewPreviewUrl && isValidPreviewUrl(activeReviewPreviewUrl) ? (
                     <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center text-slate-700">
                       <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-100 text-slate-600">
                         <FileText className="h-6 w-6" />
@@ -1014,9 +1351,7 @@ export default function SkeapApplicationsClient({
                         </p>
                       </div>
                       <a
-                        href={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
-                          selectedApplication.documents.find((d) => d.id === activeReviewFile)?.previewUrl || ""
-                        )}`}
+                        href={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(activeReviewPreviewUrl)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
@@ -1025,7 +1360,19 @@ export default function SkeapApplicationsClient({
                         Open live preview
                       </a>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center text-slate-700">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-100 text-slate-600">
+                        <FileText className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Invalid preview URL</p>
+                        <p className="mt-2 max-w-xl text-xs text-slate-500">
+                          This document is not available for preview. Please confirm the uploaded file URL.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -1048,15 +1395,13 @@ export default function SkeapApplicationsClient({
                       }
                     }}
                     className={`inline-flex items-center justify-center gap-2 rounded-3xl px-4 py-3 text-sm font-semibold transition ${
-                      selectedApplication?.documents.find((d) => d.id === activeReviewFile)?.verified
+                      activeReviewVerified
                         ? "bg-emerald-600 text-white hover:bg-emerald-700"
                         : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                   >
                     <CheckCircle2 className="h-4 w-4" />
-                    {selectedApplication?.documents.find((d) => d.id === activeReviewFile)?.verified
-                      ? "Mark as unverified"
-                      : "Mark verified"}
+                    {activeReviewVerified ? "Mark as unverified" : "Mark verified"}
                   </button>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <button
@@ -1073,7 +1418,7 @@ export default function SkeapApplicationsClient({
                       type="button"
                       onClick={() => {
                         if (reviewModalNote.trim() && selectedApplication && activeReviewFile) {
-                          const doc = selectedApplication.documents.find((d) => d.id === activeReviewFile);
+                          const doc = findDocumentByReviewKey(selectedApplication, activeReviewFile);
                           if (doc) {
                             const attachedNote: AttachedFileNote = {
                               fileId: doc.id,
@@ -1083,6 +1428,17 @@ export default function SkeapApplicationsClient({
                               adminRemark: reviewModalNote.trim(),
                             };
                             setAttachedFileNotes((prev) => [...prev, attachedNote]);
+                            const prefix = activeReviewVerified ? "" : "[NEEDS REVISION] ";
+                            const noteText = `• ${prefix}${doc.label}: ${reviewModalNote.trim()}`;
+                            setMessageDraft((current) =>
+                              current.trim()
+                                ? `${current.trim()}\n${noteText}`
+                                : noteText
+                            );
+                            setTimeout(() => {
+                              noteTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                              noteTextareaRef.current?.focus();
+                            }, 0);
                           }
                         }
                         setActiveReviewFile(null);
@@ -1120,43 +1476,39 @@ export default function SkeapApplicationsClient({
 
       {showApprovalWarning ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-200">
-            <div className="bg-slate-950/5 px-6 py-5">
+          <div className="w-full max-w-lg overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.14)]">
+            <div className="px-6 py-5">
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-200 via-amber-100 to-slate-50 text-amber-700 shadow-inner">
-                  <AlertTriangle className="h-7 w-7" />
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                  <AlertTriangle className="h-6 w-6" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Action blocked</p>
-                  <h3 className="mt-2 text-xl font-semibold text-slate-950">Incomplete file verification</h3>
+                  <h3 className="mt-2 text-xl font-semibold text-slate-950">Approval temporarily disabled</h3>
                 </div>
               </div>
+              <p className="mt-4 text-sm leading-6 text-slate-600">
+                Some documents are still pending verification. Review the current files and mark them <span className="font-semibold text-slate-950">Verified</span> before returning to approve the application.
+              </p>
             </div>
-            <div className="px-6 py-6">
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                <p className="text-sm leading-7 text-slate-700">
-                  Approval is temporarily disabled because some documents are still pending verification. All files must be reviewed and marked <span className="font-semibold text-slate-950">Verified</span> before final approval can be completed.
-                </p>
-                <p className="mt-4 text-sm text-slate-500">
-                  This helps keep the application process consistent and ensures every required document has been confirmed by the review team.
-                </p>
-              </div>
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowApprovalWarning(false)}
-                  className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  Review files
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowApprovalWarning(false)}
-                  className="inline-flex items-center justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  Close alert
-                </button>
-              </div>
+            <div className="border-t border-slate-200 px-6 py-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowApprovalWarning(false);
+                  setViewFilter("review");
+                }}
+                className="inline-flex items-center justify-center rounded-full bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                Review files
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowApprovalWarning(false)}
+                className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

@@ -1,6 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  CORE_UPLOAD_KEYS,
+  SKEAP_UPLOAD_KEY,
+  SKEAP_UPLOAD_LABELS,
+  normalizeUploadRequirement,
+  type SkeapUploadKey,
+} from "@/lib/skeap-upload";
 import { Eye } from "lucide-react";
 
 type KKProfile = {
@@ -24,6 +32,94 @@ type UploadedFile = {
   error?: string;
   requirement?: string;
 };
+
+type SkeapUploadValue = {
+  name?: string;
+  url: string;
+};
+
+function getUploadLabelForKey(key: SkeapUploadKey) {
+  return SKEAP_UPLOAD_LABELS[key] || SKEAP_UPLOAD_LABELS.other;
+}
+
+function parseDateValue(value: string) {
+  const parts = value.split("-");
+  if (parts.length !== 3) return null;
+
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(month) ||
+    Number.isNaN(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function computeAgeFromDateValue(value: string) {
+  const birthDate = parseDateValue(value);
+  if (!birthDate) return undefined;
+
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth();
+  const currentDay = now.getUTCDate();
+
+  const birthYear = birthDate.getUTCFullYear();
+  const birthMonth = birthDate.getUTCMonth();
+  const birthDay = birthDate.getUTCDate();
+
+  let age = currentYear - birthYear;
+  if (
+    currentMonth < birthMonth ||
+    (currentMonth === birthMonth && currentDay < birthDay)
+  ) {
+    age -= 1;
+  }
+
+  return age;
+}
+
+function getRequiredUploadKeys(requirements?: string[]) {
+  const requiredKeys = new Set<SkeapUploadKey>(CORE_UPLOAD_KEYS);
+  requirements?.forEach((req) => {
+    const key = normalizeUploadRequirement(req);
+    if (key !== SKEAP_UPLOAD_KEY.OTHER) {
+      requiredKeys.add(key);
+    }
+  });
+  return Array.from(requiredKeys);
+}
+
+function findUploadFileForKey(files: UploadedFile[], key: SkeapUploadKey) {
+  const normalizedMatch = (file: UploadedFile) => {
+    if (file.requirement === key) return true;
+    if (normalizeUploadRequirement(file.requirement || file.name || "") === key) return true;
+    return normalizeUploadRequirement(file.name || "") === key;
+  };
+
+  const doneFile = files.find((file) => file.status === "done" && file.url && normalizedMatch(file));
+  if (doneFile) return doneFile;
+  return files.find(normalizedMatch);
+}
+
+function isUploadCompleteForKey(files: UploadedFile[], key: SkeapUploadKey) {
+  return files.some((file) => {
+    if (file.status !== "done" || !file.url) return false;
+    if (file.requirement === key) return true;
+    const normalizedRequirement = normalizeUploadRequirement(file.requirement || file.name || "");
+    if (normalizedRequirement === key) return true;
+    return normalizeUploadRequirement(file.name || "") === key;
+  });
+}
 
 const STEPS = ["Profile", "Scholarship", "Educational Background", "Uploads"] as const;
 
@@ -134,6 +230,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [age, setAge] = useState("");
   const [civilStatus, setCivilStatus] = useState("");
+  const [gender, setGender] = useState("");
   const [fathersName, setFathersName] = useState("");
   const [fathersOccupation, setFathersOccupation] = useState("");
   const [fathersContact, setFathersContact] = useState("");
@@ -160,6 +257,8 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
+  const [submittedInquiryId, setSubmittedInquiryId] = useState<string | null>(null);
+  const [submittedApplicationId, setSubmittedApplicationId] = useState<string | null>(null);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -209,8 +308,16 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
             setApplicantName(`${parsedLast}${parsedFirst ? `, ${parsedFirst}` : ""}${parsedMiddle ? ` ${parsedMiddle}` : ""}`);
             setPermanentAddress(`${data.purok || ""}${data.addressLine ? ", " + data.addressLine : ""}${data.barangay ? ", " + data.barangay : ""}`);
             setSchoolName("");
-            setDateOfBirth(data.birthDate ? new Date(data.birthDate).toISOString().slice(0,10) : "");
-            setAge(data.age ? String(data.age) : "");
+            const dateOfBirthValue = data.birthDate ? String(data.birthDate).slice(0, 10) : "";
+            setDateOfBirth(dateOfBirthValue);
+            const computedAge = dateOfBirthValue ? computeAgeFromDateValue(dateOfBirthValue) : undefined;
+            setAge(
+              computedAge !== undefined
+                ? String(computedAge)
+                : data.age !== undefined
+                ? String(data.age)
+                : ""
+            );
             setCivilStatus(data.civilStatus || "");
             setPlaceOfBirth("");
             setFathersName("");
@@ -242,7 +349,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   }, []);
 
   const enrollmentFileUrl = useMemo(() => {
-    const byRequirement = files.find((f) => f.status === "done" && f.requirement && f.requirement.toLowerCase().includes("enroll"));
+    const byRequirement = files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT);
     if (byRequirement) return byRequirement.url;
     const byName = files.find((f) => f.status === "done" && f.name.toLowerCase().includes("enroll"));
     if (byName) return byName.url;
@@ -250,20 +357,14 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   }, [files]);
 
   const photoFileRecord = useMemo(
-    () =>
-      files.find(
-        (f) =>
-          f.status === "done" &&
-          f.url &&
-          (f.requirement?.toLowerCase().includes("2x2") || /2x2|photo|id photo/i.test(f.name))
-      ),
+    () => files.find((f) => f.status === "done" && f.url && f.requirement === SKEAP_UPLOAD_KEY.PHOTO),
     [files]
   );
 
   const photoFileUrl = photoFileRecord?.url;
 
   const reportCardFileUrl = useMemo(() => {
-    const byRequirement = files.find((f) => f.status === "done" && f.requirement && /(grade|transcript|report)/i.test(f.requirement));
+    const byRequirement = files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.GRADE_REPORT);
     if (byRequirement) return byRequirement.url;
     const byName = files.find((f) => f.status === "done" && f.name.toLowerCase().includes("report"));
     if (byName) return byName.url;
@@ -281,13 +382,15 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       const parsedAge = Number(age);
       if (Number.isNaN(parsedAge) || parsedAge <= 0 || parsedAge > 120) return "Please enter a valid age.";
       if (!civilStatus.trim()) return "Civil status is required.";
+      if (!gender.trim()) return "Gender is required.";
       if (!contactNumber.trim()) return "Contact number is required.";
       if (!emailAddress.trim()) return "Email address is required.";
       if (!photoFileUrl) return "Please upload a 2x2 photo (ID).";
       if (registeredVoter === null) return "Please indicate Registered Voter (Yes/No).";
       if (registeredVoter === true && Number(age) >= 18) {
-        const hasVoter = files.find((f) => f.status === "done" && f.requirement === "voter_certificate");
-        if (!hasVoter) return "Please upload a photocopy of the voter's certificate.";
+        if (!isUploadCompleteForKey(files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)) {
+          return "Please upload a photocopy of the voter's certificate.";
+        }
       }
     }
     if (step === 1) {
@@ -304,21 +407,11 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       if (!totalFamilyMonthlyIncome.trim()) return "Total family monthly income is required.";
     }
     if (step === 3) {
-      // If requirements provided, require Enrollment and Grade/Report files specifically
-      if (requirements && requirements.length > 0) {
-        const needEnroll = requirements.find((r) => /enroll/i.test(r));
-        const needGrade = requirements.find((r) => /(grade|transcript|report)/i.test(r));
-        const hasEnroll = Boolean(
-          files.find((f) => f.status === "done" && ((f.requirement && /enroll/i.test(f.requirement)) || (f.name && /enroll/i.test(f.name))))
-        );
-        const hasGrade = Boolean(
-          files.find((f) => f.status === "done" && ((f.requirement && /(grade|transcript|report)/i.test(f.requirement)) || (f.name && /(grade|transcript|report)/i.test(f.name))))
-        );
-        if (needEnroll && !hasEnroll) return "Please upload the Certificate of Enrollment file.";
-        if (needGrade && !hasGrade) return "Please upload the latest grade report file.";
-      } else {
-        const done = files.filter((f) => f.status === "done");
-        if (done.length < 2) return "Upload at least 2 files (Enrollment and Report Card).";
+      const requiredKeys = getRequiredUploadKeys(requirements);
+      const missingKeys = requiredKeys.filter((key) => !isUploadCompleteForKey(files, key));
+      if (missingKeys.length > 0) {
+        const label = SKEAP_UPLOAD_LABELS[missingKeys[0]] || "Required document";
+        return `Please upload the required file: ${label}.`;
       }
     }
     return null;
@@ -348,13 +441,15 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       if (!placeOfBirth.trim()) missing.push("placeOfBirth");
       if (!age.trim()) missing.push("age");
       if (!civilStatus.trim()) missing.push("civilStatus");
+      if (!gender.trim()) missing.push("gender");
       if (!contactNumber.trim()) missing.push("contactNumber");
       if (!emailAddress.trim()) missing.push("emailAddress");
       if (!photoFileUrl) missing.push("photoFile");
       if (registeredVoter === null) missing.push("registeredVoter");
       if (registeredVoter === true && Number(age) >= 18) {
-        const hasVoter = files.find((f) => f.status === "done" && f.requirement === "voter_certificate");
-        if (!hasVoter) missing.push("voter_certificate");
+        if (!isUploadCompleteForKey(files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)) {
+          missing.push(SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
+        }
       }
     }
     if (currentStep === 1) {
@@ -368,6 +463,10 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       if (!mothersContact.trim()) missing.push("mothersContact");
       if (!totalFamilyMonthlyIncome.trim()) missing.push("totalFamilyMonthlyIncome");
     }
+    if (currentStep === 3) {
+      const missingKeys = getRequiredUploadKeys(requirements).filter((key) => !isUploadCompleteForKey(files, key));
+      if (missingKeys.length > 0) missing.push(...missingKeys);
+    }
     if (missing.length) markFieldsInvalid(missing);
   }
 
@@ -375,7 +474,9 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
     const err = validateStep();
     if (err) {
       collectInvalidFieldsForStep(step);
-      setMessage(err);
+      if (step !== 3) {
+        setMessage(err);
+      }
       focusFirstInvalidInStep(step);
       return;
     }
@@ -387,6 +488,19 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
 
   function focusFirstInvalidInStep(currentStep: number) {
     try {
+      if (currentStep === 3) {
+        const missingKeys = getRequiredUploadKeys(requirements).filter((key) => !isUploadCompleteForKey(files, key));
+        if (missingKeys.length > 0) {
+          const missingKey = missingKeys[0];
+          const uploadCard = document.getElementById(`upload-${missingKey}`);
+          if (uploadCard) {
+            uploadCard.scrollIntoView({ behavior: "smooth", block: "center" });
+            uploadCard.focus();
+            return;
+          }
+        }
+      }
+
       const selector = currentStep === 0 ? "[data-required=profile]" : currentStep === 1 ? "[data-required=scholarship]" : "[data-required=profile]";
       const els = Array.from(document.querySelectorAll<HTMLInputElement | HTMLSelectElement>(selector));
       const firstEmpty = els.find((el) => !(el as HTMLInputElement).value || !(el as HTMLInputElement).value.toString().trim());
@@ -414,38 +528,62 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   }
 
   async function onChooseFiles(list: FileList | null, requirement?: string) {
-    const filesArray = Array.from(list || []);
-    if (filesArray.length === 0) return;
-
-    // Only handle the first file for per-requirement inputs
-    const file = filesArray[0];
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    // If requirement already has an uploaded entry, remove it (replace)
-    setFiles((prev) => prev.filter((f) => !(requirement && f.requirement === requirement)));
-    setFiles((prev) => [...prev, { id, name: file.name, progress: 0, status: "queued", requirement }]);
-
+    let id = "";
     try {
+      const filesArray = Array.from(list || []);
+      if (filesArray.length === 0) return;
+
+      const file = filesArray[0];
+      id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const normalizedRequirement = requirement ? normalizeUploadRequirement(requirement) : normalizeUploadRequirement(file.name || "");
+      const normalizedKey = normalizedRequirement || normalizeUploadRequirement(file.name || "");
+
+      const newUpload: UploadedFile = {
+        id,
+        name: file.name,
+        progress: 0,
+        status: "queued",
+        requirement: normalizedKey,
+      };
+
+      if (file.size === 0) {
+        const errorText = "The selected file is empty. Please choose a non-empty file.";
+        console.error("SKEAP upload failed: zero-byte file", { requirement, normalizedKey, fileName: file.name });
+        setFiles((prev) => [
+          ...prev.filter((f) => normalizeUploadRequirement(f.requirement || f.name || "") !== normalizedKey),
+          { ...newUpload, status: "error", error: errorText },
+        ]);
+        return;
+      }
+
+      setFiles((prev) => [
+        ...prev.filter((f) => normalizeUploadRequirement(f.requirement || f.name || "") !== normalizedKey),
+        newUpload,
+      ]);
+
       setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "uploading" } : f)));
       const result = await uploadWithProgress(file, (pct) => {
         setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, progress: pct } : f)));
       });
       setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "done", progress: 100, url: result.url } : f)));
-      // mark relevant field as valid after successful upload
-      if (requirement) {
-        const key = requirement === "voter_certificate" ? "voter_certificate" : /2x2|photo|id/i.test(requirement) ? "photoFile" : requirement;
-        markFieldValid(key);
+
+      if (normalizedKey) {
+        markFieldValid(normalizedKey);
       }
     } catch (err) {
       const text = err instanceof Error ? err.message : "Upload failed";
-      setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "error", error: text } : f)));
+      console.error("SKEAP upload failed", { requirement, error: text });
+      if (id) {
+        setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "error", error: text } : f)));
+      }
     }
   }
 
   async function submitApplication() {
     const err = validateStep();
     if (err) {
-      setMessage(err);
+      collectInvalidFieldsForStep(step);
+      focusFirstInvalidInStep(step);
       return;
     }
 
@@ -454,10 +592,19 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
 
     try {
       const doneUrls = files.filter((f) => f.status === "done").map((f) => f.url).filter(Boolean) as string[];
+      const documentUploads = files
+        .filter((f) => f.status === "done" && f.url)
+        .reduce<Partial<Record<SkeapUploadKey, SkeapUploadValue>>>((acc, file) => {
+          const key = normalizeUploadRequirement(file.requirement || file.name || "");
+          acc[key] = { name: file.name, url: file.url! };
+          return acc;
+        }, {});
+
       const res = await fetch("/api/skeap/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          schoolName,
           currentCourse: course,
           yearLevel,
           gwa: computedGwa,
@@ -477,6 +624,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
           placeOfBirth,
           age,
           civilStatus,
+          gender,
           fathersName,
           fathersOccupation,
           fathersContact,
@@ -486,7 +634,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
           contactNumber,
           emailAddress,
           registeredVoter,
-          voterCertificateFileUrl: doneUrls.find((u, idx) => files.findIndex(f => f.requirement === 'voter_certificate' && f.url === u) >= 0) || null,
+          voterCertificateFileUrl: doneUrls.find((u, idx) => files.findIndex((f) => f.requirement === "voter_certificate" && f.url === u) >= 0) || null,
           totalFamilyMonthlyIncome,
           educationalBackground: {
             elementary: elementarySchool,
@@ -498,7 +646,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
             vocational,
             vocationalYearGraduated,
           },
-          allUploadedFiles: files.filter(f => f.status === 'done').map(f => ({ requirement: f.requirement, name: f.name, url: f.url }))
+          uploadedFiles: documentUploads,
         }),
       });
 
@@ -508,7 +656,9 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         return;
       }
 
-      setSubmittedId(String(body.applicationId || ""));
+      setSubmittedApplicationId(String(body.applicationId || ""));
+      setSubmittedInquiryId(String(body.inquiryId || body.applicationId || ""));
+      setSubmittedId(String(body.inquiryId || body.applicationId || ""));
       setMessage("Application submitted successfully.");
     } catch {
       setMessage("Network error while submitting application.");
@@ -535,7 +685,16 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         <p className="text-sm uppercase tracking-[0.2em] text-emerald-700">SKEAP</p>
         <h4 className="mt-2 text-xl font-semibold text-emerald-900">Application Submitted</h4>
         <p className="mt-2 text-sm text-emerald-800">Your application reference is {submittedId}.</p>
+        <p className="mt-2 text-sm text-emerald-700">
+          You can monitor your SKEAP application status on the application page.
+        </p>
         <div className="mt-4 flex flex-wrap gap-3">
+          <Link
+            href={`/applications/${submittedId}`}
+            className="rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
+          >
+            View application status
+          </Link>
           <button onClick={onClose} className="rounded-full border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-800">
             Close
           </button>
@@ -547,8 +706,12 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   return (
     <div className="grid gap-5">
       <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 py-4">
-        <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Application Form</p>
-        <h2 className="mt-2 text-2xl font-semibold text-slate-900">Complete your SKEAP application form</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Application Form</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900">Complete your SKEAP application form</h2>
+          </div>
+        </div>
         <p className="mt-2 text-sm leading-6 text-slate-600">
           The fields below are the actual application form for SKEAP. Complete each section and upload the required documents to submit your application.
         </p>
@@ -571,11 +734,6 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         ))}
       </div>
 
-      {message ? (
-        <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {message}
-        </div>
-      ) : null}
 
       {step === 0 ? (
         <div className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-5">
@@ -721,8 +879,14 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                 type="date"
                 value={dateOfBirth}
                 onChange={(e) => {
-                  setDateOfBirth(e.target.value);
+                  const value = e.target.value;
+                  setDateOfBirth(value);
+                  const computedAge = computeAgeFromDateValue(value);
+                  if (computedAge !== undefined) {
+                    setAge(String(computedAge));
+                  }
                   markFieldValid("dateOfBirth");
+                  markFieldValid("age");
                 }}
                 className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("dateOfBirth") ? "border-rose-600" : "border-slate-300"}`}
               />
@@ -773,6 +937,23 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                 <option value="Widowed">Widowed</option>
                 <option value="Separated">Separated</option>
                 <option value="Other">Other</option>
+              </select>
+            </label>
+            <label className="flex flex-col">
+              <span className="text-sm font-semibold">Gender</span>
+              <select
+                data-required="profile"
+                value={gender}
+                onChange={(e) => {
+                  setGender(e.target.value);
+                  markFieldValid("gender");
+                }}
+                className={`mt-1 rounded-xl border px-3 py-2 text-slate-700 ${invalidFields.has("gender") ? "border-rose-600" : "border-slate-300"}`}
+              >
+                <option value="">Select gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Prefer not to say">Prefer not to say</option>
               </select>
             </label>
           </div>
@@ -849,9 +1030,12 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                       onChange={(e) => onChooseFiles(e.target.files, 'voter_certificate')}
                       className={`w-full rounded-xl border px-3 py-2 text-sm ${invalidFields.has("voter_certificate") ? "border-rose-600" : "border-slate-300"}`}
                     />
-                    {files.find((f) => f.requirement === 'voter_certificate' && f.url) ? (
-                      <div className="mt-2 text-xs text-slate-600">Uploaded: <a href={files.find((f) => f.requirement === 'voter_certificate')!.url} target="_blank" rel="noreferrer" className="underline">View file</a></div>
-                    ) : null}
+                    {(() => {
+                      const voterFile = files.find((f) => f.requirement === 'voter_certificate' && f.status === 'done' && typeof f.url === 'string' && f.url.trim());
+                      return voterFile ? (
+                        <div className="mt-2 text-xs text-slate-600">Uploaded: <a href={voterFile.url} target="_blank" rel="noreferrer" className="underline">View file</a></div>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
               ) : null}
@@ -1132,27 +1316,79 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
           <p className="text-sm font-semibold text-slate-900">Upload your required application documents</p>
 
           <div className="mt-3 grid gap-3">
-            {(requirements && requirements.length > 0 ? requirements : ["Certificate of Enrollment", "Latest grade report"]).map((req) => {
-              const existing = files.find((f) => f.requirement === req);
+            {getRequiredUploadKeys(requirements).map((key) => {
+              const label = SKEAP_UPLOAD_LABELS[key];
+              const inputId = `file-input-${key}`;
+              const matchingFile = findUploadFileForKey(files, key);
               return (
-                <div key={req} className="rounded-xl border border-slate-200 px-3 py-3">
-                  <div className="flex items-center justify-between">
+                <div
+                  key={key}
+                  id={`upload-${key}`}
+                  tabIndex={-1}
+                  className={`rounded-xl border px-3 py-3 ${invalidFields.has(key) ? "border-rose-600 bg-rose-50" : "border-slate-200 bg-white"}`}
+                >
+                  <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">{req}</p>
+                      <p className="text-sm font-semibold text-slate-800">{label}</p>
                       <p className="text-xs text-slate-500">Upload one file for this requirement</p>
                     </div>
-                    <div className="text-sm text-slate-500">{existing ? (existing.status === "done" ? "Ready" : existing.status === "uploading" ? `Uploading ${existing.progress}%` : existing.status === "error" ? "Failed" : existing.status) : "Not uploaded"}</div>
+                    <div className={matchingFile ? matchingFile.status === "done" ? "text-emerald-700" : matchingFile.status === "error" ? "text-rose-700" : "text-slate-500" : "text-slate-500"}>
+                      {matchingFile
+                        ? matchingFile.status === "done"
+                          ? "Ready"
+                          : matchingFile.status === "uploading"
+                          ? `Uploading ${matchingFile.progress}%`
+                          : matchingFile.status === "error"
+                          ? "Failed"
+                          : "Queued"
+                        : "Not uploaded"}
+                    </div>
                   </div>
 
                   <div className="mt-3">
-                    <input
-                      type="file"
-                      accept="image/*,application/pdf"
-                      onChange={(e) => onChooseFiles(e.target.files, req)}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    />
-                    {existing && existing.url ? (
-                      <div className="mt-2 text-xs text-slate-600">Uploaded: <a href={existing.url} target="_blank" rel="noreferrer" className="underline">View file</a></div>
+                    <label htmlFor={inputId} className="block text-xs font-medium text-slate-600 mb-2">
+                      Choose file for {label}
+                    </label>
+                    <div className={`relative block w-full rounded-xl border px-3 py-2 text-sm text-slate-700 ${invalidFields.has(key) ? "border-rose-600 bg-white" : "border-slate-300 bg-white"}`}>
+                      <label htmlFor={inputId} className="flex items-center justify-between gap-3 cursor-pointer">
+                        <span className="min-w-0 truncate text-slate-500">
+                          {matchingFile?.name ?? `Choose file for ${label}`}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">
+                          {matchingFile ? "Change" : "Choose"}
+                        </span>
+                      </label>
+                      <input
+                        id={inputId}
+                        name={key}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        data-requirement={key}
+                        onChange={(e) => {
+                          onChooseFiles(e.target.files, key);
+                          e.currentTarget.value = "";
+                        }}
+                        className="hidden"
+                        aria-label={`Upload file for ${label}`}
+                      />
+                    </div>
+                    {matchingFile ? (
+                      <div className="mt-2 text-xs space-y-1">
+                        <div className="text-slate-700 truncate">{matchingFile.name}</div>
+                        {matchingFile.status === "uploading" ? (
+                          <div className="text-slate-700">Uploading {matchingFile.progress}%</div>
+                        ) : matchingFile.status === "error" ? (
+                          <div className="text-rose-700">Upload failed</div>
+                        ) : null}
+                        {matchingFile.status === "done" && matchingFile.url ? (
+                          <div>
+                            <a href={matchingFile.url} target="_blank" rel="noreferrer" className="underline text-sky-600 hover:text-sky-700">
+                              View file
+                            </a>
+                          </div>
+                        ) : null}
+                        {matchingFile.error ? <div className="text-rose-700">{matchingFile.error}</div> : null}
+                      </div>
                     ) : null}
                   </div>
                 </div>

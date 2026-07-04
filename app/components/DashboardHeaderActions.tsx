@@ -42,19 +42,25 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
   useEffect(() => {
     async function reconcileProfile() {
       try {
-        const res = await fetch('/api/session');
+        const res = await fetch('/api/session', { cache: 'no-store' });
         if (!res.ok) return;
         const body = await res.json();
         const serverUser = body.user;
         if (!serverUser) return; // not signed in
-        // Always sync profile name/email from server to avoid stale local data
-        if (serverUser.fullName) localStorage.setItem('skonnect-profile-name', serverUser.fullName);
-        if (serverUser.email) localStorage.setItem('skonnect-profile-email', serverUser.email);
+
+        // Always sync profile name/email from server to avoid stale local data.
+        if (serverUser.fullName) {
+          localStorage.setItem('skonnect-profile-name', serverUser.fullName);
+          setProfileName(serverUser.fullName);
+        }
+        if (serverUser.email) {
+          localStorage.setItem('skonnect-profile-email', serverUser.email);
+          setProfileEmail(serverUser.email);
+        }
 
         // Prefer server-side avatar if present. If server has no avatar, remove any
         // locally-stored avatar to avoid showing another user's picture.
         const serverAvatar = serverUser.avatarUrl;
-        // expose server role for mismatch detection
         try { setServerRole(serverUser.role || ""); } catch {}
         if (serverAvatar) {
           try { localStorage.setItem('skonnect-avatar', serverAvatar); } catch {}

@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Download, FileText, Upload, X } from "lucide-react";
+import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
+import { getCoreUploadGroups, getPhotoUploadGroup, CORE_UPLOAD_KEYS, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
 
 type ReviewAttachment = {
   fileId: string;
@@ -32,10 +34,33 @@ type ApplicationReviewProps = {
     resubmittedAt: string | null;
     lastUpdatedBy: string | null;
     reviewThread: ReviewMessage[];
+    application?: {
+      currentCourse?: string;
+      yearLevel?: string;
+      gwa?: number | null;
+      applicantName?: string;
+      permanentAddress?: string;
+      dateOfBirth?: string;
+      placeOfBirth?: string;
+      age?: number;
+      civilStatus?: string;
+      gender?: string;
+      fathersName?: string;
+      fathersOccupation?: string;
+      fathersContact?: string;
+      mothersMaidenName?: string;
+      mothersOccupation?: string;
+      mothersContact?: string;
+      contactNumber?: string;
+      emailAddress?: string;
+      photoFileUrl?: string;
+      uploadedFiles?: unknown;
+    };
   };
 };
 
 type StagedReplacement = {
+  slotId: string;
   originalUrl: string;
   file: File;
   previewUrl: string;
@@ -46,11 +71,13 @@ type StagedReplacement = {
 
 type SubmittedFile = {
   id: string;
+  slotId: string;
   originalUrl: string;
   label: string;
   typeLabel: string;
   isImage: boolean;
   fileName: string;
+  isMissing?: boolean;
 };
 
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
@@ -109,7 +136,7 @@ function isImageUrl(url: string) {
 
 function getFileTypeLabel(url: string) {
   if (isImageUrl(url)) return "Image";
-  if (/\.pdf(\?|$)/i.test(url)) return "PDF";
+  if (/\.pdfm?(\?|$)/i.test(url)) return "PDF";
   if (/\.(docx?|xlsx?|pptx?)(\?|$)/i.test(url)) return "Document";
   return "Document";
 }
@@ -193,22 +220,27 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showApplicationForm, setShowApplicationForm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const coreUploads = useMemo(() => getCoreUploadGroups(application.application?.uploadedFiles), [application.application?.uploadedFiles]);
+  const photoUpload = useMemo(() => getPhotoUploadGroup(application.application?.uploadedFiles), [application.application?.uploadedFiles]);
+
   const submittedFiles = useMemo<SubmittedFile[]>(() => {
-    const urls = extractUrls(application.message);
-    return urls.map((url, index) => {
-      const label = createFileLabel(url, index);
+    return CORE_UPLOAD_KEYS.map((key) => {
+      const upload = coreUploads.find((item) => item.key === key);
       return {
-        id: `${index}-${url}`,
-        originalUrl: url,
-        label,
-        typeLabel: getFileTypeLabel(url),
-        isImage: isImageUrl(url),
-        fileName: getFilenameFromUrl(url),
+        id: key,
+        slotId: key,
+        originalUrl: upload?.url || "",
+        label: SKEAP_UPLOAD_LABELS[key] || "Document",
+        typeLabel: upload?.type || "Missing",
+        isImage: upload?.isImage ?? false,
+        fileName: upload?.name || (upload?.url ? getFilenameFromUrl(upload.url) : ""),
+        isMissing: !upload?.url,
       };
     });
-  }, [application.message]);
+  }, [coreUploads]);
 
   const activeCorrections = useMemo(() => {
     return submittedFiles.filter((file) => getFileActionHint(application.reviewThread, file));
@@ -216,7 +248,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
 
   const stagedMap = useMemo(() => {
     return stagedReplacements.reduce<Record<string, StagedReplacement>>((collector, replacement) => {
-      collector[replacement.originalUrl] = replacement;
+      collector[replacement.slotId] = replacement;
       return collector;
     }, {});
   }, [stagedReplacements]);
@@ -243,6 +275,12 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     : hasStagedChanges
     ? "READY TO RESUBMIT"
     : reviewStatusLabel;
+
+  useEffect(() => {
+    if (isApproved) {
+      router.push("/grantee-dashboard");
+    }
+  }, [isApproved, router]);
   const statusBadgeClass = isRejected
     ? "bg-rose-50 text-rose-700 border border-rose-200"
     : isApproved
@@ -279,9 +317,10 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const disableDelete = isResubmitted || isRejected || submitting;
   const updateCount = application.reviewThread.length;
   const fileCount = submittedFiles.length;
+  const presentCount = submittedFiles.filter((f) => !f.isMissing && Boolean(f.originalUrl)).length;
   const resubmittedAtText = application.resubmittedAt ? new Date(application.resubmittedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "numeric" }) : null;
 
-  const handleReplacementSelected = (originalUrl: string, file: File) => {
+  const handleReplacementSelected = (slotId: string, originalUrl: string, file: File) => {
     if (!ALLOWED_TYPES.has(file.type)) {
       setError("Only PDF, DOCX, PNG, JPG, and WEBP files are allowed.");
       return;
@@ -292,18 +331,18 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     }
 
     setError(null);
-    const existing = stagedMap[originalUrl];
+    const existing = stagedMap[slotId];
     if (existing?.previewUrl) URL.revokeObjectURL(existing.previewUrl);
 
     const previewUrl = URL.createObjectURL(file);
     setStagedReplacements((current) => [
-      ...current.filter((replacement) => replacement.originalUrl !== originalUrl),
-      { originalUrl, file, previewUrl, status: "pending" },
+      ...current.filter((replacement) => replacement.slotId !== slotId),
+      { slotId, originalUrl, file, previewUrl, status: "pending" },
     ]);
   };
 
-  const handleChooseFile = (originalUrl: string) => {
-    fileInputRefs.current[originalUrl]?.click();
+  const handleChooseFile = (slotId: string) => {
+    fileInputRefs.current[slotId]?.click();
   };
 
   const handleResubmit = async () => {
@@ -321,6 +360,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         stagedReplacements.map(async (replacement) => {
           const uploadedUrl = await uploadDocument(replacement.file);
           return {
+            slotId: replacement.slotId,
             originalUrl: replacement.originalUrl,
             fileUrl: uploadedUrl,
             fileName: replacement.file.name,
@@ -329,15 +369,16 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         })
       );
 
-      const finalUrls = submittedFiles.map((file) => {
-        const replacement = uploads.find((upload) => upload.originalUrl === file.originalUrl);
-        return replacement?.fileUrl ?? file.originalUrl;
+      const finalUrls = CORE_UPLOAD_KEYS.map((key) => {
+        const file = submittedFiles.find((f) => f.slotId === key);
+        const replacement = uploads.find((upload) => upload.slotId === key);
+        return replacement?.fileUrl ?? file?.originalUrl ?? "";
       });
 
       const body = {
         urls: finalUrls,
         replacements: uploads,
-        message: `Applicant resubmitted files:\n${finalUrls.join("\n")}`,
+        message: `Applicant resubmitted files:\n${finalUrls.filter(Boolean).join("\n")}`,
       };
 
       const response = await fetch(`/api/applications/${application.id}/resubmit`, {
@@ -496,10 +537,10 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
             <div className="mt-3 p-3 bg-white/80 border border-emerald-100 rounded-lg text-xs text-slate-600 space-y-1.5">
               <p className="font-bold text-slate-700">What happens next?</p>
               <p>
-                Our system administrators are currently configuring your portal environment. Once they manually transition your account permissions to a <strong>Grantee Profile</strong>, your main dashboard will automatically update.
+                Your SKEAP application has been approved and your account will be upgraded to <strong>Grantee</strong> access automatically.
               </p>
-              <p className="text-slate-400 text-[11px] italic">
-                No further actions or document resubmissions are required from your end right now.
+              <p>
+                Your dashboard will transition to the Grantee experience without manual role intervention, and no further document resubmissions are required from your end right now.
               </p>
             </div>
           </div>
@@ -665,43 +706,75 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                       >
                         {submitting ? "Resubmitting..." : "Resubmit application"}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowDeleteConfirm(true)}
-                        disabled={disableDelete}
-                        className={`w-full sm:w-auto px-5 py-2.5 rounded-xl border font-medium text-sm transition duration-200 ${disableDelete ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed" : "border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 active:scale-[0.98]"}`}
-                      >
-                        Delete Application
-                      </button>
                     </div>
                   </div>
                 ) : null}
+
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    disabled={submitting || deleting}
+                    className={`w-full sm:w-auto px-5 py-2.5 rounded-xl border font-medium text-sm transition duration-200 ${submitting || deleting ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed" : "border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 active:scale-[0.98]"}`}
+                  >
+                    {deleting ? "Deleting..." : "Delete Application"}
+                  </button>
+                </div>
               </div>
             </div>
           </aside>
         </div>
 
         <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-sm font-semibold text-slate-900">Submitted files</p>
-              <p className="mt-2 text-sm text-slate-600">Replace individual documents inline and resubmit only the files that need correction.</p>
+              <p className="mt-2 text-sm text-slate-600">The 2x2 ID photo is now separated into the compiled application form. This list shows the 5 core requirements only.</p>
             </div>
-            <span className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-              {`${fileCount} ${fileCount === 1 ? "file" : "files"}`}
-            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                5 requirement slots
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowApplicationForm(true)}
+                className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              >
+                View Application Form
+              </button>
+            </div>
           </div>
 
           <div className="mt-6 flex flex-col gap-2.5">
+              {/* Required uploads checklist - shows core upload slots and their status */}
+              <div className="mb-3 flex w-full items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <p className="text-sm font-medium text-slate-800">Required documents</p>
+                  <p className="text-xs text-slate-500">{`${presentCount} of ${CORE_UPLOAD_KEYS.length} provided`}</p>
+                </div>
+                <div className="ml-4 flex flex-wrap items-center gap-2">
+                  {CORE_UPLOAD_KEYS.map((key) => {
+                    const slot = submittedFiles.find((f) => f.slotId === key);
+                    const present = Boolean(slot && !slot.isMissing && slot.originalUrl);
+                    const label = SKEAP_UPLOAD_LABELS[key] || key;
+                    return (
+                      <div key={key} className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs ${present ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700"}`}>
+                        {present ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                        <span className="whitespace-nowrap">{label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             {submittedFiles.map((file) => {
-              const staged = stagedMap[file.originalUrl];
+              const staged = stagedMap[file.slotId];
               const isReplacementActive = Boolean(staged);
               const correction = getFileActionHint(application.reviewThread, file);
               const previewSrc = staged?.previewUrl ?? file.originalUrl;
               const displayName = staged?.file.name ?? getCleanFilename(stripDatabasePrefix(file.fileName));
               const displayType = staged ? getFileTypeLabel(staged.file.name) : file.typeLabel;
               const displaySize = staged ? formatBytes(staged.file.size) : null;
-              const downloadHref = staged?.previewUrl ?? file.originalUrl;
+              const downloadHref = staged?.previewUrl ?? (file.originalUrl || undefined);
               const downloadName = staged?.file.name ?? file.fileName;
 
               return (
@@ -744,44 +817,45 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {!isRejected && !isApproved && (
+                    {!isRejected && !isApproved ? (
                       <button
                         type="button"
                         disabled={isEditLocked}
-                        onClick={() => handleChooseFile(file.originalUrl)}
+                        onClick={() => handleChooseFile(file.slotId)}
                         className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${isEditLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}`}
                       >
                         <Upload className="h-3.5 w-3.5" />
-                        Replace
+                        {file.isMissing ? "Upload" : "Replace"}
                       </button>
-                    )}
-                    <a
-                      href={downloadHref}
-                      download={downloadName}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"
-                      aria-label={`Download ${displayName}`}
-                    >
-                      <Download className="h-4 w-4" />
-                    </a>
+                    ) : null}
+                    {downloadHref ? (
+                      <a
+                        href={downloadHref}
+                        download={downloadName}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"
+                        aria-label={`Download ${displayName}`}
+                      >
+                        <Download className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                    <input
+                      ref={(element) => {
+                        fileInputRefs.current[file.slotId] = element;
+                      }}
+                      type="file"
+                      className="hidden"
+                      accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={(event) => {
+                        const selectedFile = event.target.files?.[0];
+                        if (selectedFile) {
+                          handleReplacementSelected(file.slotId, file.originalUrl, selectedFile);
+                        }
+                        event.target.value = "";
+                      }}
+                    />
                   </div>
-
-                  <input
-                    ref={(element) => {
-                      fileInputRefs.current[file.originalUrl] = element;
-                    }}
-                    type="file"
-                    className="hidden"
-                    accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    onChange={(event) => {
-                      const selectedFile = event.target.files?.[0];
-                      if (selectedFile) {
-                        handleReplacementSelected(file.originalUrl, selectedFile);
-                      }
-                      event.target.value = "";
-                    }}
-                  />
                 </div>
               );
             })}
@@ -818,6 +892,12 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         </div>
       ) : null}
 
+      <SkeapApplicationFormModal
+        isOpen={showApplicationForm}
+        onClose={() => setShowApplicationForm(false)}
+        application={application.application}
+        downloadHref={`/api/applications/${application.id}/download`}
+      />
     </div>
   );
 }

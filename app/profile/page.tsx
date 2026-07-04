@@ -45,7 +45,13 @@ export default async function ProfilePage() {
     appUser.role === "GRANTEE" && !isGranteeProfileComplete(appUser.grantee);
 
   return (
-    <SettingsShell title="Profile settings" description="Edit your personal details and profile photo.">
+    <SettingsShell
+      title="Profile settings"
+      description="Edit your personal details and profile photo."
+      profileName={appUser.fullName}
+      profileEmail={appUser.email}
+      profileAvatar={baseProfile.avatarUrl ?? ""}
+    >
       <div className="space-y-3 border-b border-slate-200 pb-5">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#0F3D5C]">Profile settings</p>
         <h2 className="text-4xl font-black tracking-tight text-[#0F3D5C]">Edit your personal details</h2>

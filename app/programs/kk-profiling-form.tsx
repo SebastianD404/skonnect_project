@@ -33,38 +33,38 @@ const initialForm = {
   consent: false,
 };
 
-const demoFormValues = {
-  lastName: "Dela Cruz",
-  firstName: "Juan",
-  middleInitial: "M",
-  sitio: OFFICIAL_SITIOS[0] ?? "Sitio 1",
-  barangay: "Pico",
-  municipality: "La Trinidad",
-  province: "Benguet",
-  sex: "Male",
-  age: "19",
-  birthDate: "2007-08-15",
-  email: "juan.delacruz@example.com",
-  facebook: "Juan Dela Cruz",
-  contactNumber: "09171234567",
-  civilStatus: "Single",
-  youthClassification: "In school Youth",
-  youthAgeGroup: "Core Youth (18-24 yrs old)",
-  workStatus: "Unemployed",
-  educationalBackground: "High school Graduate",
-  registeredSKVoter: "Yes",
-  votedLastSK: "No",
-  registeredNationalVoter: "Yes",
-  attendedKKAssembly: "Yes",
-  assemblyTimes: "1-2 Times",
-  noAssemblyReason: "",
-  consent: true,
-};
+function computeAgeFromBirthDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return undefined;
+  }
+
+  const birthDate = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(birthDate.getTime())) {
+    return undefined;
+  }
+
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth();
+  const currentDay = now.getUTCDate();
+
+  const birthYear = birthDate.getUTCFullYear();
+  const birthMonth = birthDate.getUTCMonth();
+  const birthDay = birthDate.getUTCDate();
+
+  let age = currentYear - birthYear;
+  if (currentMonth < birthMonth || (currentMonth === birthMonth && currentDay < birthDay)) {
+    age -= 1;
+  }
+
+  return age;
+}
+
 
 export default function KKProfilingForm() {
   const router = useRouter();
   const [form, setForm] = useState(initialForm);
-  const [prefillDemo, setPrefillDemo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -77,7 +77,20 @@ export default function KKProfilingForm() {
   const [magicLinkSent, setMagicLinkSent] = useState(false);
 
   function setField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
-    setForm((s) => ({ ...s, [key]: value }));
+    if (key === "birthDate") {
+      const birthDateValue = String(value);
+      const computedAge = computeAgeFromBirthDate(birthDateValue);
+      return setForm((s) => ({
+        ...s,
+        birthDate: birthDateValue,
+        age: computedAge !== undefined ? String(computedAge) : "",
+      }));
+    }
+
+    setForm((s) => ({
+      ...s,
+      [key]: value,
+    }));
   }
 
   function normalizedMiddleInitial(value: string) {
@@ -171,7 +184,6 @@ export default function KKProfilingForm() {
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
         setForm(initialForm);
-        setPrefillDemo(false);
         setMessage(null);
         setSuccessMessage(
           body?.message ||
@@ -240,19 +252,6 @@ export default function KKProfilingForm() {
         </div>
       </div>
 
-      <label className="flex items-center gap-3">
-        <input
-          type="checkbox"
-          checked={prefillDemo}
-          onChange={(e) => {
-            const isChecked = e.target.checked;
-            setPrefillDemo(isChecked);
-            setForm(isChecked ? demoFormValues : initialForm);
-          }}
-          className="h-4 w-4 rounded border-slate-300 text-[#0F3D5C] focus:ring-[#0F3D5C]"
-        />
-        <span className="text-sm font-semibold">Prefill for demo purposes</span>
-      </label>
 
       <h4 className="text-lg font-semibold">PART I: Profile</h4>
       <p className="text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
@@ -318,12 +317,26 @@ export default function KKProfilingForm() {
 
         <label className="flex flex-col">
           <span className="text-sm font-semibold">Age *</span>
-          <input type="number" min={0} value={form.age} onChange={(e) => setField("age", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2" />
+          <input
+            type="number"
+            min={0}
+            value={form.age}
+            readOnly
+            aria-readonly="true"
+            className="mt-1 rounded-lg border bg-slate-100 px-3 py-2 text-slate-700"
+          />
+          <span className="mt-1 text-xs text-slate-500">Age is calculated from Birth Date.</span>
         </label>
 
         <label className="flex flex-col">
           <span className="text-sm font-semibold">Birth Date *</span>
-          <input type="date" value={form.birthDate} onChange={(e) => setField("birthDate", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2" />
+          <input
+            type="date"
+            value={form.birthDate}
+            onChange={(e) => setField("birthDate", e.target.value)}
+            required
+            className="mt-1 rounded-lg border px-3 py-2"
+          />
         </label>
       </div>
 

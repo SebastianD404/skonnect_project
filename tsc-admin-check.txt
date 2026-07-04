@@ -1,0 +1,73 @@
+﻿app/admin/AdminGranteesPageClient.tsx(4,58): error TS6142: Module './grantees/GranteeStatusTable' was resolved to 'C:/Users/New User/skonnect/app/admin/grantees/GranteeStatusTable.tsx', but '--jsx' is not set.
+app/admin/AdminGranteesPageClient.tsx(5,36): error TS6142: Module './DashboardHeaderWrapper' was resolved to 'C:/Users/New User/skonnect/app/admin/DashboardHeaderWrapper.tsx', but '--jsx' is not set.
+app/admin/AdminGranteesPageClient.tsx(6,57): error TS6142: Module './grantees/[id]/SkeapApplicationReviewClient' was resolved to 'C:/Users/New User/skonnect/app/admin/grantees/[id]/SkeapApplicationReviewClient.tsx', but '--jsx' is not set.
+app/admin/AdminGranteesPageClient.tsx(7,39): error TS2307: Cannot find module '@/components/SkeapApplicationFormModal' or its corresponding type declarations.
+app/admin/AdminGranteesPageClient.tsx(56,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(57,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(66,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(67,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(68,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(69,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(70,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(71,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(72,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(73,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(80,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/AdminGranteesPageClient.tsx(88,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(6,62): error TS6142: Module './[id]/SkeapApplicationReviewClient' was resolved to 'C:/Users/New User/skonnect/app/admin/grantees/[id]/SkeapApplicationReviewClient.tsx', but '--jsx' is not set.
+app/admin/grantees/GranteeStatusTable.tsx(78,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(79,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(80,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(81,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(82,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(91,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(93,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(109,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(110,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(111,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(112,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(113,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(114,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(115,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(116,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(117,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(118,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(121,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(123,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(124,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(130,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(131,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(132,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(133,23): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(141,23): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(142,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(143,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(147,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(148,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(149,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(151,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(152,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(156,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(159,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(166,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(167,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(169,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(176,27): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(179,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(185,27): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(188,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(195,27): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(198,23): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/GranteeStatusTable.tsx(204,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+app/admin/grantees/page.tsx(1,24): error TS2307: Cannot find module '@/lib/prisma' or its corresponding type declarations.
+app/admin/grantees/page.tsx(2,30): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+app/admin/grantees/page.tsx(4,37): error TS6142: Module '../AdminGranteesPageClient' was resolved to 'C:/Users/New User/skonnect/app/admin/AdminGranteesPageClient.tsx', but '--jsx' is not set.
+app/admin/grantees/page.tsx(5,38): error TS6142: Module '../grantees/GranteeStatusTable' was resolved to 'C:/Users/New User/skonnect/app/admin/grantees/GranteeStatusTable.tsx', but '--jsx' is not set.
+app/admin/grantees/page.tsx(6,31): error TS2307: Cannot find module '@/lib/auth' or its corresponding type declarations.
+app/admin/grantees/page.tsx(10,8): error TS2307: Cannot find module '@/lib/grantee-profile' or its corresponding type declarations.
+app/admin/grantees/page.tsx(486,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+node_modules/next/dist/client/components/segment-cache/cache.d.ts(104,21): error TS2304: Cannot find name 'PromiseWithResolvers'.
+node_modules/next/dist/client/link.d.ts(1,8): error TS1259: Module '"C:/Users/New User/skonnect/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/next/dist/shared/lib/app-router-context.shared-runtime.d.ts(4,8): error TS1259: Module '"C:/Users/New User/skonnect/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/next/dist/shared/lib/app-router-types.d.ts(7,13): error TS1259: Module '"C:/Users/New User/skonnect/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/next/dist/shared/lib/server-inserted-html.shared-runtime.d.ts(1,8): error TS1259: Module '"C:/Users/New User/skonnect/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag

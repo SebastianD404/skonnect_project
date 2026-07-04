@@ -113,14 +113,6 @@ export default async function GranteeDocumentsPage() {
   return (
     <main className="px-6 pb-20 pt-12">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.3em] text-[#0F3D5C]">SKEAP Requirements</p>
-          <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">Semester requirements center</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-            Submit your required semester files, monitor review progress, and check whether your submission was approved or returned for editing.
-          </p>
-        </div>
-
         <GranteeDocumentsClient submissions={serialized} canSubmit={canSubmit} />
       </div>
     </main>

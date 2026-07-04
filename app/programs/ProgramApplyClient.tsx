@@ -173,12 +173,9 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                 {!loading && status && isOpen ? (
                   <div className="rounded-3xl border border-slate-200 bg-white p-4">
                     <p className="text-sm font-semibold text-slate-900">Checklist before submit</p>
-                    <ul className="mt-3 grid gap-2 text-sm text-slate-700">
+                    <ul className="mt-3 space-y-2 text-sm text-slate-700 list-disc list-inside leading-6">
                       {requirements.map((item, index) => (
-                        <li key={`${item}-${index}`} className="flex items-start gap-2">
-                          <span className="mt-1 h-2 w-2 rounded-full bg-[#0F3D5C]" />
-                          <span>{item}</span>
-                        </li>
+                        <li key={`${item}-${index}`}>{item}</li>
                       ))}
                     </ul>
                   </div>

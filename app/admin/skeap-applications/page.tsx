@@ -1,6 +1,7 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Prisma, Role } from "@prisma/client";
+import { getUploadGroups } from "@/lib/skeap-upload";
 import SkeapApplicationsClient from "./SkeapApplicationsClient";
 
 interface ApplicationMessage {
@@ -18,19 +19,11 @@ interface ApplicationMessage {
 }
 
 const IMAGE_REGEX = /\.(jpe?g|png|gif|webp|avif|svg)(\?|$)/i;
-const PDF_REGEX = /\.pdf(\?|$)/i;
+const PDF_REGEX = /\.pdfm?(\?|$)/i;
 const DOC_REGEX = /\.(docx?|xlsx?|pptx?|txt|rtf)(\?|$)/i;
 
 function isImageUrl(url: string) {
   return IMAGE_REGEX.test(url);
-}
-
-function isPdfUrl(url: string) {
-  return PDF_REGEX.test(url);
-}
-
-function isOfficeUrl(url: string) {
-  return /\.(docx?|xlsx?|pptx?)(\?|$)/i.test(url);
 }
 
 function getFileType(url: string) {
@@ -46,6 +39,9 @@ function normalizeDocumentLabel(raw: string) {
 
   if (keyword.includes("barangay")) return "Barangay Clearance";
   if (keyword.includes("skeap") && keyword.includes("form")) return "SKEAP Form";
+  if (keyword.includes("enroll")) return "Certificate of Enrollment";
+  if (keyword.includes("grade") || keyword.includes("report") || keyword.includes("transcript")) return "Grade Report";
+  if (keyword.includes("voter")) return "Voter's Certificate";
   if (keyword.includes("id") && keyword.includes("photo")) return "ID Photo";
   if (keyword.includes("passport")) return "Passport";
   if (keyword.includes("proof") && keyword.includes("address")) return "Proof of Address";
@@ -66,9 +62,36 @@ function getFileLabel(url: string, index: number) {
   }
 }
 
+function normalizeUrlForDedupe(url: string) {
+  const candidate = String(url || "").trim().replace(/[\)\]\}",]+$/, "");
+  try {
+    const parsed = new URL(candidate);
+    parsed.search = "";
+    parsed.hash = "";
+    if (parsed.pathname.endsWith("/")) {
+      parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    }
+    return parsed.toString();
+  } catch {
+    return candidate.replace(/\s+$/, "").replace(/\/+$/, "");
+  }
+}
+
 function extractUrls(input: string) {
   const pattern = /https?:\/\/[^\s"'<>]+/g;
   return Array.from(input.match(pattern) || []);
+}
+
+function getUniqueUrls(input: string) {
+  const urls = extractUrls(input);
+  const map = new Map<string, string>();
+  urls.forEach((url) => {
+    const normalized = normalizeUrlForDedupe(url);
+    if (normalized && !map.has(normalized)) {
+      map.set(normalized, url.trim());
+    }
+  });
+  return Array.from(map.values());
 }
 
 function isValidReviewThreadItem(item: unknown): item is ApplicationMessage {
@@ -98,8 +121,31 @@ function mapInquiryToApplication(inquiry: {
       school: string | null;
     } | null;
   };
+  application?: {
+    school?: string | null;
+    currentCourse: string;
+    yearLevel: string;
+    gwa?: number | null;
+    applicantName?: string | null;
+    permanentAddress?: string | null;
+    dateOfBirth?: Date | null;
+    placeOfBirth?: string | null;
+    age?: number | null;
+    civilStatus?: string | null;
+    gender?: string | null;
+    fathersName?: string | null;
+    fathersOccupation?: string | null;
+    fathersContact?: string | null;
+    mothersMaidenName?: string | null;
+    mothersOccupation?: string | null;
+    mothersContact?: string | null;
+    contactNumber?: string | null;
+    emailAddress?: string | null;
+    photoFileUrl?: string | null;
+    uploadedFiles?: Prisma.JsonValue | null;
+  } | null;
 }) {
-  const urls = extractUrls(inquiry.message || "");
+  const urls = getUniqueUrls(inquiry.message || "");
 
   const persistedMessages = (Array.isArray(inquiry.reviewThread)
     ? inquiry.reviewThread.filter(isValidReviewThreadItem)
@@ -127,6 +173,8 @@ function mapInquiryToApplication(inquiry: {
       isImage: isImageUrl(url),
     };
   });
+
+  const uploadGroups = getUploadGroups(inquiry.application?.uploadedFiles);
 
   const responseText = inquiry.response?.trim();
   const status = (() => {
@@ -196,13 +244,38 @@ function mapInquiryToApplication(inquiry: {
 
   return {
     id: inquiry.id,
-    applicantName: inquiry.user?.fullName || inquiry.user?.email || "Unknown applicant",
-    applicantEmail: inquiry.user?.email,
-    yearLevel: inquiry.user?.grantee?.yearLevel || "",
-    school: inquiry.user?.grantee?.school || "",
+    applicantName: inquiry.application?.applicantName || inquiry.user?.fullName || inquiry.user?.email || "Unknown applicant",
+    applicantEmail: inquiry.application?.emailAddress || inquiry.user?.email,
+    yearLevel: inquiry.application?.yearLevel || inquiry.user?.grantee?.yearLevel || "",
+    school: inquiry.application?.school || inquiry.application?.currentCourse || inquiry.user?.grantee?.school || "",
     submittedAt: inquiry.createdAt.toISOString(),
     status,
     documents,
+    uploadGroups,
+    application: inquiry.application
+      ? {
+          currentCourse: inquiry.application.currentCourse,
+          yearLevel: inquiry.application.yearLevel,
+          gwa: inquiry.application.gwa,
+          applicantName: inquiry.application.applicantName || inquiry.user?.fullName || undefined,
+          permanentAddress: inquiry.application.permanentAddress || undefined,
+          dateOfBirth: inquiry.application.dateOfBirth ? inquiry.application.dateOfBirth.toISOString() : undefined,
+          placeOfBirth: inquiry.application.placeOfBirth || undefined,
+          age: inquiry.application.age ?? undefined,
+          civilStatus: inquiry.application.civilStatus || undefined,
+          gender: inquiry.application.gender || undefined,
+          fathersName: inquiry.application.fathersName || undefined,
+          fathersOccupation: inquiry.application.fathersOccupation || undefined,
+          fathersContact: inquiry.application.fathersContact || undefined,
+          mothersMaidenName: inquiry.application.mothersMaidenName || undefined,
+          mothersOccupation: inquiry.application.mothersOccupation || undefined,
+          mothersContact: inquiry.application.mothersContact || undefined,
+          contactNumber: inquiry.application.contactNumber || undefined,
+          emailAddress: inquiry.application.emailAddress || inquiry.user.email || undefined,
+          photoFileUrl: inquiry.application.photoFileUrl || undefined,
+          uploadedFiles: inquiry.application.uploadedFiles ?? undefined,
+        }
+      : undefined,
     messages,
   };
 }
@@ -228,7 +301,6 @@ export default async function SkeapApplicationsPage() {
   const subjectWhere = { subject: { contains: "SKEAP application", mode: Prisma.QueryMode.insensitive } };
   const excludeCancelled = { reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive } };
   const excludeApproved = { reviewStatus: { contains: "approve", mode: Prisma.QueryMode.insensitive } };
-  const excludeResponseCancelled = { response: { contains: "cancel", mode: Prisma.QueryMode.insensitive } };
 
   const baseWhere = {
     ...subjectWhere,
@@ -254,33 +326,33 @@ export default async function SkeapApplicationsPage() {
   const pendingCount = await prisma.inquiry.count({
     where: {
       ...queueBaseWhere,
-      AND: [statusOrWhere(["pending", "resubm"], statusFields)],
+      AND: [statusOrWhere(["pending"], statusFields)],
     },
   });
   const returnedCount = await prisma.inquiry.count({
     where: {
       ...queueBaseWhere,
-      AND: [statusOrWhere(["return", "correction"], statusFields)],
+      AND: [statusOrWhere(["returned", "return", "correction", "revise", "revision"], statusFields)],
     },
   });
   const resubmittedCount = await prisma.inquiry.count({
     where: {
       ...queueBaseWhere,
-      AND: [statusOrWhere(["resubm"], statusFields)],
+      AND: [statusOrWhere(["resubm", "resubmit", "resubmitted"], statusFields)],
     },
   });
   const approvedCount = await prisma.inquiry.count({
     where: {
-      ...queueBaseWhere,
-      AND: [statusOrWhere(["approve"], statusFields)],
+      ...baseWhere,
+      AND: [statusOrWhere(["approve", "approved"], statusFields)],
     },
   });
 
   // Fetch rows for queue using the same base filter but matching any visible statuses
-  const visibleStatusPatterns = ["pending", "return", "resubm", "respond"];
+  const visibleStatusPatterns = ["pending", "return", "resubm", "respond", "approve"];
   const inquiries = await prisma.inquiry.findMany({
     where: {
-      ...queueBaseWhere,
+      ...baseWhere,
       AND: [statusOrWhere(visibleStatusPatterns, statusFields)],
     },
     orderBy: { createdAt: "desc" },
@@ -303,6 +375,31 @@ export default async function SkeapApplicationsPage() {
               school: true,
             },
           },
+        },
+      },
+      application: {
+        select: {
+          school: true,
+          currentCourse: true,
+          yearLevel: true,
+          gwa: true,
+          applicantName: true,
+          permanentAddress: true,
+          dateOfBirth: true,
+          placeOfBirth: true,
+          age: true,
+          civilStatus: true,
+          gender: true,
+          fathersName: true,
+          fathersOccupation: true,
+          fathersContact: true,
+          mothersMaidenName: true,
+          mothersOccupation: true,
+          mothersContact: true,
+          contactNumber: true,
+          emailAddress: true,
+          photoFileUrl: true,
+          uploadedFiles: true,
         },
       },
     },

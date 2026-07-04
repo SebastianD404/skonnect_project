@@ -5,20 +5,15 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
 type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE";
+type DocumentType = "coe" | "grades";
 
 type ReviewBody = {
+  documentType?: DocumentType;
   action?: ReviewAction;
   reviewNotes?: string;
   flaggedFields?: string[];
 };
 
-function normalizeFlaggedFields(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  const allowed = new Set(["GRADE_REPORT", "COE"]);
-  return raw
-    .map((item) => String(item || "").trim().toUpperCase())
-    .filter((item): item is string => Boolean(item) && allowed.has(item));
-}
 
 export async function POST(
   request: NextRequest,
@@ -45,24 +40,21 @@ export async function POST(
     }
 
     const body = (await request.json().catch(() => ({}))) as ReviewBody;
+    const documentType = body.documentType || "coe";
     const action = body.action;
     const reviewNotes = String(body.reviewNotes ?? "").trim();
-    const flaggedFields = normalizeFlaggedFields(body.flaggedFields);
 
     if (action !== "APPROVE" && action !== "RETURN_FOR_UPDATE") {
       return NextResponse.json({ error: "Invalid review action" }, { status: 400 });
     }
 
-    if (action === "RETURN_FOR_UPDATE" && flaggedFields.length === 0) {
-      return NextResponse.json(
-        { error: "Flag at least one document before returning for update." },
-        { status: 400 }
-      );
+    if (documentType !== "coe" && documentType !== "grades") {
+      return NextResponse.json({ error: "Invalid document type" }, { status: 400 });
     }
 
     if (action === "RETURN_FOR_UPDATE" && !reviewNotes) {
       return NextResponse.json(
-        { error: "Review notes are required when returning a submission for update." },
+        { error: "Review notes are required when returning a document for correction." },
         { status: 400 }
       );
     }
@@ -71,18 +63,65 @@ export async function POST(
       where: { id },
       select: {
         id: true,
+        coeFileUrl: true,
+        gradeFileUrl: true,
+        flaggedFields: true,
+        status: true,
       },
     });
+
     if (!existing) {
       return NextResponse.json({ error: "Submission not found" }, { status: 404 });
+    }
+
+    let flaggedFields = existing.flaggedFields || [];
+    let newStatus = existing.status;
+    let newReviewNotes = existing.status === "RETURNED_FOR_EDIT" ? null : reviewNotes;
+
+    if (documentType === "coe") {
+      if (action === "APPROVE") {
+        // Remove COE from flagged fields when approved
+        flaggedFields = flaggedFields.filter((field) => field !== "COE");
+        // Determine new status: if grades exist and pending, stay PENDING; otherwise APPROVED
+        if (existing.gradeFileUrl) {
+          newStatus = "PENDING";
+        } else {
+          newStatus = "APPROVED";
+        }
+        newReviewNotes = null;
+      } else {
+        // Return COE for correction
+        if (!flaggedFields.includes("COE")) {
+          flaggedFields = [...flaggedFields, "COE"];
+        }
+        newStatus = "RETURNED_FOR_EDIT";
+        newReviewNotes = reviewNotes;
+      }
+    } else if (documentType === "grades") {
+      if (action === "APPROVE") {
+        // Remove GRADE_REPORT from flagged fields when approved
+        flaggedFields = flaggedFields.filter((field) => field !== "GRADE_REPORT");
+        // If no other flagged fields remain, mark entire submission as APPROVED
+        if (flaggedFields.length === 0) {
+          newStatus = "APPROVED";
+        }
+        newReviewNotes = null;
+      } else {
+        // Return GRADE_REPORT for correction
+        if (!flaggedFields.includes("GRADE_REPORT")) {
+          flaggedFields = [...flaggedFields, "GRADE_REPORT"];
+        }
+        newStatus = "RETURNED_FOR_EDIT";
+        newReviewNotes = reviewNotes;
+      }
     }
 
     const updated = await prisma.submission.update({
       where: { id },
       data: {
-        status: action === "APPROVE" ? "APPROVED" : "RETURNED_FOR_EDIT",
-        reviewNotes: action === "APPROVE" ? null : reviewNotes,
-        flaggedFields: action === "APPROVE" ? [] : flaggedFields,
+        status: newStatus,
+        reviewNotes: newReviewNotes,
+        flaggedFields,
         reviewedAt: new Date(),
         reviewedById: appUser.id,
       },

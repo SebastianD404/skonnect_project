@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useState } from "react";
 import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Search } from "lucide-react";
 
 interface SubmissionRow {
@@ -23,33 +23,84 @@ interface SubmissionRow {
   };
 }
 
-interface SubmissionReviewTableProps {
-  submissions: SubmissionRow[];
+interface SubmissionsPhase {
+  pendingCoe: SubmissionRow[];
+  activeScholars: SubmissionRow[];
+  pendingGrades: SubmissionRow[];
+  completed: SubmissionRow[];
 }
 
-type ReviewDraft = {
-  coeNeedsRevision: boolean;
-  gradeNeedsRevision: boolean;
+interface SubmissionReviewTableProps {
+  submissions: SubmissionsPhase;
+}
+
+type DocumentReview = {
+  status: "PENDING" | "APPROVED" | "RETURN_FOR_UPDATE";
   notes: string;
 };
 
-const EMPTY_REVIEW_DRAFT: ReviewDraft = {
-  coeNeedsRevision: false,
-  gradeNeedsRevision: false,
-  notes: "",
+type ReviewDraft = {
+  coe: DocumentReview;
+  grades: DocumentReview;
 };
 
+const EMPTY_REVIEW_DRAFT: ReviewDraft = {
+  coe: { status: "PENDING", notes: "" },
+  grades: { status: "PENDING", notes: "" },
+};
+
+type TabType = "pending-coe" | "active-scholars" | "pending-grades" | "completed";
+
+interface TabDef {
+  id: TabType;
+  label: string;
+  description: string;
+  rows: SubmissionRow[];
+  badgeColor: string;
+}
+
 export default function SubmissionReviewTable({ submissions }: SubmissionReviewTableProps) {
-  const [rows, setRows] = useState<SubmissionRow[]>(submissions);
   const [query, setQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<TabType>("pending-coe");
   const [expandedSubmission, setExpandedSubmission] = useState<string | null>(null);
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft>>({});
   const [savingSubmissionId, setSavingSubmissionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const notesRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
-  const filtered = rows.filter((submission) => {
+  const tabs: TabDef[] = [
+    {
+      id: "pending-coe",
+      label: "Pending COE Review",
+      description: "Phase 1: Awaiting enrollment verification",
+      rows: submissions.pendingCoe,
+      badgeColor: "bg-blue-100 text-blue-700",
+    },
+    {
+      id: "active-scholars",
+      label: "Awaiting Grades",
+      description: "Phase 2: Awaiting end-of-semester submission",
+      rows: submissions.activeScholars,
+      badgeColor: "bg-emerald-100 text-emerald-700",
+    },
+    {
+      id: "pending-grades",
+      label: "Pending Grades Review",
+      description: "Phase 2: Awaiting grade verification",
+      rows: submissions.pendingGrades,
+      badgeColor: "bg-amber-100 text-amber-700",
+    },
+    {
+      id: "completed",
+      label: "Fully Cleared",
+      description: "Both phases completed",
+      rows: submissions.completed,
+      badgeColor: "bg-slate-100 text-slate-700",
+    },
+  ];
+
+  const currentTab = tabs.find((t) => t.id === activeTab)!;
+  const filtered = currentTab.rows.filter((submission) => {
     const search = query.toLowerCase();
     return (
       submission.semester.toLowerCase().includes(search) ||
@@ -73,18 +124,15 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
     }));
   };
 
-  const focusNotes = (submissionId: string) => {
-    setTimeout(() => {
-      notesRefs.current[submissionId]?.focus();
-    }, 0);
-  };
 
-  async function submitReview(submission: SubmissionRow, action: "APPROVE" | "RETURN_FOR_UPDATE") {
+
+  async function submitDocumentReview(
+    submission: SubmissionRow,
+    docType: "coe" | "grades",
+    action: "APPROVE" | "RETURN_FOR_UPDATE"
+  ) {
     const draft = getDraft(submission.id);
-    const flaggedFields = [
-      draft.coeNeedsRevision ? "COE" : null,
-      draft.gradeNeedsRevision ? "GRADE_REPORT" : null,
-    ].filter((value): value is string => Boolean(value));
+    const docReview = docType === "coe" ? draft.coe : draft.grades;
 
     setSavingSubmissionId(submission.id);
     setActionError(null);
@@ -95,24 +143,32 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          documentType: docType,
           action,
-          reviewNotes: draft.notes,
-          flaggedFields,
+          reviewNotes: docReview.notes,
         }),
       });
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload?.error || "Unable to update submission review status");
+        throw new Error(payload?.error || "Unable to update document review status");
       }
 
-      setRows((current) => current.filter((item) => item.id !== submission.id));
-      setExpandedSubmission((current) => (current === submission.id ? null : current));
+      // Clear the notes for this document after successful review
+      updateDraft(submission.id, {
+        [docType]: { status: "PENDING", notes: "" },
+      });
+
       setActionSuccess(
         action === "APPROVE"
-          ? "Submission approved and removed from the pending queue."
-          : "Submission returned for update with targeted correction flags."
+          ? `${docType === "coe" ? "Certificate of Enrollment" : "Grade Report"} approved.`
+          : `${docType === "coe" ? "Certificate of Enrollment" : "Grade Report"} returned for correction.`
       );
+
+      // Refresh page after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Unable to process review action.");
     } finally {
@@ -124,7 +180,7 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
     <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-[#0F3D5C]">Pending submissions</p>
+          <p className="text-sm uppercase tracking-[0.3em] text-[#0F3D5C]">Submissions Pipeline</p>
           <h2 className="mt-2 text-2xl font-black text-slate-950">Confirm academic documents</h2>
         </div>
 
@@ -138,6 +194,29 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
             className="w-full rounded-full border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm text-slate-700 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
           />
         </label>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="mt-6 flex flex-wrap gap-2 border-b border-slate-200 pb-4">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => {
+              setActiveTab(tab.id);
+              setQuery("");
+            }}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+              activeTab === tab.id
+                ? "border-b-2 border-[#0F3D5C] text-[#0F3D5C] bg-slate-50"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            {tab.label}
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${tab.badgeColor}`}>
+              {tab.rows.length}
+            </span>
+          </button>
+        ))}
       </div>
 
       <div className="mt-6 overflow-x-auto">
@@ -168,15 +247,7 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
             ) : (
               filtered.map((submission) => {
                 const isExpanded = expandedSubmission === submission.id;
-                const draft =
-                  reviewDrafts[submission.id] ??
-                  {
-                    ...EMPTY_REVIEW_DRAFT,
-                    notes: submission.reviewNotes ?? "",
-                    coeNeedsRevision: (submission.flaggedFields ?? []).includes("COE"),
-                    gradeNeedsRevision: (submission.flaggedFields ?? []).includes("GRADE_REPORT"),
-                  };
-                const hasFlaggedDocument = draft.coeNeedsRevision || draft.gradeNeedsRevision;
+                const draft = reviewDrafts[submission.id] ?? EMPTY_REVIEW_DRAFT;
                 const isSaving = savingSubmissionId === submission.id;
                 return (
                   <Fragment key={submission.id}>
@@ -207,118 +278,191 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
                     </tr>
                     {isExpanded ? (
                       <tr className="bg-slate-50">
-                        <td colSpan={6} className="px-4 py-5">
-                          <div className="mt-1 grid grid-cols-1 gap-6 lg:grid-cols-3">
-                            <div className="space-y-4 lg:col-span-2">
-                              <div className={`flex items-center justify-between gap-4 rounded-2xl border bg-white p-5 transition-all duration-200 ${draft.coeNeedsRevision ? "border-amber-300 bg-amber-50/20" : "border-slate-200"}`}>
-                                <div className="flex min-w-0 items-center gap-3">
-                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-[#0F3D5C]">
-                                    <FileCheck2 className="h-4.5 w-4.5" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Certificate of Enrollment</span>
-                                    <a
-                                      href={submission.coeFileUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-[#0B192C] transition-all hover:underline"
-                                    >
-                                      View COE Document
-                                    </a>
-                                  </div>
-                                </div>
-                                <label className="flex shrink-0 cursor-pointer select-none items-center gap-2 text-xs font-medium text-slate-500">
-                                  <input
-                                    type="checkbox"
-                                    checked={draft.coeNeedsRevision}
-                                    onChange={(event) => {
-                                      const checked = event.target.checked;
-                                      updateDraft(submission.id, { coeNeedsRevision: checked });
-                                      if (checked) focusNotes(submission.id);
-                                    }}
-                                    className="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-                                  />
-                                  <span>Flag for correction</span>
-                                </label>
-                              </div>
+                        <td colSpan={6} className="px-4 py-6">
+                          <div className="space-y-6">
+                            {/* CERTIFICATE OF ENROLLMENT REVIEW */}
+                            {(() => {
+                              const coeIsApproved =
+                                activeTab !== "pending-coe" && !draft.coe.notes && !(submission.flaggedFields ?? []).includes("COE");
+                              const coeNeedsCorrectionReview = (submission.flaggedFields ?? []).includes("COE");
 
-                              <div className={`flex items-center justify-between gap-4 rounded-2xl border bg-white p-5 transition-all duration-200 ${draft.gradeNeedsRevision ? "border-amber-300 bg-amber-50/20" : "border-slate-200"}`}>
-                                <div className="flex min-w-0 items-center gap-3">
-                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-[#0F3D5C]">
-                                    <FileText className="h-4.5 w-4.5" />
+                              return (
+                                <div className={`rounded-2xl border p-6 transition-all ${coeIsApproved ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}>
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3">
+                                      <div
+                                        className={`mt-1 flex h-10 w-10 items-center justify-center rounded-lg ${
+                                          coeIsApproved ? "bg-emerald-100 text-emerald-600" : "bg-slate-50 text-[#0F3D5C]"
+                                        }`}
+                                      >
+                                        <FileCheck2 className="h-5 w-5" />
+                                      </div>
+                                      <div>
+                                        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Certificate of Enrollment</h3>
+                                        <a
+                                          href={submission.coeFileUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-[#0B192C] transition-all hover:underline"
+                                        >
+                                          View COE Document
+                                        </a>
+                                      </div>
+                                    </div>
+                                    {coeIsApproved && (
+                                      <span className="whitespace-nowrap rounded-full bg-emerald-200 px-3 py-1 text-xs font-bold text-emerald-700">
+                                        ✓ Verified
+                                      </span>
+                                    )}
+                                    {coeNeedsCorrectionReview && (
+                                      <span className="whitespace-nowrap rounded-full bg-amber-200 px-3 py-1 text-xs font-bold text-amber-700">
+                                        ⚠ Needs Correction
+                                      </span>
+                                    )}
                                   </div>
-                                  <div className="min-w-0">
-                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Grade Report</span>
-                                    <a
-                                      href={submission.gradeFileUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-[#0B192C] transition-all hover:underline"
-                                    >
-                                      View Grades Document
-                                    </a>
-                                  </div>
-                                </div>
-                                <label className="flex shrink-0 cursor-pointer select-none items-center gap-2 text-xs font-medium text-slate-500">
-                                  <input
-                                    type="checkbox"
-                                    checked={draft.gradeNeedsRevision}
-                                    onChange={(event) => {
-                                      const checked = event.target.checked;
-                                      updateDraft(submission.id, { gradeNeedsRevision: checked });
-                                      if (checked) focusNotes(submission.id);
-                                    }}
-                                    className="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-                                  />
-                                  <span>Flag for correction</span>
-                                </label>
-                              </div>
-                            </div>
 
-                            <div className="flex h-full flex-col justify-between space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-                              <div className="flex-1 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Review Notes</span>
-                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${hasFlaggedDocument ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-                                    {hasFlaggedDocument ? "Correction flagged" : "Pending"}
-                                  </span>
+                                  {!coeIsApproved && (
+                                    <div className="mt-4 space-y-3">
+                                      <label className="block">
+                                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Review Notes</span>
+                                        <textarea
+                                          rows={3}
+                                          value={draft.coe.notes}
+                                          onChange={(e) =>
+                                            updateDraft(submission.id, {
+                                              coe: { ...draft.coe, notes: e.target.value },
+                                            })
+                                          }
+                                          className="mt-2 w-full resize-none rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-800"
+                                          placeholder="Enter feedback or guidance for the grantee..."
+                                        />
+                                      </label>
+                                      <div className="flex gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => submitDocumentReview(submission, "coe", "APPROVE")}
+                                          disabled={isSaving}
+                                          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold tracking-tight text-white transition-all hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                          <CheckCircle2 className="h-4 w-4" />
+                                          {isSaving ? "Approving..." : "Approve COE"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => submitDocumentReview(submission, "coe", "RETURN_FOR_UPDATE")}
+                                          disabled={isSaving}
+                                          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-semibold tracking-tight text-amber-700 transition-all hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                          <ArrowUpRight className="h-4 w-4" />
+                                          {isSaving ? "Returning..." : "Return for Correction"}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
-                                <textarea
-                                  ref={(element) => {
-                                    notesRefs.current[submission.id] = element;
-                                  }}
-                                  rows={5}
-                                  value={draft.notes}
-                                  onChange={(event) => updateDraft(submission.id, { notes: event.target.value })}
-                                  className="h-32 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-800"
-                                  placeholder="Provide clear guidance for document updates or internal verification notes..."
-                                />
-                              </div>
+                              );
+                            })()}
 
-                              <div className="flex w-full items-center gap-2 border-t border-slate-100 pt-3">
-                                {hasFlaggedDocument ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => submitReview(submission, "RETURN_FOR_UPDATE")}
-                                    disabled={isSaving}
-                                    className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold tracking-tight text-amber-700 transition-all duration-150 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            {/* GRADE REPORT REVIEW */}
+                            {submission.gradeFileUrl ? (
+                              (() => {
+                                const gradesIsApproved =
+                                  activeTab === "completed" && !draft.grades.notes && !(submission.flaggedFields ?? []).includes("GRADE_REPORT");
+                                const gradesNeedsCorrectionReview = (submission.flaggedFields ?? []).includes("GRADE_REPORT");
+
+                                return (
+                                  <div
+                                    className={`rounded-2xl border p-6 transition-all ${gradesIsApproved ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}
                                   >
-                                    <ArrowUpRight className="h-3.5 w-3.5" />
-                                    {isSaving ? "Returning..." : "Return for Update"}
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => submitReview(submission, "APPROVE")}
-                                    disabled={isSaving}
-                                    className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-[#0B192C] px-4 py-2 text-xs font-semibold tracking-tight text-white transition-all duration-150 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                    {isSaving ? "Approving..." : "Approve Submission"}
-                                  </button>
-                                )}
+                                    <div className="flex items-start justify-between gap-4">
+                                      <div className="flex items-start gap-3">
+                                        <div
+                                          className={`mt-1 flex h-10 w-10 items-center justify-center rounded-lg ${
+                                            gradesIsApproved ? "bg-emerald-100 text-emerald-600" : "bg-slate-50 text-[#0F3D5C]"
+                                          }`}
+                                        >
+                                          <FileText className="h-5 w-5" />
+                                        </div>
+                                        <div>
+                                          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Grade Report</h3>
+                                          <a
+                                            href={submission.gradeFileUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-[#0B192C] transition-all hover:underline"
+                                          >
+                                            View Grades Document
+                                          </a>
+                                        </div>
+                                      </div>
+                                      {gradesIsApproved && (
+                                        <span className="whitespace-nowrap rounded-full bg-emerald-200 px-3 py-1 text-xs font-bold text-emerald-700">
+                                          ✓ Verified
+                                        </span>
+                                      )}
+                                      {gradesNeedsCorrectionReview && (
+                                        <span className="whitespace-nowrap rounded-full bg-amber-200 px-3 py-1 text-xs font-bold text-amber-700">
+                                          ⚠ Needs Correction
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {!gradesIsApproved && (
+                                      <div className="mt-4 space-y-3">
+                                        <label className="block">
+                                          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Review Notes</span>
+                                          <textarea
+                                            rows={3}
+                                            value={draft.grades.notes}
+                                            onChange={(e) =>
+                                              updateDraft(submission.id, {
+                                                grades: { ...draft.grades, notes: e.target.value },
+                                              })
+                                            }
+                                            className="mt-2 w-full resize-none rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-800"
+                                            placeholder="Enter feedback or guidance for the grantee..."
+                                          />
+                                        </label>
+                                        <div className="flex gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => submitDocumentReview(submission, "grades", "APPROVE")}
+                                            disabled={isSaving}
+                                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold tracking-tight text-white transition-all hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                          >
+                                            <CheckCircle2 className="h-4 w-4" />
+                                            {isSaving ? "Approving..." : "Approve Grades"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => submitDocumentReview(submission, "grades", "RETURN_FOR_UPDATE")}
+                                            disabled={isSaving}
+                                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-semibold tracking-tight text-amber-700 transition-all hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                          >
+                                            <ArrowUpRight className="h-4 w-4" />
+                                            {isSaving ? "Returning..." : "Return for Correction"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()
+                            ) : (
+                              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-slate-400">
+                                    <FileText className="h-5 w-5" />
+                                  </div>
+                                  <div>
+                                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Grade Report</h3>
+                                    <span className="mt-1 inline-flex items-center rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                                      Phase 2: Awaiting end-of-semester submission
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
-                            </div>
+                            )}
                           </div>
                         </td>
                       </tr>

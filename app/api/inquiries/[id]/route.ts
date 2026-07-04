@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 
 interface AttachedFileNote {
   fileId: string;
@@ -44,20 +45,20 @@ async function authorizeReviewUser() {
 }
 
 function isValidAttachedFileNote(value: unknown): value is AttachedFileNote {
+  if (typeof value !== "object" || value === null) return false;
+  const note = value as Record<string, unknown>;
   return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as any).fileId === "string" &&
-    typeof (value as any).fileName === "string" &&
-    typeof (value as any).fileUrl === "string" &&
-    typeof (value as any).fileType === "string" &&
-    typeof (value as any).adminRemark === "string"
+    typeof note.fileId === "string" &&
+    typeof note.fileName === "string" &&
+    typeof note.fileUrl === "string" &&
+    typeof note.fileType === "string" &&
+    typeof note.adminRemark === "string"
   );
 }
 
 function isValidReviewMessage(value: unknown): value is ReviewMessage {
   if (typeof value !== "object" || value === null) return false;
-  const message = value as any;
+  const message = value as Record<string, unknown>;
   if (message.role !== "admin" && message.role !== "applicant") return false;
   if (typeof message.id !== "string" || typeof message.createdAt !== "string") return false;
   if (typeof message.text !== "string") return false;
@@ -102,6 +103,8 @@ export async function PATCH(
       where: { id },
       select: {
         reviewThread: true,
+        userId: true,
+        application: { select: { school: true, yearLevel: true } },
       },
     });
 
@@ -159,7 +162,11 @@ export async function PATCH(
     const updatedInquiry = await prisma.$transaction(async (tx) => {
       const currentInquiry = await tx.inquiry.findUnique({
         where: { id },
-        select: { reviewThread: true },
+        select: {
+          reviewThread: true,
+          userId: true,
+          application: { select: { school: true, yearLevel: true } },
+        },
       });
 
       const existingThreadFromTx = (Array.isArray(currentInquiry?.reviewThread)
@@ -168,17 +175,56 @@ export async function PATCH(
 
       const updatedThreadFromTx = [message, ...existingThreadFromTx] as unknown as Prisma.InputJsonArray;
 
-      return tx.inquiry.update({
+      const updated = await tx.inquiry.update({
         where: { id },
         data: {
           ...updateData,
           reviewThread: updatedThreadFromTx,
         },
       });
+
+      if (action === "approve" && currentInquiry?.userId) {
+        const targetUser = await tx.user.findUnique({
+          where: { id: currentInquiry.userId },
+          select: { id: true, role: true },
+        });
+
+        if (targetUser?.role === Role.YOUTH || targetUser?.role === Role.GRANTEE) {
+          await tx.user.update({
+            where: { id: targetUser.id },
+            data: {
+              role: Role.GRANTEE,
+            },
+          });
+
+          await tx.grantee.upsert({
+            where: { userId: targetUser.id },
+            create: {
+              userId: targetUser.id,
+              school:
+                currentInquiry.application?.school ||
+                currentInquiry.application?.currentCourse ||
+                GRANTEE_PLACEHOLDER_SCHOOL,
+              yearLevel: currentInquiry.application?.yearLevel ?? GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+              status: "ACTIVE",
+            },
+            update: {
+              school:
+                currentInquiry.application?.school ||
+                currentInquiry.application?.currentCourse ||
+                GRANTEE_PLACEHOLDER_SCHOOL,
+              yearLevel: currentInquiry.application?.yearLevel ?? GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+            },
+          });
+        }
+      }
+
+      return updated;
     });
 
     revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin");
+    revalidatePath(`/applications/${id}`);
 
     return NextResponse.json({
       success: true,

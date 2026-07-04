@@ -5,9 +5,19 @@ import { prisma } from "@/lib/prisma";
 
 function computeAge(birthDate: Date) {
   const now = new Date();
-  let age = now.getFullYear() - birthDate.getFullYear();
-  const monthDiff = now.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth();
+  const currentDay = now.getUTCDate();
+
+  const birthYear = birthDate.getUTCFullYear();
+  const birthMonth = birthDate.getUTCMonth();
+  const birthDay = birthDate.getUTCDate();
+
+  let age = currentYear - birthYear;
+  if (
+    currentMonth < birthMonth ||
+    (currentMonth === birthMonth && currentDay < birthDay)
+  ) {
     age -= 1;
   }
   return age;

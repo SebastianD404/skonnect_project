@@ -21,9 +21,19 @@ function isBarangayPico(value: string) {
 
 function computeAge(birthDate: Date) {
   const now = new Date();
-  let age = now.getFullYear() - birthDate.getFullYear();
-  const monthDiff = now.getMonth() - birthDate.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth();
+  const currentDay = now.getUTCDate();
+
+  const birthYear = birthDate.getUTCFullYear();
+  const birthMonth = birthDate.getUTCMonth();
+  const birthDay = birthDate.getUTCDate();
+
+  let age = currentYear - birthYear;
+  if (
+    currentMonth < birthMonth ||
+    (currentMonth === birthMonth && currentDay < birthDay)
+  ) {
     age -= 1;
   }
   return age;
@@ -69,7 +79,7 @@ async function findExistingAuthIdByEmail(email: string) {
 
   try {
     const admin = getSupabaseAdminClient();
-    let page: number | null = 1;
+    let page: number | undefined = 1;
     const perPage = 100;
 
     while (true) {
@@ -96,12 +106,12 @@ async function findExistingAuthIdByEmail(email: string) {
         }
       }
 
-      const hasMorePage = typeof data.nextPage === "number" && (page === null || data.nextPage > page);
+      const hasMorePage: boolean = typeof data.nextPage === "number" && (page === undefined || data.nextPage > page);
       if (!hasMorePage && data.users.length < perPage) {
         return null;
       }
 
-      page = hasMorePage ? (typeof data.nextPage === "number" ? data.nextPage : page) : (page === null ? null : page + 1);
+      page = hasMorePage ? (typeof data.nextPage === "number" ? data.nextPage : page) : (page === undefined ? undefined : page + 1);
     }
   } catch {
     return null;

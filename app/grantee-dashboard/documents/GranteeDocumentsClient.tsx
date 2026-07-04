@@ -33,6 +33,12 @@ type Props = {
   canSubmit: boolean;
 };
 
+type GradeRow = {
+  id: string;
+  subject: string;
+  grade: string;
+};
+
 type UploadState = {
   gradeFile: File | null;
   coeFile: File | null;
@@ -40,6 +46,7 @@ type UploadState = {
   coeFileUrl: string;
   semester: string;
   generalAverage: string;
+  grades: GradeRow[];
 };
 
 type PendingSnapshot = {
@@ -54,11 +61,13 @@ const INITIAL_FORM: UploadState = {
   coeFileUrl: "",
   semester: "",
   generalAverage: "",
+  grades: [],
 };
 
 const BRAND = "#0F3D5C";
 const BRAND_DARK = "#0A2A40";
 const REQUIRED_DOCUMENTS_PER_SEMESTER = 2;
+
 
 function statusLabel(status: SubmissionItem["status"]) {
   if (status === "APPROVED") return "Approved";
@@ -120,13 +129,23 @@ function buildSemesterTracker(submissions: SubmissionItem[]) {
 
 export default function GranteeDocumentsClient({ submissions, canSubmit }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState<UploadState>(INITIAL_FORM);
+  const [form, setForm] = useState<UploadState>(() => ({
+    ...INITIAL_FORM,
+    grades: [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        subject: "",
+        grade: "",
+      },
+    ],
+  }));
   const hydratedSubmissionIdRef = useRef<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingGrade, setUploadingGrade] = useState(false);
   const [uploadingCoe, setUploadingCoe] = useState(false);
   const [optimisticPending, setOptimisticPending] = useState<PendingSnapshot | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
 
   const stats = useMemo(() => {
     const pending = submissions.filter((s) => s.status === "PENDING").length;
@@ -135,41 +154,38 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     return { pending, approved, needsEdit };
   }, [submissions]);
 
-  const activeReturnedSubmission = useMemo(() => {
-    if (form.semester) {
-      return (
-        submissions.find(
-          (submission) => submission.semester === form.semester && submission.status === "RETURNED_FOR_EDIT"
-        ) ?? null
-      );
-    }
-
-    return submissions.find((submission) => submission.status === "RETURNED_FOR_EDIT") ?? null;
-  }, [form.semester, submissions]);
-
-  const activeFlaggedFields = useMemo(
-    () => new Set(activeReturnedSubmission?.flaggedFields ?? []),
-    [activeReturnedSubmission]
+  const currentSubmission = useMemo(
+    () => submissions.find((submission) => submission.semester === form.semester) ?? null,
+    [form.semester, submissions]
   );
 
-  const hasExistingGradeReport = Boolean(activeReturnedSubmission?.gradeFileUrl);
-  const hasExistingCoe = Boolean(activeReturnedSubmission?.coeFileUrl);
-  const isGradeReportFlagged = activeFlaggedFields.has("GRADE_REPORT");
-  const isCoeFlagged = activeFlaggedFields.has("COE");
-  const existingGradeReportName = activeReturnedSubmission?.gradeFileUrl
-    ? getFilenameFromUrl(activeReturnedSubmission.gradeFileUrl)
+  const currentFlaggedFields = new Set(currentSubmission?.flaggedFields ?? []);
+
+  const hasExistingGradeReport = Boolean(currentSubmission?.gradeFileUrl);
+  const hasExistingCoe = Boolean(currentSubmission?.coeFileUrl);
+  const isGradeReportFlagged = currentFlaggedFields.has("GRADE_REPORT");
+  const isCoeFlagged = currentFlaggedFields.has("COE");
+  const existingGradeReportName = currentSubmission?.gradeFileUrl
+    ? getFilenameFromUrl(currentSubmission.gradeFileUrl)
     : "Grade_Report.pdf";
-  const existingCoeName = activeReturnedSubmission?.coeFileUrl
-    ? getFilenameFromUrl(activeReturnedSubmission.coeFileUrl)
+  const existingCoeName = currentSubmission?.coeFileUrl
+    ? getFilenameFromUrl(currentSubmission.coeFileUrl)
     : "Certificate_of_Enrollment.pdf";
 
   const correctionText =
-    activeReturnedSubmission?.reviewNotes?.trim() || "Please re-upload a clear and readable copy.";
+    currentSubmission?.reviewNotes?.trim() || "Please re-upload a clear and readable copy.";
 
-  const hasReturnedSubmission = useMemo(
-    () => submissions.some((submission) => submission.status === "RETURNED_FOR_EDIT"),
-    [submissions]
-  );
+  const hasReturnedSubmission = currentSubmission?.status === "RETURNED_FOR_EDIT";
+
+  const gradePhaseUnlocked = currentSubmission?.status === "APPROVED";
+  const gradeUploadAllowed = gradePhaseUnlocked || (hasReturnedSubmission && isGradeReportFlagged);
+
+  const submitButtonLabel =
+    currentSubmission?.status === "RETURNED_FOR_EDIT"
+      ? "Update submission"
+      : gradeUploadAllowed
+      ? "Submit Grade Report"
+      : "Submit Enrollment Verification";
 
   const pendingSnapshot = useMemo(() => {
     if (optimisticPending) return optimisticPending;
@@ -186,6 +202,59 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     };
   }, [optimisticPending, submissions]);
 
+  const computedGwa = useMemo(() => {
+    const validGrades = form.grades
+      .map((gradeRow) => ({
+        input: gradeRow.grade,
+        value: Number(gradeRow.grade),
+      }))
+      .filter(
+        (grade) =>
+          grade.input.trim() !== "" &&
+          !Number.isNaN(grade.value) &&
+          grade.value >= 0 &&
+          grade.value <= 100
+      )
+      .map((grade) => grade.value);
+
+    if (validGrades.length === 0) {
+      return "";
+    }
+
+    const average = validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length;
+    return average.toFixed(2);
+  }, [form.grades]);
+
+  function addGradeRow() {
+    setForm((prev) => ({
+      ...prev,
+      grades: [
+        ...prev.grades,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          subject: "",
+          grade: "",
+        },
+      ],
+    }));
+  }
+
+  function updateGrade(id: string, field: "subject" | "grade", value: string) {
+    setForm((prev) => ({
+      ...prev,
+      grades: prev.grades.map((gradeRow) =>
+        gradeRow.id === id ? { ...gradeRow, [field]: value } : gradeRow
+      ),
+    }));
+  }
+
+  function removeGradeRow(id: string) {
+    setForm((prev) => ({
+      ...prev,
+      grades: prev.grades.filter((gradeRow) => gradeRow.id !== id),
+    }));
+  }
+
   const showPendingLockView = Boolean(canSubmit && pendingSnapshot && !hasReturnedSubmission);
 
   useEffect(() => {
@@ -196,7 +265,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
       return;
     }
 
-    // Hydrate once per returned/active record so polling refreshes do not wipe user input.
     if (hydratedSubmissionIdRef.current === fetchedSubmissionData.id) {
       return;
     }
@@ -227,18 +295,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
   }, [submissions]);
 
   useEffect(() => {
-    if (!optimisticPending) return;
-
-    const isPersisted = submissions.some(
-      (submission) => submission.semester === optimisticPending.semester && submission.status === "PENDING"
-    );
-
-    if (isPersisted) {
-      setOptimisticPending(null);
-    }
-  }, [optimisticPending, submissions]);
-
-  useEffect(() => {
     const syncDashboardData = () => {
       router.refresh();
     };
@@ -266,7 +322,15 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
   const semesterOptions = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
-    return [`${year}-1st Semester`, `${year}-2nd Semester`, `${year + 1}-1st Semester`];
+    const currentAcademicYear = `${year - 1}-${year}`;
+    const nextAcademicYear = `${year}-${year + 1}`;
+
+    return [
+      `${currentAcademicYear} First Semester`,
+      `${currentAcademicYear} Second Semester`,
+      `${currentAcademicYear} Summer Term`,
+      `${nextAcademicYear} First Semester`,
+    ];
   }, []);
 
   const groupedSubmissions = useMemo(() => {
@@ -356,19 +420,42 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
       form.coeFileUrl ||
       (referenceSubmission && !referenceFlags.has("COE") ? referenceSubmission.coeFileUrl : "");
 
-    if (!finalGradeFileUrl || !finalCoeFileUrl) {
+    const hasExistingGradeDocument =
+      Boolean(form.gradeFileUrl) ||
+      Boolean(referenceSubmission && !referenceFlags.has("GRADE_REPORT") && referenceSubmission.gradeFileUrl);
+
+    const requiresGradeSubmission = Boolean(
+      referenceFlags.has("GRADE_REPORT") ||
+      form.gradeFileUrl ||
+      (gradePhaseUnlocked && !hasExistingGradeDocument)
+    );
+
+    if (!finalCoeFileUrl) {
+      setMessage({ type: "error", text: "Please complete the Certificate of Enrollment upload before submitting." });
+      return;
+    }
+
+    if (requiresGradeSubmission && !finalGradeFileUrl) {
       setMessage({
         type: "error",
         text:
           referenceSubmission?.status === "RETURNED_FOR_EDIT"
             ? "Please upload each document flagged for correction before submitting."
-            : "Please complete semester, grade report, and COE before submitting.",
+            : "Please upload your grade report to complete this term.",
       });
       return;
     }
 
     setSubmitting(true);
     try {
+      const generalAverageValue = gradePhaseUnlocked
+        ? computedGwa
+          ? Number(computedGwa)
+          : form.generalAverage === ""
+          ? null
+          : Number(form.generalAverage)
+        : null;
+
       const response = await fetch("/api/grantee/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -376,7 +463,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
           semester: form.semester,
           gradeFileUrl: finalGradeFileUrl,
           coeFileUrl: finalCoeFileUrl,
-          generalAverage: form.generalAverage,
+          generalAverage: generalAverageValue,
         }),
       });
 
@@ -387,7 +474,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
 
       setOptimisticPending({
         semester: form.semester,
-        generalAverage: form.generalAverage,
+        generalAverage: computedGwa || form.generalAverage,
       });
       setForm((current) => ({
         ...current,
@@ -396,7 +483,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
         gradeFileUrl: "",
         coeFileUrl: "",
       }));
-      setMessage({ type: "success", text: "Documents submitted successfully. Status is now pending review." });
       router.refresh();
     } catch (error) {
       const text = error instanceof Error ? error.message : "Submission failed";
@@ -434,34 +520,37 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
 
       <SemesterTracker term={tracker.current} approved={tracker.approved} total={tracker.total} pct={tracker.pct} />
 
-      <div className="grid gap-8 lg:grid-cols-5">
+      <div className="grid gap-4 lg:grid-cols-5">
         <section className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm lg:col-span-3">
           <div
-            className="px-8 py-6 text-white"
+            className="px-6 py-3 text-white"
             style={{ background: `linear-gradient(135deg, ${BRAND} 0%, ${BRAND_DARK} 100%)` }}
           >
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/15">
-                <FileText className="h-5 w-5" />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/15">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Submit a Requirement</h2>
+                  <p className="text-xs text-white/75">Upload complete files for SK/admin verification</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg font-semibold">Submit a Requirement</h2>
-                <p className="text-xs text-white/75">Upload complete files for SK/admin verification</p>
-              </div>
+
             </div>
           </div>
 
-          <div className="space-y-6 p-8">
+          <div className="space-y-0 p-3">
             {!canSubmit ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
                 Submissions are temporarily unavailable because your grantee profile is incomplete. Please update your school and year level in Profile settings. You can still view your requirement history.
               </div>
             ) : null}
 
-            <div className="min-h-[3.5rem]">
+            <div className="space-y-0">
               {message ? (
                 <div
-                  className={`rounded-xl border px-4 py-3 text-sm transition-all duration-300 ${
+                  className={`rounded-xl border px-4 py-2.5 text-sm transition-all duration-300 ${
                     message.type === "success"
                       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                       : "border-rose-200 bg-rose-50 text-rose-700"
@@ -470,6 +559,13 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                   {message.text}
                 </div>
               ) : null}
+
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm leading-relaxed text-slate-600">
+                <p className="font-semibold text-slate-900">Submission phases</p>
+                <p className="mt-2">
+                  Phase 1: upload your Certificate of Enrollment. Phase 2: grade report upload unlocks once enrollment verification is accepted or when grades are explicitly requested for correction.
+                </p>
+              </div>
             </div>
 
             {showPendingLockView ? (
@@ -497,70 +593,127 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Academic Term">
-                  <select
-                    value={form.semester}
-                    onChange={(e) => setForm((prev) => ({ ...prev, semester: e.target.value }))}
-                    disabled={!canSubmit}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    required
-                  >
-                    <option value="">Select semester</option>
-                    {semesterOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="mt-4 grid gap-3 sm:grid-cols-[1.4fr_1fr]">
+                  <Field label="Academic Term">
+                    <select
+                      value={form.semester}
+                      onChange={(e) => setForm((prev) => ({ ...prev, semester: e.target.value }))}
+                      disabled={!canSubmit}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      required
+                    >
+                      <option value="">Select semester</option>
+                      {semesterOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
 
-                <Field label="General Average">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    value={form.generalAverage}
-                    onChange={(e) => setForm((prev) => ({ ...prev, generalAverage: e.target.value }))}
-                    placeholder="e.g. 89.50"
-                    disabled={!canSubmit}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10 disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                </Field>
-              </div>
-
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Upload Grade Report">
-                  {hasExistingGradeReport && !isGradeReportFlagged && !form.gradeFile ? (
-                    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/60 bg-slate-50/80 p-5 shadow-xs">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-emerald-600">
-                          <CheckCircle2 className="h-5 w-5" />
-                        </div>
-                        <div className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-slate-800">{existingGradeReportName}</span>
-                          <span className="text-[11px] font-medium text-emerald-600">Previously uploaded and retained</span>
-                        </div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">General Weighted Average</div>
+                        <p className="text-xs text-slate-500">Computed from entered subject grades.</p>
                       </div>
-                      <span className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        Valid
-                      </span>
+                      <div className="rounded-3xl bg-white px-4 py-3 text-lg font-semibold text-slate-900 shadow-sm">
+                        {computedGwa || "—"}
+                      </div>
                     </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-sm font-semibold text-slate-900">Grades</h2>
+                      <p className="mt-1 text-sm text-slate-500">Add each subject and its numeric grade. GWA is calculated automatically.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addGradeRow}
+                      className="inline-flex items-center justify-center rounded-2xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!canSubmit}
+                    >
+                      Add subject
+                    </button>
+                  </div>
+
+                  <div className="mt-2 space-y-2">
+                    {form.grades.map((gradeRow) => (
+                      <div key={gradeRow.id} className="grid gap-2 sm:grid-cols-[1fr_96px_36px]">
+                        <input
+                          value={gradeRow.subject}
+                          onChange={(e) => updateGrade(gradeRow.id, "subject", e.target.value)}
+                          placeholder="Subject"
+                          className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10"
+                          disabled={!canSubmit || !gradeUploadAllowed}
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={gradeRow.grade}
+                          onChange={(e) => updateGrade(gradeRow.id, "grade", e.target.value)}
+                          placeholder="Grade"
+                          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10"
+                          disabled={!canSubmit || !gradeUploadAllowed}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeGradeRow(gradeRow.id)}
+                          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          aria-label="Remove subject"
+                          disabled={!canSubmit || !gradeUploadAllowed || form.grades.length === 1}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Field label="Upload Grade Report">
+                  {gradeUploadAllowed ? (
+                    hasExistingGradeReport && !isGradeReportFlagged && !form.gradeFile ? (
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/60 bg-slate-50/80 p-5 shadow-xs">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-emerald-600">
+                            <CheckCircle2 className="h-5 w-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-slate-800">{existingGradeReportName}</span>
+                            <span className="text-[11px] font-medium text-emerald-600">Previously uploaded and retained</span>
+                          </div>
+                        </div>
+                        <span className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                          Valid
+                        </span>
+                      </div>
+                    ) : (
+                      <FileDrop
+                        file={form.gradeFile}
+                        uploading={uploadingGrade}
+                        emptyTitle="Click to upload"
+                        emptySubtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                        subtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                        onChange={(file) => handleFileChange(file, "grade")}
+                        onRemoveFile={() => setForm((prev) => ({ ...prev, gradeFile: null, gradeFileUrl: "" }))}
+                        disabled={!canSubmit || !gradeUploadAllowed || submitting || uploadingGrade}
+                      />
+                    )
                   ) : (
-                    <FileDrop
-                      file={form.gradeFile}
-                      uploading={uploadingGrade}
-                      emptyTitle="Click to upload"
-                      emptySubtitle="PDF, JPG, PNG, WEBP - max 10MB"
-                      subtitle="PDF, JPG, PNG, WEBP - max 10MB"
-                      onChange={(file) => handleFileChange(file, "grade")}
-                      onRemoveFile={() => setForm((prev) => ({ ...prev, gradeFile: null, gradeFileUrl: "" }))}
-                      disabled={!canSubmit || submitting || uploadingGrade}
-                    />
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                      <div className="font-semibold text-slate-900">Unlocks at the end of the term</div>
+                      <p className="mt-2 text-slate-500">
+                        Grade report upload becomes available after your enrollment verification has been approved.
+                      </p>
+                    </div>
                   )}
-                  {activeReturnedSubmission && activeFlaggedFields.has("GRADE_REPORT") && !form.gradeFile ? (
+                  {hasReturnedSubmission && isGradeReportFlagged && !form.gradeFile ? (
                     <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
                       {`⚠️ Correction required: ${correctionText}. Please re-upload a clear copy.`}
                     </div>
@@ -595,7 +748,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                       disabled={!canSubmit || submitting || uploadingCoe}
                     />
                   )}
-                  {activeReturnedSubmission && activeFlaggedFields.has("COE") && !form.coeFile ? (
+                  {hasReturnedSubmission && isCoeFlagged && !form.coeFile ? (
                     <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
                       {`⚠️ Correction required: ${correctionText}. Please re-upload a clear copy.`}
                     </div>
@@ -618,7 +771,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                   className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
                   style={{ backgroundColor: BRAND }}
                 >
-                  {submitting ? "Submitting..." : "Submit for Review"}
+                  {submitting ? "Submitting..." : submitButtonLabel}
                 </button>
               </div>
               </form>
@@ -774,7 +927,6 @@ function FileDrop({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onClick={() => inputRef.current?.click()}
       className={`block rounded-2xl border-2 border-dashed p-6 text-center transition ${
         disabled
           ? "cursor-not-allowed border-slate-200 bg-slate-100/80"

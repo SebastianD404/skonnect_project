@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Eye, Search, Trash2 } from "lucide-react";
+import type { SerializableSkeapApplicationFormPayload } from "./[id]/SkeapApplicationReviewClient";
 
 export interface GranteeTableRow {
   id: string;
@@ -13,6 +15,9 @@ export interface GranteeTableRow {
   generalAverage: number | null;
   dateEnrolled: string;
   updatedAt: string;
+  detailsHref?: string;
+  application?: SerializableSkeapApplicationFormPayload | null;
+  applicationDownloadHref?: string;
 }
 
 const STATUS_LABELS: Record<GranteeTableRow["status"], string> = {
@@ -40,10 +45,14 @@ export function GranteeStatusTable({
   grantees,
   searchQuery: externalSearchQuery,
   onSearchQueryChange,
+  onViewApplication,
+  onDelete,
 }: {
   grantees: GranteeTableRow[];
   searchQuery?: string;
   onSearchQueryChange?: (value: string) => void;
+  onViewApplication?: (grantee: GranteeTableRow) => void;
+  onDelete?: (grantee: GranteeTableRow) => void;
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | GranteeTableRow["status"]>("ALL");
@@ -158,16 +167,39 @@ export function GranteeStatusTable({
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="inline-flex items-center justify-center gap-2">
+                      {grantee.application ? (
+                        <button
+                          type="button"
+                          onClick={() => onViewApplication?.(grantee)}
+                          title="View application form"
+                          aria-label="View application form"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      ) : grantee.detailsHref ? (
+                        <Link
+                          href={grantee.detailsHref}
+                          title="View grantee"
+                          aria-label="View grantee"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          title="View grantee"
+                          aria-label="View grantee"
+                          className="inline-flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-full bg-slate-50 text-slate-400"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      )}
                       <button
                         type="button"
-                        title="View grantee"
-                        aria-label="View grantee"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
+                        onClick={() => onDelete?.(grantee)}
                         title="Delete grantee"
                         aria-label="Delete grantee"
                         className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-rose-50 text-rose-700 transition hover:bg-rose-100"

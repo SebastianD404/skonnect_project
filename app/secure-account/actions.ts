@@ -26,6 +26,9 @@ export async function secureAccount(
   if (!/^[a-zA-Z0-9._-]+$/.test(username)) {
     return { error: "Username may only include letters, numbers, dot, underscore, and dash." };
   }
+  if (username.includes("@")) {
+    return { error: "Username cannot be an email address. Use only letters, numbers, dot, underscore, and dash." };
+  }
   if (!strongPassword(password)) {
     return { error: "Password must be at least 8 characters with uppercase, lowercase, and number." };
   }
@@ -74,6 +77,16 @@ export async function secureAccount(
 
   if (updateError) {
     return { error: updateError.message };
+  }
+
+  // Reauthenticate immediately after password reset to keep the session alive.
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: appUser.email,
+    password,
+  });
+
+  if (signInError) {
+    return { error: `Secure account succeeded, but sign-in failed: ${signInError.message}` };
   }
 
   await prisma.user.update({

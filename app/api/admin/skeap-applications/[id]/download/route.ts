@@ -9,8 +9,17 @@ export async function GET(request: NextRequest, context: any) {
     const id = params?.id;
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    const app: any = await prisma.skeapApplication.findUnique({ where: { id } });
-    if (!app) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+    let app: any = await prisma.skeapApplication.findUnique({ where: { id } });
+    if (!app) {
+      const inquiry = await prisma.inquiry.findUnique({
+        where: { id },
+        select: { application: true },
+      });
+      if (!inquiry?.application) {
+        return NextResponse.json({ error: "Application not found" }, { status: 404 });
+      }
+      app = inquiry.application;
+    }
 
     // Attempt to load and fill the DOCX template if available
     const templatePath = process.cwd() + "/public/SKEAP Application Form (2).docx";
@@ -48,7 +57,7 @@ export async function GET(request: NextRequest, context: any) {
       return new NextResponse(Buffer.from(buffer), {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "Content-Disposition": `attachment; filename="skeap-application-${id}.docx"`,
+          "Content-Disposition": `attachment; filename="SKEAP Application Form (2).docx"`,
         },
       });
     } catch (err) {
@@ -106,6 +115,11 @@ export async function GET(request: NextRequest, context: any) {
         for (const f of uploaded) {
           children.push(new Paragraph({ children: [new TextRun(String(f.name || f.url || f))] }));
         }
+      } else if (typeof uploaded === "object" && uploaded !== null) {
+        for (const value of Object.values(uploaded)) {
+          const item = value as { name?: string; url?: string };
+          children.push(new Paragraph({ children: [new TextRun(String(item.name || item.url || ""))] }));
+        }
       }
     }
 
@@ -115,7 +129,7 @@ export async function GET(request: NextRequest, context: any) {
     return new NextResponse(Buffer.from(buffer), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="skeap-application-${id}.docx"`,
+        "Content-Disposition": `attachment; filename="SKEAP Application Form (2).docx"`,
       },
     });
   } catch (error) {

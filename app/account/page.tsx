@@ -25,7 +25,13 @@ export default async function AccountPage() {
   });
 
   return (
-    <SettingsShell title="Account preferences" description="Choose how SKonnect looks and feels.">
+    <SettingsShell
+      title="Account preferences"
+      description="Choose how SKonnect looks and feels."
+      profileName={profile.fullName}
+      profileEmail={profile.email}
+      profileAvatar={profile.avatarUrl ?? ""}
+    >
       <div className="space-y-3 border-b border-slate-200 pb-5">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#0F3D5C]">Account preferences</p>
         <h2 className="text-4xl font-black tracking-tight text-[#0F3D5C]">Choose how SKonnect looks and feels</h2>

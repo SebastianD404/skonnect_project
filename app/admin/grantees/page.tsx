@@ -82,6 +82,37 @@ export default async function AdminGranteesPage() {
             email: true,
             avatarUrl: true,
             role: true,
+            inquiries: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                id: true,
+                application: {
+                  select: {
+                    currentCourse: true,
+                    yearLevel: true,
+                    gwa: true,
+                    applicantName: true,
+                    permanentAddress: true,
+                    dateOfBirth: true,
+                    placeOfBirth: true,
+                    age: true,
+                    civilStatus: true,
+                    gender: true,
+                    fathersName: true,
+                    fathersOccupation: true,
+                    fathersContact: true,
+                    mothersMaidenName: true,
+                    mothersOccupation: true,
+                    mothersContact: true,
+                    contactNumber: true,
+                    emailAddress: true,
+                    photoFileUrl: true,
+                    uploadedFiles: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -385,17 +416,48 @@ export default async function AdminGranteesPage() {
     },
   });
 
-  const granteeRows: GranteeTableRow[] = grantees.map((grantee) => ({
-    id: grantee.id,
-    fullName: grantee.user.fullName,
-    email: grantee.user.email,
-    school: grantee.school,
-    yearLevel: grantee.yearLevel,
-    status: grantee.status,
-    generalAverage: grantee.generalAverage,
-    dateEnrolled: grantee.dateEnrolled.toISOString(),
-    updatedAt: grantee.updatedAt.toISOString(),
-  }));
+  const granteeRows: GranteeTableRow[] = grantees.map((grantee) => {
+    const latestInquiry = grantee.user.inquiries?.[0] ?? null;
+    const application = latestInquiry?.application
+      ? {
+          currentCourse: latestInquiry.application.currentCourse ?? undefined,
+          yearLevel: latestInquiry.application.yearLevel ?? undefined,
+          gwa: latestInquiry.application.gwa ?? null,
+          applicantName: latestInquiry.application.applicantName ?? undefined,
+          permanentAddress: latestInquiry.application.permanentAddress ?? undefined,
+          dateOfBirth: latestInquiry.application.dateOfBirth?.toISOString() ?? undefined,
+          placeOfBirth: latestInquiry.application.placeOfBirth ?? undefined,
+          age: latestInquiry.application.age ?? undefined,
+          civilStatus: latestInquiry.application.civilStatus ?? undefined,
+          gender: latestInquiry.application.gender ?? undefined,
+          fathersName: latestInquiry.application.fathersName ?? undefined,
+          fathersOccupation: latestInquiry.application.fathersOccupation ?? undefined,
+          fathersContact: latestInquiry.application.fathersContact ?? undefined,
+          mothersMaidenName: latestInquiry.application.mothersMaidenName ?? undefined,
+          mothersOccupation: latestInquiry.application.mothersOccupation ?? undefined,
+          mothersContact: latestInquiry.application.mothersContact ?? undefined,
+          contactNumber: latestInquiry.application.contactNumber ?? undefined,
+          emailAddress: latestInquiry.application.emailAddress ?? grantee.user.email ?? undefined,
+          photoFileUrl: latestInquiry.application.photoFileUrl ?? undefined,
+          uploadedFiles: latestInquiry.application.uploadedFiles ?? undefined,
+        }
+      : null;
+
+    return {
+      id: grantee.id,
+      fullName: grantee.user.fullName,
+      email: grantee.user.email,
+      school: grantee.school,
+      yearLevel: grantee.yearLevel,
+      status: grantee.status,
+      generalAverage: grantee.generalAverage,
+      dateEnrolled: grantee.dateEnrolled.toISOString(),
+      updatedAt: grantee.updatedAt.toISOString(),
+      detailsHref: `/admin/grantees/${grantee.id}`,
+      application,
+      applicationDownloadHref: latestInquiry ? `/api/admin/skeap-applications/${latestInquiry.id}/download` : undefined,
+    };
+  });
 
   const fallbackRows: GranteeTableRow[] = granteeUsersWithoutProfile.map((user) => ({
     id: `user-${user.id}`,

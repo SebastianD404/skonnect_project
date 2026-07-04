@@ -77,48 +77,67 @@ export async function POST(request: NextRequest) {
         status: true,
         gradeFileUrl: true,
         coeFileUrl: true,
+        generalAverage: true,
         flaggedFields: true,
+        reviewNotes: true,
       },
     });
 
-    const flaggedSet = new Set(existing?.flaggedFields ?? []);
-    const mergedGradeFileUrl =
-      gradeFileUrl || (existing && existing.status === "RETURNED_FOR_EDIT" && !flaggedSet.has("GRADE_REPORT") ? existing.gradeFileUrl : "");
-    const mergedCoeFileUrl =
-      coeFileUrl || (existing && existing.status === "RETURNED_FOR_EDIT" && !flaggedSet.has("COE") ? existing.coeFileUrl : "");
+    const mergedGradeFileUrl = gradeFileUrl || existing?.gradeFileUrl || "";
+    const mergedCoeFileUrl = coeFileUrl || existing?.coeFileUrl || "";
+    const mergedGeneralAverage =
+      generalAverage !== null ? generalAverage : existing?.generalAverage ?? null;
 
-    if (existing && (existing.status === "PENDING" || existing.status === "APPROVED")) {
+    if (!mergedCoeFileUrl) {
+      return NextResponse.json({ error: "Certificate of Enrollment is required." }, { status: 400 });
+    }
+
+    if (gradeFileUrl && !mergedCoeFileUrl) {
       return NextResponse.json(
-        { error: "A submission for this semester already exists and is currently active." },
+        { error: "Submit enrollment verification first before uploading grades." },
+        { status: 400 }
+      );
+    }
+
+    // Only block if submission is fully completed (both COE and grades approved)
+    if (existing?.status === "APPROVED" && existing?.gradeFileUrl) {
+      return NextResponse.json(
+        { error: "An approved submission for this semester cannot be modified." },
         { status: 409 }
       );
     }
 
-    if (!semester || !mergedGradeFileUrl || !mergedCoeFileUrl) {
-      return NextResponse.json(
-        {
-          error:
-            existing?.status === "RETURNED_FOR_EDIT"
-              ? "Please upload all flagged documents before submitting for review."
-              : "Semester, grade report, and COE are required",
-        },
-        { status: 400 }
-      );
+    const resolvedFlaggedFields = new Set<string>();
+
+    if (existing?.status === "RETURNED_FOR_EDIT") {
+      if (gradeFileUrl && existing.flaggedFields.includes("GRADE_REPORT")) {
+        resolvedFlaggedFields.add("GRADE_REPORT");
+      }
+      if (coeFileUrl && existing.flaggedFields.includes("COE")) {
+        resolvedFlaggedFields.add("COE");
+      }
     }
+
+    const nextFlaggedFields = existing?.status === "RETURNED_FOR_EDIT"
+      ? existing.flaggedFields.filter((field) => !resolvedFlaggedFields.has(field))
+      : [];
 
     const payload = {
       semester,
       gradeFileUrl: mergedGradeFileUrl,
       coeFileUrl: mergedCoeFileUrl,
-      generalAverage,
-      status: "PENDING" as const,
-      reviewNotes: null,
-      flaggedFields: [],
+      generalAverage: mergedGeneralAverage,
+      status:
+        existing?.status === "RETURNED_FOR_EDIT" && nextFlaggedFields.length > 0
+          ? "RETURNED_FOR_EDIT"
+          : "PENDING",
+      reviewNotes: nextFlaggedFields.length > 0 ? existing?.reviewNotes : null,
+      flaggedFields: nextFlaggedFields,
       reviewedAt: null,
       submittedAt: new Date(),
     };
 
-    const submission = existing && (existing.status === "REJECTED" || existing.status === "RETURNED_FOR_EDIT")
+    const submission = existing
       ? await prisma.submission.update({
           where: { id: existing.id },
           data: payload,

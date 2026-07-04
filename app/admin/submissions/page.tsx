@@ -6,6 +6,233 @@ import { requireRole } from "@/lib/auth";
 import { Role } from "@prisma/client";
 import SubmissionReviewTable from "./SubmissionReviewTable";
 
+type Submission = {
+  id: string;
+  semester: string;
+  gradeFileUrl: string;
+  coeFileUrl: string;
+  generalAverage: number | null;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
+  reviewNotes: string | null;
+  flaggedFields: string[];
+  submittedAt: string;
+  grantee: {
+    school: string;
+    yearLevel: string;
+    user: {
+      fullName: string;
+      email: string;
+    };
+  };
+};
+
+type SubmissionsPhase = {
+  pendingCoe: Submission[];
+  activeScholars: Submission[];
+  pendingGrades: Submission[];
+  completed: Submission[];
+};
+
+async function fetchSubmissions(): Promise<SubmissionsPhase> {
+  const baseSelect = {
+    id: true,
+    semester: true,
+    gradeFileUrl: true,
+    coeFileUrl: true,
+    generalAverage: true,
+    status: true,
+    reviewNotes: true,
+    flaggedFields: true,
+    submittedAt: true,
+    granteeId: true,
+    grantee: {
+      select: {
+        school: true,
+        yearLevel: true,
+        user: {
+          select: {
+            fullName: true,
+            email: true,
+          },
+        },
+      },
+    },
+  };
+
+  try {
+    // Fetch all non-rejected submissions
+    const allSubmissions = await prisma.submission.findMany({
+      where: {
+        status: { not: "REJECTED" },
+      },
+      orderBy: { submittedAt: "asc" },
+      select: baseSelect,
+    });
+
+    const serializedSubmissions = allSubmissions.map((submission) => ({
+      ...submission,
+      submittedAt: submission.submittedAt.toISOString(),
+    }));
+
+    const completedKeys = new Set(
+      serializedSubmissions
+        .filter(
+          (submission) =>
+            submission.status === "APPROVED" &&
+            submission.coeFileUrl &&
+            submission.gradeFileUrl
+        )
+        .map((submission) => `${submission.granteeId}:${submission.semester}`)
+    );
+
+    const result: SubmissionsPhase = {
+      pendingCoe: [],
+      activeScholars: [],
+      pendingGrades: [],
+      completed: [],
+    };
+
+    const isCompletedSubmission = (submission: typeof serializedSubmissions[number]) =>
+      submission.status === "APPROVED" &&
+      submission.coeFileUrl &&
+      submission.gradeFileUrl;
+
+    // Categorize by phase
+    for (const submission of serializedSubmissions) {
+      const submissionKey = `${submission.granteeId}:${submission.semester}`;
+      const completedForSameKey = completedKeys.has(submissionKey);
+      if (completedForSameKey && !isCompletedSubmission(submission)) {
+        continue;
+      }
+
+      if (submission.status === "PENDING" && submission.coeFileUrl) {
+        // Phase 1: Pending COE review (has COE file, awaiting approval)
+        if (!submission.gradeFileUrl) {
+          result.pendingCoe.push(submission);
+        } else {
+          // Has both files but status is pending
+          result.pendingGrades.push(submission);
+        }
+      } else if (submission.status === "APPROVED" && submission.coeFileUrl && !submission.gradeFileUrl) {
+        // Phase 2: Active Scholar - COE approved, awaiting grade submission
+        result.activeScholars.push(submission);
+      } else if (submission.status === "PENDING" && submission.gradeFileUrl) {
+        // Phase 2: Pending grades review
+        result.pendingGrades.push(submission);
+      } else if (submission.status === "APPROVED" && submission.coeFileUrl && submission.gradeFileUrl) {
+        // Completed: Both documents approved
+        result.completed.push(submission);
+      } else if (submission.status === "RETURNED_FOR_EDIT") {
+        // If returned for edit, show in the phase that needs editing
+        if (submission.gradeFileUrl) {
+          result.pendingGrades.push(submission);
+        } else {
+          result.pendingCoe.push(submission);
+        }
+      }
+    }
+
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/flaggedFields|does not exist/i.test(message)) {
+      throw error;
+    }
+
+    // Fallback without flaggedFields
+    const baseSelectFallback = {
+      id: true,
+      semester: true,
+      gradeFileUrl: true,
+      coeFileUrl: true,
+      generalAverage: true,
+      status: true,
+      reviewNotes: true,
+      submittedAt: true,
+      granteeId: true,
+      grantee: {
+        select: {
+          school: true,
+          yearLevel: true,
+          user: {
+            select: {
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+      },
+    };
+
+    const allSubmissions = await prisma.submission.findMany({
+      where: {
+        status: { not: "REJECTED" },
+      },
+      orderBy: { submittedAt: "asc" },
+      select: baseSelectFallback,
+    });
+
+    const serializedSubmissions = allSubmissions.map((submission) => ({
+      ...submission,
+      flaggedFields: [],
+      submittedAt: submission.submittedAt.toISOString(),
+    }));
+
+    const completedKeys = new Set(
+      serializedSubmissions
+        .filter(
+          (submission) =>
+            submission.status === "APPROVED" &&
+            submission.coeFileUrl &&
+            submission.gradeFileUrl
+        )
+        .map((submission) => `${submission.granteeId}:${submission.semester}`)
+    );
+
+    const result: SubmissionsPhase = {
+      pendingCoe: [],
+      activeScholars: [],
+      pendingGrades: [],
+      completed: [],
+    };
+
+    const isCompletedSubmission = (submission: typeof serializedSubmissions[number]) =>
+      submission.status === "APPROVED" &&
+      submission.coeFileUrl &&
+      submission.gradeFileUrl;
+
+    for (const submission of serializedSubmissions) {
+      const submissionKey = `${submission.granteeId}:${submission.semester}`;
+      const completedForSameKey = completedKeys.has(submissionKey);
+      if (completedForSameKey && !isCompletedSubmission(submission)) {
+        continue;
+      }
+
+      if (submission.status === "PENDING" && submission.coeFileUrl) {
+        if (!submission.gradeFileUrl) {
+          result.pendingCoe.push(submission);
+        } else {
+          result.pendingGrades.push(submission);
+        }
+      } else if (submission.status === "APPROVED" && submission.coeFileUrl && !submission.gradeFileUrl) {
+        result.activeScholars.push(submission);
+      } else if (submission.status === "PENDING" && submission.gradeFileUrl) {
+        result.pendingGrades.push(submission);
+      } else if (submission.status === "APPROVED" && submission.coeFileUrl && submission.gradeFileUrl) {
+        result.completed.push(submission);
+      } else if (submission.status === "RETURNED_FOR_EDIT") {
+        if (submission.gradeFileUrl) {
+          result.pendingGrades.push(submission);
+        } else {
+          result.pendingCoe.push(submission);
+        }
+      }
+    }
+
+    return result;
+  }
+}
+
 export default async function AdminSubmissionsPage() {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
@@ -18,95 +245,8 @@ export default async function AdminSubmissionsPage() {
     redirect("/login");
   }
 
-  let submissions: Array<{
-    id: string;
-    semester: string;
-    gradeFileUrl: string;
-    coeFileUrl: string;
-    generalAverage: number | null;
-    status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
-    reviewNotes: string | null;
-    flaggedFields: string[];
-    submittedAt: Date;
-    grantee: {
-      school: string;
-      yearLevel: string;
-      user: {
-        fullName: string;
-        email: string;
-      };
-    };
-  }>;
-
-  try {
-    submissions = await prisma.submission.findMany({
-      where: { status: "PENDING" },
-      orderBy: { submittedAt: "asc" },
-      select: {
-        id: true,
-        semester: true,
-        gradeFileUrl: true,
-        coeFileUrl: true,
-        generalAverage: true,
-        status: true,
-        reviewNotes: true,
-        flaggedFields: true,
-        submittedAt: true,
-        grantee: {
-          select: {
-            school: true,
-            yearLevel: true,
-            user: {
-              select: {
-                fullName: true,
-                email: true,
-              },
-            },
-          },
-        },
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/flaggedFields|does not exist/i.test(message)) {
-      throw error;
-    }
-
-    const fallback = await prisma.submission.findMany({
-      where: { status: "PENDING" },
-      orderBy: { submittedAt: "asc" },
-      select: {
-        id: true,
-        semester: true,
-        gradeFileUrl: true,
-        coeFileUrl: true,
-        generalAverage: true,
-        status: true,
-        reviewNotes: true,
-        submittedAt: true,
-        grantee: {
-          select: {
-            school: true,
-            yearLevel: true,
-            user: {
-              select: {
-                fullName: true,
-                email: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    submissions = fallback.map((item) => ({ ...item, flaggedFields: [] }));
-  }
-
-  const pendingCount = submissions.length;
-  const serializedSubmissions = submissions.map((submission) => ({
-    ...submission,
-    submittedAt: submission.submittedAt.toISOString(),
-  }));
+  const submissions = await fetchSubmissions();
+  const totalCount = submissions.pendingCoe.length + submissions.pendingGrades.length + submissions.activeScholars.length;
 
   return (
     <div className="min-h-screen bg-[#F8FBFF] text-slate-950">
@@ -125,8 +265,8 @@ export default async function AdminSubmissionsPage() {
               </div>
 
               <div className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200 bg-slate-50 px-6 py-5 text-sm text-slate-700 shadow-sm">
-                <span className="text-slate-500">Pending submissions</span>
-                <span className="text-4xl font-black text-[#0F3D5C]">{pendingCount}</span>
+                <span className="text-slate-500">Total awaiting action</span>
+                <span className="text-4xl font-black text-[#0F3D5C]">{totalCount}</span>
                 <Link
                   href="/admin"
                   className="inline-flex w-fit items-center justify-center rounded-full bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0D2E47]"
@@ -137,7 +277,7 @@ export default async function AdminSubmissionsPage() {
             </div>
           </div>
 
-          <SubmissionReviewTable submissions={serializedSubmissions} />
+          <SubmissionReviewTable submissions={submissions} />
         </div>
       </div>
     </div>

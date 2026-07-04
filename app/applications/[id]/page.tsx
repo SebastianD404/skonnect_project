@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import ApplicationReviewClient from "./ApplicationReviewClient";
 
 type Props = { params: Promise<{ id?: string }> };
@@ -33,9 +33,13 @@ export default async function ApplicationPage({ params }: Props) {
   } = await supabase.auth.getUser();
 
   let currentUserId: string | null = null;
+  let appUserProfile = null;
   if (user) {
     const appUser = await ensureProfile(user);
-    if (appUser) currentUserId = appUser.id;
+    if (appUser) {
+      appUserProfile = appUser;
+      currentUserId = appUser.id;
+    }
   }
 
   const application = await prisma.inquiry.findUnique({
@@ -51,6 +55,30 @@ export default async function ApplicationPage({ params }: Props) {
       reviewStatus: true,
       resubmittedAt: true,
       lastUpdatedBy: true,
+      application: {
+        select: {
+          currentCourse: true,
+          yearLevel: true,
+          gwa: true,
+          applicantName: true,
+          permanentAddress: true,
+          dateOfBirth: true,
+          placeOfBirth: true,
+          age: true,
+          civilStatus: true,
+          gender: true,
+          fathersName: true,
+          fathersOccupation: true,
+          fathersContact: true,
+          mothersMaidenName: true,
+          mothersOccupation: true,
+          mothersContact: true,
+          contactNumber: true,
+          emailAddress: true,
+          photoFileUrl: true,
+          uploadedFiles: true,
+        },
+      },
     },
   });
 
@@ -66,6 +94,26 @@ export default async function ApplicationPage({ params }: Props) {
     );
   }
 
+  if (!user) {
+    redirect(`/login?next=/applications/${id}`);
+  }
+
+  if (!appUserProfile) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <h1 className="text-2xl font-semibold text-slate-900">Session issue</h1>
+        <p className="mt-3 text-sm text-slate-600">We could not verify your account. Please sign in again.</p>
+        <Link href="/login" className="mt-5 inline-flex rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50">
+          Sign in again
+        </Link>
+      </div>
+    );
+  }
+
+  if (appUserProfile.mustSecureAccount) {
+    redirect(`/secure-account?redirect=${encodeURIComponent(`/applications/${id}`)}`);
+  }
+
   if (!currentUserId || application.userId !== currentUserId) {
     return (
       <div className="p-6 max-w-3xl mx-auto">
@@ -76,6 +124,10 @@ export default async function ApplicationPage({ params }: Props) {
         </Link>
       </div>
     );
+  }
+
+  if (application.reviewStatus?.toUpperCase() === "APPROVED") {
+    redirect("/grantee-dashboard");
   }
 
   return (
@@ -92,6 +144,30 @@ export default async function ApplicationPage({ params }: Props) {
             reviewStatus: application.reviewStatus ?? "Pending review",
             resubmittedAt: application.resubmittedAt?.toISOString() ?? null,
             lastUpdatedBy: application.lastUpdatedBy,
+            application: application.application
+              ? {
+                  currentCourse: application.application.currentCourse,
+                  yearLevel: application.application.yearLevel,
+                  gwa: application.application.gwa ?? undefined,
+                  applicantName: application.application.applicantName ?? undefined,
+                  permanentAddress: application.application.permanentAddress ?? undefined,
+                  dateOfBirth: application.application.dateOfBirth ? application.application.dateOfBirth.toISOString() : undefined,
+                  placeOfBirth: application.application.placeOfBirth ?? undefined,
+                  age: application.application.age ?? undefined,
+                  civilStatus: application.application.civilStatus ?? undefined,
+                  gender: application.application.gender ?? undefined,
+                  fathersName: application.application.fathersName ?? undefined,
+                  fathersOccupation: application.application.fathersOccupation ?? undefined,
+                  fathersContact: application.application.fathersContact ?? undefined,
+                  mothersMaidenName: application.application.mothersMaidenName ?? undefined,
+                  mothersOccupation: application.application.mothersOccupation ?? undefined,
+                  mothersContact: application.application.mothersContact ?? undefined,
+                  contactNumber: application.application.contactNumber ?? undefined,
+                  emailAddress: application.application.emailAddress ?? undefined,
+                  photoFileUrl: application.application.photoFileUrl ?? undefined,
+                  uploadedFiles: application.application.uploadedFiles ?? undefined,
+                }
+              : undefined,
           }}
         />
       </div>

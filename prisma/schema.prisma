@@ -1,7 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
@@ -17,10 +16,10 @@ datasource db {
 // ─────────────────────────────────────────────
 
 enum Role {
-  YOUTH         // public resident, no SKEAP record yet
-  GRANTEE       // approved SKEAP scholar
-  SK_OFFICIAL   // SK Chairperson / Councilors - admin dashboard access
-  SUPER_ADMIN   // system administration / governance
+  YOUTH // public resident, no SKEAP record yet
+  GRANTEE // approved SKEAP scholar
+  SK_OFFICIAL // SK Chairperson / Councilors - admin dashboard access
+  SUPER_ADMIN // system administration / governance
 }
 
 enum GranteeStatus {
@@ -60,36 +59,64 @@ enum ChatMessageRole {
 // ─────────────────────────────────────────────
 
 model User {
-  id            String   @id @default(uuid())
+  id                    String     @id @default(uuid())
   // Mirrors the Supabase Auth user id (auth.users.id) - keep in sync, do not
   // generate a separate auth system. This table holds app-level profile data.
-  authId        String   @unique
-  email         String   @unique
-  fullName      String
-  phoneNumber   String?
-  avatarUrl     String?
-  role          Role     @default(YOUTH)
-  languagePref  Language @default(ENGLISH)
-  settings      Json?
+  authId                String     @unique
+  email                 String     @unique
+  username              String?    @unique
+  fullName              String
+  phoneNumber           String?
+  avatarUrl             String?
+  role                  Role       @default(YOUTH)
+  languagePref          Language   @default(ENGLISH)
+  settings              Json?
+  mustSecureAccount     Boolean    @default(false)
+  usesTemporaryPassword Boolean    @default(false)
+  kkProfileId           String?    @unique
+  kkProfile             KKProfile? @relation(fields: [kkProfileId], references: [id], onDelete: SetNull)
 
-  barangay      String   @default("Pico")
-  isActive      Boolean  @default(true)
+  barangay          String  @default("Pico")
+  isActive          Boolean @default(true)
   hasSeenOnboarding Boolean @default(false)
 
-  grantee                 Grantee?
-  registrations           Registration[]
+  grantee                Grantee?
+  registrations          Registration[]
   profilingRegistrations ProfilingRegistration[]
-  inquiries               Inquiry[]
-  announcements           Announcement[]
-  auditLogs               AuditLog[]       @relation("ActorAuditLogs")
-  eventsCreated           Event[]          @relation("EventCreator")
-  chatMessages            ChatMessage[]
-  skeapApplications       SkeapApplication[]
+  inquiries              Inquiry[]
+  announcements          Announcement[]
+  auditLogs              AuditLog[]              @relation("ActorAuditLogs")
+  eventsCreated          Event[]                 @relation("EventCreator")
+  chatMessages           ChatMessage[]
+  skeapApplications      SkeapApplication[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("users")
+}
+
+model KKProfile {
+  id            String   @id @default(uuid())
+  firstName     String
+  middleName    String?
+  lastName      String
+  fullName      String
+  purok         String
+  addressLine   String
+  barangay      String   @default("Pico")
+  birthDate     DateTime
+  contactNumber String
+  email         String   @unique
+  isVerified    Boolean  @default(true)
+
+  user User?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lastName, firstName])
+  @@map("kk_profiles")
 }
 
 // ─────────────────────────────────────────────
@@ -97,79 +124,93 @@ model User {
 // ─────────────────────────────────────────────
 
 model Grantee {
-  id              String        @id @default(uuid())
-  userId          String        @unique
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  status          GranteeStatus @default(ACTIVE)
-  yearLevel       String
-  school          String
-  generalAverage  Float?
+  status         GranteeStatus @default(ACTIVE)
+  yearLevel      String
+  school         String
+  generalAverage Float?
 
-  submissions     Submission[]
+  submissions Submission[]
 
-  dateEnrolled    DateTime @default(now())
-  dateRemoved     DateTime?
-  remarks         String?
+  dateEnrolled DateTime  @default(now())
+  dateRemoved  DateTime?
+  remarks      String?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("grantees")
 }
 
 model Submission {
-  id              String           @id @default(uuid())
-  granteeId       String
-  grantee         Grantee          @relation(fields: [granteeId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  granteeId String
+  grantee   Grantee @relation(fields: [granteeId], references: [id], onDelete: Cascade)
 
-  semester        String           // e.g. "2026-1st Semester"
-  gradeFileUrl    String           // Supabase Storage path
-  coeFileUrl      String           // Certificate of Enrollment - Supabase Storage path
-  generalAverage  Float?
+  semester       String // e.g. "2026-1st Semester"
+  gradeFileUrl   String // Supabase Storage path
+  coeFileUrl     String // Certificate of Enrollment - Supabase Storage path
+  generalAverage Float?
 
-  status          SubmissionStatus @default(PENDING)
-  reviewedById    String?
-  reviewNotes     String?
-  flaggedFields   String[]         @default([])
+  status        SubmissionStatus @default(PENDING)
+  coeStatus     SubmissionStatus @default(PENDING)
+  gradesStatus  SubmissionStatus @default(PENDING)
+  
+  reviewedById  String?
+  reviewNotes   String?
+  flaggedFields String[]         @default([])
 
-  submittedAt     DateTime @default(now())
+  submittedAt      DateTime  @default(now())
+  coeSubmittedAt   DateTime  @default(now())
+  coeApprovedAt    DateTime?
+  gradesSubmittedAt DateTime?
+  gradesApprovedAt DateTime?
   reviewedAt       DateTime?
 
+  @@index([coeStatus, submittedAt(sort: Desc)])
+  @@index([gradesStatus, gradesSubmittedAt(sort: Desc)])
   @@map("submissions")
 }
 
 model SkeapApplication {
-  id                 String   @id @default(uuid())
-  userId             String
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  currentCourse      String
-  yearLevel          String
-  gwa                Float?
+  school        String
+  currentCourse String
+  yearLevel     String
+  gwa           Float?
 
-  enrollmentFileUrl  String
-  reportCardFileUrl  String
+  enrollmentFileUrl String
+  reportCardFileUrl String
 
-  applicantName      String?
-  permanentAddress   String?
-  dateOfBirth        DateTime?
-  placeOfBirth       String?
-  age                Int?
-  civilStatus        String?
-  fathersName        String?
-  fathersOccupation  String?
-  fathersContact     String?
-  mothersMaidenName  String?
-  mothersOccupation  String?
-  contactNumber      String?
-  emailAddress       String?
-  uploadedFiles      Json?
-  photoFileUrl       String?
+  applicantName     String?
+  permanentAddress  String?
+  dateOfBirth       DateTime?
+  placeOfBirth      String?
+  age               Int?
+  civilStatus       String?
+  gender            String?
+  fathersName       String?
+  fathersOccupation String?
+  fathersContact    String?
+  mothersMaidenName String?
+  mothersOccupation String?
+  mothersContact    String?
+  contactNumber     String?
+  emailAddress      String?
+  uploadedFiles     Json?
+  photoFileUrl      String?
 
-  status             SubmissionStatus @default(PENDING)
-  submittedAt        DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  inquiry Inquiry?
+
+  status      SubmissionStatus @default(PENDING)
+  submittedAt DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   @@index([userId, submittedAt(sort: Desc)])
   @@map("skeap_applications")
@@ -180,37 +221,37 @@ model SkeapApplication {
 // ─────────────────────────────────────────────
 
 model Event {
-  id              String      @id @default(uuid())
-  title           String
-  description     String
-  venue           String
-  eventDate       DateTime
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  venue       String
+  eventDate   DateTime
 
-  maxSlots        Int
-  filledSlots     Int         @default(0)
-  imageUrl        String?
-  status          EventStatus @default(UPCOMING)
+  maxSlots    Int
+  filledSlots Int         @default(0)
+  imageUrl    String?
+  status      EventStatus @default(UPCOMING)
 
-  isKatipunan     Boolean     @default(false) // Katipunan ng Kabataan special event type
-  payoutSchedule  String?
+  isKatipunan    Boolean @default(false) // Katipunan ng Kabataan special event type
+  payoutSchedule String?
 
-  createdById     String
-  createdBy       User        @relation("EventCreator", fields: [createdById], references: [id])
+  createdById String
+  createdBy   User   @relation("EventCreator", fields: [createdById], references: [id])
 
-  registrations   Registration[]
+  registrations Registration[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("events")
 }
 
 model Registration {
-  id          String   @id @default(uuid())
-  eventId     String
-  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String @id @default(uuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   registeredAt DateTime @default(now())
 
@@ -219,32 +260,32 @@ model Registration {
 }
 
 model ProfilingRegistration {
-  id                    String   @id @default(uuid())
-  program               String   @default("KK")
-  userId                String? 
-  user                  User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String  @id @default(uuid())
+  program String  @default("KK")
+  userId  String?
+  user    User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  fullName              String
-  address               String
-  sex                   String
-  age                   Int
-  birthDate             DateTime
-  email                 String
-  facebook              String
-  contactNumber         String
-  civilStatus           String
-  youthClassification   String
-  youthAgeGroup         String
-  workStatus            String
-  educationalBackground String
-  registeredSKVoter     String
-  votedLastSK           String
+  fullName                String
+  address                 String
+  sex                     String
+  age                     Int
+  birthDate               DateTime
+  email                   String
+  facebook                String
+  contactNumber           String
+  civilStatus             String
+  youthClassification     String
+  youthAgeGroup           String
+  workStatus              String
+  educationalBackground   String
+  registeredSKVoter       String
+  votedLastSK             String
   registeredNationalVoter String
-  attendedKKAssembly    String
-  assemblyTimes         String?
-  noAssemblyReason      String?
-  consent               Boolean  @default(true)
-  submittedAt           DateTime @default(now())
+  attendedKKAssembly      String
+  assemblyTimes           String?
+  noAssemblyReason        String?
+  consent                 Boolean  @default(true)
+  submittedAt             DateTime @default(now())
 
   @@map("kk_profiling_registrations")
 }
@@ -269,20 +310,26 @@ model Announcement {
 // ─────────────────────────────────────────────
 
 model Inquiry {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  subject     String
-  message     String
-  language    Language @default(ENGLISH)
+  subject  String
+  message  String
+  language Language @default(ENGLISH)
 
-  isResolved    Boolean  @default(false)
+  isResolved    Boolean   @default(false)
   response      String?
   respondedAt   DateTime?
   reviewThread  Json?
+  reviewStatus  String    @default("Pending review")
+  lastUpdatedBy String?
+  resubmittedAt DateTime?
 
-  createdAt   DateTime @default(now())
+  applicationId String?           @unique
+  application   SkeapApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
 
   @@map("inquiries")
 }
@@ -292,13 +339,13 @@ model Inquiry {
 // ─────────────────────────────────────────────
 
 model NotificationLog {
-  id          String   @id @default(uuid())
-  userId      String
-  type        String   // "deadline_reminder" | "status_change" | "event_announcement" | "registration_confirmation"
-  channel     String   @default("email")
-  subject     String
-  sentAt      DateTime @default(now())
-  success     Boolean  @default(true)
+  id      String   @id @default(uuid())
+  userId  String
+  type    String // "deadline_reminder" | "status_change" | "event_announcement" | "registration_confirmation"
+  channel String   @default("email")
+  subject String
+  sentAt  DateTime @default(now())
+  success Boolean  @default(true)
 
   @@map("notification_logs")
 }
@@ -308,18 +355,18 @@ model NotificationLog {
 // ─────────────────────────────────────────────
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  actorId     String
-  actor       User     @relation("ActorAuditLogs", fields: [actorId], references: [id])
+  id      String @id @default(uuid())
+  actorId String
+  actor   User   @relation("ActorAuditLogs", fields: [actorId], references: [id])
 
-  action      String   // e.g. "UPDATE_GRANTEE_STATUS", "DELETE_EVENT"
-  targetTable String   // e.g. "grantees"
-  targetId    String   // id of the affected row
+  action      String // e.g. "UPDATE_GRANTEE_STATUS", "DELETE_EVENT"
+  targetTable String // e.g. "grantees"
+  targetId    String // id of the affected row
   beforeData  Json?
   afterData   Json?
   metadata    Json?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@map("audit_logs")
 }
@@ -329,39 +376,39 @@ model AuditLog {
 // ─────────────────────────────────────────────
 
 model ChatEmbedding {
-  id          String                 @id @default(uuid())
-  content     String                 // the source FAQ/info chunk, in its original language
-  language    Language
-  sourceType  String                 // "skeap_faq" | "event_info" | "general"
+  id         String                       @id @default(uuid())
+  content    String // the source FAQ/info chunk, in its original language
+  language   Language
+  sourceType String // "skeap_faq" | "event_info" | "general"
   // pgvector column - Gemini embeddings currently stored as 3072 dimensions
-  embedding   Unsupported("vector(3072)")?
+  embedding  Unsupported("vector(3072)")?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@map("chat_embeddings")
 }
 
 model ChatLog {
-  id          String   @id @default(uuid())
-  userId      String?  // nullable - allow anonymous youth visitors to use the chatbot
-  question    String
+  id               String   @id @default(uuid())
+  userId           String? // nullable - allow anonymous youth visitors to use the chatbot
+  question         String
   detectedLanguage Language
-  answer      String
-  wasEscalated Boolean @default(false) // true if bot couldn't answer and routed to Inquiry Form
+  answer           String
+  wasEscalated     Boolean  @default(false) // true if bot couldn't answer and routed to Inquiry Form
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@map("chat_logs")
 }
 
 model ChatMessage {
-  id          String          @id @default(uuid())
-  userId      String
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role        ChatMessageRole
-  content     String
-  language    Language
-  createdAt   DateTime        @default(now())
+  id        String          @id @default(uuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      ChatMessageRole
+  content   String
+  language  Language
+  createdAt DateTime        @default(now())
 
   @@index([userId, createdAt(sort: Desc)])
   @@map("chat_messages")

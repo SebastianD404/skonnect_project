@@ -70,7 +70,7 @@ export function ProfileSettingsForm({
     // Prefer server-stored avatar; fall back to local storage for older data
     (async () => {
       try {
-        const res = await fetch("/api/session");
+        const res = await fetch("/api/session", { cache: "no-store" });
         if (res.ok) {
           const body = await res.json();
           const serverUser = body.user;

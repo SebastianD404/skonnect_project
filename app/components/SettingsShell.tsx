@@ -8,6 +8,9 @@ type SettingsShellProps = {
 	title: string;
 	description: string;
 	children: React.ReactNode;
+	profileName?: string;
+	profileEmail?: string;
+	profileAvatar?: string;
 };
 
 function looksLikeEmail(value: string) {
@@ -33,20 +36,75 @@ function toDisplayName(name: string, email: string) {
 		.join(" ");
 }
 
-export function SettingsShell({ title, description, children }: SettingsShellProps) {
+export function SettingsShell({
+	title,
+	description,
+	children,
+	profileName: profileNameFromServer,
+	profileEmail: profileEmailFromServer,
+	profileAvatar: profileAvatarFromServer,
+}: SettingsShellProps) {
 	const router = useRouter();
-	const [profileName, setProfileName] = useState("Your account");
-	const [profileEmail, setProfileEmail] = useState("");
-	const [profileAvatar, setProfileAvatar] = useState("");
+	const [profileName, setProfileName] = useState(profileNameFromServer ?? "Your account");
+	const [profileEmail, setProfileEmail] = useState(profileEmailFromServer ?? "");
+	const [profileAvatar, setProfileAvatar] = useState(profileAvatarFromServer ?? "");
+
+	useEffect(() => {
+		const hasServerProfile = profileNameFromServer !== undefined || profileEmailFromServer !== undefined || profileAvatarFromServer !== undefined;
+
+		if (hasServerProfile) {
+			if (profileNameFromServer) {
+				setProfileName(profileNameFromServer);
+			}
+			if (profileEmailFromServer) {
+				setProfileEmail(profileEmailFromServer);
+			}
+			if (profileAvatarFromServer !== undefined) {
+				setProfileAvatar(profileAvatarFromServer);
+			}
+			try {
+				if (profileNameFromServer) {
+					localStorage.setItem("skonnect-profile-name", profileNameFromServer);
+				}
+				if (profileEmailFromServer) {
+					localStorage.setItem("skonnect-profile-email", profileEmailFromServer);
+				}
+				if (profileAvatarFromServer !== undefined) {
+					if (profileAvatarFromServer) {
+						localStorage.setItem("skonnect-avatar", profileAvatarFromServer);
+					} else {
+						localStorage.removeItem("skonnect-avatar");
+					}
+				}
+			} catch (error) {}
+		}
+	}, [profileNameFromServer, profileEmailFromServer, profileAvatarFromServer]);
 
 	useEffect(() => {
 		function syncProfile() {
 			try {
 				const storedName = localStorage.getItem("skonnect-profile-name") || "";
 				const storedEmail = localStorage.getItem("skonnect-profile-email") || "";
-				setProfileName(toDisplayName(storedName, storedEmail));
-				setProfileEmail(storedEmail);
-				setProfileAvatar(localStorage.getItem("skonnect-avatar") || "");
+				const storedAvatar = localStorage.getItem("skonnect-avatar") || "";
+				const hasServerProfile = profileNameFromServer !== undefined || profileEmailFromServer !== undefined || profileAvatarFromServer !== undefined;
+
+				if (hasServerProfile) {
+					setProfileName(profileNameFromServer ?? "Your account");
+					setProfileEmail(profileEmailFromServer ?? "");
+					setProfileAvatar(profileAvatarFromServer ?? "");
+					return;
+				}
+
+				if (storedName || storedEmail || storedAvatar) {
+					setProfileName(toDisplayName(storedName, storedEmail || ""));
+					setProfileEmail(storedEmail);
+					setProfileAvatar(storedAvatar);
+					return;
+				}
+
+				setProfileName("Your account");
+				setProfileEmail("");
+				setProfileAvatar("");
 			} catch (error) {}
 		}
 
@@ -58,7 +116,7 @@ export function SettingsShell({ title, description, children }: SettingsShellPro
 			window.removeEventListener("storage", syncProfile);
 			window.removeEventListener("skonnect-profile-updated", syncProfile as EventListener);
 		};
-	}, []);
+	}, [profileNameFromServer, profileEmailFromServer, profileAvatarFromServer]);
 
 	useEffect(() => {
 		function syncTheme() {
