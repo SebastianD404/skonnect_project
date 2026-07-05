@@ -11,7 +11,7 @@
     "test:audit": "vitest run lib/audit/metadata.test.ts",
     "reconcile:users": "node scripts/reconcile-auth-users.js",
     "reconcile:users:apply": "node scripts/reconcile-auth-users.js --apply",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate --schema prisma/schema.prisma"
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",

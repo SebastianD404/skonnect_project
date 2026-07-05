@@ -88,6 +88,9 @@ export function KKProfilingRowActions({ registration, onDelete, onUpdate }: Regi
           registration={registration}
           onClose={() => setShowDetails(false)}
           onEdit={() => setShowEdit(true)}
+          onReturn={(updatedRegistration) => {
+            onUpdate(updatedRegistration);
+          }}
         />
       )}
 

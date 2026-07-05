@@ -9,6 +9,39 @@ import { Mail } from "lucide-react";
 export default function HomePage() {
   const pathname = usePathname();
   const [activeLink, setActiveLink] = useState<string>(pathname);
+  const [kkProfileStatus, setKkProfileStatus] = useState<string | null>(null);
+  const [loadingKkProfile, setLoadingKkProfile] = useState(true);
+
+  // Fetch KK profile status on mount
+  useEffect(() => {
+    let mounted = true;
+    setLoadingKkProfile(true);
+
+    fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" })
+      .then(async (response) => {
+        if (!mounted) return;
+        if (response.ok) {
+          const data = await response.json();
+          // Check both registration status and profile status for approval
+          const status = data.registration?.reviewStatus || data.profile?.status;
+          if (status) {
+            setKkProfileStatus(status);
+          }
+        } else {
+          setKkProfileStatus(null);
+        }
+      })
+      .catch(() => {
+        if (mounted) setKkProfileStatus(null);
+      })
+      .finally(() => {
+        if (mounted) setLoadingKkProfile(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const currentHash = window.location.hash;
@@ -55,12 +88,21 @@ export default function HomePage() {
               
               <div className="flex flex-col sm:flex-row flex-wrap items-start gap-3 pt-4">
                 <HeroCtaButton />
-                <a
-                  href="#programs"
-                  className="inline-flex items-center justify-center px-6 py-3 border-2 border-[#0F3D5C]/30 text-[#0F3D5C] font-bold rounded-2xl hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 transition-all duration-300"
-                >
-                  See what we offer
-                </a>
+                {!loadingKkProfile && kkProfileStatus?.toLowerCase().includes("approved") ? (
+                  <a
+                    href="/programs"
+                    className="inline-flex items-center justify-center px-6 py-3 border-2 border-[#0F3D5C]/30 text-[#0F3D5C] font-bold rounded-2xl hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 transition-all duration-300"
+                  >
+                    See what we Offer
+                  </a>
+                ) : (
+                  <a
+                    href="/programs/kk-profiling/status"
+                    className="inline-flex items-center justify-center px-6 py-3 border-2 border-[#0F3D5C]/30 text-[#0F3D5C] font-bold rounded-2xl hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 transition-all duration-300"
+                  >
+                    View KK Profiling Status
+                  </a>
+                )}
               </div>
               {/* Stats row */}
               <div className="mt-8 grid grid-cols-3 gap-6 max-w-md text-sm">
@@ -284,8 +326,18 @@ function ServiceCard({
   id?: string;
   slug?: string;
 }) {
+  const href = slug?.startsWith("/")
+    ? slug
+    : slug
+    ? `/programs/${slug}`
+    : "/chatbot";
+
   return (
-    <div id={id} className="group relative rounded-2xl border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:border-[#0F3D5C]/30 hover:-translate-y-1">
+    <Link
+      id={id}
+      href={href}
+      className="group relative rounded-2xl border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:border-[#0F3D5C]/30 hover:-translate-y-1"
+    >
       <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-[#00B4E5]/5 to-transparent rounded-full -z-10 group-hover:from-[#00B4E5]/10 transition-all duration-300"></div>
       
       <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-[#00B4E5] to-[#0F3D5C] shadow-lg mb-6 group-hover:shadow-xl transition-all duration-300 group-hover:scale-110">
@@ -300,32 +352,10 @@ function ServiceCard({
         {desc}
       </p>
       
-      <div className="mt-6">
-        {/** prefer explicit paths (starting with /), otherwise use program slug, otherwise default to chatbot */}
-        {slug?.startsWith("/") ? (
-          // direct path (e.g., "/announcements", "/events")
-          <Link href={slug} className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
-            Learn more →
-          </Link>
-        ) : (slug && !slug.startsWith("/events")) || !slug ? (
-          // default behavior: link to program slug when provided, else chatbot
-          (slug ? (
-            <Link href={`/programs/${slug}`} className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
-              Learn more →
-            </Link>
-          ) : (
-            <Link href="/chatbot" className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
-              Learn more →
-            </Link>
-          ))
-        ) : (
-          // fallback: if slug equals "/events" use that path
-          <Link href={slug} className="inline-flex items-center gap-1 text-sm font-bold text-[#0F3D5C] px-3 py-1.5 rounded-lg transition-all duration-300 hover:bg-[#0F3D5C]/10 hover:translate-x-1">
-            Learn more →
-          </Link>
-        )}
+      <div className="mt-6 text-sm font-bold text-[#0F3D5C] inline-flex items-center gap-1">
+        Learn more →
       </div>
-    </div>
+    </Link>
   );
 }
 

@@ -21,6 +21,14 @@ type KKProfile = {
   birthDate: string;
   age: number;
   civilStatus?: string;
+  sex?: string;
+  registeredNationalVoter?: string;
+  registration?: {
+    sex?: string;
+    civilStatus?: string;
+    registeredNationalVoter?: string;
+    registeredSKVoter?: string;
+  };
 };
 
 type UploadedFile = {
@@ -264,7 +272,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   useEffect(() => {
     let mounted = true;
 
-    fetch("/api/my/kk-profile", { cache: "no-store" })
+    fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" })
       .then(async (res) => {
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -318,7 +326,10 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                 ? String(data.age)
                 : ""
             );
-            setCivilStatus(data.civilStatus || "");
+            // Auto-fill from registration object first, then fall back to top-level fields
+            const regData = data.registration;
+            setCivilStatus(regData?.civilStatus || data.civilStatus || "");
+            setGender(regData?.sex || data.sex || "");
             setPlaceOfBirth("");
             setFathersName("");
             setFathersOccupation("");
@@ -326,7 +337,13 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
             setMothersMaidenName("");
             setMothersOccupation("");
             setMothersContact("");
-            setRegisteredVoter(null);
+            // Auto-fill registered voter: map "Yes"/"No" strings to boolean
+            const voterStatus = regData?.registeredNationalVoter || data.registeredNationalVoter;
+            if (voterStatus && typeof voterStatus === "string") {
+              setRegisteredVoter(voterStatus.toLowerCase() === "yes" || voterStatus.toLowerCase() === "true");
+            } else {
+              setRegisteredVoter(null);
+            }
             setGwa("");
             setContactNumber(data.contactNumber || "");
             setEmailAddress(data.email || "");

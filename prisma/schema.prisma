@@ -294,6 +294,12 @@ model ProfilingRegistration {
   assemblyTimes           String?
   noAssemblyReason        String?
   consent                 Boolean  @default(true)
+  idDocumentType          String?
+  idFrontFileUrl          String?
+  idBackFileUrl           String?
+  idSingleFileUrl         String?
+  reviewStatus            String   @default("Pending")
+  reviewNotes             String?
   submittedAt             DateTime @default(now())
 
   @@map("kk_profiling_registrations")

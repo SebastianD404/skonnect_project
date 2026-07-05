@@ -187,16 +187,16 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
 
           <div className="grid gap-4">
             <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Approval date</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.approvalDate ? new Date(grantee.approvalDate).toLocaleDateString() : "Not approved"}</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Approval status</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.status}</p>
             </div>
             <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Enrollment deadline</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.enrollmentDeadline ? new Date(grantee.enrollmentDeadline).toLocaleDateString() : "Not set"}</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Enrollment date</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{new Date(grantee.dateEnrolled).toLocaleDateString()}</p>
             </div>
             <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Grade report deadline</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.gradeReportDeadline ? new Date(grantee.gradeReportDeadline).toLocaleDateString() : "Not set"}</p>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Current school</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.school}</p>
             </div>
           </div>
         </aside>

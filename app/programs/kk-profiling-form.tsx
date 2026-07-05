@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
+import { Eye, EyeOff } from "lucide-react";
 
 const initialForm = {
   lastName: "",
@@ -69,12 +70,39 @@ export default function KKProfilingForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("Your KK Profiling registration has been completed successfully.");
-  const [successRedirectTo, setSuccessRedirectTo] = useState("/programs/skeap-scholarship?openApply=1");
+  const [idDocumentType, setIdDocumentType] = useState("Valid ID");
+  const [idFiles, setIdFiles] = useState<{ front?: File | null; back?: File | null; single?: File | null }>({ front: null, back: null });
+  const [idPreviewUrls, setIdPreviewUrls] = useState<{ front?: string; back?: string; single?: string }>({});
+  const [successMessage, setSuccessMessage] = useState("Your KK Profiling application has been received and is now pending verification.");
+  const [successRedirectTo, setSuccessRedirectTo] = useState("/programs/kk-profiling/status");
   const [successCredentials, setSuccessCredentials] = useState<{ username: string; temporaryPassword: string } | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [accountExistsFallback, setAccountExistsFallback] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
+
+  // ID file preview effect
+  useEffect(() => {
+    const urls: { front?: string; back?: string; single?: string } = {};
+
+    if (idFiles.front) {
+      urls.front = URL.createObjectURL(idFiles.front);
+    }
+    if (idFiles.back) {
+      urls.back = URL.createObjectURL(idFiles.back);
+    }
+    if (idFiles.single) {
+      urls.single = URL.createObjectURL(idFiles.single);
+    }
+
+    setIdPreviewUrls(urls);
+    return () => {
+      Object.values(urls).forEach((url) => {
+        if (url) {
+          URL.revokeObjectURL(url);
+        }
+      });
+    };
+  }, [idFiles.front, idFiles.back, idFiles.single]);
 
   function setField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
     if (key === "birthDate") {
@@ -96,6 +124,30 @@ export default function KKProfilingForm() {
   function normalizedMiddleInitial(value: string) {
     const cleaned = value.replace(/[^a-zA-Z]/g, "").slice(0, 1).toUpperCase();
     return cleaned;
+  }
+
+  function handleIdDocumentTypeChange(e: ChangeEvent<HTMLSelectElement>) {
+    const nextType = e.target.value;
+    setIdDocumentType(nextType);
+    if (nextType === "Valid ID") {
+      setIdFiles({ front: null, back: null });
+    } else {
+      setIdFiles({ single: null });
+    }
+  }
+
+  function handleIdFileChange(field: keyof typeof idFiles, file: File | null) {
+    setIdFiles((current) => ({
+      ...current,
+      [field]: file,
+    }));
+  }
+
+  function removeIdFile(field: keyof typeof idFiles) {
+    setIdFiles((current) => ({
+      ...current,
+      [field]: null,
+    }));
   }
 
   async function handleTriggerMagicLink(email: string) {
@@ -141,6 +193,18 @@ export default function KKProfilingForm() {
     if (!form.email.trim()) return "Email is required";
     if (!form.contactNumber.trim()) return "Contact number is required";
     if (!form.consent) return "You must agree to the informed consent";
+    
+    // Validate ID upload
+    if (idDocumentType === "Valid ID") {
+      if (!idFiles.front || !idFiles.back) {
+        return "Please upload both front and back of your valid ID";
+      }
+    } else {
+      if (!idFiles.single) {
+        return "Please upload your document";
+      }
+    }
+    
     return null;
   }
 
@@ -168,28 +232,63 @@ export default function KKProfilingForm() {
         .filter(Boolean)
         .join(", ");
 
-      const payload = {
-        ...form,
-        fullName,
-        address,
-      };
+      // Create FormData for submission with files
+      const formData = new FormData();
+      
+      // Add all form fields
+      formData.append("lastName", form.lastName);
+      formData.append("firstName", form.firstName);
+      formData.append("middleInitial", form.middleInitial);
+      formData.append("sitio", form.sitio);
+      formData.append("barangay", form.barangay);
+      formData.append("municipality", form.municipality);
+      formData.append("province", form.province);
+      formData.append("sex", form.sex);
+      formData.append("age", form.age);
+      formData.append("birthDate", form.birthDate);
+      formData.append("email", form.email);
+      formData.append("facebook", form.facebook);
+      formData.append("contactNumber", form.contactNumber);
+      formData.append("civilStatus", form.civilStatus);
+      formData.append("youthClassification", form.youthClassification);
+      formData.append("youthAgeGroup", form.youthAgeGroup);
+      formData.append("workStatus", form.workStatus);
+      formData.append("educationalBackground", form.educationalBackground);
+      formData.append("registeredSKVoter", form.registeredSKVoter);
+      formData.append("votedLastSK", form.votedLastSK);
+      formData.append("registeredNationalVoter", form.registeredNationalVoter);
+      formData.append("attendedKKAssembly", form.attendedKKAssembly);
+      formData.append("assemblyTimes", form.assemblyTimes);
+      formData.append("noAssemblyReason", form.noAssemblyReason);
+      formData.append("consent", String(form.consent));
+      formData.append("fullName", fullName);
+      formData.append("address", address);
 
-      const res = await fetch("/api/programs/kk-profiling/register", {
+      // Add ID files
+      formData.append("documentType", idDocumentType);
+      if (idDocumentType === "Valid ID" && idFiles.front && idFiles.back) {
+        formData.append("frontFile", idFiles.front);
+        formData.append("backFile", idFiles.back);
+      } else if (idDocumentType !== "Valid ID" && idFiles.single) {
+        formData.append("file", idFiles.single);
+      }
+
+      const res = await fetch("/api/programs/kk-profiling/register-with-id", {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: formData,
       });
 
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
         setForm(initialForm);
+        setIdFiles({ front: null, back: null });
         setMessage(null);
         setSuccessMessage(
           body?.message ||
-            "Your KK Profiling registration was completed successfully. Your SKonnect account was created automatically."
+            "Your KK Profiling request has been received and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates."
         );
-        setSuccessRedirectTo(body?.redirectTo || "/programs/skeap-scholarship?openApply=1");
+        setSuccessRedirectTo(body?.redirectTo || "/programs/kk-profiling/status");
         setSuccessCredentials(
           body?.credentials && body.credentials.username && body.credentials.temporaryPassword
             ? {
@@ -316,6 +415,17 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex flex-col">
+          <span className="text-sm font-semibold">Birth Date *</span>
+          <input
+            type="date"
+            value={form.birthDate}
+            onChange={(e) => setField("birthDate", e.target.value)}
+            required
+            className="mt-1 rounded-lg border px-3 py-2"
+          />
+        </label>
+
+        <label className="flex flex-col">
           <span className="text-sm font-semibold">Age *</span>
           <input
             type="number"
@@ -324,18 +434,6 @@ export default function KKProfilingForm() {
             readOnly
             aria-readonly="true"
             className="mt-1 rounded-lg border bg-slate-100 px-3 py-2 text-slate-700"
-          />
-          <span className="mt-1 text-xs text-slate-500">Age is calculated from Birth Date.</span>
-        </label>
-
-        <label className="flex flex-col">
-          <span className="text-sm font-semibold">Birth Date *</span>
-          <input
-            type="date"
-            value={form.birthDate}
-            onChange={(e) => setField("birthDate", e.target.value)}
-            required
-            className="mt-1 rounded-lg border px-3 py-2"
           />
         </label>
       </div>
@@ -490,7 +588,117 @@ export default function KKProfilingForm() {
         </label>
       )}
 
-      <label className="flex items-start gap-3 mt-2">
+      <hr className="my-6" />
+
+      <h4 className="text-lg font-semibold">PART III: Valid ID / Document Upload</h4>
+      <p className="text-sm text-slate-600">Please upload your valid ID or relevant document. This is required to verify your identity.</p>
+
+      <div>
+        <label className="flex flex-col">
+          <span className="text-sm font-semibold">Document Type *</span>
+          <select value={idDocumentType} onChange={handleIdDocumentTypeChange} className="mt-1 rounded-lg border px-3 py-2">
+            <option value="Valid ID">Valid ID (Front & Back)</option>
+            <option value="Birth Certificate">Birth Certificate</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="space-y-4">
+        {idDocumentType === "Valid ID" ? (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold mb-2">Front of ID *</label>
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleIdFileChange("front", e.target.files?.[0] || null)}
+                    className="hidden"
+                    id="id-front-file"
+                  />
+                  <label htmlFor="id-front-file" className="flex items-center justify-center w-full px-4 py-8 border-2 border-dashed rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                    <span className="text-sm text-slate-600">Choose image or drag and drop</span>
+                  </label>
+                </div>
+                {idFiles.front && (
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg flex items-center justify-between">
+                    <span className="text-sm truncate">{idFiles.front.name}</span>
+                    <button type="button" onClick={() => removeIdFile("front")} className="text-xs text-red-600 hover:text-red-700">
+                      Remove
+                    </button>
+                  </div>
+                )}
+                {idPreviewUrls.front && (
+                  <div className="mt-2">
+                    <img src={idPreviewUrls.front} alt="Front of ID" className="max-h-40 rounded-lg" />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-2">Back of ID *</label>
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleIdFileChange("back", e.target.files?.[0] || null)}
+                    className="hidden"
+                    id="id-back-file"
+                  />
+                  <label htmlFor="id-back-file" className="flex items-center justify-center w-full px-4 py-8 border-2 border-dashed rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                    <span className="text-sm text-slate-600">Choose image or drag and drop</span>
+                  </label>
+                </div>
+                {idFiles.back && (
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg flex items-center justify-between">
+                    <span className="text-sm truncate">{idFiles.back.name}</span>
+                    <button type="button" onClick={() => removeIdFile("back")} className="text-xs text-red-600 hover:text-red-700">
+                      Remove
+                    </button>
+                  </div>
+                )}
+                {idPreviewUrls.back && (
+                  <div className="mt-2">
+                    <img src={idPreviewUrls.back} alt="Back of ID" className="max-h-40 rounded-lg" />
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div>
+            <label className="block text-sm font-semibold mb-2">Document *</label>
+            <div className="relative">
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) => handleIdFileChange("single", e.target.files?.[0] || null)}
+                className="hidden"
+                id="id-file"
+              />
+              <label htmlFor="id-file" className="flex items-center justify-center w-full px-4 py-8 border-2 border-dashed rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                <span className="text-sm text-slate-600">Choose file or drag and drop</span>
+              </label>
+            </div>
+            {idFiles.single && (
+              <div className="mt-2 p-3 bg-slate-50 rounded-lg flex items-center justify-between">
+                <span className="text-sm truncate">{idFiles.single.name}</span>
+                <button type="button" onClick={() => removeIdFile("single")} className="text-xs text-red-600 hover:text-red-700">
+                  Remove
+                </button>
+              </div>
+            )}
+            {idPreviewUrls.single && idFiles.single?.type.startsWith("image/") && (
+              <div className="mt-2">
+                <img src={idPreviewUrls.single} alt="Document" className="max-h-40 rounded-lg" />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <label className="flex items-start gap-3 mt-6">
         <input type="checkbox" checked={form.consent} onChange={(e) => setField("consent", e.target.checked)} className="mt-1" />
         <span className="text-sm">I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling (required). <button type="button" onClick={() => setShowConsentModal(true)} className="ml-2 text-sm underline">(Read consent)</button></span>
       </label>
@@ -568,7 +776,7 @@ export default function KKProfilingForm() {
               </svg>
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-slate-900">Registration complete</h2>
+              <h2 className="text-2xl font-bold text-slate-900">Profiling submitted</h2>
               <p className="mt-2 text-sm leading-7 text-slate-600">{successMessage}</p>
             </div>
             {successCredentials ? (
@@ -604,16 +812,13 @@ export default function KKProfilingForm() {
                 onClick={() => {
                   setShowSuccessModal(false);
                   const target = signedIn
-                    ? // if already signed in, append skipKkCheck to help open the SKEAP modal immediately
-                      successRedirectTo.includes("?")
-                      ? `${successRedirectTo}&skipKkCheck=1`
-                      : `${successRedirectTo}?skipKkCheck=1`
+                    ? successRedirectTo
                     : `/login?next=${encodeURIComponent(successRedirectTo)}`;
                   router.push(target);
                 }}
                 className="inline-flex justify-center rounded-lg bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
               >
-                {signedIn ? "Proceed to Apply for SKEAP" : "Sign in to apply for SKEAP"}
+                {signedIn ? "View KK Profiling Status" : "Sign in to view status"}
               </button>
               <button
                 type="button"

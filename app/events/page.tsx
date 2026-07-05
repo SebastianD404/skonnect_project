@@ -68,6 +68,7 @@ export default function EventsPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [sessionUser, setSessionUser] = useState<{ fullName?: string; email?: string; avatarUrl?: string } | null>(null);
+  const [showKkModal, setShowKkModal] = useState(false);
   const [registerForm, setRegisterForm] = useState({
     fullName: "",
     email: "",
@@ -132,16 +133,27 @@ export default function EventsPage() {
     return deriveNameFromEmail(candidateEmail);
   };
 
-  const openRegisterModal = (event: Event) => {
+  const openRegisterModal = async (event: Event) => {
+    // Require sign-in / KK profiling for registration. If not authenticated, prompt to complete KK profiling first.
+    if (!isAuthenticated) {
+      setShowKkModal(true);
+      return;
+    }
+
     setRegisterFormError(null);
     setSelectedRegisterEvent(event);
+
+    // Fetch fresh session-mapped data and fill the form from KK/SKEAP/profile fields
+    const mapped = await fetchAndMapSession();
+    const mf: any = mapped || sessionUser || {};
+    setSessionUser(mf as any);
     setRegisterForm({
       fullName: getAutofilledFullName(),
-      email: sessionUser?.email || "",
-      phoneNumber: "",
-      address: "",
-      age: "",
-      sex: "",
+      email: mf.email || "",
+      phoneNumber: mf.phoneNumber || "",
+      address: mf.address || "",
+      age: mf.age || "",
+      sex: mf.sex || "",
     });
   };
 
@@ -190,9 +202,39 @@ export default function EventsPage() {
         setAuthLoading(true);
         const response = await fetch("/api/session");
         const data = await response.json();
-        const user = data?.user ?? null;
-        setSessionUser(user);
-        setIsAuthenticated(Boolean(user));
+        const u = data?.user ?? null;
+        if (!u) {
+          setSessionUser(null);
+          setIsAuthenticated(false);
+        } else {
+          const kk = u.kkProfile ?? null;
+          const sa = u.skeapApplication ?? null;
+
+          const normalizeSex = (raw?: any) => {
+            if (!raw) return undefined;
+            const normalized = String(raw).trim().toLowerCase();
+            if (normalized.startsWith("m")) return "Male";
+            if (normalized.startsWith("f")) return "Female";
+            return undefined;
+          };
+
+          const mapped = {
+            fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
+            email: u.email || (sa?.emailAddress as string) || undefined,
+            phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
+            address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+            age:
+              sa?.age != null
+                ? String(sa.age)
+                : kk?.birthDate
+                ? String(Math.floor((Date.now() - new Date(kk.birthDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25)))
+                : undefined,
+            sex: normalizeSex((sa?.gender as string) || (u.latestKkRegistration?.sex as string) || undefined),
+          };
+
+          setSessionUser(mapped);
+          setIsAuthenticated(true);
+        }
       } catch (error) {
         setSessionUser(null);
         setIsAuthenticated(false);
@@ -203,6 +245,42 @@ export default function EventsPage() {
 
     fetchSession();
   }, []);
+
+  async function fetchAndMapSession() {
+    try {
+      const response = await fetch('/api/session');
+      const data = await response.json();
+      const u = data?.user ?? null;
+      if (!u) return null;
+
+      const kk = u.kkProfile ?? null;
+      const sa = u.skeapApplication ?? null;
+
+      const normalizeSex = (raw?: any) => {
+        if (!raw) return undefined;
+        const s = String(raw).trim().toLowerCase();
+        if (s.startsWith("m")) return "Male";
+        if (s.startsWith("f")) return "Female";
+        return undefined;
+      };
+
+      return {
+        fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
+        email: u.email || (sa?.emailAddress as string) || undefined,
+        phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
+        address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+        age:
+          sa?.age != null
+            ? String(sa.age)
+            : kk?.birthDate
+            ? String(Math.floor((Date.now() - new Date(kk.birthDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25)))
+            : undefined,
+        sex: normalizeSex((sa?.gender as string) || (u.latestKkRegistration?.sex as string) || undefined),
+      };
+    } catch (err) {
+      return null;
+    }
+  }
 
   useEffect(() => {
     if (selectedImage) {
@@ -674,6 +752,43 @@ export default function EventsPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        ) : null}
+
+        {showKkModal ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px] px-4 py-6"
+            onClick={() => setShowKkModal(false)}
+          >
+            <div
+              className="w-full max-w-lg rounded-[1.25rem] bg-white p-6 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4">
+                <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">S K program access</p>
+                <h3 className="mt-2 text-2xl font-semibold text-slate-900">KK Profiling required first</h3>
+                <p className="mt-3 text-sm text-slate-600">
+                  To register for community events you must first complete the Katipunan ng Kabataan (KK) profiling. This ensures events are reserved for verified residents.
+                </p>
+              </div>
+
+              <div className="mt-6 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowKkModal(false)}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                >
+                  Maybe later
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (window.location.href = "/programs/kk-profiling")}
+                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Go to KK Profiling
+                </button>
+              </div>
             </div>
           </div>
         ) : null}

@@ -159,6 +159,13 @@ function isUploadedFilesSystemMessage(text: string) {
   return /^Applicant uploaded files:\s*\n?/i.test((text || "").trim());
 }
 
+function isSubmissionSystemMessage(text: string) {
+  if (!text) return false;
+  const t = text.trim();
+  // Detect messages like: "Applicant submitted a SKEAP application." or similar
+  return /^Applicant submitted\b/i.test(t) || /Applicant submitted a SKEAP application/i.test(t);
+}
+
 function isImageUrl(url: string) {
   return /(\.jpg|\.jpeg|\.png|\.gif|\.webp|\.avif|\.svg)(\?|$)/i.test(url);
 }
@@ -1102,7 +1109,7 @@ export default function SkeapApplicationsClient({
 
                 <div className="mt-6 space-y-4">
                   {(selectedApplication?.messages || [])
-                    .filter((message) => !isUploadedFilesSystemMessage(message.text))
+                    .filter((message) => !isUploadedFilesSystemMessage(message.text) && !isSubmissionSystemMessage(message.text))
                     .map((message) => {
                       const urls = extractUrls(message.text);
                       const textWithoutUrls = urls.reduce((text, url) => text.replace(url, ""), message.text).trim();

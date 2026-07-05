@@ -20,5 +20,11 @@ export interface KKProfilingRegistration {
   assemblyTimes?: string | null;
   noAssemblyReason?: string | null;
   consent?: boolean;
+  idDocumentType?: string | null;
+  idFrontFileUrl?: string | null;
+  idBackFileUrl?: string | null;
+  idSingleFileUrl?: string | null;
+  reviewStatus?: string;
+  reviewNotes?: string | null;
   submittedAt: string | Date;
 }

@@ -42,12 +42,12 @@ test('KK funnel: Apply → KK profiling → redirect → resume SKEAP', async ({
   ]);
 
   // 5. Success modal appears with expected header and CTA
-  await expect(page.getByRole('heading', { name: /Account Created & Profile Verified!/i })).toBeVisible();
-  const proceedBtn = page.getByRole('button', { name: /Proceed to SKEAP Application/i });
+  await expect(page.getByRole('heading', { name: /Profiling submitted/i })).toBeVisible();
+  const proceedBtn = page.getByRole('button', { name: /View KK Profiling Status/i });
   await expect(proceedBtn).toBeVisible();
 
-  // 6. Click proceed and assert we are back at program page and SKEAP modal open
+  // 6. Click proceed and assert we are taken to the KK Profiling status page
   await proceedBtn.click();
-  await page.waitForURL(new RegExp(`${programSlug}`));
-  await expect(page.getByText('Digital Application Wizard')).toBeVisible();
+  await page.waitForURL(/\/programs\/kk-profiling\/status/);
+  await expect(page.getByText(/KK Profiling Status/i)).toBeVisible();
 });

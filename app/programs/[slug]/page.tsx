@@ -88,8 +88,8 @@ const PROGRAMS: Record<string, ProgramPageData> = {
         a: "Submit a Certificate of Enrollment, recent grades, a valid ID, and proof of residency. Additional paperwork may be requested during review.",
       },
       {
-        q: "How soon will I know my status?",
-        a: "Applications are typically reviewed within 5 business days. Status updates are sent through SKonnect and the contact method you provide.",
+        q: "How do I know if my application was received and approved?",
+        a: "After submitting your application, SKonnect will show your current status on the program page. You'll also receive any required document requests or approval updates through the app and the contact details on your account.",
       },
       {
         q: "What is the minimum GPA to qualify for the SKEAP?",

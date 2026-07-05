@@ -70,6 +70,7 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
   const [selectedRegisterEvent, setSelectedRegisterEvent] = useState<EventItem | null>(null);
   const [registerFormError, setRegisterFormError] = useState<string | null>(null);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [showKkModal, setShowKkModal] = useState(false);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -109,18 +110,26 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
         const kk = u.kkProfile ?? null;
         const sa = u.skeapApplication ?? null;
 
-        const mapped: SessionUser = {
-          fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
-          email: u.email || (sa?.emailAddress as string) || undefined,
-          phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
-          address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
-          age:
-            sa?.age != null
-              ? String(sa.age)
-              : kk?.birthDate
-              ? String(Math.floor((Date.now() - new Date(kk.birthDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25)))
-              : undefined,
-          sex: (sa?.gender as string) || undefined,
+const normalizeSex = (raw?: any) => {
+            if (!raw) return undefined;
+            const normalized = String(raw).trim().toLowerCase();
+            if (normalized.startsWith("m")) return "Male";
+            if (normalized.startsWith("f")) return "Female";
+            return undefined;
+          };
+
+          const mapped: SessionUser = {
+            fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
+            email: u.email || (sa?.emailAddress as string) || undefined,
+            phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
+            address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+            age:
+              sa?.age != null
+                ? String(sa.age)
+                : kk?.birthDate
+                ? String(Math.floor((Date.now() - new Date(kk.birthDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25)))
+                : undefined,
+            sex: normalizeSex((sa?.gender as string) || (u.latestKkRegistration?.sex as string) || undefined),
         };
 
         setSessionUser(mapped);
@@ -131,6 +140,44 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
 
     fetchSession();
   }, []);
+
+  async function fetchAndMapSession() {
+    try {
+      const response = await fetch('/api/session');
+      const data = await response.json();
+      const u = data?.user ?? null;
+      if (!u) return null;
+
+      const kk = u.kkProfile ?? null;
+      const sa = u.skeapApplication ?? null;
+
+      const normalizeSex = (raw?: any) => {
+        if (!raw) return undefined;
+        const s = String(raw).trim().toLowerCase();
+        if (s.startsWith("m")) return "Male";
+        if (s.startsWith("f")) return "Female";
+        return undefined;
+      };
+
+      const mapped: SessionUser = {
+        fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
+        email: u.email || (sa?.emailAddress as string) || undefined,
+        phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
+        address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+        age:
+          sa?.age != null
+            ? String(sa.age)
+            : kk?.birthDate
+            ? String(Math.floor((Date.now() - new Date(kk.birthDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25)))
+            : undefined,
+        sex: normalizeSex((sa?.gender as string) || (u.latestKkRegistration?.sex as string) || undefined),
+      };
+
+      return mapped;
+    } catch {
+      return null;
+    }
+  }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -220,16 +267,28 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
     return deriveNameFromEmail(candidateEmail);
   };
 
-  const openRegisterModal = (event: EventItem) => {
+  const openRegisterModal = async (event: EventItem) => {
+    // If the user is not signed in, prompt them to complete KK profiling first.
+    if (!sessionUser) {
+      setShowKkModal(true);
+      return;
+    }
+
     setRegisterFormError(null);
     setSelectedRegisterEvent(event);
+
+    // Refresh session data to ensure autofill uses the latest KK/SKEAP profile
+    const mapped = await fetchAndMapSession();
+    const mf = mapped || sessionUser || {};
+    setSessionUser(mf as SessionUser);
+
     setRegisterForm({
       fullName: getAutofilledFullName(),
-      email: sessionUser?.email || "",
-      phoneNumber: sessionUser?.phoneNumber || "",
-      address: sessionUser?.address || "",
-      age: sessionUser?.age || "",
-      sex: sessionUser?.sex || "",
+      email: mf.email || "",
+      phoneNumber: mf.phoneNumber || "",
+      address: mf.address || "",
+      age: mf.age || "",
+      sex: mf.sex || "",
     });
   };
 
@@ -299,7 +358,8 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
           const isRegistered = Boolean(event.isRegistered);
           const isAllowedToRegister = ["YOUTH", "GRANTEE"].includes((currentUserRole || "").toUpperCase());
           const isLoading = registeringId === event.id;
-          const isButtonDisabled = isRegistered || !isAllowedToRegister || !isOpen || isFull || isLoading;
+          // Allow anonymous users to click the register button so we can show the KK profiling modal.
+          const isButtonDisabled = isRegistered || (!isAllowedToRegister && Boolean(currentUserRole)) || !isOpen || isFull || isLoading;
           const eventDate = new Date(event.eventDate);
 
           return (
@@ -404,15 +464,15 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
                         : "bg-[#0B192C] hover:bg-slate-800 text-white border-transparent cursor-pointer active:scale-[0.99]"
                     }`}
                   >
-                    {isLoading
-                      ? "Registering..."
-                      : isRegistered
-                      ? "Already registered"
-                      : !isAllowedToRegister
-                      ? "Role Restricted"
-                      : !isOpen || isFull
-                      ? "Registration closed"
-                      : "Register now"}
+                        {isLoading
+                          ? "Registering..."
+                          : isRegistered
+                          ? "Already registered"
+                          : !isAllowedToRegister && Boolean(currentUserRole)
+                          ? "Role Restricted"
+                          : !isOpen || isFull
+                          ? "Registration closed"
+                          : "Register now"}
                   </button>
                 </div>
               </div>
@@ -423,11 +483,11 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
 
       {selectedEvent ? (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px] px-4 py-6"
+          className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/55 backdrop-blur-[2px] px-4 pt-20 pb-8"
           onClick={() => setSelectedEvent(null)}
         >
           <div
-            className="relative w-full max-w-4xl overflow-hidden rounded-[1.75rem] border border-slate-200 bg-gradient-to-b from-white to-slate-50 shadow-2xl"
+            className="relative mx-auto mt-4 mb-6 w-full max-w-4xl overflow-hidden rounded-[1.75rem] border border-slate-200 bg-gradient-to-b from-white to-slate-50 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between border-b border-slate-200 bg-gradient-to-r from-white to-sky-50/60 px-6 py-5">
@@ -447,7 +507,7 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
               </button>
             </div>
 
-            <div className="max-h-[80vh] space-y-6 overflow-y-auto px-6 py-6">
+            <div className="max-h-[calc(100vh-6rem)] space-y-6 overflow-y-auto px-6 py-6">
               {selectedEvent.imageUrl ? (
                 <button
                   type="button"
@@ -680,7 +740,44 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
             </form>
           </div>
         </div>
-      ) : null}
+        ) : null}
+
+        {showKkModal ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px] px-4 py-6"
+            onClick={() => setShowKkModal(false)}
+          >
+            <div
+              className="w-full max-w-lg rounded-[1.25rem] bg-white p-6 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4">
+                <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">S K program access</p>
+                <h3 className="mt-2 text-2xl font-semibold text-slate-900">KK Profiling required first</h3>
+                <p className="mt-3 text-sm text-slate-600">
+                  To register for community events you must first complete the Katipunan ng Kabataan (KK) profiling. This ensures events are reserved for verified residents.
+                </p>
+              </div>
+
+              <div className="mt-6 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowKkModal(false)}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                >
+                  Maybe later
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (window.location.href = "/programs/kk-profiling")}
+                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Go to KK Profiling
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
       {selectedImage ? (
         <div

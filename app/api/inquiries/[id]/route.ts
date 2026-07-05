@@ -165,7 +165,7 @@ export async function PATCH(
         select: {
           reviewThread: true,
           userId: true,
-          application: { select: { school: true, yearLevel: true } },
+          application: { select: { school: true, currentCourse: true, yearLevel: true } },
         },
       });
 

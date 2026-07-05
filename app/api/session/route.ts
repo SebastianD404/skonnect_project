@@ -59,10 +59,28 @@ export async function GET() {
     kkProfile = null;
   }
 
+  let latestKkRegistration = null;
+  try {
+    latestKkRegistration = await prisma.profilingRegistration.findFirst({
+      where: { userId: profile.id },
+      orderBy: { submittedAt: "desc" },
+      select: {
+        sex: true,
+        age: true,
+        fullName: true,
+        address: true,
+        email: true,
+        contactNumber: true,
+      },
+    });
+  } catch (e) {
+    latestKkRegistration = null;
+  }
+
   const metadataAvatar = (user.user_metadata as any)?.avatar_url || (user.user_metadata as any)?.avatarUrl || null;
   const avatarPath = profile.avatarUrl || metadataAvatar;
 
-  const profileWithApp = { ...profile, skeapApplication, kkProfile };
+  const profileWithApp = { ...profile, skeapApplication, kkProfile, latestKkRegistration };
 
   if (avatarPath) {
     if (!avatarPath.startsWith("http://") && !avatarPath.startsWith("https://")) {

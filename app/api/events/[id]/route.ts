@@ -117,6 +117,33 @@ export async function POST(
       );
     }
 
+    // Check if user has completed and approved KK profiling
+    const kkProfile = await prisma.user.findUnique({
+      where: { id: appUser.id },
+      select: { kkProfileId: true },
+    });
+
+    if (!kkProfile?.kkProfileId) {
+      return NextResponse.json(
+        { error: "You must complete KK profiling first before registering for events." },
+        { status: 403 }
+      );
+    }
+
+    // Check if the latest KK profiling registration is approved
+    const latestRegistration = await prisma.profilingRegistration.findFirst({
+      where: { userId: appUser.id },
+      orderBy: { submittedAt: "desc" },
+      select: { reviewStatus: true },
+    });
+
+    if (latestRegistration?.reviewStatus !== "Approved") {
+      return NextResponse.json(
+        { error: "Your KK profiling registration must be approved before you can register for events." },
+        { status: 403 }
+      );
+    }
+
     const event = await prisma.event.findUnique({
       where: { id },
       include: {

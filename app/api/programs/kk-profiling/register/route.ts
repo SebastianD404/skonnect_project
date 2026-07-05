@@ -40,8 +40,9 @@ function computeAge(birthDate: Date) {
 }
 
 function getSupabaseAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Missing Supabase admin configuration");
@@ -73,7 +74,7 @@ async function findExistingAuthIdByEmail(email: string) {
     }
   }
 
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
     return null;
   }
 
@@ -145,8 +146,9 @@ async function signInAndSetSession(email: string, password: string) {
 }
 
 function getSupabaseProvisioningClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl) {
@@ -424,7 +426,7 @@ export async function POST(req: Request) {
           birthDate,
           contactNumber,
           email,
-          isVerified: true,
+          isVerified: false,
         },
       });
 
@@ -493,6 +495,7 @@ export async function POST(req: Request) {
           assemblyTimes: String(body.assemblyTimes || "").trim() || null,
           noAssemblyReason: String(body.noAssemblyReason || "").trim() || null,
           consent: true,
+          reviewStatus: "Pending",
         },
       });
 
@@ -504,20 +507,20 @@ export async function POST(req: Request) {
       kkProfileId: created.kkProfileId,
       userId: created.userId,
       signedIn: Boolean(signedInUserId),
-      redirectTo: "/programs/skeap-scholarship?openApply=1",
+      redirectTo: "/programs/kk-profiling/status",
       credentials: {
         username,
         temporaryPassword,
       },
       message:
         signedInUserId
-          ? "Your KK profiling was completed successfully. Your SKonnect account was created automatically and you are now signed in. You can update your username and password later from Account Settings."
-          : "Your KK profiling was completed successfully. Your SKonnect account was created automatically. Please use the credentials below to sign in if you are not already signed in.",
+          ? "Your KK Profiling request has been received and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates."
+          : "Your KK Profiling request has been received and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates.",
     });
   } catch (err) {
     if (createdAuthUserId) {
       try {
-        if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        if (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
           const supabaseAdmin = getSupabaseAdminClient();
           await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
         }

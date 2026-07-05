@@ -110,9 +110,9 @@ export default async function ApplicationPage({ params }: Props) {
     );
   }
 
-  if (appUserProfile.mustSecureAccount) {
-    redirect(`/secure-account?redirect=${encodeURIComponent(`/applications/${id}`)}`);
-  }
+  // Allow users to view their application even if they haven't completed
+  // the first-login security check. The secure-account enforcement is
+  // handled by middleware for protected areas and during the login flow.
 
   if (!currentUserId || application.userId !== currentUserId) {
     return (

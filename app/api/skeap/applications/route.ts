@@ -123,6 +123,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "You must complete KK profiling first." }, { status: 403 });
     }
 
+    // Check if the latest KK profiling registration is approved
+    const latestRegistration = await prisma.profilingRegistration.findFirst({
+      where: { userId: appUser.id },
+      orderBy: { submittedAt: "desc" },
+      select: { reviewStatus: true },
+    });
+
+    if (latestRegistration?.reviewStatus !== "Approved") {
+      return NextResponse.json(
+        { error: "Your KK profiling registration must be approved before you can apply for SKEAP." },
+        { status: 403 }
+      );
+    }
+
     const rawUploadedFiles = body.uploadedFiles ?? body.allUploadedFiles;
     const uploadedFiles = normalizeUploadedFiles(rawUploadedFiles);
     const requiredUploadKeys = [

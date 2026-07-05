@@ -55,6 +55,7 @@ export async function GET() {
           birthDate: true,
           contactNumber: true,
           email: true,
+          isVerified: true,
         },
       },
     },
@@ -63,6 +64,42 @@ export async function GET() {
   if (!profile?.kkProfile) {
     return NextResponse.json({ error: "KK profile not found" }, { status: 404 });
   }
+
+  const latestRegistration = await prisma.profilingRegistration.findFirst({
+    where: { userId: appUser.id },
+    orderBy: { submittedAt: "desc" },
+    select: {
+      id: true,
+      fullName: true,
+      address: true,
+      sex: true,
+      age: true,
+      birthDate: true,
+      email: true,
+      facebook: true,
+      contactNumber: true,
+      civilStatus: true,
+      youthClassification: true,
+      youthAgeGroup: true,
+      workStatus: true,
+      educationalBackground: true,
+      registeredSKVoter: true,
+      votedLastSK: true,
+      registeredNationalVoter: true,
+      attendedKKAssembly: true,
+      assemblyTimes: true,
+      noAssemblyReason: true,
+      reviewStatus: true,
+      reviewNotes: true,
+      submittedAt: true,
+      idDocumentType: true,
+      idFrontFileUrl: true,
+      idBackFileUrl: true,
+      idSingleFileUrl: true,
+    },
+  });
+
+  const status = latestRegistration?.reviewStatus || (profile.kkProfile.isVerified ? "Approved" : "Pending verification");
 
   return NextResponse.json({
     profile: {
@@ -75,6 +112,44 @@ export async function GET() {
       barangay: profile.kkProfile.barangay,
       birthDate: profile.kkProfile.birthDate,
       age: computeAge(profile.kkProfile.birthDate),
+      isVerified: profile.kkProfile.isVerified,
+      status,
+      reviewNotes: latestRegistration?.reviewNotes ?? null,
+      registrationSubmittedAt: latestRegistration?.submittedAt ?? null,
+      idDocumentType: latestRegistration?.idDocumentType ?? null,
+      idFrontFileUrl: latestRegistration?.idFrontFileUrl ?? null,
+      idBackFileUrl: latestRegistration?.idBackFileUrl ?? null,
+      idSingleFileUrl: latestRegistration?.idSingleFileUrl ?? null,
+      registration: latestRegistration
+        ? {
+            id: latestRegistration.id,
+            fullName: latestRegistration.fullName,
+            address: latestRegistration.address,
+            sex: latestRegistration.sex,
+            age: latestRegistration.age,
+            birthDate: latestRegistration.birthDate,
+            email: latestRegistration.email,
+            facebook: latestRegistration.facebook,
+            contactNumber: latestRegistration.contactNumber,
+            civilStatus: latestRegistration.civilStatus,
+            youthClassification: latestRegistration.youthClassification,
+            youthAgeGroup: latestRegistration.youthAgeGroup,
+            workStatus: latestRegistration.workStatus,
+            educationalBackground: latestRegistration.educationalBackground,
+            registeredSKVoter: latestRegistration.registeredSKVoter,
+            votedLastSK: latestRegistration.votedLastSK,
+            registeredNationalVoter: latestRegistration.registeredNationalVoter,
+            attendedKKAssembly: latestRegistration.attendedKKAssembly,
+            assemblyTimes: latestRegistration.assemblyTimes,
+            noAssemblyReason: latestRegistration.noAssemblyReason,
+            reviewStatus: latestRegistration.reviewStatus,
+            submittedAt: latestRegistration.submittedAt,
+            idDocumentType: latestRegistration.idDocumentType,
+            idFrontFileUrl: latestRegistration.idFrontFileUrl,
+            idBackFileUrl: latestRegistration.idBackFileUrl,
+            idSingleFileUrl: latestRegistration.idSingleFileUrl,
+          }
+        : null,
     },
   });
 }

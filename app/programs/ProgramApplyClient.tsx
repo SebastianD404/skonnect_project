@@ -18,6 +18,7 @@ type ProgramStatus = {
 export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   const [open, setOpen] = useState(false);
   const [checkingKkProfile, setCheckingKkProfile] = useState(false);
+  const [kkCheckError, setKkCheckError] = useState<string | null>(null);
   const [showKkRequiredModal, setShowKkRequiredModal] = useState(false);
   const [status, setStatus] = useState<ProgramStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,11 +30,24 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
     }
 
     setCheckingKkProfile(true);
+    setKkCheckError(null);
 
     try {
-      const response = await fetch("/api/my/kk-profile", { cache: "no-store" });
+      const response = await fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" });
       if (response.ok) {
-        setOpen(true);
+        const data = await response.json();
+        
+        // Check if registration is approved - check both registration.reviewStatus and top-level status
+        const isApproved = 
+          data.registration?.reviewStatus === "Approved" || 
+          data.profile?.status === "Approved";
+        
+        if (isApproved) {
+          setOpen(true);
+        } else {
+          setKkCheckError("Your KK profiling registration must be approved before you can apply for SKEAP.");
+          setShowKkRequiredModal(true);
+        }
       } else {
         setShowKkRequiredModal(true);
       }
@@ -107,30 +121,62 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
             onClick={() => setShowKkRequiredModal(false)}
           />
           <div className="relative w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl sm:p-8">
-            <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">S K program access</p>
-            <h3 className="mt-2 text-3xl font-semibold text-slate-900">KK Profiling required first</h3>
-            <p className="mt-4 text-sm leading-7 text-slate-600">
-              To apply for the SKEAP scholarship and register for community events, you must first complete the Katipunan ng Kabataan (KK) profiling. This ensures all local programs remain exclusive to verified residents of Barangay Pico.
-            </p>
+            {kkCheckError ? (
+              <>
+                <p className="text-xs uppercase tracking-[0.28em] text-amber-600">Approval required</p>
+                <h3 className="mt-2 text-3xl font-semibold text-slate-900">KK Profiling awaiting approval</h3>
+                <p className="mt-4 text-sm leading-7 text-slate-600">
+                  {kkCheckError}
+                </p>
+                <p className="mt-3 text-sm leading-7 text-slate-600">
+                  You can check the status of your KK Profiling submission and submit corrections if needed.
+                </p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={() => setShowKkRequiredModal(false)}
-                className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Maybe later
-              </button>
-              <Link
-                href="/programs/kk-profiling"
-                className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                Go to KK Profiling
-              </Link>
-            </div>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowKkRequiredModal(false)}
+                    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                  <Link
+                    href="/programs/kk-profiling/status"
+                    className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Check KK Status
+                  </Link>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">S K program access</p>
+                <h3 className="mt-2 text-3xl font-semibold text-slate-900">KK Profiling required first</h3>
+                <p className="mt-4 text-sm leading-7 text-slate-600">
+                  To apply for the SKEAP scholarship and register for community events, you must first complete the Katipunan ng Kabataan (KK) profiling. This ensures all local programs remain exclusive to verified residents of Barangay Pico.
+                </p>
+
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowKkRequiredModal(false)}
+                    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Maybe later
+                  </button>
+                  <Link
+                    href="/programs/kk-profiling"
+                    className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Go to KK Profiling
+                  </Link>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}
+
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

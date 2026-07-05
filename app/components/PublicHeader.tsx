@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface SessionUser {
   fullName?: string;
@@ -43,17 +43,27 @@ function navLinkClass(activePath: string, href: string) {
 export function PublicHeader() {
   const pathname = usePathname();
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
   const [authLoading, setAuthLoading] = useState(true);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
   const [isScrolledToProgramsSection, setIsScrolledToProgramsSection] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const handleNavigation = (href: string) => {
-    startTransition(() => {
-      router.push(href);
-    });
+  const handleProgramsClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (pathname === "/") {
+      event.preventDefault();
+      const programsSection = document.getElementById("programs");
+      if (programsSection) {
+        programsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  };
+
+  const handleLogoClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (pathname === "/") {
+      event.preventDefault();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   // Detect when #programs section is in view
@@ -75,7 +85,7 @@ export function PublicHeader() {
   }, []);
 
   useEffect(() => {
-    function closePanel(event: MouseEvent | KeyboardEvent) {
+    function closePanel(event: Event) {
       if (event instanceof KeyboardEvent && event.key !== "Escape") return;
       if (!wrapperRef.current || wrapperRef.current.contains(event.target as Node)) return;
       setOpenPanel("none");
@@ -120,7 +130,7 @@ export function PublicHeader() {
     }
 
     fetchSession();
-  }, [router, pathname]);
+  }, []);
 
   const activePath = pathname.startsWith("/programs")
     ? "/programs"
@@ -146,7 +156,7 @@ export function PublicHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href="/" className="flex items-center gap-3">
+        <Link href="/" onClick={handleLogoClick} className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
             SK
           </div>
@@ -154,21 +164,16 @@ export function PublicHeader() {
         </Link>
 
         <nav className="hidden items-center gap-1 text-sm md:flex relative">
-          <button onClick={() => handleNavigation("/")} className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 ${isPending ? "opacity-70" : "opacity-100"}`}>Home</button>
-          <button onClick={() => handleNavigation("/about")} className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 ${isPending ? "opacity-70" : "opacity-100"}`}>About</button>
-          <button onClick={() => handleNavigation("/events")} className={`${navLinkClass(activePath, "/events")} transition-opacity duration-200 ${isPending ? "opacity-70" : "opacity-100"}`}>Events</button>
-          <button onClick={() => {
-              const programsSection = document.getElementById("programs");
-              if (programsSection) {
-                programsSection.scrollIntoView({ behavior: "smooth", block: "start" });
-              } else {
-                router.push("/#programs");
-              }
-            }}
-            className={`${navLinkClass(isScrolledToProgramsSection ? "/programs" : "", "/programs")} transition-opacity duration-200 ${isPending ? "opacity-70" : "opacity-100"}`}
+          <Link href="/" className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
+          <Link href="/about" className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 opacity-100`}>About</Link>
+          <Link href="/events" className={`${navLinkClass(activePath, "/events")} transition-opacity duration-200 opacity-100`}>Events</Link>
+          <Link
+            href="/#programs"
+            onClick={handleProgramsClick}
+            className={`${navLinkClass(isScrolledToProgramsSection ? "/programs" : "", "/programs")} transition-opacity duration-200 opacity-100`}
           >
             Programs
-          </button>
+          </Link>
         </nav>
 
         <div className="flex items-center gap-3">

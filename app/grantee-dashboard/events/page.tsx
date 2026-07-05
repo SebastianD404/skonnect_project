@@ -43,6 +43,7 @@ export default async function GranteeEventsPage() {
     },
     orderBy: { eventDate: "asc" },
     include: {
+      // Include a small relation for whether the current user is registered
       registrations: {
         where: {
           userId: appUser.id,
@@ -50,6 +51,10 @@ export default async function GranteeEventsPage() {
         select: {
           id: true,
         },
+      },
+      // Also include a count of all registrations so we can show accurate filledSlots
+      _count: {
+        select: { registrations: true },
       },
       createdBy: {
         select: {
@@ -62,8 +67,18 @@ export default async function GranteeEventsPage() {
   });
 
   const serializedEvents = events.map((event) => ({
-    ...event,
+    id: event.id,
+    title: event.title,
+    description: event.description,
+    venue: event.venue,
     eventDate: event.eventDate.toISOString(),
+    maxSlots: event.maxSlots,
+    // Use the registration count (up-to-date) rather than any possibly stale DB column
+    filledSlots: event._count?.registrations ?? 0,
+    status: event.status,
+    isKatipunan: event.isKatipunan,
+    imageUrl: event.imageUrl || null,
+    createdBy: event.createdBy,
     isRegistered: event.registrations.length > 0,
   }));
 

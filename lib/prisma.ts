@@ -47,9 +47,45 @@ async function hasTable(tableName: string) {
   }
 }
 
+export async function hasProfilingRegistrationColumn(columnName: string) {
+  if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
+    return false;
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(
+      `SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name = $2
+      ) AS exists`,
+      PROFILING_REGISTRATION_TABLE,
+      columnName
+    );
+    return rows[0]?.exists ?? false;
+  } catch {
+    return false;
+  }
+}
+
 function isMissingTableError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /does not exist|relation .* does not exist|table .* does not exist|TableDoesNotExist/i.test(message);
+}
+
+function isMissingColumnError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /column .* does not exist|Column .* does not exist|Undefined column/i.test(message);
+}
+
+function sanitizeWhereForProfilingRegistrations(where: Record<string, unknown> | undefined) {
+  if (!where || typeof where !== "object") {
+    return undefined;
+  }
+
+  return Object.keys(where).length > 0 ? { ...where } : undefined;
 }
 
 export async function getProfilingRegistrationCount() {
@@ -61,6 +97,34 @@ export async function getProfilingRegistrationCount() {
     return await prisma.profilingRegistration.count();
   } catch (error) {
     if (isMissingTableError(error)) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
+export async function getProfilingRegistrationCountByStatus(status?: string | null) {
+  if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
+    return 0;
+  }
+
+  const normalizedStatus = status?.trim();
+  if (!normalizedStatus) {
+    return getProfilingRegistrationCount();
+  }
+
+  if (!(await hasProfilingRegistrationColumn("reviewStatus"))) {
+    return 0;
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+      `SELECT COUNT(*)::bigint AS count FROM "kk_profiling_registrations" WHERE "reviewStatus" = $1`,
+      normalizedStatus
+    );
+    return Number(rows[0]?.count ?? 0);
+  } catch (error) {
+    if (isMissingTableError(error) || isMissingColumnError(error)) {
       return 0;
     }
     throw error;
@@ -143,10 +207,16 @@ export async function listProfilingRegistrations(args?: any) {
     return [];
   }
 
+  const safeArgs = args ? { ...args } : undefined;
+  const where = safeArgs?.where as Record<string, unknown> | undefined;
+  if (where && typeof where === "object" && "reviewStatus" in where) {
+    safeArgs.where = sanitizeWhereForProfilingRegistrations(where);
+  }
+
   try {
-    return await prisma.profilingRegistration.findMany(args);
+    return await prisma.profilingRegistration.findMany(safeArgs);
   } catch (error) {
-    if (isMissingTableError(error)) {
+    if (isMissingTableError(error) || isMissingColumnError(error)) {
       return [];
     }
     throw error;

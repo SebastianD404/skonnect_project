@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { SubmissionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
@@ -129,8 +130,8 @@ export async function POST(request: NextRequest) {
       generalAverage: mergedGeneralAverage,
       status:
         existing?.status === "RETURNED_FOR_EDIT" && nextFlaggedFields.length > 0
-          ? "RETURNED_FOR_EDIT"
-          : "PENDING",
+          ? SubmissionStatus.RETURNED_FOR_EDIT
+          : SubmissionStatus.PENDING,
       reviewNotes: nextFlaggedFields.length > 0 ? existing?.reviewNotes : null,
       flaggedFields: nextFlaggedFields,
       reviewedAt: null,

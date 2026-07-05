@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Upload, X, Loader2, AlertCircle, Check } from "lucide-react";
+import { AnnouncementDetailModal, AnnouncementModalItem } from "../../components/AnnouncementDetailModal";
 
 interface Announcement {
   id: string;
@@ -27,6 +28,7 @@ export default function AdminAnnouncementsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<AnnouncementModalItem | null>(null);
 
   const [form, setForm] = useState({
     title: "",
@@ -475,20 +477,32 @@ export default function AdminAnnouncementsPage() {
                       <h3 className="text-2xl font-bold text-[#0F3D5C] mb-3">{announcement.title}</h3>
 
                       {/* Content */}
-                      <p className="text-slate-700 leading-relaxed whitespace-pre-wrap break-all mb-4">
+                      <p className="text-slate-700 leading-relaxed whitespace-normal break-all mb-4">
                         {announcement.content}
                       </p>
 
                       {/* Image - prominent display */}
                       {announcement.imageUrl && (
                         <div className="rounded-2xl overflow-hidden bg-slate-100 mb-4 -mx-6 -mb-6">
-                          <img
-                            src={announcement.imageUrl}
-                            alt={announcement.title}
-                            className="w-full h-80 object-cover"
-                          />
+                          <div className="aspect-[16/9] w-full bg-slate-100">
+                            <img
+                              src={announcement.imageUrl}
+                              alt={announcement.title}
+                              className="h-full w-full object-contain object-center"
+                            />
+                          </div>
                         </div>
                       )}
+
+                      <div className="mt-4 flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAnnouncement(announcement)}
+                          className="rounded-full border border-[#0F3D5C]/20 bg-white px-4 py-2 text-sm font-semibold text-[#0F3D5C] transition hover:bg-[#F6FBFF]"
+                        >
+                          View full announcement
+                        </button>
+                      </div>
                     </div>
 
                     {/* Delete Confirmation */}
@@ -509,6 +523,13 @@ export default function AdminAnnouncementsPage() {
                   </article>
                 ))
               )}
+
+              {selectedAnnouncement ? (
+                <AnnouncementDetailModal
+                  announcement={selectedAnnouncement}
+                  onClose={() => setSelectedAnnouncement(null)}
+                />
+              ) : null}
             </div>
           </div>
 
