@@ -51,6 +51,8 @@ export async function ensureProfile(authUser: SupabaseUser) {
     username: true,
     mustSecureAccount: true,
     usesTemporaryPassword: true,
+    phoneNumber: true,
+    kkProfileId: true,
   };
 
   try {

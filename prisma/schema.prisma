@@ -253,6 +253,15 @@ model Registration {
   userId  String
   user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Persisted snapshot of submitted registration fields to preserve
+  // what the user provided at the time of registration.
+  fullName      String?
+  email         String?
+  address       String?
+  age           Int?
+  sex           String?
+  contactNumber String?
+
   registeredAt DateTime @default(now())
 
   @@unique([eventId, userId]) // prevents double-registration

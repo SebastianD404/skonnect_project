@@ -25,6 +25,10 @@ interface Props {
 type SessionUser = {
   fullName?: string;
   email?: string;
+  phoneNumber?: string;
+  address?: string;
+  age?: string;
+  sex?: string;
 };
 
 function toTitleCase(value: string) {
@@ -95,7 +99,31 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
       try {
         const response = await fetch("/api/session");
         const data = await response.json();
-        setSessionUser(data?.user ?? null);
+        const u = data?.user ?? null;
+        if (!u) {
+          setSessionUser(null);
+          return;
+        }
+
+        // Prefer KK profiling data, then fall back to SKEAP application, then user profile
+        const kk = u.kkProfile ?? null;
+        const sa = u.skeapApplication ?? null;
+
+        const mapped: SessionUser = {
+          fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
+          email: u.email || (sa?.emailAddress as string) || undefined,
+          phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
+          address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+          age:
+            sa?.age != null
+              ? String(sa.age)
+              : kk?.birthDate
+              ? String(Math.floor((Date.now() - new Date(kk.birthDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25)))
+              : undefined,
+          sex: (sa?.gender as string) || undefined,
+        };
+
+        setSessionUser(mapped);
       } catch {
         setSessionUser(null);
       }
@@ -198,10 +226,10 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
     setRegisterForm({
       fullName: getAutofilledFullName(),
       email: sessionUser?.email || "",
-      phoneNumber: "",
-      address: "",
-      age: "",
-      sex: "",
+      phoneNumber: sessionUser?.phoneNumber || "",
+      address: sessionUser?.address || "",
+      age: sessionUser?.age || "",
+      sex: sessionUser?.sex || "",
     });
   };
 
@@ -560,9 +588,7 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
                     required
                     readOnly={Boolean(sessionUser?.email)}
                   />
-                  {sessionUser?.email ? (
-                    <p className="mt-1 text-[11px] text-slate-500">Auto-filled from your account</p>
-                  ) : null}
+                  {/* Intentionally removed auxiliary auto-fill message per UX request */}
                 </label>
 
                 <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -578,6 +604,7 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
                     placeholder="Your complete address"
                     required
                   />
+                  
                 </label>
 
                 <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -595,6 +622,7 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
                     placeholder="Your age"
                     required
                   />
+                  
                 </label>
 
                 <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -614,6 +642,7 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
                   </select>
+                  
                 </label>
 
                 <label className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -628,6 +657,7 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
                     className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400"
                     placeholder="09xxxxxxxxx"
                   />
+                  
                 </label>
               </div>
 
