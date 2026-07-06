@@ -894,16 +894,20 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
               <input
                 data-required="profile"
                 type="date"
+                min="1995-01-01"
+                max={`${new Date().getFullYear() - 1}-12-31`}
                 value={dateOfBirth}
                 onChange={(e) => {
                   const value = e.target.value;
-                  setDateOfBirth(value);
-                  const computedAge = computeAgeFromDateValue(value);
-                  if (computedAge !== undefined) {
-                    setAge(String(computedAge));
+                  if (value >= "1995-01-01" && value <= `${new Date().getFullYear() - 1}-12-31`) {
+                    setDateOfBirth(value);
+                    const computedAge = computeAgeFromDateValue(value);
+                    if (computedAge !== undefined) {
+                      setAge(String(computedAge));
+                    }
+                    markFieldValid("dateOfBirth");
+                    markFieldValid("age");
                   }
-                  markFieldValid("dateOfBirth");
-                  markFieldValid("age");
                 }}
                 className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("dateOfBirth") ? "border-rose-600" : "border-slate-300"}`}
               />

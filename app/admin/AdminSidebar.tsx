@@ -53,6 +53,7 @@ interface AdminSidebarProps {
   skeapApplicationCount: number;
   pendingDocumentCount: number;
   profilingRegistrationCount: number;
+  approvedMemberCount: number;
 }
 
 export default function AdminSidebar({
@@ -61,6 +62,7 @@ export default function AdminSidebar({
   skeapApplicationCount,
   pendingDocumentCount,
   profilingRegistrationCount,
+  approvedMemberCount,
 }: AdminSidebarProps) {
   const pathname = usePathname();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
@@ -101,16 +103,42 @@ export default function AdminSidebar({
     return `${parts[0].slice(0, 1)}${parts[parts.length - 1].slice(0, 1)}`.toUpperCase();
   }, [displayName, sessionUser?.email]);
 
-  const navItems = [
-    { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
-    { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: profilingRegistrationCount },
-    { label: "Events", href: "/admin/events", icon: CalendarDays, badge: upcomingEventCount },
-    { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: skeapApplicationCount },
-    { label: "Submissions", href: "/admin/submissions", icon: FileCheck, badge: pendingDocumentCount },
-    { label: "Announcements", href: "/admin/announcements", icon: Megaphone },
-    { label: "Inquiries", href: "/admin/inquiries", icon: Inbox, badge: openInquiryCount },
-    { label: "Grantees", href: "/admin/grantees", icon: Users },
-    { label: "Settings", href: "/admin/settings", icon: Settings },
+  const sidebarSections = [
+    {
+      title: "Overview",
+      items: [
+        { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+      ],
+    },
+    {
+      title: "People Management",
+      items: [
+        { label: "Members", href: "/admin/members", icon: Users, badge: approvedMemberCount },
+        { label: "Grantees", href: "/admin/grantees", icon: Users },
+        { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: profilingRegistrationCount },
+      ],
+    },
+    {
+      title: "Programs & Engagement",
+      items: [
+        { label: "Events", href: "/admin/events", icon: CalendarDays, badge: upcomingEventCount },
+        { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: skeapApplicationCount },
+        { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: pendingDocumentCount },
+      ],
+    },
+    {
+      title: "Communication",
+      items: [
+        { label: "Announcements", href: "/admin/announcements", icon: Megaphone },
+        { label: "Inquiries", href: "/admin/inquiries", icon: Inbox, badge: openInquiryCount },
+      ],
+    },
+    {
+      title: "System",
+      items: [
+        { label: "Settings", href: "/admin/settings", icon: Settings },
+      ],
+    },
   ];
 
   return (
@@ -118,40 +146,48 @@ export default function AdminSidebar({
       <div className="flex flex-col gap-6 w-full">
         <AdminSidebarBrand />
 
-        <div className="px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">Menu</div>
-        <nav className="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-220px)] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent hover:scrollbar-thumb-slate-300">
-          {navItems.map((item) => {
-          const isActive =
-            pathname === item.href ||
-            (item.href !== "/admin" && pathname.startsWith(item.href));
+        <nav className="flex flex-col gap-6 overflow-y-auto max-h-[calc(100vh-220px)] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent hover:scrollbar-thumb-slate-300">
+          {sidebarSections.map((section) => (
+            <div key={section.title} className="flex flex-col gap-2">
+              <span className="px-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                {section.title}
+              </span>
+              <div className="flex flex-col gap-1">
+                {section.items.map((item) => {
+                  const isActive =
+                    pathname === item.href ||
+                    (item.href !== "/admin" && pathname.startsWith(item.href));
 
-          const Icon = item.icon;
+                  const Icon = item.icon;
 
-          return (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm transition ${
-                isActive ? "bg-[#0F3D5C] text-white" : "text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              <span className="flex-1 text-left">{item.label}</span>
-              {item.badge && item.badge > 0 ? (
-                <span
-                  className={`ml-auto flex min-w-[1.25rem] items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold text-center transition-colors duration-150 ${
-                    isActive
-                      ? "bg-white/20 text-white border-white/20 backdrop-blur-xs"
-                      : "border-slate-200/70 bg-slate-100 text-slate-600"
-                  }`}
-                >
-                  {item.badge > 9 ? "9+" : item.badge}
-                </span>
-              ) : null}
-            </Link>
-          );
-        })}
-      </nav>
+                  return (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      className={`group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm transition ${
+                        isActive ? "bg-[#0F3D5C] text-white" : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span className="flex-1 text-left">{item.label}</span>
+                      {item.badge && item.badge > 0 ? (
+                        <span
+                          className={`ml-auto flex min-w-[1.25rem] items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold text-center transition-colors duration-150 ${
+                            isActive
+                              ? "bg-white/20 text-white border-white/20 backdrop-blur-xs"
+                              : "border-slate-200/70 bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {item.badge > 9 ? "9+" : item.badge}
+                        </span>
+                      ) : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
       </div>
 
       <div className="mt-auto border-t border-slate-200 pt-4">

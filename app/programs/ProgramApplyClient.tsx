@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { X } from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
 
 type Props = {
@@ -121,6 +122,14 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
             onClick={() => setShowKkRequiredModal(false)}
           />
           <div className="relative w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl sm:p-8">
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={() => setShowKkRequiredModal(false)}
+              className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              <X className="h-5 w-5" />
+            </button>
             {kkCheckError ? (
               <>
                 <p className="text-xs uppercase tracking-[0.28em] text-amber-600">Approval required</p>
@@ -150,26 +159,30 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
               </>
             ) : (
               <>
-                <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">S K program access</p>
-                <h3 className="mt-2 text-3xl font-semibold text-slate-900">KK Profiling required first</h3>
+                <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">SK Program Access</p>
+                <h3 className="mt-2 text-3xl font-semibold text-slate-900">KK profiling required</h3>
                 <p className="mt-4 text-sm leading-7 text-slate-600">
-                  To apply for the SKEAP scholarship and register for community events, you must first complete the Katipunan ng Kabataan (KK) profiling. This ensures all local programs remain exclusive to verified residents of Barangay Pico.
+                  To apply for the SKEAP scholarship and register for community events, you must have a verified Katipunan ng Kabataan (KK) profile. If you already have an SKonnect account, please log in to continue. If you do not have an account, register for KK profiling so your account can be verified.
                 </p>
 
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowKkRequiredModal(false)}
-                    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Maybe later
-                  </button>
+                <div className="mt-8 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3">
                   <Link
-                    href="/programs/kk-profiling"
-                    className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    href={typeof window !== "undefined" ? `/programs/kk-profiling?redirect=${encodeURIComponent(window.location.href)}` : "/programs/kk-profiling"}
+                    className="inline-flex justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
                   >
                     Go to KK Profiling
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window !== "undefined") {
+                        window.location.href = `/login?redirect=${encodeURIComponent(window.location.href)}`;
+                      }
+                    }}
+                    className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Log in
+                  </button>
                 </div>
               </>
             )}

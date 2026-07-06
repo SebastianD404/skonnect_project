@@ -419,8 +419,17 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               <span className="text-sm font-semibold">Birth date</span>
               <input
                 type="date"
+                min="1995-01-01"
+                max={`${new Date().getFullYear()}-12-31`}
                 value={form.birthDate}
-                onChange={(event) => handleBirthDateChange(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  const selectedYear = Number(value.slice(0, 4));
+                  const currentYear = new Date().getFullYear();
+                  if (value >= "1995-01-01" && value <= `${currentYear}-12-31` && selectedYear < currentYear) {
+                    handleBirthDateChange(value);
+                  }
+                }}
                 className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
               />
             </label>

@@ -762,29 +762,38 @@ export default function EventsPage() {
             onClick={() => setShowKkModal(false)}
           >
             <div
-              className="w-full max-w-lg rounded-[1.25rem] bg-white p-6 shadow-2xl"
+              className="relative w-full max-w-lg rounded-[1.25rem] bg-white p-6 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setShowKkModal(false)}
+                className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
               <div className="mb-4">
-                <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">S K program access</p>
-                <h3 className="mt-2 text-2xl font-semibold text-slate-900">KK Profiling required first</h3>
+                <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">SK Program Access</p>
+                <h3 className="mt-2 text-2xl font-semibold text-slate-900">KK profiling required</h3>
                 <p className="mt-3 text-sm text-slate-600">
-                  To register for community events you must first complete the Katipunan ng Kabataan (KK) profiling. This ensures events are reserved for verified residents.
+                  To register for community events you must have a verified Katipunan ng Kabataan (KK) profile. If you already have an SKonnect account, please log in to continue. If you do not have an account, register for KK profiling to create an account and complete verification.
                 </p>
               </div>
 
-              <div className="mt-6 flex gap-3 justify-end">
+              <div className="mt-6 flex flex-row-reverse sm:flex-row sm:items-center sm:justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowKkModal(false)}
-                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
-                >
-                  Maybe later
-                </button>
-                <button
-                  type="button"
-                  onClick={() => (window.location.href = "/programs/kk-profiling")}
+                  onClick={() => { window.location.href = '/login?redirect=' + encodeURIComponent(window.location.href); }}
                   className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Log in
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { window.location.href = '/programs/kk-profiling?redirect=' + encodeURIComponent(window.location.href); }}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900"
                 >
                   Go to KK Profiling
                 </button>

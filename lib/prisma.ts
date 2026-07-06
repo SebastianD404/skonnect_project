@@ -131,6 +131,35 @@ export async function getProfilingRegistrationCountByStatus(status?: string | nu
   }
 }
 
+export async function getProfilingRegistrationCountByStatusSince(status: string | null, since: Date) {
+  if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
+    return 0;
+  }
+
+  const normalizedStatus = status?.trim();
+  if (!normalizedStatus) {
+    return 0;
+  }
+
+  if (!(await hasProfilingRegistrationColumn("reviewStatus"))) {
+    return 0;
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+      `SELECT COUNT(*)::bigint AS count FROM "kk_profiling_registrations" WHERE "reviewStatus" = $1 AND "submittedAt" >= $2`,
+      normalizedStatus,
+      since.toISOString()
+    );
+    return Number(rows[0]?.count ?? 0);
+  } catch (error) {
+    if (isMissingTableError(error) || isMissingColumnError(error)) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
 export async function getWeeklyProfilingRegistrationCount() {
   if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
     return 0;

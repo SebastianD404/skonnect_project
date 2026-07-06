@@ -11,6 +11,9 @@ export default function HomePage() {
   const [activeLink, setActiveLink] = useState<string>(pathname);
   const [kkProfileStatus, setKkProfileStatus] = useState<string | null>(null);
   const [loadingKkProfile, setLoadingKkProfile] = useState(true);
+  const [youthCount, setYouthCount] = useState<number | null>(null);
+  const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
+  const [loadingMetrics, setLoadingMetrics] = useState(true);
 
   // Fetch KK profile status on mount
   useEffect(() => {
@@ -36,6 +39,36 @@ export default function HomePage() {
       })
       .finally(() => {
         if (mounted) setLoadingKkProfile(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoadingMetrics(true);
+
+    fetch("/api/homepage-metrics", { cache: "no-store" })
+      .then(async (response) => {
+        if (!mounted) return;
+        if (!response.ok) {
+          throw new Error("Failed to load homepage metrics");
+        }
+
+        const data = await response.json();
+        setYouthCount(typeof data.youthCount === "number" ? data.youthCount : null);
+        setActiveScholarCount(typeof data.activeScholarCount === "number" ? data.activeScholarCount : null);
+      })
+      .catch(() => {
+        if (mounted) {
+          setYouthCount(null);
+          setActiveScholarCount(null);
+        }
+      })
+      .finally(() => {
+        if (mounted) setLoadingMetrics(false);
       });
 
     return () => {
@@ -107,11 +140,15 @@ export default function HomePage() {
               {/* Stats row */}
               <div className="mt-8 grid grid-cols-3 gap-6 max-w-md text-sm">
                 <div className="text-center">
-                  <div className="text-2xl font-extrabold text-[#0F3D5C]">1,240+</div>
+                  <div className="text-2xl font-extrabold text-[#0F3D5C]">
+                    {loadingMetrics ? "..." : youthCount !== null ? youthCount.toLocaleString() : "N/A"}
+                  </div>
                   <div className="text-xs text-[#555555] uppercase tracking-wider mt-1">Youth registered</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-extrabold text-[#0F3D5C]">48</div>
+                  <div className="text-2xl font-extrabold text-[#0F3D5C]">
+                    {loadingMetrics ? "..." : activeScholarCount !== null ? activeScholarCount.toLocaleString() : "N/A"}
+                  </div>
                   <div className="text-xs text-[#555555] uppercase tracking-wider mt-1">Active scholars</div>
                 </div>
                 <div className="text-center">
@@ -184,7 +221,7 @@ export default function HomePage() {
       </div>
 
       {/* ── REGISTRY OF SERVICES ── */}
-      <section id="programs" className="relative py-24">
+      <section id="programs" className="relative py-10">
         {/* Background elements */}
         <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tl from-[#00B4E5]/8 to-transparent rounded-full blur-3xl -z-10"></div>
 
@@ -202,7 +239,7 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <ServiceCard
               icon={<GraduationCapIcon />}
               title="SKEAP"
@@ -245,7 +282,7 @@ export default function HomePage() {
             Sign up once. Track your scholarship, register for events, and get real answers — all in one record.
           </p>
           <Link
-            href="/signup"
+            href="/programs/kk-profiling"
             className="inline-flex items-center gap-2 px-10 py-4 bg-white text-[#0F3D5C] font-bold rounded-xl shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-105 active:scale-95"
           >
             Get started
@@ -336,23 +373,23 @@ function ServiceCard({
     <Link
       id={id}
       href={href}
-      className="group relative rounded-2xl border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:border-[#0F3D5C]/30 hover:-translate-y-1"
+      className="group relative rounded-2xl border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-6 shadow-sm hover:shadow-xl transition-all duration-300 hover:border-[#0F3D5C]/30 hover:-translate-y-0.5"
     >
       <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-[#00B4E5]/5 to-transparent rounded-full -z-10 group-hover:from-[#00B4E5]/10 transition-all duration-300"></div>
       
-      <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-[#00B4E5] to-[#0F3D5C] shadow-lg mb-6 group-hover:shadow-xl transition-all duration-300 group-hover:scale-110">
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#00B4E5] to-[#0F3D5C] shadow-lg mb-4 group-hover:shadow-xl transition-all duration-300 group-hover:scale-105">
         {icon}
       </div>
       
-      <h3 className="text-2xl font-bold text-[#0F3D5C] mb-4">
+      <h3 className="text-xl font-bold text-[#0F3D5C] mb-3">
         {title}
       </h3>
       
-      <p className="text-[#555555] leading-relaxed text-base">
+      <p className="text-[#555555] leading-relaxed text-sm">
         {desc}
       </p>
       
-      <div className="mt-6 text-sm font-bold text-[#0F3D5C] inline-flex items-center gap-1">
+      <div className="mt-4 text-sm font-bold text-[#0F3D5C] inline-flex items-center gap-1">
         Learn more →
       </div>
     </Link>

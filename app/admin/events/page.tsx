@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Calendar,
@@ -87,10 +87,17 @@ export default function AdminEventsPage() {
   });
 
   const [uploadingImage, setUploadingImage] = useState(false);
+  const editFormRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchEvents();
   }, []);
+
+  useEffect(() => {
+    if (showForm && editFormRef.current) {
+      editFormRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [showForm, editingId]);
 
   useEffect(() => {
     const shouldOpenCreate = searchParams.get("new") === "1";
@@ -459,6 +466,10 @@ export default function AdminEventsPage() {
     });
     setEditingId(event.id);
     setShowForm(true);
+
+    window.setTimeout(() => {
+      editFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
   }
 
   function handleCancel() {
@@ -590,7 +601,7 @@ export default function AdminEventsPage() {
         )}
         <div className="mt-8 space-y-8">
           {showForm && (
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm shadow-slate-200/50">
+              <div ref={editFormRef} className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm shadow-slate-200/50">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm uppercase tracking-[0.35em] text-teal-700">{editingId ? "Edit event" : "Create event"}</p>

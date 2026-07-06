@@ -9,7 +9,8 @@ import { useChatSession } from "@/app/components/chatbot/hooks/useChatSession";
 import { useDraggablePosition } from "@/app/components/chatbot/hooks/useDraggablePosition";
 
 const BUTTON_SIZE = 56;
-const VIEWPORT_MARGIN = 16;
+// Increase margin so the floating icon isn't pushed too far to the right
+const VIEWPORT_MARGIN = 48;
 const TOP_BOUNDARY = 84;
 const PANEL_WIDTH = 360;
 const PANEL_HEIGHT = 520;

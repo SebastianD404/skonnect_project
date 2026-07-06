@@ -278,7 +278,10 @@ export function PublicHeader() {
             </div>
           ) : (
             <>
-              <Link href="/login" className="text-sm font-semibold text-[#3C3C3C] transition-all px-4 py-2 hover:text-[#0F3D5C]">
+              <Link
+                href="/login"
+                className="rounded-xl px-4 py-2 text-sm font-semibold text-[#3C3C3C] transition duration-200 ease-out hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/10 active:scale-95"
+              >
                 Log in
               </Link>
               <Link href="/signup" className="rounded-xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-xl hover:scale-105 active:scale-95">

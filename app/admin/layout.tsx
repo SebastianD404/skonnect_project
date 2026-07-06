@@ -1,6 +1,6 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
-import { prisma, getProfilingRegistrationCount } from "@/lib/prisma";
+import { prisma, getProfilingRegistrationCount, getProfilingRegistrationCountByStatus, getProfilingRegistrationCountByStatusSince } from "@/lib/prisma";
 import AdminSidebar from "./AdminSidebar";
 
 export default async function AdminLayout({
@@ -32,27 +32,32 @@ export default async function AdminLayout({
     } as const;
   };
 
-  const [upcomingEventCount, openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount] = await Promise.all([
-    prisma.event.count({
-      where: {
-        status: {
-          in: ["UPCOMING", "REGISTRATION_OPEN"],
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const [upcomingEventCount, openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount, approvedMemberCountToday] =
+    await Promise.all([
+      prisma.event.count({
+        where: {
+          status: {
+            in: ["UPCOMING", "REGISTRATION_OPEN"],
+          },
         },
-      },
-    }),
-    prisma.inquiry.count({
-      where: { ...supportInquiryFilter, isResolved: false },
-    }),
-    prisma.inquiry.count({
-      where: {
-        ...subjectWhere,
-        NOT: [excludeCancelled, excludeApproved],
-        AND: [statusOrWhere(["pending", "return", "resubm", "respond"])],
-      },
-    }),
-    prisma.submission.count({ where: { status: "PENDING" } }),
-    getProfilingRegistrationCount(),
-  ]);
+      }),
+      prisma.inquiry.count({
+        where: { ...supportInquiryFilter, isResolved: false },
+      }),
+      prisma.inquiry.count({
+        where: {
+          ...subjectWhere,
+          NOT: [excludeCancelled, excludeApproved],
+          AND: [statusOrWhere(["pending", "return", "resubm", "respond"])],
+        },
+      }),
+      prisma.submission.count({ where: { status: "PENDING" } }),
+      getProfilingRegistrationCount(),
+      getProfilingRegistrationCountByStatusSince("Approved", startOfToday),
+    ]);
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#F8FBFF] text-slate-950">
       <div className="mx-auto flex h-full max-w-[1480px]">
@@ -62,6 +67,7 @@ export default async function AdminLayout({
           skeapApplicationCount={skeapApplicationCount}
           pendingDocumentCount={pendingDocumentCount}
           profilingRegistrationCount={profilingRegistrationCount}
+          approvedMemberCount={approvedMemberCountToday}
         />
         <main className="flex-1 h-full overflow-y-auto p-8">{children}</main>
       </div>

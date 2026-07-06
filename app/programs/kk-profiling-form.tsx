@@ -418,8 +418,17 @@ export default function KKProfilingForm() {
           <span className="text-sm font-semibold">Birth Date *</span>
           <input
             type="date"
+            min="1995-01-01"
+            max={`${new Date().getFullYear()}-12-31`}
             value={form.birthDate}
-            onChange={(e) => setField("birthDate", e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              const selectedYear = Number(value.slice(0, 4));
+              const currentYear = new Date().getFullYear();
+              if (value >= "1995-01-01" && value <= `${currentYear}-12-31` && selectedYear < currentYear) {
+                setField("birthDate", value);
+              }
+            }}
             required
             className="mt-1 rounded-lg border px-3 py-2"
           />
