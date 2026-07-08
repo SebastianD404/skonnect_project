@@ -121,9 +121,9 @@ export default function HomePage() {
               
               <div className="flex flex-col sm:flex-row flex-wrap items-start gap-3 pt-4">
                 <HeroCtaButton />
-                {!loadingKkProfile && kkProfileStatus?.toLowerCase().includes("approved") ? (
+                {!loadingKkProfile && (!kkProfileStatus || kkProfileStatus?.toLowerCase().includes("approved")) ? (
                   <a
-                    href="/programs"
+                    href="/#programs"
                     className="inline-flex items-center justify-center px-6 py-3 border-2 border-[#0F3D5C]/30 text-[#0F3D5C] font-bold rounded-2xl hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 transition-all duration-300"
                   >
                     See what we Offer

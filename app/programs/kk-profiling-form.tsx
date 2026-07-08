@@ -79,6 +79,39 @@ export default function KKProfilingForm() {
   const [signedIn, setSignedIn] = useState(false);
   const [accountExistsFallback, setAccountExistsFallback] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(true);
+
+  // Check if user is already approved and redirect
+  useEffect(() => {
+    let mounted = true;
+    setIsCheckingStatus(true);
+
+    fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" })
+      .then(async (response) => {
+        if (!mounted) return;
+        if (response.ok) {
+          const data = await response.json();
+          const profileStatus = data.profile?.status || "";
+          const isApprovedStatus = profileStatus.toLowerCase().includes("approved");
+          
+          if (isApprovedStatus === true) {
+            // Immediately redirect approved users - no UI shown
+            router.replace("/programs/kk-profiling/status");
+            return;
+          }
+        }
+        // User is not approved, show form
+        if (mounted) setIsCheckingStatus(false);
+      })
+      .catch(() => {
+        // Error checking status, show form as fallback
+        if (mounted) setIsCheckingStatus(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
 
   // ID file preview effect
   useEffect(() => {
@@ -338,8 +371,17 @@ export default function KKProfilingForm() {
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="grid gap-4">
-        <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
+      {isCheckingStatus ? (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA]">
+          <div className="text-center">
+            <div className="inline-flex h-12 w-12 animate-spin rounded-full border-4 border-slate-300 border-t-teal-600 mb-4"></div>
+            <p className="text-sm text-slate-600">Loading...</p>
+          </div>
+        </div>
+      ) : (
+        <>
+        <form onSubmit={handleSubmit} className="grid gap-4">
+          <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
 
       <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
         <div className="min-w-0 pr-24">
@@ -773,14 +815,14 @@ export default function KKProfilingForm() {
         </button>
         {message && <p className="text-sm text-slate-700">{message}</p>}
       </div>
-    </form>
+      </form>
 
-    {showSuccessModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 py-6">
-        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl ring-1 ring-slate-200">
-          <div className="flex flex-col items-center gap-6 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill ="currentColor" className="h-10 w-10">
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 py-6">
+          <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl ring-1 ring-slate-200">
+            <div className="flex flex-col items-center gap-6 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill ="currentColor" className="h-10 w-10">
                 <path fillRule="evenodd" d="M12 2.25a9.75 9.75 0 1 0 0 19.5 9.75 9.75 0 0 0 0-19.5Zm4.72 7.78a.75.75 0 0 1 0 1.06l-5.5 5.5a.75.75 0 0 1-1.06 0l-2.5-2.5a.75.75 0 0 1 1.06-1.06l1.97 1.97 4.97-4.97a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
               </svg>
             </div>
@@ -845,6 +887,8 @@ export default function KKProfilingForm() {
         </div>
       </div>
     )}
+        </>
+      )}
     </>
   );
 }
