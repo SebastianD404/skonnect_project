@@ -47,16 +47,16 @@ export default async function ProfilePage() {
   return (
     <SettingsShell
       title="Profile settings"
-      description="Edit your personal details and profile photo."
+      description="Edit your personal details, profile photo, and password."
       profileName={appUser.fullName}
       profileEmail={appUser.email}
       profileAvatar={baseProfile.avatarUrl ?? ""}
     >
       <div className="space-y-3 border-b border-slate-200 pb-5">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#0F3D5C]">Profile settings</p>
-        <h2 className="text-4xl font-black tracking-tight text-[#0F3D5C]">Edit your personal details</h2>
+        <h2 className="text-4xl font-black tracking-tight text-[#0F3D5C]">Edit your personal details and password</h2>
         <p className="max-w-2xl text-sm leading-6 text-slate-600">
-          Update the name shown across the portal and choose a profile picture for this browser.
+          Update the name shown across the portal, choose a profile picture for this browser, and change your password securely from one place.
         </p>
       </div>
 
