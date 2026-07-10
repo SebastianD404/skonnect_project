@@ -284,7 +284,7 @@ export function PublicHeader() {
               >
                 Log in
               </Link>
-              <Link href="/signup" className="rounded-xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-xl hover:scale-105 active:scale-95">
+              <Link href="/programs/kk-profiling" className="rounded-xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-xl hover:scale-105 active:scale-95">
                 Sign up
               </Link>
             </>

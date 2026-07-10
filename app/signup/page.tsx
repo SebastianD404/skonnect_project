@@ -1,8 +1,5 @@
-import { redirectIfSignedIn } from "@/lib/auth";
-import SignupContent from "./signup-content";
+import { redirect } from "next/navigation";
 
 export default async function SignupPage() {
-  await redirectIfSignedIn();
-
-  return <SignupContent />;
+  redirect("/programs/kk-profiling");
 }
