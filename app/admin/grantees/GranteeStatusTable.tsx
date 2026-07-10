@@ -78,8 +78,8 @@ export function GranteeStatusTable({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 md:grid-cols-[1.1fr_0.9fr]">
-        <label className="relative block w-full">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+        <label className="relative block w-full md:min-w-0 md:flex-1">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="search"
@@ -90,7 +90,7 @@ export function GranteeStatusTable({
           />
         </label>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-nowrap gap-2 md:justify-end">
           {FILTERS.map((filter) => (
             <button
               key={filter.value}

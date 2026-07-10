@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Calendar, Hash, Mail, MapPin, Phone, User, Users, X } from "lucide-react";
+import { normalizeAddressText } from "@/lib/address";
 
 interface EventItem {
   id: string;
@@ -123,7 +124,7 @@ const normalizeSex = (raw?: any) => {
             fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
             email: u.email || (sa?.emailAddress as string) || undefined,
             phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
-            address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+            address: normalizeAddressText((u.address as string) || (u.latestKkRegistration?.address as string) || (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined),
             age:
               sa?.age != null
                 ? String(sa.age)
@@ -164,7 +165,7 @@ const normalizeSex = (raw?: any) => {
         fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
         email: u.email || (sa?.emailAddress as string) || undefined,
         phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
-        address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+        address: normalizeAddressText((u.address as string) || (u.latestKkRegistration?.address as string) || (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined),
         age:
           sa?.age != null
             ? String(sa.age)

@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { formatAddressParts, formatKkAddress, normalizeAddressText } from "@/lib/address";
+
+const OFFICIAL_SITE_SEGMENTS = ["Bayabas", "Shamolog", "Shamlolog", "Balangabang", "Cogcoga", "Dreamland - Piripin Bato", "Km 4", "Km 5", "Toyong"];
+
+function hasOfficialSiteSegment(value?: string | null) {
+  const normalized = String(value ?? "").toLowerCase();
+  return OFFICIAL_SITE_SEGMENTS.some((segment) => normalized.includes(segment.toLowerCase()));
+}
 
 export async function GET() {
   const supabase = await createClient();
@@ -48,7 +56,9 @@ export async function GET() {
         where: { id: profile.kkProfileId },
         select: {
           fullName: true,
+          purok: true,
           addressLine: true,
+          barangay: true,
           contactNumber: true,
           birthDate: true,
           email: true,
@@ -79,8 +89,15 @@ export async function GET() {
 
   const metadataAvatar = (user.user_metadata as any)?.avatar_url || (user.user_metadata as any)?.avatarUrl || null;
   const avatarPath = profile.avatarUrl || metadataAvatar;
+  const kkProfileAddress = formatAddressParts([kkProfile?.purok, kkProfile?.barangay, kkProfile?.addressLine]);
+  const registrationAddress = formatKkAddress(latestKkRegistration?.address || "");
+  const autofillAddress =
+    (hasOfficialSiteSegment(registrationAddress) ? registrationAddress : "") ||
+    formatKkAddress(kkProfileAddress) ||
+    registrationAddress ||
+    normalizeAddressText(skeapApplication?.permanentAddress || "");
 
-  const profileWithApp = { ...profile, skeapApplication, kkProfile, latestKkRegistration };
+  const profileWithApp = { ...profile, address: autofillAddress, skeapApplication, kkProfile, latestKkRegistration };
 
   if (avatarPath) {
     if (!avatarPath.startsWith("http://") && !avatarPath.startsWith("https://")) {

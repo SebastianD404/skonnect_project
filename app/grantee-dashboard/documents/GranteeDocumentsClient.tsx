@@ -14,6 +14,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { buildSemesterTracker } from "@/lib/semester-progress";
 
 type SubmissionItem = {
   id: string;
@@ -66,13 +67,60 @@ const INITIAL_FORM: UploadState = {
 
 const BRAND = "#0F3D5C";
 const BRAND_DARK = "#0A2A40";
-const REQUIRED_DOCUMENTS_PER_SEMESTER = 2;
 
 
 function statusLabel(status: SubmissionItem["status"]) {
   if (status === "APPROVED") return "Approved";
   if (status === "REJECTED" || status === "RETURNED_FOR_EDIT") return "Needs editing";
   return "Pending review";
+}
+
+function getSubmissionDisplayStatus(submission: SubmissionItem) {
+  const hasCoe = Boolean(submission.coeFileUrl);
+  const hasGradeReport = Boolean(submission.gradeFileUrl);
+  const isFullyApproved = submission.status === "APPROVED" && hasCoe && hasGradeReport;
+
+  if (submission.status === "REJECTED" || submission.status === "RETURNED_FOR_EDIT") {
+    return {
+      label: "Needs editing",
+      tone: {
+        bar: "bg-rose-900/60",
+        chip: "bg-rose-50 text-rose-900 ring-1 ring-rose-100",
+        icon: <AlertCircle className="h-3.5 w-3.5" />,
+      },
+    };
+  }
+
+  if (isFullyApproved) {
+    return {
+      label: "Approved",
+      tone: {
+        bar: "bg-emerald-600/70",
+        chip: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100",
+        icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+      },
+    };
+  }
+
+  if (hasCoe && !hasGradeReport) {
+    return {
+      label: "Pending grades",
+      tone: {
+        bar: "bg-amber-500/70",
+        chip: "bg-amber-50 text-amber-800 ring-1 ring-amber-100",
+        icon: <Clock className="h-3.5 w-3.5" />,
+      },
+    };
+  }
+
+  return {
+    label: "Pending review",
+    tone: {
+      bar: "bg-slate-400",
+      chip: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+      icon: <Clock className="h-3.5 w-3.5" />,
+    },
+  };
 }
 
 function statusTone(status: SubmissionItem["status"]) {
@@ -115,16 +163,6 @@ function getFilenameFromUrl(url: string) {
     const parts = url.split("/");
     return decodeURIComponent(parts.pop() || url);
   }
-}
-
-function buildSemesterTracker(submissions: SubmissionItem[]) {
-  const current = submissions[0]?.semester ?? "Current term";
-  const inTerm = submissions.filter((s) => s.semester === current);
-  const hasApprovedBundle = inTerm.some((s) => s.status === "APPROVED");
-  const approved = hasApprovedBundle ? REQUIRED_DOCUMENTS_PER_SEMESTER : 0;
-  const total = REQUIRED_DOCUMENTS_PER_SEMESTER;
-  const pct = Math.round((approved / total) * 100);
-  return { current, approved, total, pct };
 }
 
 export default function GranteeDocumentsClient({ submissions, canSubmit }: Props) {
@@ -346,7 +384,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     return Array.from(groups.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [submissions]);
 
-  const tracker = useMemo(() => buildSemesterTracker(submissions), [submissions]);
+  const tracker = useMemo(() => buildSemesterTracker(submissions, form.semester), [submissions, form.semester]);
 
   async function uploadFile(file: File, kind: "grade" | "coe") {
     const formData = new FormData();
@@ -429,6 +467,26 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
       form.gradeFileUrl ||
       (gradePhaseUnlocked && !hasExistingGradeDocument)
     );
+
+    const gradeRowsAreComplete = form.grades.every((gradeRow) => {
+      const subject = gradeRow.subject.trim();
+      const grade = gradeRow.grade.trim();
+
+      if (!subject || !grade) {
+        return false;
+      }
+
+      const numericGrade = Number(grade);
+      return !Number.isNaN(numericGrade) && numericGrade >= 0 && numericGrade <= 100;
+    });
+
+    if (requiresGradeSubmission && !gradeRowsAreComplete) {
+      setMessage({
+        type: "error",
+        text: "Please complete every subject and grade field before submitting the grade report.",
+      });
+      return;
+    }
 
     if (!finalCoeFileUrl) {
       setMessage({ type: "error", text: "Please complete the Certificate of Enrollment upload before submitting." });
@@ -1032,42 +1090,48 @@ function YearGroup({ year, children }: { year: string; children: React.ReactNode
 }
 
 function HistoryItem({ submission }: { submission: SubmissionItem }) {
-  const tone = statusTone(submission.status);
+  const displayStatus = getSubmissionDisplayStatus(submission);
+  const hasGradeReport = Boolean(submission.gradeFileUrl);
+  const hasCoe = Boolean(submission.coeFileUrl);
   return (
     <article className="relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition hover:shadow-md">
-      <span className={`absolute left-0 top-0 h-full w-1 ${tone.bar}`} />
+      <span className={`absolute left-0 top-0 h-full w-1 ${displayStatus.tone.bar}`} />
       <div className="p-5 pl-6">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-slate-900">{submission.semester}</h3>
             <p className="mt-0.5 text-xs text-slate-500">Submitted {new Date(submission.submittedAt).toLocaleDateString()}</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <a
-                href={submission.gradeFileUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                Grade report
-              </a>
-              <a
-                href={submission.coeFileUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                COE
-              </a>
+              {hasGradeReport ? (
+                <a
+                  href={submission.gradeFileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Grade report
+                </a>
+              ) : null}
+              {hasCoe ? (
+                <a
+                  href={submission.coeFileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  COE
+                </a>
+              ) : null}
             </div>
             {submission.reviewNotes ? (
               <p className="mt-2 text-xs leading-relaxed text-rose-700">Admin note: {submission.reviewNotes}</p>
             ) : null}
           </div>
-          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium ${tone.chip}`}>
-            {tone.icon}
-            {statusLabel(submission.status)}
+          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium ${displayStatus.tone.chip}`}>
+            {displayStatus.tone.icon}
+            {displayStatus.label}
           </span>
         </div>
       </div>

@@ -11,6 +11,10 @@ function strongPassword(value: string) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(value);
 }
 
+function isAllowedUsername(value: string) {
+  return /^(?:[a-zA-Z0-9._-]+|[^\s@]+@[^\s@]+\.[^\s@]+)$/.test(value);
+}
+
 export async function secureAccount(
   _prevState: SecureState,
   formData: FormData
@@ -23,11 +27,8 @@ export async function secureAccount(
   if (!username || username.length < 4) {
     return { error: "Username must be at least 4 characters." };
   }
-  if (!/^[a-zA-Z0-9._-]+$/.test(username)) {
-    return { error: "Username may only include letters, numbers, dot, underscore, and dash." };
-  }
-  if (username.includes("@")) {
-    return { error: "Username cannot be an email address. Use only letters, numbers, dot, underscore, and dash." };
+  if (!isAllowedUsername(username)) {
+    return { error: "Username may only include letters, numbers, dot, underscore, dash, or a valid email address." };
   }
   if (!strongPassword(password)) {
     return { error: "Password must be at least 8 characters with uppercase, lowercase, and number." };

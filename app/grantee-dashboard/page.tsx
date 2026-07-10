@@ -14,6 +14,7 @@ import {
   PencilLine,
   Sparkles,
 } from "lucide-react";
+import { buildSemesterTracker } from "@/lib/semester-progress";
 
 export default async function GranteeOverviewPage() {
   const supabase = await createClient();
@@ -367,21 +368,6 @@ function ProgressCard({
       </div>
     </div>
   );
-}
-
-function buildSemesterTracker(submissions: Array<{ status: string; semester: string; gradeFileUrl?: string; coeFileUrl?: string }>) {
-  const current = submissions[0]?.semester ?? "Current term";
-  const currentSubmission = submissions.find((submission) => submission.semester === current);
-  const total = 2;
-  let approved = 0;
-
-  if (currentSubmission?.status === "APPROVED") {
-    if (currentSubmission.coeFileUrl) approved += 1;
-    if (currentSubmission.gradeFileUrl) approved += 1;
-  }
-
-  const pct = Math.round((approved / total) * 100);
-  return { current, approved, total, pct };
 }
 
 function ActionTile({

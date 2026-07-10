@@ -6,6 +6,7 @@ import { createClient as createSupabaseServerClient } from "@/lib/supabase/serve
 import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
+  OFFICIAL_SITIOS,
   isOfficialSitio,
   buildTemporaryPassword,
   isOfficialPurok,
@@ -155,11 +156,20 @@ function parseAddress(address: string) {
   const barangay = lower.includes("pico") ? BARANGAY_PICO : "";
 
   let purok = "";
+  for (const value of OFFICIAL_SITIOS) {
+    if (lower.includes(value.toLowerCase())) {
+      purok = value;
+      break;
+    }
+  }
+
+  if (!purok) {
   for (const value of OFFICIAL_PUROKS) {
     if (lower.includes(value.toLowerCase())) {
       purok = value;
       break;
     }
+  }
   }
 
   if (!purok) {
@@ -268,6 +278,8 @@ export async function POST(req: NextRequest) {
     }
 
     const { purok, addressLine, barangay } = parseAddress(String(body.address || ""));
+    const submittedSitio = normalizeSitio(String(body.sitio || "").trim());
+    const resolvedSite = submittedSitio || purok;
     const municipality = String(body.municipality || "").trim();
     const province = String(body.province || "").trim();
     const username = email;
@@ -371,7 +383,7 @@ export async function POST(req: NextRequest) {
           middleName: names.middleName,
           lastName: names.lastName,
           fullName: names.fullName,
-          purok,
+          purok: resolvedSite,
           addressLine,
           barangay: BARANGAY_PICO,
           birthDate,
@@ -419,7 +431,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const address = `${purok}, ${BARANGAY_PICO}, ${municipality}, ${province}`;
+      const address = `${resolvedSite}, ${BARANGAY_PICO}, ${municipality}, ${province}`;
 
       await tx.profilingRegistration.create({
         data: {

@@ -82,3 +82,8 @@ html {
 main, section, article, [role="main"] {
   animation: fadeIn 300ms ease-out;
 }
+
+.secure-account-password::-ms-reveal,
+.secure-account-password::-ms-clear {
+  display: none;
+}

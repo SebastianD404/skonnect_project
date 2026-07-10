@@ -266,6 +266,7 @@ export async function POST(req: Request) {
     const purok = normalizePurok(
       String(body.purok || "").trim() || legacyParsed.purok || sitio
     );
+    const resolvedSite = sitio || purok;
     const municipality = String(body.municipality || "").trim() || "La Trinidad";
     const province = String(body.province || "").trim() || "Benguet";
     const addressLine = String(body.addressLine || "").trim() || `${municipality}, ${province}`;
@@ -420,7 +421,7 @@ export async function POST(req: Request) {
           middleName: names.middleName,
           lastName: names.lastName,
           fullName: names.fullName,
-          purok,
+          purok: resolvedSite,
           addressLine,
           barangay: BARANGAY_PICO,
           birthDate,
@@ -468,7 +469,7 @@ export async function POST(req: Request) {
         });
       }
 
-      const address = `${purok}, ${BARANGAY_PICO}, ${municipality}, ${province}`;
+      const address = `${resolvedSite}, ${BARANGAY_PICO}, ${municipality}, ${province}`;
 
       await tx.profilingRegistration.create({
         data: {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Calendar, CalendarDays, Hash, Mail, MapPin, Phone, User, Users, X } from "lucide-react";
+import { normalizeAddressText } from "@/lib/address";
 
 interface Event {
   id: string;
@@ -175,6 +176,12 @@ export default function EventsPage() {
     return deriveNameFromEmail(candidateEmail);
   };
 
+  const getAutofilledAddress = (mapped: any) => {
+    return normalizeAddressText(
+      mapped?.address || mapped?.latestKkRegistration?.address || mapped?.kkProfile?.addressLine || mapped?.skeapApplication?.permanentAddress || ""
+    );
+  };
+
   const openRegisterModal = async (event: Event) => {
     // Require sign-in / KK profiling for registration. If not authenticated, prompt to complete KK profiling first.
     if (!isAuthenticated) {
@@ -193,7 +200,7 @@ export default function EventsPage() {
       fullName: getAutofilledFullName(),
       email: mf.email || "",
       phoneNumber: mf.phoneNumber || "",
-      address: mf.address || "",
+      address: getAutofilledAddress(mf),
       age: mf.age || "",
       sex: mf.sex || "",
     });
@@ -264,7 +271,7 @@ export default function EventsPage() {
             fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
             email: u.email || (sa?.emailAddress as string) || undefined,
             phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
-            address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+            address: normalizeAddressText((u.address as string) || (u.latestKkRegistration?.address as string) || (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined),
             age:
               sa?.age != null
                 ? String(sa.age)
@@ -310,7 +317,7 @@ export default function EventsPage() {
         fullName: (kk?.fullName as string) || u.fullName || (sa?.applicantName as string) || undefined,
         email: u.email || (sa?.emailAddress as string) || undefined,
         phoneNumber: (kk?.contactNumber as string) || (sa?.contactNumber as string) || u.phoneNumber || undefined,
-        address: (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined,
+        address: normalizeAddressText((u.address as string) || (u.latestKkRegistration?.address as string) || (kk?.addressLine as string) || (sa?.permanentAddress as string) || undefined),
         age:
           sa?.age != null
             ? String(sa.age)
