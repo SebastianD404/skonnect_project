@@ -1559,7 +1559,7 @@ export default function SkeapApplicationsClient({
               <button
                 type="button"
                 onClick={handleApprove}
-                className="inline-flex items-center justify-center rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                className="inline-flex items-center justify-center rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition transform hover:bg-emerald-700 hover:shadow-md active:scale-95 active:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
               >
                 <ArrowUpRight className="h-4 w-4" />
                 Confirm approval

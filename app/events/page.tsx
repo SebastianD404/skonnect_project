@@ -14,6 +14,7 @@ interface Event {
   filledSlots: number;
   status: string;
   isKatipunan: boolean;
+  isRegistered?: boolean;
   imageUrl: string | null;
   createdBy: {
     id: string;
@@ -64,6 +65,7 @@ export default function EventsPage() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [selectedRegisterEvent, setSelectedRegisterEvent] = useState<Event | null>(null);
+  const [selectedRegisteredEvent, setSelectedRegisteredEvent] = useState<Event | null>(null);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -116,6 +118,46 @@ export default function EventsPage() {
         type: "error",
         message: "Registration failed. Please check your connection and try again.",
       });
+    } finally {
+      setRegisteringId(null);
+    }
+  };
+
+  const handleCancelRegistration = async (eventId: string) => {
+    setNotification(null);
+    setRegisteringId(eventId);
+    try {
+      const response = await fetch(`/api/events/${eventId}/registration`, { method: "DELETE" });
+
+      if (response.status === 401) {
+        window.location.href = "/signup";
+        return;
+      }
+
+      let result: any = null;
+      try {
+        const text = await response.text();
+        result = text ? JSON.parse(text) : null;
+      } catch (err) {
+        result = null;
+      }
+
+      if (!response.ok) {
+        setNotification({ type: "error", message: result?.error || "Failed to cancel registration." });
+        return;
+      }
+
+      setNotification({ type: "success", message: result?.message || "Your registration has been cancelled." });
+      setEvents((current) =>
+        current.map((event) =>
+          event.id === eventId
+            ? { ...event, filledSlots: Math.max(0, event.filledSlots - 1), isRegistered: false }
+            : event
+        )
+      );
+      setSelectedRegisteredEvent(null);
+    } catch (err) {
+      setNotification({ type: "error", message: "Failed to cancel registration. Please try again." });
     } finally {
       setRegisteringId(null);
     }
@@ -541,23 +583,39 @@ export default function EventsPage() {
                       </button>
 
                       <div className="mt-auto pt-6">
-                        <button
-                          type="button"
-                          disabled={isFull || registeringId === event.id}
-                          onClick={() => openRegisterModal(event)}
-                          className={
-                            "inline-flex w-full items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition " +
-                            (isFull
-                              ? "border border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
-                              : "bg-[#0F3D5C] text-white shadow-lg hover:bg-[#0D2E47]")
-                          }
-                        >
-                          {registeringId === event.id
-                            ? "Registering..."
-                            : isFull
-                            ? "Registration closed"
-                            : "Register now"}
-                        </button>
+                        {(() => {
+                          const isRegistered = Boolean(event.isRegistered);
+                          const isLoading = registeringId === event.id;
+                          const disabled = (!isRegistered && (isFull || isLoading)) || (isRegistered && isLoading);
+                          return (
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => {
+                                if (isRegistered) setSelectedRegisteredEvent(event);
+                                else openRegisterModal(event);
+                              }}
+                              className={
+                                "inline-flex w-full items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition " +
+                                (disabled
+                                  ? "border border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
+                                  : isRegistered
+                                  ? "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 active:scale-95"
+                                  : "bg-[#0F3D5C] text-white shadow-lg hover:bg-[#0D2E47]")
+                              }
+                            >
+                              {isLoading && !isRegistered
+                                ? "Registering..."
+                                : isRegistered
+                                ? isLoading
+                                  ? "Processing..."
+                                  : "Registered"
+                                : isFull
+                                ? "Registration closed"
+                                : "Register now"}
+                            </button>
+                          );
+                        })()}
                       </div>
                     </div>
                   </article>
@@ -579,7 +637,7 @@ export default function EventsPage() {
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
                 <span className="text-2xl leading-none">✓</span>
               </div>
-              <h3 className="mt-4 text-center text-xl font-bold text-slate-900">Registration successful</h3>
+              <h3 className="mt-4 text-center text-xl font-bold text-slate-900">{(notification.message || "").toLowerCase().includes('cancel') ? 'Registration cancelled successfully' : 'Registration successful'}</h3>
               <p className="mt-2 text-center text-sm text-slate-600">{notification.message}</p>
               <button
                 type="button"
@@ -752,6 +810,39 @@ export default function EventsPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        ) : null}
+
+        {selectedRegisteredEvent ? (
+          <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px] px-4 py-6"
+            onClick={() => setSelectedRegisteredEvent(null)}
+          >
+            <div
+              className="relative w-full max-w-md overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white p-6 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-semibold text-slate-900">You're registered</h3>
+              <p className="mt-2 text-sm text-slate-600">You are currently registered for {selectedRegisteredEvent.title}. Do you want to cancel your registration?</p>
+
+              <div className="mt-6 flex items-center gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedRegisteredEvent(null)}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectedRegisteredEvent && handleCancelRegistration(selectedRegisteredEvent.id)}
+                  disabled={registeringId === selectedRegisteredEvent.id}
+                  className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 active:scale-95 disabled:opacity-60"
+                >
+                  {registeringId === selectedRegisteredEvent.id ? "Cancelling..." : "Cancel registration"}
+                </button>
+              </div>
             </div>
           </div>
         ) : null}

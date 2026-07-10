@@ -37,6 +37,13 @@ export async function runRagAnswer(params: {
     );
   }
 
+  function isEventListingQuery(q: string) {
+    return (
+      containsEventKeywords(q) &&
+      /\b(list|listed|show|what|which|real time|realtime|currently|live|posted|ilista|lista|listaan|iparang|makita|kitain)\b/i.test(q)
+    );
+  }
+
   function isEventRelatedQuery(q: string) {
     return (
       isUpcomingQuery(q) ||
@@ -64,6 +71,41 @@ export async function runRagAnswer(params: {
     return null;
   }
 
+  function parseMonthYear(q: string) {
+    const months: Record<string, number> = {
+      january: 0,
+      enero: 0,
+      february: 1,
+      pebrero: 1,
+      march: 2,
+      marzo: 2,
+      april: 3,
+      abril: 3,
+      may: 4,
+      mayo: 4,
+      june: 5,
+      hunyo: 5,
+      july: 6,
+      hulyo: 6,
+      august: 7,
+      agosto: 7,
+      september: 8,
+      setyembre: 8,
+      october: 9,
+      oktubre: 9,
+      november: 10,
+      nobyembre: 10,
+      december: 11,
+      disyembre: 11,
+    };
+    const lowered = q.toLowerCase();
+    const monthName = Object.keys(months).find((month) => new RegExp(`\\b${month}\\b`, "i").test(lowered));
+    if (!monthName) return null;
+    const yearMatch = lowered.match(/\b(20\d{2}|19\d{2})\b/);
+    const year = yearMatch ? Number(yearMatch[1]) : new Date().getFullYear();
+    return { month: months[monthName], year };
+  }
+
   // detect existence/yes-no queries across languages (e.g. "awan ti...", "wala", "mayroon", "is there")
   function isExistenceQuery(q: string) {
     return /\b(is there|are there|any upcoming|mayroon bang|mayroon ba|wala|awan|adda kadi|adda|ada ba|awan ti|may)\b/i.test(q);
@@ -74,7 +116,7 @@ export async function runRagAnswer(params: {
     return /\b(upcoming|next event|next events|any upcoming|are there any upcoming|is there an upcoming|upcoming events|paparating|mayroon bang|mayroon ba|may|darating|adda kadi|adda|sumaruno|sumaruno a pasamak)\b/i.test(q);
   }
 
-  function localizeNoEvents(language: Language, topic?: string) {
+  function localizeNoEvents(language: Language, topic?: string | null) {
     if (topic) {
       if (language === "FILIPINO") return `Wala pa po tungkol sa ${topic}.`;
       if (language === "ILOCANO") return `Awan pay ma'am/sir iti ${topic}.`;
@@ -85,7 +127,7 @@ export async function runRagAnswer(params: {
     return `There are currently no upcoming events listed on SKonnect.`;
   }
 
-  function localizeUpcomingEvents(events: any[], language: Language, topic?: string) {
+  function localizeUpcomingEvents(events: any[], language: Language, topic?: string | null) {
     const lines = events.map((e: any) => {
       const date = e.eventDate ? new Date(e.eventDate).toISOString().split("T")[0] : "TBA";
       const remaining = Math.max(0, (e.maxSlots ?? 0) - (e.filledSlots ?? 0));
@@ -138,49 +180,54 @@ export async function runRagAnswer(params: {
     }
   }
 
-  if (isUpcomingQuery(params.question)) {
+  if (isEventListingQuery(params.question) || isUpcomingQuery(params.question)) {
     try {
       const now = new Date();
-      // topic-specific lookup
       const topic = extractTopicKeyword(params.question);
-      if (topic) {
-        const events = await prisma.event.findMany({
-          where: {
-            eventDate: { gte: now },
-            status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-            OR: [
-              { title: { contains: topic, mode: "insensitive" } },
-              { description: { contains: topic, mode: "insensitive" } },
-            ],
-          },
-          orderBy: { eventDate: "asc" },
-          take: 10,
-        });
+      const monthYear = parseMonthYear(params.question);
+      const eventDateFilter = monthYear
+        ? {
+            gte: new Date(Date.UTC(monthYear.year, monthYear.month, 1, 0, 0, 0)),
+            lt: new Date(Date.UTC(monthYear.year, monthYear.month + 1, 1, 0, 0, 0)),
+          }
+        : { gte: now };
 
-        if (events.length > 0) {
-          const resp = localizeUpcomingEvents(events, params.language, topic);
-          return { response: resp, chunksUsed: chunks.length };
-        }
-
-        return { response: localizeNoEvents(params.language, topic), chunksUsed: chunks.length };
-      }
-
-      // general upcoming events lookup
       const events = await prisma.event.findMany({
         where: {
-          eventDate: { gte: now },
+          eventDate: eventDateFilter,
           status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
+          ...(topic
+            ? {
+                OR: [
+                  { title: { contains: topic, mode: "insensitive" } },
+                  { description: { contains: topic, mode: "insensitive" } },
+                ],
+              }
+            : {}),
         },
         orderBy: { eventDate: "asc" },
         take: 10,
       });
 
       if (events.length > 0) {
-        const resp = localizeUpcomingEvents(events, params.language);
+        if (isRegistrationQuery(params.question) || containsSlotKeywords(params.question)) {
+          const openEvents = events.filter((e) => (e.maxSlots ?? 0) > (e.filledSlots ?? 0));
+          if (openEvents.length > 0) {
+            const lines = openEvents.map((e) => {
+              const date = e.eventDate ? new Date(e.eventDate).toISOString().split("T")[0] : "TBA";
+              const remaining = Math.max(0, (e.maxSlots ?? 0) - (e.filledSlots ?? 0));
+              return { title: e.title, date, venue: e.venue, remaining };
+            });
+            const resp = localizeOpenEvents(lines, params.language);
+            return { response: resp, chunksUsed: chunks.length };
+          }
+        }
+
+        const resp = localizeUpcomingEvents(events, params.language, topic);
         return { response: resp, chunksUsed: chunks.length };
       }
 
-      return { response: localizeNoEvents(params.language), chunksUsed: chunks.length };
+      return { response: localizeNoEvents(params.language, topic ?? undefined), chunksUsed: chunks.length };
     } catch (e) {
       console.warn("Live upcoming lookup failed:", e);
       // continue to other fallbacks

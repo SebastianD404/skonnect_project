@@ -99,6 +99,9 @@ export async function POST(request: NextRequest) {
     const ageRaw = body.age == null ? "" : String(body.age).trim();
     const age = ageRaw ? Number(ageRaw) : undefined;
 
+    const rawAppUploadedFiles = body.uploadedFiles ?? body.allUploadedFiles ?? body.documentUploads ?? null;
+    const uploadedFiles = normalizeUploadedFiles(rawAppUploadedFiles);
+
     if (!schoolName || !currentCourse || !yearLevel || !enrollmentFileUrl || !reportCardFileUrl) {
       return NextResponse.json(
         { error: "School, course, year level, enrollment file, and report card file are required." },
@@ -137,8 +140,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const rawUploadedFiles = body.uploadedFiles ?? body.allUploadedFiles;
-    const uploadedFiles = normalizeUploadedFiles(rawUploadedFiles);
     const requiredUploadKeys = [
       SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE,
       SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY,
@@ -148,6 +149,10 @@ export async function POST(request: NextRequest) {
     ];
 
     if (!uploadedFiles) {
+      console.error("Invalid uploadedFiles payload for SKEAP application", {
+        userId: appUser.id,
+        rawAppUploadedFiles,
+      });
       return NextResponse.json(
         { error: "uploadedFiles must be a valid upload payload with one entry for each required document." },
         { status: 400 }

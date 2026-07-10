@@ -68,6 +68,7 @@ export function GranteeEventSection({ events, currentUserRole }: Props) {
   const [eventList, setEventList] = useState(events);
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [selectedRegisterEvent, setSelectedRegisterEvent] = useState<EventItem | null>(null);
+  const [selectedRegisteredEvent, setSelectedRegisteredEvent] = useState<EventItem | null>(null);
   const [registerFormError, setRegisterFormError] = useState<string | null>(null);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [showKkModal, setShowKkModal] = useState(false);
@@ -255,6 +256,52 @@ const normalizeSex = (raw?: any) => {
     }
   };
 
+  const handleCancelRegistration = async (eventId: string) => {
+    setNotification(null);
+    setRegisteringId(eventId);
+    try {
+      const response = await fetch(`/api/events/${eventId}/registration`, { method: "DELETE" });
+
+      if (response.status === 401) {
+        // Not authenticated — send to signup
+        window.location.href = "/signup";
+        return;
+      }
+
+      // Try to parse JSON if present
+      let result: any = null;
+      try {
+        const text = await response.text();
+        result = text ? JSON.parse(text) : null;
+      } catch (err) {
+        result = null;
+      }
+
+      if (!response.ok) {
+        setNotification({ type: "error", message: result?.error || "Failed to cancel registration." });
+        return;
+      }
+
+      setNotification({ type: "success", message: result?.message || "Your registration has been cancelled." });
+      setEventList((current) =>
+        current.map((event) =>
+          event.id === eventId
+            ? {
+                ...event,
+                filledSlots: Math.max(0, event.filledSlots - 1),
+                isRegistered: false,
+              }
+            : event
+        )
+      );
+      setSelectedRegisteredEvent(null);
+    } catch (err) {
+      setNotification({ type: "error", message: "Failed to cancel registration. Please try again." });
+    } finally {
+      setRegisteringId(null);
+    }
+  };
+
   const getAutofilledFullName = () => {
     const rawFullName = (sessionUser?.fullName || "").trim();
     if (rawFullName && !rawFullName.includes("@")) {
@@ -337,7 +384,7 @@ const normalizeSex = (raw?: any) => {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
               <span className="text-2xl leading-none">✓</span>
             </div>
-            <h3 className="mt-4 text-center text-xl font-bold text-slate-900">Registration successful</h3>
+            <h3 className="mt-4 text-center text-xl font-bold text-slate-900">{(notification.message || "").toLowerCase().includes('cancel') ? 'Registration cancelled successfully' : 'Registration successful'}</h3>
             <p className="mt-2 text-center text-sm text-slate-600">{notification.message}</p>
             <button
               type="button"
@@ -454,26 +501,36 @@ const normalizeSex = (raw?: any) => {
                 </button>
 
                 <div className="mt-auto pt-6">
-                  <button
-                    type="button"
-                    onClick={() => openRegisterModal(event)}
-                    disabled={isButtonDisabled}
-                    className={`w-full h-11 text-xs font-semibold rounded-xl transition-all duration-150 flex items-center justify-center gap-2 border ${
-                      isButtonDisabled
-                        ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-                        : "bg-[#0B192C] hover:bg-slate-800 text-white border-transparent cursor-pointer active:scale-[0.99]"
-                    }`}
-                  >
-                        {isLoading
-                          ? "Registering..."
-                          : isRegistered
-                          ? "Already registered"
-                          : !isAllowedToRegister && Boolean(currentUserRole)
-                          ? "Role Restricted"
-                          : !isOpen || isFull
-                          ? "Registration closed"
-                          : "Register now"}
-                  </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isRegistered) {
+                                setSelectedRegisteredEvent(event);
+                              } else {
+                                openRegisterModal(event);
+                              }
+                            }}
+                            disabled={(!isRegistered && isButtonDisabled) || (isRegistered && registeringId === event.id)}
+                            className={`w-full h-11 text-xs font-semibold rounded-xl transition-all duration-150 flex items-center justify-center gap-2 border ${
+                              (!isRegistered && isButtonDisabled) || (isRegistered && registeringId === event.id)
+                                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                                : isRegistered
+                                ? "bg-emerald-600 text-white border-transparent hover:bg-emerald-700 active:scale-95 shadow-sm"
+                                : "bg-[#0B192C] hover:bg-slate-800 text-white border-transparent cursor-pointer active:scale-[0.99]"
+                            }`}
+                          >
+                            {isLoading && !isRegistered
+                              ? "Registering..."
+                              : isRegistered
+                              ? registeringId === event.id
+                                ? "Processing..."
+                                : "Registered"
+                              : !isAllowedToRegister && Boolean(currentUserRole)
+                              ? "Role Restricted"
+                              : !isOpen || isFull
+                              ? "Registration closed"
+                              : "Register now"}
+                          </button>
                 </div>
               </div>
             </article>
@@ -817,6 +874,39 @@ const normalizeSex = (raw?: any) => {
             }`}
             onClick={(event) => event.stopPropagation()}
           />
+        </div>
+      ) : null}
+
+      {selectedRegisteredEvent ? (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px] px-4 py-6"
+          onClick={() => setSelectedRegisteredEvent(null)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-slate-900">You're registered</h3>
+            <p className="mt-2 text-sm text-slate-600">You are currently registered for {selectedRegisteredEvent.title}. Do you want to cancel your registration?</p>
+
+            <div className="mt-6 flex items-center gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedRegisteredEvent(null)}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => selectedRegisteredEvent && handleCancelRegistration(selectedRegisteredEvent.id)}
+                disabled={registeringId === selectedRegisteredEvent.id}
+                className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 active:scale-95 disabled:opacity-60"
+              >
+                {registeringId === selectedRegisteredEvent.id ? "Cancelling..." : "Cancel registration"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </>

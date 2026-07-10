@@ -53,6 +53,7 @@ interface AdminSidebarProps {
   skeapApplicationCount: number;
   pendingDocumentCount: number;
   profilingRegistrationCount: number;
+  newGranteesToday: number;
   approvedMemberCount: number;
 }
 
@@ -62,6 +63,7 @@ export default function AdminSidebar({
   skeapApplicationCount,
   pendingDocumentCount,
   profilingRegistrationCount,
+  newGranteesToday,
   approvedMemberCount,
 }: AdminSidebarProps) {
   const pathname = usePathname();
@@ -114,7 +116,7 @@ export default function AdminSidebar({
       title: "People Management",
       items: [
         { label: "Members", href: "/admin/members", icon: Users, badge: approvedMemberCount },
-        { label: "Grantees", href: "/admin/grantees", icon: Users },
+            { label: "Grantees", href: "/admin/grantees", icon: Users, badge: newGranteesToday },
         { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: profilingRegistrationCount },
       ],
     },

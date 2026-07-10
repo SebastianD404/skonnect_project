@@ -1,8 +1,21 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 
 export async function GET() {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    let appUserId: string | null = null;
+    if (user) {
+      const appUser = await ensureProfile(user);
+      if (appUser) appUserId = appUser.id;
+    }
+
     const events = await prisma.event.findMany({
       where: {
         status: {
@@ -20,6 +33,7 @@ export async function GET() {
         registrations: {
           select: {
             id: true,
+            userId: true,
           },
         },
       },
@@ -41,6 +55,7 @@ export async function GET() {
       imageUrl: event.imageUrl || null,
       createdBy: event.createdBy,
       createdAt: event.createdAt,
+      isRegistered: appUserId ? event.registrations.some((r) => r.userId === appUserId) : false,
     }));
 
     // Log image URLs for debugging

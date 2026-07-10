@@ -541,30 +541,29 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
 
   return (
     <div className="space-y-6 pb-32">
-      <div className="rounded-3xl border border-slate-100 bg-slate-950/5 p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="grid gap-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+        <div className="grid gap-6 lg:grid-cols-[1.45fr_auto] lg:items-center">
           <div className="space-y-4">
-            <Link href="/#programs" className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-slate-950">
+            <Link href="/#programs" className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 transition hover:text-slate-950">
               <span className="text-lg">←</span>
               Return to programs
             </Link>
-            <div>
+            <div className="space-y-3">
               <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Application review</p>
-              <h1 className="mt-3 text-3xl font-semibold text-slate-950">Application status</h1>
-              <p className="mt-3 max-w-2xl text-sm text-slate-600">
-                {headerSubtext}
-              </p>
+              <h1 className="text-4xl font-semibold tracking-tight text-slate-950">Application status</h1>
+              <p className="max-w-2xl text-sm leading-7 text-slate-600">{headerSubtext}</p>
             </div>
           </div>
-          <div className="space-y-2 text-right">
-            <span className={`inline-flex rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] ${headerBadgeClass}`}>
+          <div className="grid gap-3 rounded-[1.75rem] border border-slate-200 bg-slate-50 p-5 text-right">
+            <span className={`inline-flex items-center justify-center whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] ${headerBadgeClass}`}>
               {applicationHighlights}
             </span>
-            <p className="text-sm text-slate-500">
-              Submitted on {new Date(application.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-            </p>
+            <div className="text-sm text-slate-600">
+              <p className="font-semibold text-slate-900">Submitted</p>
+              <p>{new Date(application.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+            </div>
             {resubmittedAtText ? (
-              <p className="text-sm text-slate-500">Resubmitted on {resubmittedAtText}</p>
+              <div className="text-sm text-slate-500">Resubmitted on {resubmittedAtText}</div>
             ) : null}
           </div>
         </div>
@@ -612,20 +611,20 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         </div>
       ) : null}
 
-      <section className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
+      <section className="grid gap-6 xl:grid-cols-[1fr_0.92fr]">
         <div className="space-y-6">
-          <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_20px_40px_rgba(15,23,42,0.05)]">
+            <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50 p-6 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-slate-900">Reviewer notes</p>
-                <p className="mt-2 text-sm text-slate-600">These notes were sent by the SK review team. Fix any documents flagged below.</p>
+                <p className="mt-1 text-sm text-slate-500">These notes were sent by the SK review team. Fix flagged documents below.</p>
               </div>
-              <span className={`inline-flex items-center justify-center whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${hasActionRequired ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-700"}`}>
+              <span className={`inline-flex items-center justify-center whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] ${hasActionRequired ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
                 {`${updateCount} ${updateCount === 1 ? "update" : "updates"}`}
               </span>
             </div>
 
-            <div className="mt-6 space-y-4">
+            <div className="p-6 space-y-5">
               {application.reviewThread.length === 0 ? (
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
                   No reviewer comments have been posted yet.
@@ -712,230 +711,210 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           </div>
 
           <aside className="space-y-6">
-            <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">Application summary</p>
-              <div className="mt-4 space-y-4 text-sm text-slate-600">
-                <div className="flex items-center justify-between gap-2">
-                  <span>Status</span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] ${statusBadgeClass}`}>
-                    {currentDisplayStatus}
-                  </span>
+            <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_20px_40px_rgba(15,23,42,0.05)]">
+              <div className="border-b border-slate-100 bg-slate-50 px-6 py-5">
+                <p className="text-sm font-semibold text-slate-900">Application summary</p>
+              </div>
+              <div className="p-6 space-y-5 text-sm text-slate-600">
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-slate-700">Current status</span>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] ${statusBadgeClass}`}>
+                      {currentDisplayStatus}
+                    </span>
+                  </div>
+                  {application.lastUpdatedBy ? (
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-slate-700">
+                      <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Last updated</p>
+                      <p className="mt-1 text-sm">{application.lastUpdatedBy}</p>
+                    </div>
+                  ) : null}
                 </div>
+
                 {isRejected ? (
-                  <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Available Actions & Next Steps
-                      </h4>
-                      <p className="mt-1 text-xs text-slate-500 leading-normal">
-                        While this specific application is finalized, your account remains active. You can browse other available financial aid, grants, or community programs you may qualify for.
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <a
-                        href="/#programs"
-                        className="flex-1 text-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-all shadow-2xs"
-                      >
-                        Explore Other Programs
-                      </a>
-                      <a
-                        href="/support/tickets/new"
-                        className="flex-1 text-center bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold px-4 py-2.5 rounded-lg transition-all"
-                      >
-                        File an Eligibility Appeal
-                      </a>
-                    </div>
+                  <div className="rounded-[1.75rem] border border-rose-200 bg-rose-50 p-4">
+                    <p className="text-sm font-semibold text-rose-900">Application Rejected</p>
+                    <p className="mt-2 text-sm text-rose-700">Reason: {latestRejectionNote || "Does not meet eligibility criteria."}</p>
+                    <p className="mt-3 text-sm text-slate-500">If you believe this was an error, contact the SK Review administration directly.</p>
                   </div>
                 ) : isApproved ? (
-                  <div className="mt-4 rounded-3xl bg-emerald-50 p-4 border border-emerald-200 text-slate-900">
-                    <p className="text-sm font-semibold text-emerald-900">Application finalized</p>
-                    <p className="mt-2 text-sm text-slate-700">
-                      Your approval is complete and this submission is locked. The review team will finish manual onboarding and update your dashboard when the Grantee Profile is configured.
-                    </p>
-                  </div>
-                ) : isResubmitted ? (
-                  <div className={`rounded-2xl border px-3 py-3 text-sm ${bannerBgClass}`}>
-                    {bannerMessage}
-                  </div>
-                ) : hasActionRequired ? (
-                  <div className={`rounded-2xl border px-3 py-3 text-sm ${bannerBgClass}`}>
-                    {bannerMessage}
+                  <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 p-4">
+                    <p className="text-sm font-semibold text-emerald-900">Application approved</p>
+                    <p className="mt-2 text-sm text-slate-700">Your application has been approved and onboarding is in progress.</p>
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-600">No active corrections are required right now.</p>
-                )}
-                {application.lastUpdatedBy ? <p className="text-sm text-slate-600">Last updated by {application.lastUpdatedBy}</p> : null}
-
-                {!isRejected && !isApproved ? (
-                  <div className="mt-4 rounded-3xl bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-900">Ready to resubmit</p>
+                  <div className="rounded-[1.75rem] border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-900">Next step</p>
                     <p className="mt-2 text-sm text-slate-600">
                       {pendingReplacements > 0
                         ? `${pendingReplacements} replacement file${pendingReplacements > 1 ? "s" : ""} staged and ready to send.`
                         : "Choose at least one file replacement to activate resubmission."}
                     </p>
-                    <div className="mt-4 flex flex-col sm:flex-row items-center gap-3">
-                      <button
-                        type="button"
-                        disabled={disableResubmit}
-                        onClick={handleResubmit}
-                        className={`flex-1 w-full sm:w-auto inline-flex items-center justify-center rounded-3xl px-5 py-3 text-sm font-semibold transition ${disableResubmit ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}
-                      >
-                        {submitting ? "Resubmitting..." : "Resubmit application"}
-                      </button>
-                    </div>
+                  </div>
+                )}
+
+                {!isRejected && !isApproved ? (
+                  <div className="grid gap-3">
+                    <button
+                      type="button"
+                      disabled={disableResubmit}
+                      onClick={handleResubmit}
+                      className={`w-full rounded-[1.5rem] px-5 py-3 text-sm font-semibold transition ${disableResubmit ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}
+                    >
+                      {submitting ? "Resubmitting..." : "Resubmit application"}
+                    </button>
                   </div>
                 ) : null}
 
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowDeleteConfirm(true)}
-                    disabled={submitting || deleting}
-                    className={`w-full sm:w-auto px-5 py-2.5 rounded-xl border font-medium text-sm transition duration-200 ${submitting || deleting ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed" : "border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 active:scale-[0.98]"}`}
-                  >
-                    {deleting ? "Deleting..." : "Delete Application"}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={submitting || deleting}
+                  className={`w-full rounded-[1.5rem] border px-5 py-3 text-sm font-medium transition ${submitting || deleting ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed" : "border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300"}`}
+                >
+                  {deleting ? "Deleting..." : "Delete Application"}
+                </button>
               </div>
             </div>
           </aside>
         </div>
 
-        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_20px_40px_rgba(15,23,42,0.05)]">
+          <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50 p-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-sm font-semibold text-slate-900">Submitted files</p>
-              <p className="mt-2 text-sm text-slate-600">The 2x2 ID photo is now separated into the compiled application form. This list shows the 5 core requirements only.</p>
+              <p className="mt-1 text-sm text-slate-600">The 2x2 photo is now separated into the compiled application form. This list shows the core requirements only.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <span className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                5 requirement slots
+              <span className="inline-flex items-center justify-center whitespace-nowrap rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                {`${presentCount} of ${CORE_UPLOAD_KEYS.length} provided`}
               </span>
               <button
                 type="button"
                 onClick={() => setShowApplicationForm(true)}
-                className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.15em] text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300"
               >
                 View Application Form
               </button>
             </div>
           </div>
 
-          <div className="mt-6 flex flex-col gap-2.5">
-              {/* Required uploads checklist - shows core upload slots and their status */}
-              <div className="mb-3 flex w-full items-center gap-3">
-                <div className="flex items-center gap-3">
-                  <p className="text-sm font-medium text-slate-800">Required documents</p>
-                  <p className="text-xs text-slate-500">{`${presentCount} of ${CORE_UPLOAD_KEYS.length} provided`}</p>
-                </div>
-                <div className="ml-4 flex flex-wrap items-center gap-2">
-                  {CORE_UPLOAD_KEYS.map((key) => {
-                    const slot = submittedFiles.find((f) => f.slotId === key);
-                    const present = Boolean(slot && !slot.isMissing && slot.originalUrl);
-                    const label = SKEAP_UPLOAD_LABELS[key] || key;
-                    return (
-                      <div key={key} className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs ${present ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700"}`}>
-                        {present ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-                        <span className="whitespace-nowrap">{label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            {submittedFiles.map((file) => {
-              const staged = stagedMap[file.slotId];
-              const isReplacementActive = Boolean(staged);
-              const correction = getFileActionHint(application.reviewThread, file);
-              const previewSrc = staged?.previewUrl ?? file.originalUrl;
-              const displayName = staged?.file.name ?? getCleanFilename(stripDatabasePrefix(file.fileName));
-              const displayType = staged ? getFileTypeLabel(staged.file.name) : file.typeLabel;
-              const displaySize = staged ? formatBytes(staged.file.size) : null;
-              const downloadHref = staged?.previewUrl ?? (file.originalUrl || undefined);
-              const downloadName = staged?.file.name ?? file.fileName;
+          <div className="p-4 space-y-4">
+            <div className="grid gap-2 md:grid-cols-2">
+              {CORE_UPLOAD_KEYS.map((key) => {
+                const slot = submittedFiles.find((f) => f.slotId === key);
+                const present = Boolean(slot && !slot.isMissing && slot.originalUrl);
+                const label = SKEAP_UPLOAD_LABELS[key] || key;
+                return (
+                  <div key={key} className={`rounded-2xl border px-3 py-2 text-[11px] font-semibold ${present ? "border-emerald-100 bg-emerald-50 text-emerald-800" : "border-rose-100 bg-rose-50 text-rose-700"}`}>
+                    <span className="inline-flex items-center gap-2">
+                      {present ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                      {label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
 
-              return (
-                <div
-                  key={file.id}
-                  className={`flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-3 transition ${isReplacementActive ? "border-indigo-200 bg-indigo-50/30" : correction ? "border-rose-200 bg-rose-50/40" : ""}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50">
-                      {file.isImage ? (
-                        <img
-                          src={previewSrc}
-                          alt={displayName}
-                          className="h-full w-full object-cover"
-                          onError={(event) => {
-                            (event.currentTarget as HTMLImageElement).src = "/document-placeholder.svg";
+            <div className="max-h-[520px] overflow-y-auto space-y-3 pr-1">
+              {submittedFiles.map((file) => {
+                const staged = stagedMap[file.slotId];
+                const isReplacementActive = Boolean(staged);
+                const correction = getFileActionHint(application.reviewThread, file);
+                const previewSrc = staged?.previewUrl ?? file.originalUrl;
+                const displayName = staged?.file.name ?? getCleanFilename(stripDatabasePrefix(file.fileName));
+                const displayType = staged ? getFileTypeLabel(staged.file.name) : file.typeLabel;
+                const displaySize = staged ? formatBytes(staged.file.size) : null;
+                const downloadHref = staged?.previewUrl ?? (file.originalUrl || undefined);
+                const downloadName = staged?.file.name ?? file.fileName;
+
+                return (
+                  <div
+                    key={file.id}
+                    className={`grid gap-2 rounded-[1.5rem] border p-2.5 transition ${isReplacementActive ? "border-indigo-200 bg-indigo-50/30" : correction ? "border-rose-200 bg-rose-50/40" : "border-slate-100 bg-white"}`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-3xl bg-slate-100">
+                        {file.isImage ? (
+                          <img
+                            src={previewSrc}
+                            alt={displayName}
+                            className="h-full w-full object-cover"
+                            onError={(event) => {
+                              (event.currentTarget as HTMLImageElement).src = "/document-placeholder.svg";
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-9 w-9 items-center justify-center rounded-3xl bg-sky-100 text-sky-700">
+                            <FileText className="h-5 w-5" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 max-w-full space-y-1 overflow-hidden">
+                        <p className="truncate text-sm font-semibold text-slate-900 max-w-full">{displayName}</p>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                          <span>{displayType}</span>
+                          {displaySize ? <span>• {displaySize}</span> : null}
+                          {isReplacementActive ? (
+                            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-700">Updated</span>
+                          ) : isResubmitted ? (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Pending</span>
+                          ) : correction && !isRejected ? (
+                            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-red-600">Correction</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 justify-between">
+                      <div className="text-xs text-slate-500">
+                        {correction && !isRejected ? "This file needs a correction." : ""}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {!isRejected && !isApproved ? (
+                          <button
+                            type="button"
+                            disabled={isEditLocked}
+                            onClick={() => handleChooseFile(file.slotId)}
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-semibold transition ${isEditLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}`}
+                          >
+                            <Upload className="h-4 w-4" />
+                            {file.isMissing ? "Upload" : "Replace"}
+                          </button>
+                        ) : null}
+                        {downloadHref ? (
+                          <a
+                            href={downloadHref}
+                            download={downloadName}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"
+                            aria-label={`Download ${displayName}`}
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
+                        ) : null}
+                        <input
+                          ref={(element) => {
+                            fileInputRefs.current[file.slotId] = element;
+                          }}
+                          type="file"
+                          className="hidden"
+                          accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          onChange={(event) => {
+                            const selectedFile = event.target.files?.[0];
+                            if (selectedFile) {
+                              handleReplacementSelected(file.slotId, file.originalUrl, selectedFile);
+                            }
+                            event.target.value = "";
                           }}
                         />
-                      ) : (
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
-                          <FileText className="h-5 w-5" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                        <span className="truncate">{displayType}</span>
-                        {displaySize ? <span className="truncate">• {displaySize}</span> : null}
-                        {isReplacementActive ? (
-                          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-700">Updated file</span>
-                        ) : isResubmitted ? (
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Awaiting review</span>
-                        ) : correction && !isRejected ? (
-                          <span className="rounded-full bg-rose-50 px-2 py-0.5 text-red-600">Correction required</span>
-                        ) : null}
                       </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    {!isRejected && !isApproved ? (
-                      <button
-                        type="button"
-                        disabled={isEditLocked}
-                        onClick={() => handleChooseFile(file.slotId)}
-                        className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${isEditLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}`}
-                      >
-                        <Upload className="h-3.5 w-3.5" />
-                        {file.isMissing ? "Upload" : "Replace"}
-                      </button>
-                    ) : null}
-                    {downloadHref ? (
-                      <a
-                        href={downloadHref}
-                        download={downloadName}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"
-                        aria-label={`Download ${displayName}`}
-                      >
-                        <Download className="h-4 w-4" />
-                      </a>
-                    ) : null}
-                    <input
-                      ref={(element) => {
-                        fileInputRefs.current[file.slotId] = element;
-                      }}
-                      type="file"
-                      className="hidden"
-                      accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      onChange={(event) => {
-                        const selectedFile = event.target.files?.[0];
-                        if (selectedFile) {
-                          handleReplacementSelected(file.slotId, file.originalUrl, selectedFile);
-                        }
-                        event.target.value = "";
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </section>

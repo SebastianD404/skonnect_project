@@ -35,7 +35,7 @@ export default async function AdminLayout({
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  const [upcomingEventCount, openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount, approvedMemberCountToday] =
+  const [upcomingEventCount, openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount, newGranteesToday, approvedMemberCountToday] =
     await Promise.all([
       prisma.event.count({
         where: {
@@ -56,17 +56,40 @@ export default async function AdminLayout({
       }),
       prisma.submission.count({ where: { status: "PENDING" } }),
       getProfilingRegistrationCount(),
+      prisma.grantee.count({ where: { createdAt: { gte: startOfToday } } }),
       getProfilingRegistrationCountByStatusSince("Approved", startOfToday),
     ]);
+  // compute today's counts for sidebar badges (show only items added today)
+  const [
+    upcomingEventCountToday,
+    openInquiryCountToday,
+    skeapApplicationCountToday,
+    pendingDocumentCountToday,
+    profilingRegistrationCountToday,
+  ] = await Promise.all([
+    prisma.event.count({ where: { createdAt: { gte: startOfToday } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfToday } } }),
+    prisma.inquiry.count({
+      where: {
+        ...subjectWhere,
+        NOT: [excludeCancelled, excludeApproved],
+        AND: [statusOrWhere(["pending", "return", "resubm", "respond"])],
+        createdAt: { gte: startOfToday },
+      },
+    }),
+    prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: startOfToday } } }),
+    prisma.profilingRegistration.count({ where: { submittedAt: { gte: startOfToday } } }),
+  ]);
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#F8FBFF] text-slate-950">
       <div className="mx-auto flex h-full max-w-[1480px]">
         <AdminSidebar
-          upcomingEventCount={upcomingEventCount}
-          openInquiryCount={openInquiryCount}
-          skeapApplicationCount={skeapApplicationCount}
-          pendingDocumentCount={pendingDocumentCount}
-          profilingRegistrationCount={profilingRegistrationCount}
+          upcomingEventCount={upcomingEventCountToday}
+          openInquiryCount={openInquiryCountToday}
+          skeapApplicationCount={skeapApplicationCountToday}
+          pendingDocumentCount={pendingDocumentCountToday}
+          profilingRegistrationCount={profilingRegistrationCountToday}
+          newGranteesToday={newGranteesToday}
           approvedMemberCount={approvedMemberCountToday}
         />
         <main className="flex-1 h-full overflow-y-auto p-8">{children}</main>

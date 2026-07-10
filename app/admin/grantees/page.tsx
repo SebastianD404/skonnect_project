@@ -75,6 +75,14 @@ export default async function AdminGranteesPage() {
         dateEnrolled: true,
         createdAt: true,
         updatedAt: true,
+        submissions: {
+          orderBy: { submittedAt: "desc" },
+          where: { generalAverage: { not: null } },
+          take: 1,
+          select: {
+            generalAverage: true,
+          },
+        },
         user: {
           select: {
             id: true,
@@ -418,6 +426,7 @@ export default async function AdminGranteesPage() {
 
   const granteeRows: GranteeTableRow[] = grantees.map((grantee) => {
     const latestInquiry = grantee.user.inquiries?.[0] ?? null;
+    const latestSubmission = grantee.submissions?.[0] ?? null;
     const application = latestInquiry?.application
       ? {
           currentCourse: latestInquiry.application.currentCourse ?? undefined,
@@ -450,7 +459,8 @@ export default async function AdminGranteesPage() {
       school: grantee.school,
       yearLevel: grantee.yearLevel,
       status: grantee.status,
-      generalAverage: grantee.generalAverage,
+      generalAverage:
+        latestSubmission?.generalAverage ?? latestInquiry?.application?.gwa ?? grantee.generalAverage,
       dateEnrolled: grantee.dateEnrolled.toISOString(),
       updatedAt: grantee.updatedAt.toISOString(),
       detailsHref: `/admin/grantees/${grantee.id}`,

@@ -128,88 +128,96 @@ export function GranteeStatusTable({
                 </td>
               </tr>
             ) : (
-              filteredGrantees.map((grantee) => (
-                <tr key={grantee.id} className="transition hover:bg-slate-50">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
-                        {grantee.fullName
-                          .split(" ")
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .map((part) => part[0]?.toUpperCase())
-                          .join("")}
+              filteredGrantees.map((grantee) => {
+                const isBelowGwa = grantee.generalAverage !== null && grantee.generalAverage < 80;
+                return (
+                  <tr key={grantee.id} className="transition hover:bg-slate-50">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
+                          {grantee.fullName
+                            .split(" ")
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map((part) => part[0]?.toUpperCase())
+                            .join("")}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-slate-900">{grantee.fullName}</div>
+                          <div className="truncate text-xs text-slate-500">{grantee.email}</div>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <div className="truncate font-semibold text-slate-900">{grantee.fullName}</div>
-                        <div className="truncate text-xs text-slate-500">{grantee.email}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-slate-900 font-medium">{grantee.school}</div>
+                      <div className="text-xs text-slate-500">{grantee.yearLevel}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
+                        {STATUS_LABELS[grantee.status]}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className={`${isBelowGwa ? "text-rose-700 font-semibold" : "text-slate-900"}`}>
+                        {grantee.generalAverage !== null ? grantee.generalAverage.toFixed(2) : "—"}
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-slate-900 font-medium">{grantee.school}</div>
-                    <div className="text-xs text-slate-500">{grantee.yearLevel}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
-                      {STATUS_LABELS[grantee.status]}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-slate-900">
-                    {grantee.generalAverage !== null ? grantee.generalAverage.toFixed(2) : "—"}
-                  </td>
-                  <td className="px-6 py-4 text-slate-500">
-                    {new Date(grantee.dateEnrolled).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="inline-flex items-center justify-center gap-2">
-                      {grantee.application ? (
+                      {isBelowGwa ? (
+                        <div className="mt-1 text-xs text-rose-600">Below 80</div>
+                      ) : null}
+                    </td>
+                    <td className="px-6 py-4 text-slate-500">
+                      {new Date(grantee.dateEnrolled).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <div className="inline-flex items-center justify-center gap-2">
+                        {grantee.application ? (
+                          <button
+                            type="button"
+                            onClick={() => onViewApplication?.(grantee)}
+                            title="View application form"
+                            aria-label="View application form"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        ) : grantee.detailsHref ? (
+                          <Link
+                            href={grantee.detailsHref}
+                            title="View grantee"
+                            aria-label="View grantee"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            title="View grantee"
+                            aria-label="View grantee"
+                            className="inline-flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-full bg-slate-50 text-slate-400"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => onViewApplication?.(grantee)}
-                          title="View application form"
-                          aria-label="View application form"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
+                          onClick={() => onDelete?.(grantee)}
+                          title="Delete grantee"
+                          aria-label="Delete grantee"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-rose-50 text-rose-700 transition hover:bg-rose-100"
                         >
-                          <Eye className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" />
                         </button>
-                      ) : grantee.detailsHref ? (
-                        <Link
-                          href={grantee.detailsHref}
-                          title="View grantee"
-                          aria-label="View grantee"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Link>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled
-                          title="View grantee"
-                          aria-label="View grantee"
-                          className="inline-flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-full bg-slate-50 text-slate-400"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onDelete?.(grantee)}
-                        title="Delete grantee"
-                        aria-label="Delete grantee"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-rose-50 text-rose-700 transition hover:bg-rose-100"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

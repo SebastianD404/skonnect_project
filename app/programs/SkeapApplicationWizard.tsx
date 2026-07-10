@@ -119,6 +119,13 @@ function findUploadFileForKey(files: UploadedFile[], key: SkeapUploadKey) {
   return files.find(normalizedMatch);
 }
 
+function formatPermanentAddress(parts: Array<string | undefined | null>) {
+  return parts
+    .filter((part): part is string => Boolean(part && String(part).trim()))
+    .map((part) => String(part).trim())
+    .join(", ");
+}
+
 function isUploadCompleteForKey(files: UploadedFile[], key: SkeapUploadKey) {
   return files.some((file) => {
     if (file.status !== "done" || !file.url) return false;
@@ -314,7 +321,13 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
             setFirstName(parsedFirst);
             setMiddleInitial(parsedMiddle);
             setApplicantName(`${parsedLast}${parsedFirst ? `, ${parsedFirst}` : ""}${parsedMiddle ? ` ${parsedMiddle}` : ""}`);
-            setPermanentAddress(`${data.purok || ""}${data.addressLine ? ", " + data.addressLine : ""}${data.barangay ? ", " + data.barangay : ""}`);
+            setPermanentAddress(
+              formatPermanentAddress([
+                data.purok,
+                data.barangay,
+                data.addressLine,
+              ])
+            );
             setSchoolName("");
             const dateOfBirthValue = data.birthDate ? String(data.birthDate).slice(0, 10) : "";
             setDateOfBirth(dateOfBirthValue);
@@ -589,7 +602,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       }
     } catch (err) {
       const text = err instanceof Error ? err.message : "Upload failed";
-      console.error("SKEAP upload failed", { requirement, error: text });
+      console.error("SKEAP upload failed", { requirement, error: text, rawError: err });
       if (id) {
         setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "error", error: text } : f)));
       }
@@ -600,6 +613,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
     const err = validateStep();
     if (err) {
       collectInvalidFieldsForStep(step);
+      setMessage(err);
       focusFirstInvalidInStep(step);
       return;
     }
@@ -609,13 +623,48 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
 
     try {
       const doneUrls = files.filter((f) => f.status === "done").map((f) => f.url).filter(Boolean) as string[];
-      const documentUploads = files
-        .filter((f) => f.status === "done" && f.url)
-        .reduce<Partial<Record<SkeapUploadKey, SkeapUploadValue>>>((acc, file) => {
-          const key = normalizeUploadRequirement(file.requirement || file.name || "");
-          acc[key] = { name: file.name, url: file.url! };
-          return acc;
-        }, {});
+      const requiredUploadKeys = getRequiredUploadKeys(requirements);
+      const documentUploads = requiredUploadKeys.reduce<Partial<Record<SkeapUploadKey, SkeapUploadValue>>>((acc, key) => {
+        const file = findUploadFileForKey(files, key);
+        if (file?.status === "done" && file.url?.trim()) {
+          acc[key] = { name: file.name, url: file.url.trim() };
+        }
+        return acc;
+      }, {});
+
+      const missingUploadKeys = requiredUploadKeys.filter((key) => !documentUploads[key]?.url?.trim());
+      if (missingUploadKeys.length > 0) {
+        setMessage(
+          `Please upload required document${missingUploadKeys.length > 1 ? "s" : ""}: ${missingUploadKeys
+            .map((key) => SKEAP_UPLOAD_LABELS[key] || key)
+            .join(", ")}`
+        );
+        setSubmitting(false);
+        return;
+      }
+
+      const enrollmentFileUrl =
+        files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT)?.url ||
+        doneUrls[0] ||
+        "";
+      const reportCardFileUrl =
+        files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.GRADE_REPORT)?.url ||
+        doneUrls.find((url) => url !== enrollmentFileUrl) ||
+        doneUrls[1] ||
+        "";
+      const photoFileUrl =
+        files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.PHOTO)?.url ||
+        doneUrls.find((url) => url !== enrollmentFileUrl && url !== reportCardFileUrl) ||
+        doneUrls.find(Boolean) ||
+        "";
+      const voterCertificateFileUrl =
+        files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)?.url || null;
+
+      if (!enrollmentFileUrl || !reportCardFileUrl) {
+        setMessage("Please upload the required enrollment and grade report files before submitting.");
+        setSubmitting(false);
+        return;
+      }
 
       const res = await fetch("/api/skeap/applications", {
         method: "POST",
@@ -1456,12 +1505,18 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         </div>
       ) : null}
 
+      {message ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert" aria-live="polite">
+          {message}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={goBack}
           disabled={step === 0 || submitting}
-          className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition duration-200 ease-in-out hover:border-slate-400 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50"
         >
           Back
         </button>
@@ -1480,7 +1535,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
             type="button"
             onClick={submitApplication}
             disabled={submitting}
-            className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-70"
+            className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition duration-200 ease-in-out hover:bg-emerald-700 active:scale-[0.98] shadow-sm hover:shadow-md disabled:opacity-70 disabled:hover:bg-emerald-600"
           >
             {submitting ? "Submitting..." : "Submit application"}
           </button>

@@ -71,6 +71,8 @@ export default async function GranteeOverviewPage() {
   const approvedCount = submissions.filter((s) => s.status === "APPROVED").length;
   const needsEditCount = submissions.filter((s) => s.status === "REJECTED").length;
 
+  const tracker = buildSemesterTracker(submissions);
+
   const upcomingRegistered = appUser.registrations
     .filter((r) => new Date(r.event.eventDate) >= new Date())
     .sort((a, b) => new Date(a.event.eventDate).getTime() - new Date(b.event.eventDate).getTime());
@@ -187,13 +189,12 @@ export default async function GranteeOverviewPage() {
             accent="from-emerald-400 to-teal-500"
             tint="bg-emerald-50 text-emerald-700 ring-emerald-200"
           />
-          <StatCard
-            icon={<PencilLine className="h-4 w-4" />}
-            label="Needs editing"
-            value={needsEditCount}
-            note="Returned with notes to revise"
-            accent="from-rose-400 to-pink-500"
-            tint="bg-rose-50 text-rose-700 ring-rose-200"
+          <ProgressCard
+            icon={<CalendarCheck className="h-4 w-4" />}
+            label="Current semester progress"
+            approved={tracker.approved}
+            total={tracker.total}
+            pct={tracker.pct}
           />
           <StatCard
             icon={<CalendarCheck className="h-4 w-4" />}
@@ -330,6 +331,57 @@ function StatCard({
       <div className="relative mt-1 text-xs text-slate-500">{note}</div>
     </div>
   );
+}
+
+function ProgressCard({
+  icon,
+  label,
+  approved,
+  total,
+  pct,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  approved: number;
+  total: number;
+  pct: number;
+}) {
+  return (
+    <div className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow-md">
+      <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 opacity-10 blur-2xl transition group-hover:opacity-20" />
+      <div className="relative flex items-center justify-between">
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-900">{icon}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
+      </div>
+      <div className="relative mt-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-3xl font-semibold tracking-tight text-slate-900">{approved}/{total}</p>
+            <p className="text-xs text-slate-500">Approved this semester</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{pct}%</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function buildSemesterTracker(submissions: Array<{ status: string; semester: string; gradeFileUrl?: string; coeFileUrl?: string }>) {
+  const current = submissions[0]?.semester ?? "Current term";
+  const currentSubmission = submissions.find((submission) => submission.semester === current);
+  const total = 2;
+  let approved = 0;
+
+  if (currentSubmission?.status === "APPROVED") {
+    if (currentSubmission.coeFileUrl) approved += 1;
+    if (currentSubmission.gradeFileUrl) approved += 1;
+  }
+
+  const pct = Math.round((approved / total) * 100);
+  return { current, approved, total, pct };
 }
 
 function ActionTile({
