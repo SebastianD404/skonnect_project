@@ -3,7 +3,7 @@ export type SemesterProgressSubmission = {
   status: string;
   gradeFileUrl?: string;
   coeFileUrl?: string;
-  submittedAt?: string;
+  submittedAt?: string | Date;
 };
 
 const TERM_ORDER: Record<string, number> = {
