@@ -16,6 +16,8 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
   const [profileEmail, setProfileEmail] = useState("");
   const [profileAvatar, setProfileAvatar] = useState("");
   const [isDark, setIsDark] = useState(false);
+  const [supportMessages, setSupportMessages] = useState<string[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,6 +74,24 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
 
         // Notify other tabs/components that profile changed
         window.dispatchEvent(new Event('skonnect-profile-updated'));
+
+        if (serverUser.role === 'GRANTEE') {
+          setLoadingMessages(true);
+          try {
+            const inboxRes = await fetch('/api/my/inquiries', { cache: 'no-store' });
+            if (inboxRes.ok) {
+              const data = await inboxRes.json();
+              const replies = (data.inquiries || [])
+                .filter((item: any) => item.response)
+                .map((item: any) => `${item.subject}: ${item.response}`);
+              setSupportMessages(replies);
+            }
+          } catch {
+            setSupportMessages([]);
+          } finally {
+            setLoadingMessages(false);
+          }
+        }
       } catch (err) {
         // ignore
       }
@@ -138,67 +158,107 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       .map((part) => part[0]?.toUpperCase())
       .join("") || "?";
 
+  const displayedMessages = messages.length > 0 ? messages : supportMessages;
+  const [unreadNotifications, setUnreadNotifications] = useState<number>(notifications?.length ?? 0);
+  const [unreadMessages, setUnreadMessages] = useState<number>(() => (messages && messages.length ? messages.length : supportMessages.length || 0));
+  const [clearedNotifications, setClearedNotifications] = useState(false);
+  const [clearedMessages, setClearedMessages] = useState(false);
+  const [lastSeenNotificationsCount, setLastSeenNotificationsCount] = useState<number | null>(null);
+  const [lastSeenMessagesCount, setLastSeenMessagesCount] = useState<number | null>(null);
+
+  // Sync notifications count only when new items arrive (increase). Clearing hides badge until new items.
+  useEffect(() => {
+    const next = notifications?.length ?? 0;
+    if (clearedNotifications) {
+      // If the user cleared notifications, only consider counts greater than
+      // the last seen server count at the time of clearing as new.
+      if (lastSeenNotificationsCount === null) {
+        setLastSeenNotificationsCount(next);
+      } else if (next > lastSeenNotificationsCount) {
+        setUnreadNotifications(next);
+        setClearedNotifications(false);
+        setLastSeenNotificationsCount(null);
+      }
+    } else {
+      if (next > unreadNotifications) {
+        setUnreadNotifications(next);
+        setClearedNotifications(false);
+      } else if (unreadNotifications === undefined) {
+        setUnreadNotifications(next);
+      }
+    }
+  }, [notifications]);
+
+  // Sync messages count only when new items arrive.
+  useEffect(() => {
+    const next = (messages && messages.length) ? messages.length : supportMessages.length || 0;
+    if (clearedMessages) {
+      if (lastSeenMessagesCount === null) {
+        setLastSeenMessagesCount(next);
+      } else if (next > lastSeenMessagesCount) {
+        setUnreadMessages(next);
+        setClearedMessages(false);
+        setLastSeenMessagesCount(null);
+      }
+    } else {
+      if (next > unreadMessages) {
+        setUnreadMessages(next);
+        setClearedMessages(false);
+      }
+    }
+  }, [messages, supportMessages]);
+  // Normalize messages to objects { subject, reply } so rendering is consistent
+  const messageItems = (displayedMessages || []).map((m: any) => {
+    if (!m) return { subject: "", reply: "" };
+    if (typeof m === "string") {
+      const idx = m.indexOf(":");
+      if (idx >= 0) {
+        return { subject: m.slice(0, idx).trim(), reply: m.slice(idx + 1).trim() };
+      }
+      return { subject: m, reply: "" };
+    }
+    // If already an object, map fields
+    return { subject: m.subject || m.title || "", reply: m.reply || m.response || "" };
+  });
+
   return (
     <div className="relative flex items-center gap-3" ref={wrapperRef}>
-      <button
-        type="button"
-        onClick={() => setOpenPanel(openPanel === "notifications" ? "none" : "notifications")}
-        className="relative rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/20 hover:text-[#0F3D5C]"
-        aria-expanded={openPanel === "notifications"}
-      >
-        <span className="sr-only">Notifications</span>
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" />
-          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-        </svg>
-        {notifications.length > 0 && (
-          <span className="absolute -top-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#0F3D5C] text-[10px] font-bold text-white">
-            {notifications.length > 99 ? "99+" : notifications.length}
-          </span>
-        )}
-      </button>
-
-      <button
-        type="button"
-        onClick={() => setOpenPanel(openPanel === "messages" ? "none" : "messages")}
-        className="relative rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/20 hover:text-[#0F3D5C]"
-        aria-expanded={openPanel === "messages"}
-      >
-        <span className="sr-only">Messages</span>
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-        {messages.length > 0 && (
-          <span className="absolute -top-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#0F3D5C] text-[10px] font-bold text-white">
-            {messages.length > 99 ? "99+" : messages.length}
-          </span>
-        )}
-      </button>
-
-      <button
-        type="button"
-        onClick={() => setOpenPanel(openPanel === "settings" ? "none" : "settings")}
-        className={`inline-flex items-center gap-2 rounded-full px-2 py-2 text-left shadow-sm transition ${isDark ? "bg-slate-900/95 text-slate-100 hover:bg-slate-800" : "bg-white/95 text-slate-700 hover:bg-slate-50"}`}
-        aria-expanded={openPanel === "settings"}
-        aria-label={`Open account menu for ${profileName}`}
-        title={profileName}
-      >
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
-          {profileAvatar ? (
-            <img src={profileAvatar} alt={profileName} className="h-full w-full object-cover" />
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => {
+            const next = openPanel === "notifications" ? "none" : "notifications";
+            setOpenPanel(next);
+            if (next === "notifications") {
+              setClearedNotifications(true);
+              setUnreadNotifications(0);
+            }
+          }}
+          className={`relative rounded-2xl border p-3 shadow-sm transition ${openPanel === "notifications" ? "border-slate-200 bg-white/95" : "border-slate-200 bg-white/95"}`}
+          aria-expanded={openPanel === "notifications"}
+        >
+          <span className="sr-only">Notifications</span>
+          {openPanel === "notifications" ? (
+            // filled bell using the same path as the outline for visual consistency
+            <svg viewBox="0 0 24 24" className="h-5 w-5 text-[#0F3D5C]" fill="currentColor" aria-hidden>
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
           ) : (
-            initials
+            <svg viewBox="0 0 24 24" className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
           )}
-        </span>
+          {unreadNotifications > 0 && (
+            <span className="absolute -top-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#0F3D5C] text-[10px] font-bold text-white">
+              {unreadNotifications > 99 ? "99+" : unreadNotifications}
+            </span>
+          )}
+        </button>
 
-        <svg viewBox="0 0 24 24" className={`h-3 w-3 ${isDark ? "text-slate-400" : "text-slate-500"}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
-
-      {openPanel !== "none" && (
-        <div className={`absolute right-0 top-14 z-20 w-80 overflow-hidden rounded-3xl border shadow-2xl ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
-          {openPanel === "notifications" && (
+        {openPanel === "notifications" && (
+          <div className={`absolute right-0 mt-2 z-20 w-80 overflow-hidden rounded-3xl border shadow-2xl ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
             <div className="space-y-3 p-4">
               <p className="text-sm font-semibold text-[#0F3D5C] dark:text-sky-300">Notifications</p>
               {notifications.length > 0 ? (
@@ -211,24 +271,88 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
                 <p className="text-sm text-slate-500 italic dark:text-slate-400">No notifications yet</p>
               )}
             </div>
-          )}
+          </div>
+        )}
+      </div>
 
-          {openPanel === "messages" && (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => {
+            const next = openPanel === "messages" ? "none" : "messages";
+            setOpenPanel(next);
+            if (next === "messages") {
+              setClearedMessages(true);
+              setUnreadMessages(0);
+            }
+          }}
+          className={`relative rounded-2xl border p-3 shadow-sm transition ${openPanel === "messages" ? "border-slate-200 bg-white/95" : "border-slate-200 bg-white/95"}`}
+          aria-expanded={openPanel === "messages"}
+        >
+          <span className="sr-only">Messages</span>
+          {openPanel === "messages" ? (
+            <svg viewBox="0 0 24 24" className="h-5 w-5 text-[#0F3D5C]" fill="currentColor" aria-hidden>
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          )}
+          {unreadMessages > 0 && (
+            <span className="absolute -top-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#0F3D5C] text-[10px] font-bold text-white">
+              {unreadMessages > 99 ? "99+" : unreadMessages}
+            </span>
+          )}
+        </button>
+
+        {openPanel === "messages" && (
+          <div className={`absolute right-0 mt-2 z-20 w-80 overflow-hidden rounded-3xl border shadow-2xl ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
             <div className="space-y-3 p-4">
               <p className="text-sm font-semibold text-[#0F3D5C] dark:text-sky-300">Messages</p>
-              {messages.length > 0 ? (
+              {loadingMessages ? (
+                <p className="text-sm text-slate-500 italic dark:text-slate-400">Loading messages…</p>
+              ) : messageItems.length > 0 ? (
                 <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                  {messages.map((message, idx) => (
-                    <div key={`${message}-${idx}`} className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800">{message}</div>
+                  {messageItems.map((item, idx) => (
+                    <div key={`${item.subject}-${idx}`} className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800">
+                      <p className="text-sm font-semibold text-slate-900">{item.subject}</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">Admin: {item.reply}</p>
+                    </div>
                   ))}
                 </div>
               ) : (
                 <p className="text-sm text-slate-500 italic dark:text-slate-400">No messages yet</p>
               )}
             </div>
-          )}
+          </div>
+        )}
+      </div>
 
-          {openPanel === "settings" && (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpenPanel(openPanel === "settings" ? "none" : "settings")}
+          className={`inline-flex items-center gap-2 rounded-full px-2 py-2 text-left shadow-sm transition ${isDark ? "bg-slate-900/95 text-slate-100 hover:bg-slate-800" : "bg-white/95 text-slate-700 hover:bg-slate-50"}`}
+          aria-expanded={openPanel === "settings"}
+          aria-label={`Open account menu for ${profileName}`}
+          title={profileName}
+        >
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
+            {profileAvatar ? (
+              <img src={profileAvatar} alt={profileName} className="h-full w-full object-cover" />
+            ) : (
+              initials
+            )}
+          </span>
+
+          <svg viewBox="0 0 24 24" className={`h-3 w-3 ${isDark ? "text-slate-400" : "text-slate-500"}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+
+        {openPanel === "settings" && (
+          <div className={`absolute right-0 mt-2 z-20 w-80 overflow-hidden rounded-3xl border shadow-2xl ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
             <div className="p-2">
               <div className="flex items-center gap-3 rounded-2xl px-4 py-4">
                 <div className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-sm font-bold text-white">
@@ -255,9 +379,9 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
                 Sign out
               </Link>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

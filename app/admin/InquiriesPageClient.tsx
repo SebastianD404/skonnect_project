@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Search } from "lucide-react";
 import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 import type { TimePeriod } from "./DashboardHeaderWrapper";
@@ -62,10 +62,19 @@ export default function InquiriesPageClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "OPEN" | "RESOLVED">("ALL");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [localInquiries, setLocalInquiries] = useState(inquiries);
+  const [replyText, setReplyText] = useState<Record<string, string>>({});
+  const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
+  const [replyError, setReplyError] = useState<Record<string, string>>({});
+  const [replySuccess, setReplySuccess] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setLocalInquiries(inquiries);
+  }, [inquiries]);
 
   const filteredInquiries = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
-    return inquiries.filter((inquiry) => {
+    return localInquiries.filter((inquiry) => {
       const matchesStatus =
         statusFilter === "ALL" ||
         (statusFilter === "OPEN" ? !inquiry.isResolved : inquiry.isResolved);
@@ -82,10 +91,55 @@ export default function InquiriesPageClient({
       const matchesSearch = normalizedQuery.length === 0 || haystack.includes(normalizedQuery);
       return matchesStatus && matchesSearch;
     });
-  }, [inquiries, searchQuery, statusFilter]);
+  }, [localInquiries, searchQuery, statusFilter]);
 
-  const openCount = inquiries.filter((inquiry) => !inquiry.isResolved).length;
-  const resolvedCount = inquiries.filter((inquiry) => inquiry.isResolved).length;
+  const openCount = localInquiries.filter((inquiry) => !inquiry.isResolved).length;
+  const resolvedCount = localInquiries.filter((inquiry) => inquiry.isResolved).length;
+
+  async function handleReply(inquiryId: string) {
+    const text = (replyText[inquiryId] ?? "").trim();
+    if (!text) {
+      setReplyError((prev) => ({ ...prev, [inquiryId]: "Reply cannot be empty." }));
+      return;
+    }
+
+    setReplyError((prev) => ({ ...prev, [inquiryId]: "" }));
+    setSendingReplyId(inquiryId);
+
+    try {
+      const response = await fetch(`/api/inquiries/${inquiryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "message", text }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to send reply.");
+      }
+
+      setLocalInquiries((prev) =>
+        prev.map((inquiry) =>
+          inquiry.id === inquiryId
+            ? {
+                ...inquiry,
+                response: payload.response ?? inquiry.response,
+                respondedAt: payload.respondedAt ?? inquiry.respondedAt,
+              }
+            : inquiry
+        )
+      );
+      setReplyText((prev) => ({ ...prev, [inquiryId]: "" }));
+      setReplySuccess((prev) => ({ ...prev, [inquiryId]: "Reply sent." }));
+    } catch (err) {
+      setReplyError((prev) => ({
+        ...prev,
+        [inquiryId]: err instanceof Error ? err.message : "Unable to send reply.",
+      }));
+    } finally {
+      setSendingReplyId(null);
+    }
+  }
 
   return (
     <>
@@ -96,6 +150,7 @@ export default function InquiriesPageClient({
         statsByPeriod={statsByPeriod}
         compact
         onSearch={setSearchQuery}
+        showNotificationBell={false}
       />
 
       <div className="flex-1 py-0 mt-8">
@@ -235,6 +290,44 @@ export default function InquiriesPageClient({
                                     <p className="mt-3 text-sm leading-relaxed text-slate-700">
                                       {inquiry.response ?? "No response yet."}
                                     </p>
+                                  </div>
+                                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                                    <div className="flex items-center justify-between gap-4">
+                                      <div>
+                                        <p className="text-xs uppercase tracking-[0.28em] text-[#0F3D5C]">Reply</p>
+                                        <p className="mt-1 text-sm text-slate-500">Send a response to the grantee from this inquiry.</p>
+                                      </div>
+                                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                                        {inquiry.isResolved ? "Resolved" : "Open"}
+                                      </span>
+                                    </div>
+                                    <textarea
+                                      value={replyText[inquiry.id] ?? ""}
+                                      onChange={(event) =>
+                                        setReplyText((prev) => ({
+                                          ...prev,
+                                          [inquiry.id]: event.target.value,
+                                        }))
+                                      }
+                                      rows={4}
+                                      className="mt-4 w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+                                      placeholder="Type your reply here..."
+                                    />
+                                    {replyError[inquiry.id] ? (
+                                      <p className="mt-2 text-sm text-rose-700">{replyError[inquiry.id]}</p>
+                                    ) : replySuccess[inquiry.id] ? (
+                                      <p className="mt-2 text-sm text-emerald-700">{replySuccess[inquiry.id]}</p>
+                                    ) : null}
+                                    <div className="mt-4 flex justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleReply(inquiry.id)}
+                                        disabled={sendingReplyId === inquiry.id}
+                                        className="inline-flex items-center justify-center rounded-2xl bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0D2E47] disabled:cursor-not-allowed disabled:bg-slate-400"
+                                      >
+                                        {sendingReplyId === inquiry.id ? "Sending…" : "Send reply"}
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               </td>

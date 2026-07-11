@@ -142,12 +142,13 @@ export async function PATCH(
       (attachments.length > 0 || /returned|correction|required|resubmit|revise|revision/i.test(text));
 
     if (action === "message") {
+      updateData.response = message.text;
+      updateData.respondedAt = new Date();
+      updateData.lastUpdatedBy = "admin";
+
       if (isReturnedUpdate) {
         updateData.reviewStatus = "Returned";
-        updateData.response = message.text;
-        updateData.respondedAt = new Date();
         updateData.isResolved = true;
-        updateData.lastUpdatedBy = "admin";
       }
     }
 
@@ -230,6 +231,8 @@ export async function PATCH(
       success: true,
       reviewThread: updatedInquiry.reviewThread,
       reviewStatus: updatedInquiry.reviewStatus ?? undefined,
+      response: updatedInquiry.response ?? null,
+      respondedAt: updatedInquiry.respondedAt?.toISOString() ?? null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update inquiry";

@@ -218,6 +218,15 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
   const gradePhaseUnlocked = currentSubmission?.status === "APPROVED";
   const gradeUploadAllowed = gradePhaseUnlocked || (hasReturnedSubmission && isGradeReportFlagged);
 
+  // When a submission for the selected semester is already approved and both files are present and not flagged,
+  // treat the form as closed/read-only for that term.
+  const isSubmissionClosed =
+    currentSubmission?.status === "APPROVED" &&
+    hasExistingGradeReport &&
+    hasExistingCoe &&
+    !isGradeReportFlagged &&
+    !isCoeFlagged;
+
   const submitButtonLabel =
     currentSubmission?.status === "RETURNED_FOR_EDIT"
       ? "Update submission"
@@ -331,6 +340,57 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
       };
     });
   }, [submissions]);
+
+  // Reset or initialize the form when the selected semester changes.
+  useEffect(() => {
+    const sub = submissions.find((s) => s.semester === form.semester) ?? null;
+
+    // If there's no submission for the selected semester, reset to an empty, editable form.
+    if (!sub && form.semester) {
+      setForm({
+        ...INITIAL_FORM,
+        semester: form.semester,
+        grades: [
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            subject: "",
+            grade: "",
+          },
+        ],
+      });
+      return;
+    }
+
+    // If a submission exists for the selected semester and the user hasn't entered data yet,
+    // prefill the general average (but keep file inputs empty so existing uploads are shown as retained).
+    if (sub) {
+      setForm((current) => {
+        const hasUserInput =
+          Boolean(current.generalAverage) ||
+          Boolean(current.gradeFile) ||
+          Boolean(current.coeFile) ||
+          Boolean(current.gradeFileUrl) ||
+          Boolean(current.coeFileUrl) ||
+          current.grades.some((g) => g.subject.trim() !== "" || g.grade.trim() !== "");
+
+        if (hasUserInput) return current;
+
+        return {
+          ...current,
+          semester: sub.semester || "",
+          generalAverage:
+            sub.generalAverage !== null && sub.generalAverage !== undefined ? String(sub.generalAverage) : "",
+          grades: [
+            {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              subject: "",
+              grade: "",
+            },
+          ],
+        };
+      });
+    }
+  }, [form.semester, submissions]);
 
   useEffect(() => {
     const syncDashboardData = () => {
@@ -658,7 +718,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                       value={form.semester}
                       onChange={(e) => setForm((prev) => ({ ...prev, semester: e.target.value }))}
                       disabled={!canSubmit}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm outline-none transition duration-100 ease-in-out hover:border-[#0F3D5C] hover:bg-white/80 hover:shadow-sm focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
                       required
                     >
                       <option value="">Select semester</option>
@@ -686,14 +746,30 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                 <div className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <h2 className="text-sm font-semibold text-slate-900">Grades</h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-sm font-semibold text-slate-900">Grades</h2>
+                        {isSubmissionClosed ? (
+                          <span className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[12px] font-semibold text-emerald-700">Verified</span>
+                        ) : null}
+                      </div>
                       <p className="mt-1 text-sm text-slate-500">Add each subject and its numeric grade. GWA is calculated automatically.</p>
                     </div>
                     <button
                       type="button"
                       onClick={addGradeRow}
-                      className="inline-flex items-center justify-center rounded-2xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={!canSubmit}
+                      className={`inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        gradeUploadAllowed && !isSubmissionClosed
+                          ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          : "bg-slate-100 text-slate-400"
+                      }`}
+                      disabled={!canSubmit || !gradeUploadAllowed || isSubmissionClosed}
+                      title={
+                        isSubmissionClosed
+                          ? `Submission for ${form.semester || "this term"} is closed and verified.`
+                          : !gradeUploadAllowed
+                          ? "Grades input is locked until enrollment verification is accepted."
+                          : "Add a subject to the grade list"
+                      }
                     >
                       Add subject
                     </button>
@@ -707,7 +783,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                           onChange={(e) => updateGrade(gradeRow.id, "subject", e.target.value)}
                           placeholder="Subject"
                           className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10"
-                          disabled={!canSubmit || !gradeUploadAllowed}
+                          disabled={!canSubmit || !gradeUploadAllowed || isSubmissionClosed}
                         />
                         <input
                           type="number"
@@ -717,17 +793,21 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                           onChange={(e) => updateGrade(gradeRow.id, "grade", e.target.value)}
                           placeholder="Grade"
                           className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10"
-                          disabled={!canSubmit || !gradeUploadAllowed}
+                          disabled={!canSubmit || !gradeUploadAllowed || isSubmissionClosed}
                         />
-                        <button
-                          type="button"
-                          onClick={() => removeGradeRow(gradeRow.id)}
-                          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          aria-label="Remove subject"
-                          disabled={!canSubmit || !gradeUploadAllowed || form.grades.length === 1}
-                        >
-                          ×
-                        </button>
+                        {!isSubmissionClosed ? (
+                          <button
+                            type="button"
+                            onClick={() => removeGradeRow(gradeRow.id)}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            aria-label="Remove subject"
+                            disabled={!canSubmit || !gradeUploadAllowed || form.grades.length === 1}
+                          >
+                            ×
+                          </button>
+                        ) : (
+                          <div />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -760,7 +840,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                         subtitle="PDF, JPG, PNG, WEBP - max 10MB"
                         onChange={(file) => handleFileChange(file, "grade")}
                         onRemoveFile={() => setForm((prev) => ({ ...prev, gradeFile: null, gradeFileUrl: "" }))}
-                        disabled={!canSubmit || !gradeUploadAllowed || submitting || uploadingGrade}
+                        disabled={!canSubmit || !gradeUploadAllowed || submitting || uploadingGrade || isSubmissionClosed}
                       />
                     )
                   ) : (
@@ -803,7 +883,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                       subtitle="PDF, JPG, PNG, WEBP - max 10MB"
                       onChange={(file) => handleFileChange(file, "coe")}
                       onRemoveFile={() => setForm((prev) => ({ ...prev, coeFile: null, coeFileUrl: "" }))}
-                      disabled={!canSubmit || submitting || uploadingCoe}
+                      disabled={!canSubmit || submitting || uploadingCoe || isSubmissionClosed}
                     />
                   )}
                   {hasReturnedSubmission && isCoeFlagged && !form.coeFile ? (
@@ -814,23 +894,39 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                 </Field>
               </div>
 
-              <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
-                <span className="font-semibold text-slate-700">Heads up:</span> Please upload readable files. SK/admin will review the latest semester submission for approval.
-              </div>
+              {isSubmissionClosed ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  <span className="font-semibold">Submission Closed.</span> Your requirements for the {form.semester || "selected semester"} have been successfully verified and approved. Proceed to the next Semester. 
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
+                  <span className="font-semibold text-slate-700">Heads up:</span> Please upload readable files. SK/admin will review the latest semester submission for approval.
+                </div>
+              )}
 
               <div className="flex items-center justify-between border-t border-slate-100 pt-3">
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <ShieldCheck className="h-4 w-4 text-emerald-600" />
                   Encrypted and securely stored
                 </div>
-                <button
-                  type="submit"
-                  disabled={!canSubmit || submitting || uploadingGrade || uploadingCoe}
-                  className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ backgroundColor: BRAND }}
-                >
-                  {submitting ? "Submitting..." : submitButtonLabel}
-                </button>
+                {isSubmissionClosed ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm bg-slate-400 disabled:cursor-not-allowed disabled:opacity-80"
+                  >
+                    Submission Closed
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!canSubmit || submitting || uploadingGrade || uploadingCoe}
+                    className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ backgroundColor: BRAND }}
+                  >
+                    {submitting ? "Submitting..." : submitButtonLabel}
+                  </button>
+                )}
               </div>
               </form>
             )}

@@ -512,13 +512,14 @@ const normalizeSex = (raw?: any) => {
                               }
                             }}
                             disabled={(!isRegistered && isButtonDisabled) || (isRegistered && registeringId === event.id)}
-                            className={`w-full h-11 text-xs font-semibold rounded-xl transition-all duration-150 flex items-center justify-center gap-2 border ${
-                              (!isRegistered && isButtonDisabled) || (isRegistered && registeringId === event.id)
-                                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                            className={
+                              "inline-flex w-full items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition " +
+                              (((!isRegistered && isButtonDisabled) || (isRegistered && registeringId === event.id))
+                                ? "border border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
                                 : isRegistered
-                                ? "bg-emerald-600 text-white border-transparent hover:bg-emerald-700 active:scale-95 shadow-sm"
-                                : "bg-[#0B192C] hover:bg-slate-800 text-white border-transparent cursor-pointer active:scale-[0.99]"
-                            }`}
+                                ? "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 active:scale-95"
+                                : "bg-[#0F3D5C] text-white shadow-lg hover:bg-[#0D2E47]")
+                            }
                           >
                             {isLoading && !isRegistered
                               ? "Registering..."

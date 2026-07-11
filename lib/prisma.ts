@@ -231,6 +231,37 @@ export async function getWeeklyProfilingRegistrationCountByClassification(classi
   }
 }
 
+export async function getMonthlyProfilingRegistrationCounts(lastNMonths: number) {
+  if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
+    return [] as { month: string; count: number }[];
+  }
+
+  const n = Math.max(1, Math.floor(lastNMonths));
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  start.setMonth(start.getMonth() - (n - 1));
+
+  try {
+    // Aggregate counts grouped by month starting from computed start date
+    const rows: Array<{ month: string; count: number }> = await prisma.$queryRawUnsafe(
+      `SELECT to_char(date_trunc('month', "submittedAt"), 'YYYY-MM') AS month, COUNT(*)::int AS count
+       FROM "kk_profiling_registrations"
+       WHERE "submittedAt" >= $1
+       GROUP BY 1
+       ORDER BY 1`,
+      start.toISOString()
+    );
+
+    return rows.map((r) => ({ month: String(r.month), count: Number(r.count) }));
+  } catch (error) {
+    if (isMissingTableError(error) || isMissingColumnError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 export async function listProfilingRegistrations(args?: any) {
   if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
     return [];

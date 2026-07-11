@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Clock3,
   FileText,
+  Mail,
   Megaphone,
   PencilLine,
   Sparkles,
@@ -232,10 +233,10 @@ export default async function GranteeOverviewPage() {
                 description="Register for upcoming SK community events."
               />
               <ActionTile
-                href="/grantee-dashboard/documents"
-                icon={<PencilLine className="h-4 w-4" />}
-                title="Resolve revisions"
-                description="Address returned items with admin notes."
+                href="/grantee-dashboard/contact-support"
+                icon={<Mail className="h-4 w-4" />}
+                title="Contact support"
+                description="Send a message to SK officials and create an inquiry."
               />
               <ActionTile
                 href="/grantee-dashboard/announcements"

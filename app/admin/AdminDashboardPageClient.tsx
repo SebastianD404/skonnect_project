@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import Link from "next/link";
+import YouthParticipationChart from "../../components/YouthParticipationChart";
 import { Check, Clock, MoreHorizontal, Users } from "lucide-react";
 import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 
@@ -45,6 +46,8 @@ interface AdminDashboardPageClientProps {
   upcomingEvents: EventItem[];
   recentInquiries: InquiryItem[];
   profilingRegistrationCount: number;
+  profilingSeries?: number[];
+  profilingMonths?: string[];
 }
 
 const taskItems = [
@@ -73,6 +76,8 @@ export default function AdminDashboardPageClient({
   upcomingEvents,
   recentInquiries,
   profilingRegistrationCount,
+  profilingSeries = [],
+  profilingMonths = [],
 }: AdminDashboardPageClientProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -102,6 +107,7 @@ export default function AdminDashboardPageClient({
     });
   }, [recentInquiries, searchQuery]);
 
+
   return (
     <>
       <DashboardHeaderWrapper
@@ -114,176 +120,129 @@ export default function AdminDashboardPageClient({
 
       <div className="flex-1 py-8">
         <div className="px-8 flex flex-col gap-6">
-          <div className="grid gap-4 lg:grid-cols-[1.8fr_1.1fr]">
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.3em] text-[#0F3D5C]">Youth participation</p>
-                          <div className="mt-1 flex items-baseline gap-2">
-                    <span className="text-3xl font-semibold text-slate-950">{profilingRegistrationCount.toLocaleString()}</span>
-                    <span className="text-xs font-medium text-emerald-600">+18.2%</span>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 items-stretch">
+            <div className="lg:col-span-2 flex flex-col gap-6">
+              <div className="w-full min-w-0 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Youth Participation</h3>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="text-4xl font-bold text-slate-800">{profilingRegistrationCount.toLocaleString()}</span>
+                      <span className="text-sm font-medium text-emerald-500">{profilingSeries.length > 1 ? `+${profilingSeries[profilingSeries.length - 1] - profilingSeries[profilingSeries.length - 2]}` : "+0"}</span>
+                    </div>
                   </div>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-50 text-slate-600 border border-slate-100">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-pulse" />
+                    Updated by SK officials
+                  </span>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/15 bg-white px-4 py-2 text-sm font-semibold text-[#0F3D5C] shadow-sm">
-                  <span className="inline-flex h-2.5 w-2.5 rounded-full bg-[#0F3D5C]" />
-                  Updated by SK officials
-                </div>
+                <YouthParticipationChart />
               </div>
 
-              <div className="mt-8 h-32 rounded-[1.75rem] bg-slate-100" />
-
-              <div className="mt-3 grid grid-cols-6 gap-2 text-[10px] uppercase tracking-[0.22em] text-slate-500">
-                {['Jan','Feb','Mar','Apr','May','Jun'].map((m) => (
-                  <span key={m}>{m}</span>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-4">
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm uppercase tracking-[0.3em] text-[#0F3D5C]">Recent inquiries</p>
-                    <h2 className="mt-1 text-lg font-semibold text-slate-950">Inbox</h2>
+                    <p className="text-base font-semibold text-slate-950">Upcoming events</p>
+                    <p className="text-sm text-slate-500">Manage scheduled youth activities</p>
                   </div>
-                  <Link href="/admin/inquiries" className="text-xs font-medium text-slate-600 hover:text-slate-950 transition hover:underline">
-                    View all →
+                  <Link href="/admin/events" className="text-xs font-medium text-slate-600 hover:text-slate-950 transition hover:underline">
+                    Manage →
                   </Link>
                 </div>
 
-                <ul className="mt-5 space-y-4">
-                  {filteredInquiries.map((inquiry) => (
-                    <li key={inquiry.id} className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0F3D5C]/10 text-[#0F3D5C] font-semibold">
-                        {inquiry.user.fullName
-                          .split(" ")
-                          .map((segment) => segment[0])
-                          .join("")
-                          .slice(0, 2)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                          <span>{inquiry.user.fullName}</span>
-                          <span className="text-xs text-slate-500">{inquiry.subject}</span>
-                        </div>
-                        <p className="truncate text-xs text-slate-500">{inquiry.message}</p>
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {new Date(inquiry.createdAt).toLocaleTimeString("en-US", {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                    </li>
-                  ))}
-                  {filteredInquiries.length === 0 && (
-                    <li className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-                      No inquiries match that search.
-                    </li>
+                <div className="mt-5 grid grid-cols-[1.5fr_1fr_0.9fr_0.9fr_auto] gap-3 border-b border-slate-200 pb-3 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
+                  <div>Event</div>
+                  <div>Date</div>
+                  <div>Attendees</div>
+                  <div>Status</div>
+                  <div />
+                </div>
+
+                <ul className="divide-y divide-slate-200">
+                  {filteredEvents.length === 0 ? (
+                    <li className="py-16 text-center text-sm text-slate-500">No upcoming events match that search.</li>
+                  ) : (
+                    filteredEvents.map((event) => {
+                      const tone = event.status === "REGISTRATION_OPEN" ? "open" : event.status === "UPCOMING" ? "scheduled" : "draft";
+                      return (
+                        <li key={event.id} className="grid grid-cols-[1.5fr_1fr_0.9fr_0.9fr_auto] items-center gap-3 py-4 text-sm text-slate-700">
+                          <div className="font-medium text-slate-950">{event.title}</div>
+                          <div>{new Date(event.eventDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                          <div className="flex items-center gap-1 text-slate-600">
+                            <Users className="h-3.5 w-3.5" />
+                            {event.filledSlots}
+                          </div>
+                          <div>
+                            <StatusPill tone={tone}>{event.status.replace(/_/g, " ")}</StatusPill>
+                          </div>
+                          <button className="text-slate-500 hover:text-slate-900">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </li>
+                      );
+                    })
                   )}
                 </ul>
               </div>
+            </div>
 
-              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-6 h-full">
+              <div className="flex-1 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm flex flex-col">
+                <div className="flex justify-between items-center mb-4">
                   <div>
-                    <p className="text-sm uppercase tracking-[0.3em] text-[#0F3D5C]">Document reviews</p>
-                    <h2 className="mt-1 text-lg font-semibold text-slate-950">Pending reviews</h2>
+                    <h3 className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Recent Inquiries</h3>
+                    <h4 className="text-lg font-bold text-slate-800 mt-0.5">Inbox</h4>
                   </div>
-                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0F3D5C]/10 text-[#0F3D5C]">
-                    <Check className="h-6 w-6" />
-                  </div>
+                  <button className="text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors flex items-center gap-1">
+                    View all →
+                  </button>
                 </div>
-                <div className="mt-5 flex items-center gap-3">
-                  <div className="rounded-3xl bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.28em] text-slate-600">
-                    {pendingSubmissionCount}
+
+                <div className="flex-1 flex flex-col items-center justify-center py-8 text-center">
+                  <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 mb-3">
+                    <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0l-3.586 3.586a2 2 0 01-2.828 0L6 13m14 0a2 2 0 00-2-2H6a2 2 0 00-2 2" />
+                    </svg>
                   </div>
-                  <div className="text-sm text-slate-500">
-                    Grantee grade and COE uploads waiting for review.
-                  </div>
-                </div>
-                <div className="mt-6">
-                  <Link
-                    href="/admin/submissions"
-                    className="inline-flex items-center justify-center rounded-full bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0D2E47]"
-                  >
-                    Review documents
-                  </Link>
+                  <p className="text-sm font-medium text-slate-700">Your inbox is clear</p>
+                  <p className="text-xs text-slate-400 max-w-[200px] mt-1">
+                    No new incoming inquiries or citizen concerns match your workspace view.
+                  </p>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
                 <div>
-                  <p className="text-base font-semibold text-slate-950">Upcoming events</p>
-                  <p className="text-sm text-slate-500">Manage scheduled youth activities</p>
+                  <div className="flex justify-between items-center mb-6">
+                    <div>
+                      <h3 className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Document Reviews</h3>
+                      <h4 className="text-lg font-bold text-slate-800 mt-0.5">Pending reviews</h4>
+                    </div>
+                    <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-4 p-4 rounded-xl bg-slate-50/70 border border-slate-100/50">
+                    <div className="w-9 h-9 rounded-lg bg-white shadow-sm border border-slate-100 flex items-center justify-center text-sm font-bold text-slate-700 shrink-0">
+                      {pendingSubmissionCount}
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold text-slate-700">All Caught Up</p>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Grantee grade evaluations and COE uploads are fully processed.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <Link href="/admin/events" className="text-xs font-medium text-slate-600 hover:text-slate-950 transition hover:underline">
-                  Manage →
-                </Link>
-              </div>
 
-              <div className="mt-5 grid grid-cols-[1.5fr_1fr_0.9fr_0.9fr_auto] gap-3 border-b border-slate-200 pb-3 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
-                <div>Event</div>
-                <div>Date</div>
-                <div>Attendees</div>
-                <div>Status</div>
-                <div />
-              </div>
-
-              <ul className="divide-y divide-slate-200">
-                {filteredEvents.length === 0 ? (
-                  <li className="py-16 text-center text-sm text-slate-500">No upcoming events match that search.</li>
-                ) : (
-                  filteredEvents.map((event) => {
-                    const tone = event.status === "REGISTRATION_OPEN" ? "open" : event.status === "UPCOMING" ? "scheduled" : "draft";
-                    return (
-                      <li key={event.id} className="grid grid-cols-[1.5fr_1fr_0.9fr_0.9fr_auto] items-center gap-3 py-4 text-sm text-slate-700">
-                        <div className="font-medium text-slate-950">{event.title}</div>
-                        <div>{new Date(event.eventDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                        <div className="flex items-center gap-1 text-slate-600">
-                          <Users className="h-3.5 w-3.5" />
-                          {event.filledSlots}
-                        </div>
-                        <div>
-                          <StatusPill tone={tone}>{event.status.replace(/_/g, " ")}</StatusPill>
-                        </div>
-                        <button className="text-slate-500 hover:text-slate-900">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </button>
-                      </li>
-                    );
-                  })
-                )}
-              </ul>
-            </div>
-
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl">
-              <div className="flex items-start justify-between gap-3">
-                <div className="text-base font-semibold text-slate-950">Today's tasks</div>
-                <div className="text-xs text-slate-500">3 / 5</div>
-              </div>
-              <ul className="mt-5 space-y-3">
-                {taskItems.map((task) => (
-                  <li key={task.label} className="flex items-center gap-3 text-sm">
-                    <span
-                      className={`flex h-5 w-5 items-center justify-center rounded-full border ${
-                        task.done ? "border-[#0F3D5C] bg-[#0F3D5C] text-white" : "border-slate-300 bg-white text-slate-400"
-                      }`}
-                    >
-                      {task.done ? <Check className="h-3 w-3" /> : null}
-                    </span>
-                    <span className={task.done ? "text-slate-500 line-through" : "text-slate-700"}>{task.label}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-5 flex items-center gap-2 rounded-3xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                <Clock className="h-3.5 w-3.5" />
-                <span>Avg. response time today:</span>
-                <span className="ml-auto font-semibold text-slate-900">12m</span>
+                <div className="mt-6">
+                  <button className="w-full py-2.5 px-4 bg-[#0f3456] hover:bg-[#16436e] active:bg-[#0b2742] text-white rounded-xl text-xs font-semibold tracking-wide shadow-sm transition-all duration-150">
+                    Open Review Console
+                  </button>
+                </div>
               </div>
             </div>
           </div>

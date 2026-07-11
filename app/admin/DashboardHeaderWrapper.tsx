@@ -25,6 +25,7 @@ interface DashboardHeaderWrapperProps {
   statsByPeriod?: Record<TimePeriod, StatItem[]>;
   compact?: boolean;
   onSearch?: (query: string) => void;
+  showNotificationBell?: boolean;
 }
 
 const ICON_MAP: Record<IconName, LucideIcon> = {
@@ -42,6 +43,7 @@ export default function DashboardHeaderWrapper({
   statsByPeriod,
   compact = false,
   onSearch,
+  showNotificationBell = true,
 }: DashboardHeaderWrapperProps) {
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("Month");
   const [searchQuery, setSearchQuery] = useState("");
@@ -73,6 +75,7 @@ export default function DashboardHeaderWrapper({
       onSearch={handleSearch}
       stats={statsWithIcons}
       compact={compact}
+      showNotificationBell={showNotificationBell}
     />
   );
 }

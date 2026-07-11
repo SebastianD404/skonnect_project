@@ -40,6 +40,7 @@ interface DashboardHeaderProps {
   onSearch: (query: string) => void;
   stats?: Stat[];
   compact?: boolean;
+  showNotificationBell?: boolean;
 }
 
 export default function DashboardHeader({
@@ -51,6 +52,7 @@ export default function DashboardHeader({
   onSearch,
   stats = [],
   compact = false,
+  showNotificationBell = true,
 }: DashboardHeaderProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,6 +88,7 @@ export default function DashboardHeader({
               <HelpCircle className="h-4 w-4" />
               <span className="hidden sm:inline">Help</span>
             </button>
+          {showNotificationBell && (
             <div className="relative">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
@@ -150,21 +153,28 @@ export default function DashboardHeader({
                     )}
                   </div>
                   <div className="border-t border-slate-200 px-4 py-2">
-                    <button className="w-full text-center text-xs font-medium text-[#0F3D5C] hover:text-[#0D2E47] py-2">
+                    <button
+                      onClick={() => {
+                        setShowNotifications(false);
+                        router.push("/admin/inquiries");
+                      }}
+                      className="w-full text-center text-xs font-medium text-[#0F3D5C] hover:text-[#0D2E47] py-2"
+                    >
                       View all
                     </button>
                   </div>
                 </div>
               )}
             </div>
-            <button
-              onClick={() => router.push("/admin/events?new=1")}
-              className="inline-flex items-center gap-2 rounded-full bg-[#0F3D5C] px-4 py-1.5 text-sm font-semibold text-white shadow-md transition hover:bg-[#0D2E47] active:scale-95"
-              title="Create new event"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">New event</span>
-            </button>
+          )}
+          <button
+            onClick={() => router.push("/admin/events?new=1")}
+            className="inline-flex items-center gap-2 rounded-full bg-[#0F3D5C] px-4 py-1.5 text-sm font-semibold text-white shadow-md transition hover:bg-[#0D2E47] active:scale-95"
+            title="Create new event"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">New event</span>
+          </button>
           </div>
         </div>
       </div>
