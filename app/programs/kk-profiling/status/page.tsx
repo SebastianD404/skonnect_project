@@ -181,7 +181,7 @@ export default function KKProfilingStatusPage() {
     } catch (fetchError) {
       if (!mountedRef.current) return;
       if (!background) {
-        setError(String(fetchError?.message || "Unable to load KK Profile status."));
+        setError(String((fetchError as any)?.message || "Unable to load KK Profile status."));
         setProfile(null);
       }
     } finally {

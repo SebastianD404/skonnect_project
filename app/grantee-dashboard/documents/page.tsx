@@ -54,7 +54,7 @@ export default async function GranteeDocumentsPage() {
 
   if (appUser.grantee?.id) {
     try {
-      submissions = await prisma.submission.findMany({
+      const raw = await prisma.submission.findMany({
         where: { granteeId: appUser.grantee.id },
         orderBy: { submittedAt: "desc" },
         select: {
@@ -70,7 +70,29 @@ export default async function GranteeDocumentsPage() {
           gradeFileUrl: true,
           coeFileUrl: true,
         },
-      });
+      }) as any[];
+
+      function normalizeGradeRows(rows: unknown): Array<{ subject: string; grade: number }> | null {
+        if (!rows) return null;
+        let parsed: any = rows;
+        if (typeof rows === "string") {
+          try {
+            parsed = JSON.parse(rows);
+          } catch (e) {
+            return null;
+          }
+        }
+        if (!Array.isArray(parsed) || parsed.length === 0) return null;
+        const normalized = parsed
+          .map((r: any) => ({ subject: String(r?.subject ?? "").trim(), grade: Number(r?.grade) }))
+          .filter((r: any) => !Number.isNaN(r.grade) && r.subject.length > 0 && r.grade >= 0 && r.grade <= 100);
+        return normalized.length > 0 ? normalized : null;
+      }
+
+      submissions = raw.map((item) => ({
+        ...item,
+        gradeRows: normalizeGradeRows(item.gradeRows),
+      }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!/flaggedFields|does not exist/i.test(message)) {
@@ -97,14 +119,7 @@ export default async function GranteeDocumentsPage() {
     }
   }
 
-  function computeAverageFromGradeRows(rows?: Array<{ subject: string; grade: number }> | null): number | null {
-    if (!rows || rows.length === 0) return null;
-    const validGrades = rows
-      .map((row) => Number(row.grade))
-      .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
-    if (validGrades.length === 0) return null;
-    return Number((validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length).toFixed(2));
-  }
+  
 
   function computeAverageFromGradeRows(rows?: Array<{ subject: string; grade: number }> | null): number | null {
     if (!rows || rows.length === 0) return null;

@@ -74,24 +74,59 @@ async function fetchSubmissions(): Promise<SubmissionsPhase> {
       select: baseSelect,
     });
 
-    function computeAverageFromGradeRows(rows?: Array<{ subject: string; grade: number }> | null): number | null {
-      if (!rows || rows.length === 0) return null;
-      const validGrades = rows
-        .map((row) => Number(row.grade))
-        .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
+    function computeAverageFromGradeRows(rows: unknown): number | null {
+      if (!rows) return null;
+
+      // Normalize possible JSON shapes (stringified JSON, JsonValue array, etc.)
+      let parsed: any = rows;
+      if (typeof rows === "string") {
+        try {
+          parsed = JSON.parse(rows);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+
+      const validGrades = parsed
+        .map((row: any) => Number(row?.grade))
+        .filter((value: number) => !Number.isNaN(value) && value >= 0 && value <= 100);
+
       if (validGrades.length === 0) return null;
-      return Number((validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length).toFixed(2));
+      return Number((validGrades.reduce((sum: number, value: number) => sum + value, 0) / validGrades.length).toFixed(2));
     }
 
-    const serializedSubmissions = allSubmissions.map((submission) => ({
-      ...submission,
-      generalAverage:
-        submission.generalAverage ??
-        computeAverageFromGradeRows(submission.gradeRows) ??
-        submission.grantee.generalAverage ??
-        null,
-      submittedAt: submission.submittedAt.toISOString(),
-    }));
+    type GradeRowLocal = { subject: string; grade: number };
+
+    function normalizeGradeRows(rows: unknown): GradeRowLocal[] | null {
+      if (!rows) return null;
+      let parsed: any = rows;
+      if (typeof rows === "string") {
+        try {
+          parsed = JSON.parse(rows);
+        } catch (e) {
+          return null;
+        }
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      const normalized = parsed
+        .map((r: any) => ({ subject: String(r?.subject ?? "").trim(), grade: Number(r?.grade) }))
+        .filter((r: any) => !Number.isNaN(r.grade) && r.subject.length > 0 && r.grade >= 0 && r.grade <= 100);
+      return normalized.length > 0 ? normalized : null;
+    }
+
+    const serializedSubmissions = allSubmissions.map((submission) => {
+      const normalizedRows = normalizeGradeRows(submission.gradeRows);
+      return {
+        ...submission,
+        granteeId: (submission as any).granteeId,
+        gradeRows: normalizedRows,
+        generalAverage:
+          submission.generalAverage ?? computeAverageFromGradeRows(submission.gradeRows) ?? submission.grantee.generalAverage ?? null,
+        submittedAt: submission.submittedAt.toISOString(),
+      } as any;
+    });
 
     // DEBUG: log basic submission averages to help diagnose missing GPA values in the UI
     try {

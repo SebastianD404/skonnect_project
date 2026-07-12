@@ -73,9 +73,12 @@ export async function POST(
       );
     }
 
-    const existing = await prisma.submission.findUnique({
+    const existing: any = await prisma.submission.findUnique({
       where: { id },
-      select: {
+      // cast to any because some generated Prisma client versions may not
+      // include the `gradeRows` key in the select type even if the column
+      // exists in the database. We still want to select it at runtime.
+      select: ({
         id: true,
         coeFileUrl: true,
         gradeFileUrl: true,
@@ -88,15 +91,17 @@ export async function POST(
             generalAverage: true,
           },
         },
-      },
+      } as any),
     });
 
     if (!existing) {
       return NextResponse.json({ error: "Submission not found" }, { status: 404 });
     }
 
-    let flaggedFields = existing.flaggedFields || [];
-    let newStatus = existing.status;
+    let flaggedFields: string[] = Array.isArray(existing.flaggedFields)
+      ? (existing.flaggedFields as string[])
+      : [];
+    let newStatus: any = existing.status;
     let newReviewNotes = existing.status === "RETURNED_FOR_EDIT" ? null : reviewNotes;
 
     if (documentType === "coe") {

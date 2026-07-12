@@ -200,7 +200,7 @@ export default async function ProgramPage({ params }: Props) {
     data: { user: supabaseUser },
   } = await supabase.auth.getUser();
 
-  let appUser: { role: Role } | null = null;
+  let appUser: any | null = null;
   if (supabaseUser) {
     appUser = await ensureProfile(supabaseUser);
   }
