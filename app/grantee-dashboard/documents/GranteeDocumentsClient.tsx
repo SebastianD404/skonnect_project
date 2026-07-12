@@ -392,31 +392,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     }
   }, [form.semester, submissions]);
 
-  useEffect(() => {
-    const syncDashboardData = () => {
-      router.refresh();
-    };
-
-    const pollingInterval = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        syncDashboardData();
-      }
-    }, 10000);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        syncDashboardData();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      clearInterval(pollingInterval);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [router]);
-
   const semesterOptions = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -431,9 +406,43 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     ];
   }, []);
 
+  // Semester filter for the "Fully Cleared" submissions view
+  const [fullyClearedSemesterFilter, setFullyClearedSemesterFilter] = useState<string>("all");
+
+  const fullyClearedRows = useMemo(() => {
+    return submissions.filter(
+      (s) => s.status === "APPROVED" && Boolean(s.gradeFileUrl) && Boolean(s.coeFileUrl)
+    );
+  }, [submissions]);
+
+  const fullyClearedSemesterOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of fullyClearedRows) {
+      if (s.semester) set.add(s.semester);
+    }
+    const arr = Array.from(set);
+    arr.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    return ["all", ...arr];
+  }, [fullyClearedRows]);
+
+  // Reset filter when the underlying submissions change (e.g., on tab change or data reload)
+  useEffect(() => {
+    setFullyClearedSemesterFilter("all");
+  }, [submissions]);
+
+  // Apply the semester filter only to fully-cleared rows; leave other status rows unaffected.
+  const displayedSubmissions = useMemo(() => {
+    if (fullyClearedSemesterFilter === "all") return submissions;
+    return submissions.filter((s) => {
+      const isFullyCleared = s.status === "APPROVED" && Boolean(s.gradeFileUrl) && Boolean(s.coeFileUrl);
+      if (!isFullyCleared) return true;
+      return s.semester === fullyClearedSemesterFilter;
+    });
+  }, [submissions, fullyClearedSemesterFilter]);
+
   const groupedSubmissions = useMemo(() => {
     const groups = new Map<string, SubmissionItem[]>();
-    submissions.forEach((item) => {
+    displayedSubmissions.forEach((item) => {
       const key = getAcademicYear(item.semester);
       if (!groups.has(key)) {
         groups.set(key, []);
@@ -442,7 +451,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     });
 
     return Array.from(groups.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [submissions]);
+  }, [displayedSubmissions]);
 
   const tracker = useMemo(() => buildSemesterTracker(submissions, form.semester), [submissions, form.semester]);
 
@@ -566,13 +575,11 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
 
     setSubmitting(true);
     try {
-      const generalAverageValue = gradePhaseUnlocked
-        ? computedGwa
-          ? Number(computedGwa)
-          : form.generalAverage === ""
-          ? null
-          : Number(form.generalAverage)
-        : null;
+      const generalAverageValue = computedGwa !== ""
+        ? Number(computedGwa)
+        : form.generalAverage === ""
+        ? null
+        : Number(form.generalAverage);
 
       const response = await fetch("/api/grantee/submissions", {
         method: "POST",
@@ -582,6 +589,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
           gradeFileUrl: finalGradeFileUrl,
           coeFileUrl: finalCoeFileUrl,
           generalAverage: generalAverageValue,
+          grades: form.grades,
         }),
       });
 
@@ -736,12 +744,12 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                         <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">General Weighted Average</div>
                         <p className="text-xs text-slate-500">Computed from entered subject grades.</p>
                       </div>
-                      <div className="rounded-3xl bg-white px-4 py-3 text-lg font-semibold text-slate-900 shadow-sm">
-                        {computedGwa || "—"}
+                              <div className="rounded-3xl bg-white px-4 py-3 text-lg font-semibold text-slate-900 shadow-sm">
+                          {computedGwa || form.generalAverage || (currentSubmission?.generalAverage !== null && currentSubmission?.generalAverage !== undefined ? currentSubmission.generalAverage.toFixed(2) : "") || "—"}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
                 <div className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -943,6 +951,28 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-semibold text-slate-900">My Submissions</h2>
           </div>
+
+          {fullyClearedRows.length > 0 && (
+            <div className="mt-3 mb-2 flex items-center justify-start gap-3">
+              <label htmlFor="fully-cleared-semester" className="sr-only">Filter fully cleared by semester</label>
+              <select
+                id="fully-cleared-semester"
+                value={fullyClearedSemesterFilter}
+                onChange={(e) => setFullyClearedSemesterFilter(e.target.value)}
+                className="min-w-[220px] rounded-lg border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              >
+                {fullyClearedSemesterOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt === "all" ? "All Semesters" : opt}
+                  </option>
+                ))}
+              </select>
+
+              <div className="text-sm text-slate-500">
+                {fullyClearedRows.filter((r) => fullyClearedSemesterFilter === "all" || r.semester === fullyClearedSemesterFilter).length} fully cleared
+              </div>
+            </div>
+          )}
 
           {submissions.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">

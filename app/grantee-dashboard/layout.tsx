@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import GranteeDashboardHeader from "./GranteeDashboardHeader";
+import GranteeDashboardRefreshClient from "./GranteeDashboardRefreshClient";
 import GranteeWelcomeGate from "./GranteeWelcomeGate";
 
 export default async function GranteeDashboardLayout({
@@ -43,6 +44,7 @@ export default async function GranteeDashboardLayout({
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
       <GranteeWelcomeGate initialShouldShow={!appUser.hasSeenOnboarding} />
       <GranteeDashboardHeader />
+      <GranteeDashboardRefreshClient />
       {children}
     </div>
   );

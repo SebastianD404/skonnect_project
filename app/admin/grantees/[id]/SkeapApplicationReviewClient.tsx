@@ -25,6 +25,8 @@ export type SerializableSkeapApplicationFormPayload = {
   emailAddress?: string;
   photoFileUrl?: string;
   uploadedFiles?: unknown;
+  grades?: Array<{ subject?: string; grade?: string | number }>;
+  timeline?: { years?: number; semestersPerYear?: number[]; labels?: string[] } | null;
 };
 
 interface SkeapApplicationReviewClientProps {

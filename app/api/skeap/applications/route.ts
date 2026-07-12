@@ -175,6 +175,9 @@ export async function POST(request: NextRequest) {
       currentCourse,
       yearLevel,
       gwa: gwa === null ? null : gwa,
+      // Persist optional grades and timeline if provided by client
+      grades: Array.isArray(body.grades) ? body.grades : undefined,
+      timeline: body.timeline ? body.timeline : undefined,
       enrollmentFileUrl,
       reportCardFileUrl,
       applicantName: body.applicantName || undefined,
@@ -193,6 +196,7 @@ export async function POST(request: NextRequest) {
       emailAddress: body.emailAddress || undefined,
       uploadedFiles,
       photoFileUrl: body.photoFileUrl || undefined,
+      // keep uploaded files as normalized JSON
     } as const;
 
     const created = await prisma.$transaction(async (tx) => {

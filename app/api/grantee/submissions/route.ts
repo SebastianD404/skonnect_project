@@ -4,6 +4,31 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
 
+type GradeRow = {
+  subject?: string;
+  grade?: string | number;
+};
+
+function computeGeneralAverageFromGrades(grades: GradeRow[]): number | null {
+  const validGrades = grades
+    .map((gradeRow) => ({
+      subject: String(gradeRow?.subject ?? "").trim(),
+      value: Number(gradeRow?.grade),
+    }))
+    .filter(
+      ({ subject, value }) =>
+        subject !== "" && !Number.isNaN(value) && value >= 0 && value <= 100
+    )
+    .map(({ value }) => value);
+
+  if (validGrades.length === 0) {
+    return null;
+  }
+
+  const average = validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length;
+  return Number(average.toFixed(2));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -51,10 +76,12 @@ export async function POST(request: NextRequest) {
     const semester = String(body.semester ?? "").trim();
     const gradeFileUrl = String(body.gradeFileUrl ?? "").trim();
     const coeFileUrl = String(body.coeFileUrl ?? "").trim();
+    const submittedGrades = Array.isArray(body.grades) ? body.grades : [];
     const averageRaw = body.generalAverage;
     const generalAverage = averageRaw === "" || averageRaw === null || averageRaw === undefined
       ? null
       : Number(averageRaw);
+    const computedAverage = computeGeneralAverageFromGrades(submittedGrades);
 
     if (!semester) {
       return NextResponse.json(
@@ -65,6 +92,16 @@ export async function POST(request: NextRequest) {
 
     if (generalAverage !== null && (Number.isNaN(generalAverage) || generalAverage < 0 || generalAverage > 100)) {
       return NextResponse.json({ error: "General average must be between 0 and 100" }, { status: 400 });
+    }
+
+    if (generalAverage !== null && computedAverage !== null && Math.abs(generalAverage - computedAverage) > 0.1) {
+      return NextResponse.json(
+        {
+          error:
+            "The submitted general average does not match the calculated average from the provided grades. Please correct your grade entries or remove the manual average.",
+        },
+        { status: 400 }
+      );
     }
 
     const existing = await prisma.submission.findFirst({
@@ -78,6 +115,7 @@ export async function POST(request: NextRequest) {
         status: true,
         gradeFileUrl: true,
         coeFileUrl: true,
+        gradeRows: true,
         generalAverage: true,
         flaggedFields: true,
         reviewNotes: true,
@@ -87,7 +125,12 @@ export async function POST(request: NextRequest) {
     const mergedGradeFileUrl = gradeFileUrl || existing?.gradeFileUrl || "";
     const mergedCoeFileUrl = coeFileUrl || existing?.coeFileUrl || "";
     const mergedGeneralAverage =
-      generalAverage !== null ? generalAverage : existing?.generalAverage ?? null;
+      computedAverage !== null
+        ? computedAverage
+        : generalAverage !== null
+        ? generalAverage
+        : existing?.generalAverage ?? null;
+    const mergedGradeRows = submittedGrades.length > 0 ? submittedGrades : existing?.gradeRows ?? null;
 
     if (!mergedCoeFileUrl) {
       return NextResponse.json({ error: "Certificate of Enrollment is required." }, { status: 400 });
@@ -96,6 +139,16 @@ export async function POST(request: NextRequest) {
     if (gradeFileUrl && !mergedCoeFileUrl) {
       return NextResponse.json(
         { error: "Submit enrollment verification first before uploading grades." },
+        { status: 400 }
+      );
+    }
+
+    if (gradeFileUrl && mergedGeneralAverage === null) {
+      return NextResponse.json(
+        {
+          error:
+            "General weighted average is required when uploading a grade report. Provide a valid average or submit the grade rows so the system can compute it automatically.",
+        },
         { status: 400 }
       );
     }
@@ -127,6 +180,7 @@ export async function POST(request: NextRequest) {
       semester,
       gradeFileUrl: mergedGradeFileUrl,
       coeFileUrl: mergedCoeFileUrl,
+      gradeRows: mergedGradeRows,
       generalAverage: mergedGeneralAverage,
       status:
         existing?.status === "RETURNED_FOR_EDIT" && nextFlaggedFields.length > 0

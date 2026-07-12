@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import KKProfilingFormModal from "@/app/programs/kk-profiling/KKProfilingFormModal";
 import KKProfilingApprovedSummaryCard from "@/app/programs/kk-profiling/KKProfilingApprovedSummaryCard";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
@@ -93,6 +94,8 @@ export default function KKProfilingStatusPage() {
   const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null);
   const [previewModalAlt, setPreviewModalAlt] = useState<string>("");
   const [isMounted, setIsMounted] = useState(false);
+  const refreshAbortControllerRef = useRef<AbortController | null>(null);
+  const refreshIntervalMs = 15000;
   
   // RULE 2: Dedicated Primitive State Hook (Never Derived)
   // This state is ONLY set to true once, and NEVER changes after
@@ -123,61 +126,101 @@ export default function KKProfilingStatusPage() {
   // RULE 1: Data Freeze Guard - Prevent rendering until profile invariant is met
   const isProfileDataValid = profile && Object.keys(profile).length > 0;
 
-  // Fetch profile data
-  useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    setError(null);
-    setAuthRequired(false);
-    setNoProfile(false);
+  const fetchProfile = async ({ background = false } = {}) => {
+    const controller = new AbortController();
+    refreshAbortControllerRef.current?.abort();
+    refreshAbortControllerRef.current = controller;
 
-    fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" })
-      .then(async (response) => {
-        if (!mounted) return null;
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
+    if (!background) {
+      setLoading(true);
+      setError(null);
+      setAuthRequired(false);
+      setNoProfile(false);
+    }
+
+    try {
+      const response = await fetch("/api/my/kk-profile", {
+        cache: "no-store",
+        credentials: "include",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+
+        if (!background) {
           if (response.status === 401) {
             setAuthRequired(true);
             setError(body.error || "Please sign in to view your KK Profiling status.");
             setProfile(null);
-            return null;
+            return;
           }
 
           if (response.status === 404) {
             setNoProfile(true);
             setError(null);
             setProfile(null);
-            return null;
+            return;
           }
 
           setError(body.error || "Unable to load KK Profiling status.");
           setProfile(null);
-          return null;
         }
 
-        return response.json();
-      })
-      .then((json) => {
-        if (!mounted || !json) return;
-        const profileData = json.profile ?? null;
-        // RULE 1: Never set profile to empty object, only null or full object
-        if (profileData && typeof profileData === "object" && Object.keys(profileData).length > 0) {
-          setProfile(profileData);
-        } else {
-          setProfile(null);
-        }
-      })
-      .catch((fetchError) => {
-        if (!mounted) return;
+        return;
+      }
+
+      const json = await response.json();
+      const profileData = json.profile ?? null;
+      if (!mountedRef.current) return;
+      if (profileData && typeof profileData === "object" && Object.keys(profileData).length > 0) {
+        setProfile(profileData);
+      } else {
+        setProfile(null);
+      }
+    } catch (fetchError) {
+      if (!mountedRef.current) return;
+      if (!background) {
         setError(String(fetchError?.message || "Unable to load KK Profile status."));
         setProfile(null);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
+      }
+    } finally {
+      if (!background && mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  };
+
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    let intervalId: number | undefined;
+    let visibleListener: (() => void) | null = null;
+
+    mountedRef.current = true;
+    fetchProfile();
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        fetchProfile({ background: true });
+      }
+    };
+
+    intervalId = window.setInterval(() => fetchProfile({ background: true }), refreshIntervalMs);
+    visibleListener = () => refreshIfVisible();
+    document.addEventListener("visibilitychange", visibleListener);
+    window.addEventListener("focus", refreshIfVisible);
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+      if (visibleListener) {
+        document.removeEventListener("visibilitychange", visibleListener);
+      }
+      window.removeEventListener("focus", refreshIfVisible);
+      refreshAbortControllerRef.current?.abort();
     };
   }, []);
 
@@ -260,6 +303,19 @@ export default function KKProfilingStatusPage() {
       {/* Only render main content if data is valid and mounted */}
       {isMounted && isProfileDataValid && (
         <main className="mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:px-8">
+          <div className="mb-4 flex items-center gap-2 text-sm text-slate-600">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-50 hover:text-slate-950"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </button>
+            <span className="text-slate-400">/</span>
+            <span className="font-semibold text-slate-900">KK Profiling Status</span>
+          </div>
+
           <div className="mb-8 rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
             <div className="space-y-4">
               <p className="text-xs uppercase tracking-[0.35em] text-teal-600">KK Profiling</p>
@@ -445,11 +501,7 @@ export default function KKProfilingStatusPage() {
                       age={profile.age}
                       submittedDate={profile.registrationSubmittedAt ?? undefined}
                       onViewApplication={() => {
-                        // NUCLEAR OPTION: Modal can ONLY be shown on first visit
-                        // Once dismissed, it never shows again - not even by button click
-                        if (hasModalBeenDismissed === false) {
-                          setShowCongratulationModal(true);
-                        }
+                        setShowCongratulationModal(true);
                       }}
                     />
                   ) : (

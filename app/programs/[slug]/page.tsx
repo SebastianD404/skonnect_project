@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import ProgramApplyClient from "@/app/programs/ProgramApplyClient";
 import KKProfilingForm from "@/app/programs/kk-profiling-form";
 import { createClient } from "@/lib/supabase/server";
@@ -202,6 +203,40 @@ export default async function ProgramPage({ params }: Props) {
   let appUser: { role: Role } | null = null;
   if (supabaseUser) {
     appUser = await ensureProfile(supabaseUser);
+  }
+
+  let shouldRedirectToKkStatus = false;
+
+  if (slug === "kk-profiling" && appUser) {
+    const userWithKkData = await prisma.user.findUnique({
+      where: { id: appUser.id },
+      select: {
+        kkProfile: {
+          select: {
+            isVerified: true,
+          },
+        },
+        profilingRegistrations: {
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: {
+            reviewStatus: true,
+          },
+        },
+      },
+    });
+
+    const latestStatus =
+      userWithKkData?.profilingRegistrations?.[0]?.reviewStatus ||
+      (userWithKkData?.kkProfile?.isVerified ? "Approved" : undefined);
+
+    if (latestStatus && latestStatus.toLowerCase().includes("approved")) {
+      shouldRedirectToKkStatus = true;
+    }
+  }
+
+  if (shouldRedirectToKkStatus) {
+    redirect("/programs/kk-profiling/status");
   }
 
   const showStatusSection = Boolean(appUser && appUser.role !== Role.YOUTH);

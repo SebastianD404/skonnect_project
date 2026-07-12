@@ -80,10 +80,19 @@ html {
 }
 
 main, section, article, [role="main"] {
-  animation: fadeIn 300ms ease-out;
+  animation: fadeIn 120ms ease-out;
 }
 
 .secure-account-password::-ms-reveal,
 .secure-account-password::-ms-clear {
   display: none;
+}
+
+.secure-login-password::-ms-reveal,
+.secure-login-password::-ms-clear,
+.secure-login-password::-webkit-textfield-decoration-container,
+.secure-login-password::-webkit-textfield-decoration-button,
+.secure-login-password::-webkit-password-reveal-button,
+.secure-login-password::-webkit-textfield-decoration-wrapper {
+  display: none !important;
 }

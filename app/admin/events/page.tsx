@@ -18,6 +18,7 @@ import {
   Download,
   Filter,
   X,
+  AlertTriangle,
 } from "lucide-react";
 
 interface Event {
@@ -64,6 +65,8 @@ export default function AdminEventsPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageTitle, setSelectedImageTitle] = useState<string>("");
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<"title" | "description" | "venue" | "eventDate" | "maxSlots", string>>>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"details" | "attendance">("details");
   const [attendanceParticipants, setAttendanceParticipants] = useState<AttendanceParticipant[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
@@ -289,6 +292,31 @@ export default function AdminEventsPage() {
     setCurrentPage((prev) => Math.min(prev, totalEventPages));
   }, [totalEventPages]);
 
+  const paginationItems = useMemo<Array<number | "dots">>(() => {
+    if (totalEventPages <= 7) {
+      return Array.from({ length: totalEventPages }, (_, idx) => idx + 1);
+    }
+
+    const items: Array<number | "dots"> = [1];
+    const left = Math.max(2, currentPage - 1);
+    const right = Math.min(totalEventPages - 1, currentPage + 1);
+
+    if (left > 2) {
+      items.push("dots");
+    }
+
+    for (let page = left; page <= right; page += 1) {
+      items.push(page);
+    }
+
+    if (right < totalEventPages - 1) {
+      items.push("dots");
+    }
+
+    items.push(totalEventPages);
+    return items;
+  }, [currentPage, totalEventPages]);
+
   async function fetchSummary() {
     try {
       const response = await fetch("/api/events/summary");
@@ -333,11 +361,31 @@ export default function AdminEventsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title.trim() || !form.description.trim() || !form.venue.trim() || !form.eventDate || !form.maxSlots) {
-      alert("All fields are required");
+    setFormError(null);
+
+    const errors: typeof fieldErrors = {};
+    if (!form.title.trim()) {
+      errors.title = "Event title is required.";
+    }
+    if (!form.description.trim()) {
+      errors.description = "Event description is required.";
+    }
+    if (!form.venue.trim()) {
+      errors.venue = "Event venue is required.";
+    }
+    if (!form.eventDate) {
+      errors.eventDate = "Date and time are required.";
+    }
+    if (!form.maxSlots) {
+      errors.maxSlots = "Maximum seats are required.";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
 
+    setFieldErrors({});
     setSubmitting(true);
     try {
       const url = editingId ? `/api/events/${editingId}` : "/api/events/create";
@@ -374,7 +422,7 @@ export default function AdminEventsPage() {
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         console.error("API error response:", response.status, data);
-        throw new Error(data.error || data.details || `HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(data.error || data.details || `Failed to save event. Please try again.`);
       }
 
       const data = await response.json();
@@ -394,7 +442,7 @@ export default function AdminEventsPage() {
       await fetchEvents();
     } catch (err) {
       console.error("Form submission error:", err);
-      alert(err instanceof Error ? err.message : "Failed to save event");
+      setFormError(err instanceof Error ? err.message : "Failed to save event. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -625,8 +673,12 @@ export default function AdminEventsPage() {
                       value={form.title}
                       onChange={(e) => setForm((s) => ({ ...s, title: e.target.value }))}
                       placeholder="Youth Leadership Summit"
-                      className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition"
+                      aria-invalid={Boolean(fieldErrors.title)}
+                      className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-teal-100 transition"
                     />
+                    {fieldErrors.title ? (
+                      <p className="mt-2 text-xs text-rose-700">{fieldErrors.title}</p>
+                    ) : null}
                   </label>
                   <label className="block">
                     <span className="text-sm font-semibold text-slate-900">Venue</span>
@@ -635,8 +687,12 @@ export default function AdminEventsPage() {
                       value={form.venue}
                       onChange={(e) => setForm((s) => ({ ...s, venue: e.target.value }))}
                       placeholder="Barangay Hall"
-                      className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition"
+                      aria-invalid={Boolean(fieldErrors.venue)}
+                      className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-teal-100 transition"
                     />
+                    {fieldErrors.venue ? (
+                      <p className="mt-2 text-xs text-rose-700">{fieldErrors.venue}</p>
+                    ) : null}
                   </label>
                 </div>
 
@@ -647,8 +703,12 @@ export default function AdminEventsPage() {
                     onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))}
                     placeholder="Summarize the event in a few sentences..."
                     rows={5}
-                    className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition resize-none"
+                    aria-invalid={Boolean(fieldErrors.description)}
+                    className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-teal-100 transition resize-none"
                   />
+                  {fieldErrors.description ? (
+                    <p className="mt-2 text-xs text-rose-700">{fieldErrors.description}</p>
+                  ) : null}
                 </label>
 
                 <div className="grid gap-6 lg:grid-cols-3">
@@ -658,8 +718,12 @@ export default function AdminEventsPage() {
                       type="datetime-local"
                       value={form.eventDate}
                       onChange={(e) => setForm((s) => ({ ...s, eventDate: e.target.value }))}
-                      className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition"
+                      aria-invalid={Boolean(fieldErrors.eventDate)}
+                      className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-teal-100 transition"
                     />
+                    {fieldErrors.eventDate ? (
+                      <p className="mt-2 text-xs text-rose-700">{fieldErrors.eventDate}</p>
+                    ) : null}
                   </label>
                   <label className="block">
                     <span className="text-sm font-semibold text-slate-900">Max seats</span>
@@ -669,8 +733,12 @@ export default function AdminEventsPage() {
                       onChange={(e) => setForm((s) => ({ ...s, maxSlots: e.target.value }))}
                       min="1"
                       placeholder="30"
-                      className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition"
+                      aria-invalid={Boolean(fieldErrors.maxSlots)}
+                      className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-teal-100 transition"
                     />
+                    {fieldErrors.maxSlots ? (
+                      <p className="mt-2 text-xs text-rose-700">{fieldErrors.maxSlots}</p>
+                    ) : null}
                   </label>
                 </div>
 
@@ -752,6 +820,11 @@ export default function AdminEventsPage() {
                     Cancel
                   </button>
                 </div>
+                {formError ? (
+                  <p className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {formError}
+                  </p>
+                ) : null}
               </form>
             </div>
           )}
@@ -911,16 +984,33 @@ export default function AdminEventsPage() {
                         </div>
 
                         {deleteConfirm === event.id && (
-                          <div className="border-t border-slate-200 bg-red-50 px-6 py-5">
-                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                              <p className="text-sm font-semibold text-red-700">Confirm deletion for this event. This cannot be undone.</p>
-                              <button
-                                onClick={() => handleDelete(event.id)}
-                                disabled={submitting}
-                                className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition duration-300 hover:bg-red-700 disabled:opacity-50"
-                              >
-                                {submitting ? "Deleting..." : "Confirm delete"}
-                              </button>
+                          <div className="border-t border-red-100 bg-red-50/90 px-5 py-3 rounded-b-[1.75rem] shadow-sm">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex items-start gap-3 text-sm leading-6 text-red-800 sm:items-center">
+                                <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-100 text-red-700">
+                                  <AlertTriangle className="h-4 w-4" />
+                                </span>
+                                <span>
+                                  Delete this event? This action cannot be undone.
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteConfirm(null)}
+                                  className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(event.id)}
+                                  disabled={submitting}
+                                  className="rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+                                >
+                                  {submitting ? "Deleting..." : "Confirm delete"}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -943,20 +1033,29 @@ export default function AdminEventsPage() {
                     >
                       Previous
                     </button>
-                    {Array.from({ length: totalEventPages }, (_, idx) => idx + 1).map((page) => (
-                      <button
-                        key={page}
-                        onClick={() => setCurrentPage(page)}
-                        className={
-                          "h-8 w-8 rounded-full text-xs font-semibold transition " +
-                          (currentPage === page
-                            ? "bg-slate-900 text-white"
-                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50")
-                        }
-                      >
-                        {page}
-                      </button>
-                    ))}
+                    {paginationItems.map((item, idx) =>
+                      item === "dots" ? (
+                        <span
+                          key={`dots-${idx}`}
+                          className="flex h-8 min-w-[2rem] items-center justify-center rounded-full bg-slate-50 px-2 text-xs font-semibold text-slate-500"
+                        >
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          onClick={() => setCurrentPage(item)}
+                          className={
+                            "h-8 min-w-[2rem] rounded-full px-2 text-xs font-semibold transition " +
+                            (currentPage === item
+                              ? "bg-slate-900 text-white"
+                              : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50")
+                          }
+                        >
+                          {item}
+                        </button>
+                      )
+                    )}
                     <button
                       onClick={() => setCurrentPage((prev) => Math.min(totalEventPages, prev + 1))}
                       disabled={currentPage === totalEventPages}

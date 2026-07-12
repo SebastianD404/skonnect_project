@@ -7,6 +7,20 @@ import { createClient } from "@/lib/supabase/server";
 type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE";
 type DocumentType = "coe" | "grades";
 
+type GradeRow = {
+  subject?: string;
+  grade?: number | string;
+};
+
+function computeAverageFromGradeRows(rows?: GradeRow[] | null): number | null {
+  if (!rows || rows.length === 0) return null;
+  const validGrades = rows
+    .map((row) => Number(row.grade))
+    .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
+  if (validGrades.length === 0) return null;
+  return Number((validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length).toFixed(2));
+}
+
 type ReviewBody = {
   documentType?: DocumentType;
   action?: ReviewAction;
@@ -65,8 +79,15 @@ export async function POST(
         id: true,
         coeFileUrl: true,
         gradeFileUrl: true,
+        gradeRows: true,
         flaggedFields: true,
         status: true,
+        generalAverage: true,
+        grantee: {
+          select: {
+            generalAverage: true,
+          },
+        },
       },
     });
 
@@ -116,15 +137,35 @@ export async function POST(
       }
     }
 
+    // If we're approving a grade submission and the submission becomes fully approved, ensure a generalAverage is persisted.
+    const updateData: any = {
+      status: newStatus,
+      reviewNotes: newReviewNotes,
+      flaggedFields,
+      reviewedAt: new Date(),
+      reviewedById: appUser.id,
+    };
+
+    const hasGradeReport = Boolean(existing.gradeFileUrl);
+    if (newStatus === "APPROVED" && hasGradeReport && (existing.generalAverage === null || existing.generalAverage === undefined)) {
+      const computedAverage = computeAverageFromGradeRows(existing.gradeRows);
+      const fallback = computedAverage ?? existing.grantee?.generalAverage ?? null;
+      if (fallback !== null && fallback !== undefined) {
+        updateData.generalAverage = fallback;
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              "Cannot approve this submission because the grade report has no recorded general average. Please ask the grantee to resubmit with a valid general average.",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const updated = await prisma.submission.update({
       where: { id },
-      data: {
-        status: newStatus,
-        reviewNotes: newReviewNotes,
-        flaggedFields,
-        reviewedAt: new Date(),
-        reviewedById: appUser.id,
-      },
+      data: updateData,
     });
 
     return NextResponse.json({ success: true, submission: updated });

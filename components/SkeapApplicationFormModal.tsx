@@ -55,6 +55,16 @@ const FIELD_PAIRS: Array<[string, string]> = [
 export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHref, application }: ApplicationFormModalProps) {
   if (!isOpen) return null;
 
+  function computeAverageFromGrades(rows: Array<{ subject?: string; grade?: string | number }> | undefined) {
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const vals = rows
+      .map((r) => Number(r?.grade))
+      .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 100);
+    if (vals.length === 0) return null;
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return Number(avg.toFixed(2));
+  }
+
   const coreUploads = getCoreUploadGroups(application?.uploadedFiles);
   const photoUpload = getPhotoUploadGroup(application?.uploadedFiles);
 
@@ -105,6 +115,51 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
                 })}
               </div>
             </div>
+
+            {/* Grades & GWA */}
+            {Array.isArray((application as any)?.grades) && (application as any).grades.length > 0 ? (
+              <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.32em] text-slate-500">Grades</p>
+                    <p className="mt-1 text-sm text-slate-600">Subjects and manually entered grades</p>
+                  </div>
+                  <div className="text-sm font-semibold text-slate-700">
+                    GWA: {application?.gwa ?? computeAverageFromGrades((application as any).grades) ?? "—"}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-2">
+                  {(application as any).grades.map((row: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between rounded-3xl border border-slate-100 p-3">
+                      <div className="text-sm text-slate-900">{row?.subject ?? "—"}</div>
+                      <div className="text-sm font-semibold text-slate-900">{row?.grade ?? "—"}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Course timeline */}
+            {(application as any)?.timeline ? (
+              <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.32em] text-slate-500">Application timeline</p>
+                <p className="mt-1 text-sm text-slate-600">Course progress timeline submitted by the applicant.</p>
+                <div className="mt-4 grid gap-3">
+                  {(() => {
+                    const tl = (application as any).timeline as { years?: number; semestersPerYear?: number[]; labels?: string[] };
+                    const labels = Array.isArray(tl?.labels) ? tl.labels : Array.from({ length: tl?.years || 0 }).map((_, i) => `Year ${i + 1}`);
+                    const sems = Array.isArray(tl?.semestersPerYear) ? tl.semestersPerYear : Array.from({ length: tl?.years || 0 }).map(() => 2);
+                    return labels.map((label: string, i: number) => (
+                      <div key={i} className="flex items-center justify-between rounded-3xl border border-slate-100 p-3">
+                        <div className="text-sm text-slate-900">{label}</div>
+                        <div className="text-sm font-semibold text-slate-900">{sems[i] ?? "—"} semesters</div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            ) : null}
 
             <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

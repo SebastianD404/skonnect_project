@@ -44,7 +44,7 @@ export default async function AdminMembersPage() {
           </div>
 
           <div className="mt-6 overflow-x-auto">
-            <KKProfilingRegistrationsTable registrations={approvedMembers} statusLabel="SK members" />
+            <KKProfilingRegistrationsTable registrations={approvedMembers} statusLabel="Approved" />
           </div>
         </div>
       </div>

@@ -11,6 +11,7 @@
     "test:audit": "vitest run lib/audit/metadata.test.ts",
     "reconcile:users": "node scripts/reconcile-auth-users.js",
     "reconcile:users:apply": "node scripts/reconcile-auth-users.js --apply",
+    "patch:averages": "node scripts/patch-missing-submission-averages.js",
     "postinstall": "prisma generate --schema prisma/schema.prisma"
   },
   "dependencies": {

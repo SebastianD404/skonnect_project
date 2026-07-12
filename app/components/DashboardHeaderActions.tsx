@@ -12,6 +12,7 @@ interface DashboardHeaderActionsProps {
 export function DashboardHeaderActions({ notifications = [], messages = [], requiredRole }: DashboardHeaderActionsProps) {
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
   const [serverRole, setServerRole] = useState<string | undefined>(undefined);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [profileName, setProfileName] = useState("Your account");
   const [profileEmail, setProfileEmail] = useState("");
   const [profileAvatar, setProfileAvatar] = useState("");
@@ -42,6 +43,27 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
   }, []);
 
   useEffect(() => {
+    if (!profileId) return;
+    try {
+      const state = readStorageState(profileId);
+      if (!state) return;
+      setClearedNotifications(state.clearedNotifications);
+      setClearedMessages(state.clearedMessages);
+      setLastSeenNotificationsCount(state.lastSeenNotificationsCount);
+      setLastSeenMessagesCount(state.lastSeenMessagesCount);
+
+      if (state.clearedNotifications) {
+        setUnreadNotifications(0);
+      }
+      if (state.clearedMessages) {
+        setUnreadMessages(0);
+      }
+    } catch {
+      // ignore storage read errors
+    }
+  }, [profileId]);
+
+  useEffect(() => {
     async function reconcileProfile() {
       try {
         const res = await fetch('/api/session', { cache: 'no-store' });
@@ -49,6 +71,8 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
         const body = await res.json();
         const serverUser = body.user;
         if (!serverUser) return; // not signed in
+
+        setProfileId(serverUser.id);
 
         // Always sync profile name/email from server to avoid stale local data.
         if (serverUser.fullName) {
@@ -159,16 +183,55 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       .join("") || "?";
 
   const displayedMessages = messages.length > 0 ? messages : supportMessages;
+  const notificationCount = notifications?.length ?? 0;
+  const messageCount = messages && messages.length ? messages.length : supportMessages.length || 0;
   const [unreadNotifications, setUnreadNotifications] = useState<number>(notifications?.length ?? 0);
   const [unreadMessages, setUnreadMessages] = useState<number>(() => (messages && messages.length ? messages.length : supportMessages.length || 0));
   const [clearedNotifications, setClearedNotifications] = useState(false);
   const [clearedMessages, setClearedMessages] = useState(false);
   const [lastSeenNotificationsCount, setLastSeenNotificationsCount] = useState<number | null>(null);
   const [lastSeenMessagesCount, setLastSeenMessagesCount] = useState<number | null>(null);
+  const STORAGE_KEY_BASE = "skonnect-dashboard-badge-state";
+
+  const getStorageKey = (userId: string | null) => {
+    return userId ? `${STORAGE_KEY_BASE}:${userId}` : STORAGE_KEY_BASE;
+  };
+
+  const readStorageState = (userId: string | null) => {
+    try {
+      const raw = localStorage.getItem(getStorageKey(userId));
+      if (!raw) return null;
+      return JSON.parse(raw) as {
+        clearedNotifications: boolean;
+        clearedMessages: boolean;
+        lastSeenNotificationsCount: number | null;
+        lastSeenMessagesCount: number | null;
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const writeStorageState = (
+    state: {
+      clearedNotifications: boolean;
+      clearedMessages: boolean;
+      lastSeenNotificationsCount: number | null;
+      lastSeenMessagesCount: number | null;
+    },
+    userId: string | null,
+  ) => {
+    try {
+      localStorage.setItem(getStorageKey(userId), JSON.stringify(state));
+    } catch {
+      // ignore storage errors
+    }
+  };
 
   // Sync notifications count only when new items arrive (increase). Clearing hides badge until new items.
   useEffect(() => {
-    const next = notifications?.length ?? 0;
+    if (!profileId) return;
+    const next = notificationCount;
     if (clearedNotifications) {
       // If the user cleared notifications, only consider counts greater than
       // the last seen server count at the time of clearing as new.
@@ -187,11 +250,19 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
         setUnreadNotifications(next);
       }
     }
-  }, [notifications]);
+
+    writeStorageState({
+      clearedNotifications,
+      clearedMessages,
+      lastSeenNotificationsCount,
+      lastSeenMessagesCount,
+    }, profileId);
+  }, [notificationCount, clearedNotifications, clearedMessages, lastSeenNotificationsCount, lastSeenMessagesCount, profileId, unreadNotifications]);
 
   // Sync messages count only when new items arrive.
   useEffect(() => {
-    const next = (messages && messages.length) ? messages.length : supportMessages.length || 0;
+    if (!profileId) return;
+    const next = messageCount;
     if (clearedMessages) {
       if (lastSeenMessagesCount === null) {
         setLastSeenMessagesCount(next);
@@ -206,7 +277,14 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
         setClearedMessages(false);
       }
     }
-  }, [messages, supportMessages]);
+
+    writeStorageState({
+      clearedNotifications,
+      clearedMessages,
+      lastSeenNotificationsCount,
+      lastSeenMessagesCount,
+    }, profileId);
+  }, [messageCount, clearedNotifications, clearedMessages, lastSeenNotificationsCount, lastSeenMessagesCount, profileId, unreadMessages]);
   // Normalize messages to objects { subject, reply } so rendering is consistent
   const messageItems = (displayedMessages || []).map((m: any) => {
     if (!m) return { subject: "", reply: "" };
@@ -232,6 +310,12 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
             if (next === "notifications") {
               setClearedNotifications(true);
               setUnreadNotifications(0);
+              writeStorageState({
+                clearedNotifications: true,
+                clearedMessages,
+                lastSeenNotificationsCount: notifications?.length ?? 0,
+                lastSeenMessagesCount,
+              }, profileId);
             }
           }}
           className={`relative rounded-2xl border p-3 shadow-sm transition ${openPanel === "notifications" ? "border-slate-200 bg-white/95" : "border-slate-200 bg-white/95"}`}
@@ -284,6 +368,12 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
             if (next === "messages") {
               setClearedMessages(true);
               setUnreadMessages(0);
+              writeStorageState({
+                clearedNotifications,
+                clearedMessages: true,
+                lastSeenNotificationsCount,
+                lastSeenMessagesCount: (messages && messages.length) ? messages.length : supportMessages.length || 0,
+              }, profileId);
             }
           }}
           className={`relative rounded-2xl border p-3 shadow-sm transition ${openPanel === "messages" ? "border-slate-200 bg-white/95" : "border-slate-200 bg-white/95"}`}

@@ -2,6 +2,7 @@
 
 import { Pencil, X } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { KKProfilingRegistration } from "./types";
 
 export function AdminKKProfilingFormView({
@@ -20,6 +21,7 @@ export function AdminKKProfilingFormView({
   const [returnError, setReturnError] = useState<string | null>(null);
   const [returnSuccess, setReturnSuccess] = useState<string | null>(null);
   const [isApproving, setIsApproving] = useState(false);
+  const router = useRouter();
   const [approveError, setApproveError] = useState<string | null>(null);
   const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
 
@@ -53,6 +55,7 @@ export function AdminKKProfilingFormView({
       if (onReturn) {
         onReturn(data as KKProfilingRegistration);
       }
+      router.refresh();
     } catch (error) {
       setApproveError(error instanceof Error ? error.message : "Failed to approve registration.");
     } finally {
@@ -93,6 +96,7 @@ export function AdminKKProfilingFormView({
       if (onReturn) {
         onReturn(data as KKProfilingRegistration);
       }
+      router.refresh();
     } catch (error) {
       setReturnError(error instanceof Error ? error.message : "Failed to return registration for correction.");
     } finally {

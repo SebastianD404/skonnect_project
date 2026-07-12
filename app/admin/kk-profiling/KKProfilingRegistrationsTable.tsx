@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
 import type { KKProfilingRegistration } from "./types";
 
@@ -25,13 +26,18 @@ export function KKProfilingRegistrationsTable({
   const [rows, setRows] = useState(registrations);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     setIsLoading(true);
-    setRows(registrations);
+    const normalizedTab = String(statusLabel ?? "").toLowerCase();
+    const initialRows = normalizedTab
+      ? registrations.filter((r) => String(r.reviewStatus ?? "Pending").toLowerCase() === normalizedTab)
+      : registrations;
+    setRows(initialRows);
     const timer = window.setTimeout(() => setIsLoading(false), 200);
     return () => window.clearTimeout(timer);
-  }, [registrations]);
+  }, [registrations, statusLabel]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -44,6 +50,20 @@ export function KKProfilingRegistrationsTable({
   };
 
   const handleUpdate = (updatedRegistration: KKProfilingRegistration) => {
+    const normalizedTab = String(statusLabel ?? "").toLowerCase();
+    const normalizedUpdated = String(updatedRegistration.reviewStatus ?? "").toLowerCase();
+
+    // If the updated registration no longer belongs in this tab, remove it and refresh server data
+    if (normalizedTab && normalizedUpdated && normalizedTab !== normalizedUpdated) {
+      setRows((current) => current.filter((row) => row.id !== updatedRegistration.id));
+      try {
+        router.refresh();
+      } catch {
+        // ignore refresh failures
+      }
+      return;
+    }
+
     setRows((current) =>
       current.map((row) => (row.id === updatedRegistration.id ? updatedRegistration : row))
     );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Calendar, CalendarDays, Hash, Mail, MapPin, Phone, User, Users, X } from "lucide-react";
 import { normalizeAddressText } from "@/lib/address";
 
@@ -58,8 +58,11 @@ function deriveNameFromEmail(email: string) {
 }
 
 export default function EventsPage() {
+  const EVENTS_PER_PAGE = 9;
   const [events, setEvents] = useState<Event[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [hasLoadedEvents, setHasLoadedEvents] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageTitle, setSelectedImageTitle] = useState<string>("");
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -227,22 +230,78 @@ export default function EventsPage() {
     await submitRegistration(selectedRegisterEvent.id);
   };
 
+  const totalEventPages = Math.max(1, Math.ceil(events.length / EVENTS_PER_PAGE));
+  const paginatedEvents = useMemo(() => {
+    const start = (currentPage - 1) * EVENTS_PER_PAGE;
+    return events.slice(start, start + EVENTS_PER_PAGE);
+  }, [events, currentPage]);
+
+  const paginationItems = useMemo<Array<number | "dots">>(() => {
+    if (totalEventPages <= 7) {
+      return Array.from({ length: totalEventPages }, (_, idx) => idx + 1);
+    }
+
+    const items: Array<number | "dots"> = [1];
+    const left = Math.max(2, currentPage - 1);
+    const right = Math.min(totalEventPages - 1, currentPage + 1);
+
+    if (left > 2) {
+      items.push("dots");
+    }
+
+    for (let page = left; page <= right; page += 1) {
+      items.push(page);
+    }
+
+    if (right < totalEventPages - 1) {
+      items.push("dots");
+    }
+
+    items.push(totalEventPages);
+    return items;
+  }, [currentPage, totalEventPages]);
+
   useEffect(() => {
-    async function fetchEvents() {
+    setCurrentPage(1);
+  }, [events.length]);
+
+  useEffect(() => {
+    async function fetchEvents(isInitial = false) {
       try {
-        setLoading(true);
-        const response = await fetch("/api/events");
+        if (isInitial) {
+          setLoading(true);
+        }
+
+        const response = await fetch("/api/events", { cache: "no-store" });
         const data = await response.json();
         setEvents(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error("Failed to fetch events:", err);
         setEvents([]);
       } finally {
-        setLoading(false);
+        if (isInitial) {
+          setLoading(false);
+          setHasLoadedEvents(true);
+        }
       }
     }
 
-    fetchEvents();
+    fetchEvents(true);
+
+    const refreshEvents = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchEvents(false);
+    };
+
+    const intervalId = window.setInterval(refreshEvents, 15000);
+    window.addEventListener("focus", refreshEvents);
+    document.addEventListener("visibilitychange", refreshEvents);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshEvents);
+      document.removeEventListener("visibilitychange", refreshEvents);
+    };
   }, []);
 
   useEffect(() => {
@@ -475,8 +534,9 @@ export default function EventsPage() {
               </p>
             </div>
           ) : (
-            <div className="mt-10 grid auto-rows-fr gap-8 sm:grid-cols-2 xl:grid-cols-3">
-              {events.map((event) => {
+            <>
+              <div className="mt-10 grid auto-rows-fr gap-8 sm:grid-cols-2 xl:grid-cols-3">
+                {paginatedEvents.map((event) => {
                 const pct = event.maxSlots > 0 ? Math.round((event.filledSlots / event.maxSlots) * 100) : 0;
                 const isFull = event.filledSlots >= event.maxSlots;
                 const eventDate = new Date(event.eventDate);
@@ -629,6 +689,57 @@ export default function EventsPage() {
                 );
               })}
             </div>
+
+            {!loading && totalEventPages > 1 ? (
+              <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <div className="text-xs font-medium text-slate-500">
+                  Page {currentPage} of {totalEventPages}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  {paginationItems.map((item, idx) =>
+                    item === "dots" ? (
+                      <span
+                        key={`dots-${idx}`}
+                        className="flex h-8 min-w-[2rem] items-center justify-center rounded-full bg-slate-50 px-2 text-xs font-semibold text-slate-500"
+                      >
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        className={
+                          "h-8 min-w-[2rem] rounded-full px-2 text-xs font-semibold transition " +
+                          (currentPage === item
+                            ? "bg-slate-900 text-white"
+                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50")
+                        }
+                      >
+                        {item}
+                      </button>
+                    )
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((prev) => Math.min(totalEventPages, prev + 1))}
+                    disabled={currentPage === totalEventPages}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </>
           )}
         </section>
 

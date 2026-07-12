@@ -43,6 +43,7 @@ export default async function GranteeDocumentsPage() {
     semester: string;
     status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
     generalAverage: number | null;
+    gradeRows?: Array<{ subject: string; grade: number }> | null;
     reviewNotes: string | null;
     flaggedFields: string[];
     submittedAt: Date;
@@ -61,6 +62,7 @@ export default async function GranteeDocumentsPage() {
           semester: true,
           status: true,
           generalAverage: true,
+          gradeRows: true,
           reviewNotes: true,
           flaggedFields: true,
           submittedAt: true,
@@ -95,11 +97,29 @@ export default async function GranteeDocumentsPage() {
     }
   }
 
+  function computeAverageFromGradeRows(rows?: Array<{ subject: string; grade: number }> | null): number | null {
+    if (!rows || rows.length === 0) return null;
+    const validGrades = rows
+      .map((row) => Number(row.grade))
+      .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
+    if (validGrades.length === 0) return null;
+    return Number((validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length).toFixed(2));
+  }
+
+  function computeAverageFromGradeRows(rows?: Array<{ subject: string; grade: number }> | null): number | null {
+    if (!rows || rows.length === 0) return null;
+    const validGrades = rows
+      .map((row) => Number(row.grade))
+      .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
+    if (validGrades.length === 0) return null;
+    return Number((validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length).toFixed(2));
+  }
+
   const serialized = submissions.map((submission) => ({
     id: submission.id,
     semester: submission.semester,
     status: submission.status,
-    generalAverage: submission.generalAverage,
+    generalAverage: submission.generalAverage ?? computeAverageFromGradeRows(submission.gradeRows),
     reviewNotes: submission.reviewNotes,
     flaggedFields: submission.flaggedFields,
     submittedAt: submission.submittedAt.toISOString(),

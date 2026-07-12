@@ -51,30 +51,8 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
           email: true,
         },
       },
-      application: {
-        select: {
-          currentCourse: true,
-          yearLevel: true,
-          gwa: true,
-          applicantName: true,
-          permanentAddress: true,
-          dateOfBirth: true,
-          placeOfBirth: true,
-          age: true,
-          civilStatus: true,
-          gender: true,
-          fathersName: true,
-          fathersOccupation: true,
-          fathersContact: true,
-          mothersMaidenName: true,
-          mothersOccupation: true,
-          mothersContact: true,
-          contactNumber: true,
-          emailAddress: true,
-          photoFileUrl: true,
-          uploadedFiles: true,
-        },
-      },
+      // Select the entire application object so any existing fields (grades, timeline, etc.) are available
+      application: true,
     },
   });
 
@@ -102,6 +80,9 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
           emailAddress: applicationInquiry.application.emailAddress ?? applicationInquiry.user.email ?? undefined,
           photoFileUrl: applicationInquiry.application.photoFileUrl ?? undefined,
           uploadedFiles: applicationInquiry.application.uploadedFiles ?? undefined,
+          // If the application object persisted grades or timeline, pass them through
+          grades: (applicationInquiry.application as any).grades ?? undefined,
+          timeline: (applicationInquiry.application as any).timeline ?? null,
         };
 
   return (

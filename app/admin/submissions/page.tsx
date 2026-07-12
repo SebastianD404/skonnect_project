@@ -11,6 +11,7 @@ type Submission = {
   semester: string;
   gradeFileUrl: string;
   coeFileUrl: string;
+  gradeRows?: Array<{ subject: string; grade: number }> | null;
   generalAverage: number | null;
   status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
   reviewNotes: string | null;
@@ -23,6 +24,7 @@ type Submission = {
       fullName: string;
       email: string;
     };
+    generalAverage?: number | null;
   };
 };
 
@@ -39,6 +41,7 @@ async function fetchSubmissions(): Promise<SubmissionsPhase> {
     semester: true,
     gradeFileUrl: true,
     coeFileUrl: true,
+    gradeRows: true,
     generalAverage: true,
     status: true,
     reviewNotes: true,
@@ -55,6 +58,8 @@ async function fetchSubmissions(): Promise<SubmissionsPhase> {
             email: true,
           },
         },
+        // include grantee-level stored average as a fallback when submission average is missing
+        generalAverage: true,
       },
     },
   };
@@ -69,10 +74,37 @@ async function fetchSubmissions(): Promise<SubmissionsPhase> {
       select: baseSelect,
     });
 
+    function computeAverageFromGradeRows(rows?: Array<{ subject: string; grade: number }> | null): number | null {
+      if (!rows || rows.length === 0) return null;
+      const validGrades = rows
+        .map((row) => Number(row.grade))
+        .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
+      if (validGrades.length === 0) return null;
+      return Number((validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length).toFixed(2));
+    }
+
     const serializedSubmissions = allSubmissions.map((submission) => ({
       ...submission,
+      generalAverage:
+        submission.generalAverage ??
+        computeAverageFromGradeRows(submission.gradeRows) ??
+        submission.grantee.generalAverage ??
+        null,
       submittedAt: submission.submittedAt.toISOString(),
     }));
+
+    // DEBUG: log basic submission averages to help diagnose missing GPA values in the UI
+    try {
+      console.log("[fetchSubmissions] submission generalAverage snapshot:");
+      for (const s of serializedSubmissions) {
+        const name = s.grantee?.user?.fullName ?? "<no-name>";
+        const email = s.grantee?.user?.email ?? "<no-email>";
+        console.log(`id=${s.id} name=${name} email=${email} generalAverage=${s.generalAverage}`);
+      }
+    } catch (err) {
+      // swallow any logging errors to avoid breaking the fetch
+      console.error("[fetchSubmissions] logging error", err);
+    }
 
     const completedKeys = new Set(
       serializedSubmissions
@@ -160,6 +192,7 @@ async function fetchSubmissions(): Promise<SubmissionsPhase> {
               email: true,
             },
           },
+          generalAverage: true,
         },
       },
     };

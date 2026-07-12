@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, useMemo, useEffect } from "react";
 import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Search } from "lucide-react";
 
 interface SubmissionRow {
@@ -20,7 +20,16 @@ interface SubmissionRow {
     };
     school: string;
     yearLevel: string;
+    generalAverage?: number | null;
   };
+}
+
+function formatAverage(value: number | string | null | undefined) {
+  const parsed = typeof value === "string" ? Number(value) : value;
+  if (parsed === null || parsed === undefined || Number.isNaN(parsed)) {
+    return "—";
+  }
+  return parsed.toFixed(2);
 }
 
 interface SubmissionsPhase {
@@ -67,6 +76,7 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
   const [savingSubmissionId, setSavingSubmissionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [completedSemesterFilter, setCompletedSemesterFilter] = useState<string>("all");
 
   const tabs: TabDef[] = [
     {
@@ -100,14 +110,39 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
   ];
 
   const currentTab = tabs.find((t) => t.id === activeTab)!;
+  // Compute semester options dynamically from the completed (Fully Cleared) dataset
+  const completedSemesterOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of submissions.completed) {
+      if (s.semester) set.add(s.semester);
+    }
+    const arr = Array.from(set);
+    arr.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    return ["all", ...arr];
+  }, [submissions.completed]);
+
+  // Reset the semester filter when switching tabs or when completed rows change
+  useEffect(() => {
+    setCompletedSemesterFilter("all");
+  }, [activeTab, submissions.completed]);
+
   const filtered = currentTab.rows.filter((submission) => {
     const search = query.toLowerCase();
-    return (
-      submission.semester.toLowerCase().includes(search) ||
+    if (
+      !(submission.semester.toLowerCase().includes(search) ||
       submission.grantee.user.fullName.toLowerCase().includes(search) ||
       submission.grantee.school.toLowerCase().includes(search) ||
-      submission.grantee.yearLevel.toLowerCase().includes(search)
-    );
+      submission.grantee.yearLevel.toLowerCase().includes(search))
+    ) {
+      return false;
+    }
+
+    // If we're on the completed (Fully Cleared) tab, apply the semester filter
+    if (activeTab === "completed" && completedSemesterFilter !== "all") {
+      return submission.semester === completedSemesterFilter;
+    }
+
+    return true;
   });
 
   const getDraft = (submissionId: string): ReviewDraft => {
@@ -219,6 +254,23 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
         ))}
       </div>
 
+      {activeTab === 'completed' && submissions.completed.length > 0 && (
+        <div className="mt-4 mb-3 flex items-center gap-3">
+          <label htmlFor="completed-semester" className="sr-only">Filter Fully Cleared by semester</label>
+          <select
+            id="completed-semester"
+            value={completedSemesterFilter}
+            onChange={(e) => setCompletedSemesterFilter(e.target.value)}
+            className="min-w-[240px] rounded-lg border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+          >
+            {completedSemesterOptions.map((opt) => (
+              <option key={opt} value={opt}>{opt === 'all' ? 'All Semesters' : opt}</option>
+            ))}
+          </select>
+          <div className="text-sm text-slate-500">{submissions.completed.filter(r => completedSemesterFilter === 'all' || r.semester === completedSemesterFilter).length} fully cleared</div>
+        </div>
+      )}
+
       <div className="mt-6 overflow-x-auto">
         {actionError ? (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</div>
@@ -263,7 +315,7 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
                         <div>{submission.grantee.school}</div>
                         <div className="text-xs text-slate-500">{submission.grantee.yearLevel}</div>
                       </td>
-                      <td className="px-4 py-4 text-slate-700">{submission.generalAverage?.toFixed(2) ?? "—"}</td>
+                      <td className="px-4 py-4 text-slate-700">{(submission.generalAverage ?? submission.grantee.generalAverage)?.toFixed(2) ?? "—"}</td>
                       <td className="px-4 py-4 text-slate-700">{new Date(submission.submittedAt).toLocaleDateString()}</td>
                       <td className="px-4 py-4 text-right">
                         <button
