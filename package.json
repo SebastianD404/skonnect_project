@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:audit": "vitest run lib/audit/metadata.test.ts",
+    "reminders": "npx tsx scripts/send-reminders.ts",
     "reconcile:users": "node scripts/reconcile-auth-users.js",
     "reconcile:users:apply": "node scripts/reconcile-auth-users.js --apply",
     "patch:averages": "node scripts/patch-missing-submission-averages.js",
@@ -44,6 +45,7 @@
     "eslint-config-next": "16.2.9",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
+    "tsx": "^3.12.7",
     "typescript": "^5",
     "vitest": "^4.1.9"
   }

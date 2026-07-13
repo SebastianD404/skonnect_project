@@ -115,6 +115,21 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
           } finally {
             setLoadingMessages(false);
           }
+
+          try {
+            const remindersRes = await fetch('/api/my/reminders', { cache: 'no-store' });
+            if (remindersRes.ok) {
+              const data = await remindersRes.json();
+              const reminders = (data.reminders || []).map((item: any) => {
+                const subject = item.metadata?.subject || item.targetType || "Reminder";
+                const body = item.metadata?.body || item.metadata?.message || item.channel || "You have a reminder.";
+                return `${subject}: ${body}`;
+              });
+              setSupportMessages((prev) => [...reminders, ...prev]);
+            }
+          } catch {
+            // ignore reminder fetch errors
+          }
         }
       } catch (err) {
         // ignore

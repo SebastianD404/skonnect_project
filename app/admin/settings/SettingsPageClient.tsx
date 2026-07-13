@@ -11,6 +11,9 @@ const DEFAULT_STATE = {
   confirmPassword: "",
   inquiryAlerts: true,
   submissionAlerts: true,
+  skeapReminderOffsets: "7, 3, 1",
+  eventReminderOffsets: "7, 3, 1",
+  skeapDeadline: "",
 };
 
 export default function SettingsPageClient({ dateLabel }: { dateLabel: string }) {
@@ -36,6 +39,9 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
           email: data.email ?? prev.email,
           inquiryAlerts: data.settings?.inquiryAlerts ?? prev.inquiryAlerts,
           submissionAlerts: data.settings?.submissionAlerts ?? prev.submissionAlerts,
+          skeapReminderOffsets: data.reminderSettings?.skeapReminderOffsets ?? prev.skeapReminderOffsets,
+          eventReminderOffsets: data.reminderSettings?.eventReminderOffsets ?? prev.eventReminderOffsets,
+          skeapDeadline: data.reminderSettings?.skeapDeadline ?? prev.skeapDeadline,
         }));
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Unable to load settings.");
@@ -61,7 +67,10 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
       const response = await fetch("/api/admin-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formState),
+        body: JSON.stringify({
+          ...formState,
+          skeapDeadline: formState.skeapDeadline || null,
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -191,6 +200,51 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
                       className="h-4 w-4 rounded border-slate-300 text-[#0F3D5C] focus:ring-[#0F3D5C]"
                     />
                     <span>Pending submission notifications</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="rounded-[1.75rem] border border-slate-200 bg-[#F8FAFF] p-6">
+                <div className="flex items-center gap-3 text-[#0F3D5C]">
+                  <Bell className="h-5 w-5" />
+                  <div>
+                    <p className="text-sm font-semibold">Reminder settings</p>
+                    <p className="text-xs text-slate-500">Configure automatic deadline reminders for SKEAP and event registrations.</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-2 text-sm text-slate-700">
+                    SKEAP submission deadline
+                    <input
+                      type="date"
+                      value={formState.skeapDeadline}
+                      onChange={(event) => handleChange("skeapDeadline", event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm text-slate-700">
+                    SKEAP reminder offsets
+                    <input
+                      value={formState.skeapReminderOffsets}
+                      onChange={(event) => handleChange("skeapReminderOffsets", event.target.value)}
+                      placeholder="7, 3, 1"
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+                    />
+                    <p className="text-xs text-slate-500">Comma-separated days before the SKEAP deadline.</p>
+                  </label>
+                </div>
+
+                <div className="mt-6 grid gap-4 sm:grid-cols-1">
+                  <label className="space-y-2 text-sm text-slate-700">
+                    Event reminder offsets
+                    <input
+                      value={formState.eventReminderOffsets}
+                      onChange={(event) => handleChange("eventReminderOffsets", event.target.value)}
+                      placeholder="7, 3, 1"
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+                    />
+                    <p className="text-xs text-slate-500">Comma-separated days before event dates.</p>
                   </label>
                 </div>
               </div>

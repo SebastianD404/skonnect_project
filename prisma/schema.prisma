@@ -36,6 +36,7 @@ model User {
   profilingRegistrations ProfilingRegistration[]
   registrations          Registration[]
   skeapApplications      SkeapApplication[]
+  reminderLogs           ReminderLog[]
   kkProfile              KKProfile?              @relation(fields: [kkProfileId], references: [id])
 
   @@map("users")
@@ -271,6 +272,40 @@ model NotificationLog {
   success Boolean  @default(true)
 
   @@map("notification_logs")
+}
+
+enum ReminderType {
+  SKEAP_APPLICATION
+  EVENT_REGISTRATION
+}
+
+model ReminderSetting {
+  id        String       @id @default(uuid())
+  type      ReminderType @unique
+  offsets   Int[]        @default([])
+  deadline  DateTime?
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@map("reminder_settings")
+}
+
+model ReminderLog {
+  id           String       @id @default(uuid())
+  userId       String
+  reminderType ReminderType
+  targetType   String
+  targetId     String?
+  triggerDate  DateTime
+  channel      String
+  sentAt       DateTime @default(now())
+  success      Boolean  @default(true)
+  metadata     Json?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reminder_logs")
 }
 
 model AuditLog {
