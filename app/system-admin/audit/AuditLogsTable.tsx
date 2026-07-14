@@ -2,7 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { Download, Filter, ScrollText, Search, X } from "lucide-react";
-import { getAuditRoleChangeContext, shortAuditId } from "@/lib/audit/metadata";
+import {
+  getAuditActionSummary,
+  getAuditRoleChangeContext,
+  getAuditTargetContext,
+  getAuditHumanSummary,
+  getAuditChanges,
+  parseUserAgentLabel,
+  shortAuditId,
+} from "@/lib/audit/metadata";
 import { formatPhilippineTime } from "@/lib/audit/time";
 
 type AuditItem = {
@@ -13,6 +21,7 @@ type AuditItem = {
   beforeData?: unknown;
   afterData?: unknown;
   metadata?: unknown;
+  meta?: unknown;
   createdAt: string;
   actorFullName: string;
   actorEmail: string;
@@ -28,6 +37,18 @@ const actionTone: Record<string, string> = {
   USER_DEACTIVATED: "bg-rose-100 text-rose-700",
   GRANT_APPROVED: "bg-emerald-100 text-emerald-700",
   POLICY_UPDATED: "bg-amber-100 text-amber-700",
+  APPROVE_SKEAP_APPLICATION: "bg-emerald-100 text-emerald-700",
+  REJECT_SKEAP_APPLICATION: "bg-rose-100 text-rose-700",
+  MUTATE_GRANTEE_STATUS: "bg-sky-100 text-sky-700",
+  OVERRIDE_DEADLINE: "bg-amber-100 text-amber-700",
+  APPROVE_ACADEMIC_SUBMISSION: "bg-emerald-100 text-emerald-700",
+  FLAG_SUBMISSION_FOR_CORRECTION: "bg-amber-100 text-amber-700",
+  EXPORT_KK_PROFILING_DATA: "bg-violet-100 text-violet-700",
+  MANUAL_PROFILE_UPDATE: "bg-indigo-100 text-indigo-700",
+  CREATE_ANNOUNCEMENT: "bg-cyan-100 text-cyan-700",
+  DELETE_ANNOUNCEMENT: "bg-rose-100 text-rose-700",
+  CREATE_EVENT: "bg-emerald-100 text-emerald-700",
+  CANCEL_EVENT: "bg-rose-100 text-rose-700",
 };
 
 export default function AuditLogsTable({ audits }: Props) {
@@ -64,7 +85,23 @@ export default function AuditLogsTable({ audits }: Props) {
 
   const selectedAuditMetadata = useMemo(() => {
     if (!selectedAudit) return null;
-    return getAuditRoleChangeContext(selectedAudit);
+    const target = getAuditTargetContext(selectedAudit);
+    const roleContext = getAuditRoleChangeContext(selectedAudit);
+    return {
+      ...roleContext,
+      targetLabel: target.label,
+      targetSecondary: target.secondary,
+    };
+  }, [selectedAudit]);
+
+  const selectedSummary = useMemo(() => {
+    if (!selectedAudit) return "";
+    return getAuditHumanSummary(selectedAudit, selectedAudit.actorFullName || selectedAudit.actorEmail);
+  }, [selectedAudit]);
+
+  const selectedChanges = useMemo(() => {
+    if (!selectedAudit) return [];
+    return getAuditChanges(selectedAudit);
   }, [selectedAudit]);
 
   const selectedRawPayload = useMemo(() => {
@@ -74,11 +111,32 @@ export default function AuditLogsTable({ audits }: Props) {
         beforeData: selectedAudit.beforeData ?? null,
         afterData: selectedAudit.afterData ?? null,
         metadata: selectedAudit.metadata ?? null,
+        meta: selectedAudit.meta ?? null,
       },
       null,
       2
     );
   }, [selectedAudit]);
+
+  const [showRaw, setShowRaw] = useState(false);
+
+  function copyRaw() {
+    if (!selectedRawPayload) return;
+    navigator.clipboard.writeText(selectedRawPayload);
+  }
+
+  function downloadRaw() {
+    if (!selectedRawPayload) return;
+    const blob = new Blob([selectedRawPayload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-${selectedAudit?.id ?? "payload"}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-4">
@@ -129,6 +187,8 @@ export default function AuditLogsTable({ audits }: Props) {
                 <tbody className="divide-y divide-[#E8EEF5]">
                   {filtered.map((audit) => {
                     const metadata = getAuditRoleChangeContext(audit);
+                    const targetContext = getAuditTargetContext(audit);
+                    const summaryText = getAuditActionSummary(audit);
                     const hasRoleDelta =
                       audit.action === "UPDATE_USER_ROLE" &&
                       Boolean(metadata.oldRole || metadata.newRole);
@@ -146,8 +206,11 @@ export default function AuditLogsTable({ audits }: Props) {
                               actionTone[audit.action] ?? "bg-slate-100 text-slate-600"
                             }`}
                           >
-                            {audit.action}
+                            {audit.action.replace(/_/g, " ")}
                           </span>
+                          {summaryText ? (
+                            <p className="text-xs leading-5 text-slate-500">{summaryText}</p>
+                          ) : null}
                           {hasRoleDelta ? (
                             <div className="flex items-center gap-1.5 text-xs">
                               <span className="rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
@@ -166,17 +229,13 @@ export default function AuditLogsTable({ audits }: Props) {
                         <p className="text-xs text-slate-500">{audit.actorEmail}</p>
                       </td>
                       <td className="px-6 py-4">
-                        {audit.action === "UPDATE_USER_ROLE" ? (
-                          <div className="flex flex-col">
-                            <span className="text-sm font-semibold text-slate-900">{metadata.targetUserName || metadata.targetUserEmail || "Unknown user"}</span>
-                            <span className="text-[10px] text-slate-400 font-mono">{shortAuditId(metadata.targetUserId || audit.targetId)}</span>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="font-semibold text-slate-900">{audit.targetTable}</p>
-                            <p className="font-mono text-xs text-slate-500">{audit.targetId}</p>
-                          </>
-                        )}
+                        <div className="flex flex-col">
+                          <span className="text-sm font-semibold text-slate-900">{targetContext.label}</span>
+                          {targetContext.secondary ? (
+                            <span className="text-[11px] text-slate-500">{targetContext.secondary}</span>
+                          ) : null}
+                          <span className="mt-1 text-[10px] font-mono text-slate-400">{shortAuditId(targetContext.id)}</span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-slate-500 tabular-nums">
                         {formatPhilippineTime(audit.createdAt)}
@@ -191,6 +250,8 @@ export default function AuditLogsTable({ audits }: Props) {
             <ul className="divide-y divide-[#E8EEF5] lg:hidden">
               {filtered.map((audit) => {
                 const metadata = getAuditRoleChangeContext(audit);
+                const targetContext = getAuditTargetContext(audit);
+                const summaryText = getAuditActionSummary(audit);
                 const hasRoleDelta =
                   audit.action === "UPDATE_USER_ROLE" &&
                   Boolean(metadata.oldRole || metadata.newRole);
@@ -207,7 +268,7 @@ export default function AuditLogsTable({ audits }: Props) {
                         actionTone[audit.action] ?? "bg-slate-100 text-slate-600"
                       }`}
                     >
-                      {audit.action}
+                      {audit.action.replace(/_/g, " ")}
                     </span>
                     <span className="text-xs text-slate-500 tabular-nums">{formatPhilippineTime(audit.createdAt)}</span>
                   </div>
@@ -229,20 +290,13 @@ export default function AuditLogsTable({ audits }: Props) {
                     </div>
                   ) : null}
 
-                  <div className="text-xs text-slate-500">
-                    {audit.action === "UPDATE_USER_ROLE" ? (
-                      <span>
-                        <span className="font-semibold text-slate-900">
-                          {metadata.targetUserName || metadata.targetUserEmail || "Unknown user"}
-                        </span>{" "}
-                        · <span className="font-mono">{shortAuditId(metadata.targetUserId || audit.targetId)}</span>
-                      </span>
-                    ) : (
-                      <span>
-                        <span className="font-semibold text-slate-900">{audit.targetTable}</span> ·{" "}
-                        <span className="font-mono">{audit.targetId}</span>
-                      </span>
-                    )}
+                  <div className="space-y-1 text-xs text-slate-500">
+                    <div>
+                      <span className="font-semibold text-slate-900">{targetContext.label}</span>
+                      {targetContext.secondary ? <span> · {targetContext.secondary}</span> : null}
+                    </div>
+                    {summaryText ? <p className="text-slate-500">{summaryText}</p> : null}
+                    <p className="font-mono text-[10px] text-slate-400">{shortAuditId(targetContext.id)}</p>
                   </div>
                 </li>
                 );
@@ -258,37 +312,117 @@ export default function AuditLogsTable({ audits }: Props) {
             className="h-full w-full max-w-xl overflow-y-auto bg-white p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Audit details</p>
-                <h3 className="mt-1 text-lg font-bold text-slate-900">{selectedAudit.action}</h3>
+                <h3 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+                  {selectedAudit.action.replace(/_/g, " ")}
+                </h3>
+                <p className="mt-2 max-w-xl text-sm text-slate-600">{selectedSummary}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedAudit(null)}
-                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 text-slate-600 transition hover:bg-slate-200"
                 aria-label="Close audit details"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <dl className="mt-6 grid grid-cols-[120px_minmax(0,1fr)] gap-y-3 text-sm">
-              <dt className="text-slate-500">Timestamp</dt>
-              <dd className="font-medium text-slate-900">{formatPhilippineTime(selectedAudit.createdAt)}</dd>
-              <dt className="text-slate-500">Actor</dt>
-              <dd className="font-medium text-slate-900">{selectedAudit.actorFullName} ({selectedAudit.actorEmail})</dd>
-              <dt className="text-slate-500">Target</dt>
-              <dd className="font-medium text-slate-900">{selectedAudit.targetTable} · {selectedAudit.targetId}</dd>
-              <dt className="text-slate-500">IP address</dt>
-              <dd className="font-mono text-xs text-slate-700">{selectedAuditMetadata?.ipAddress || "Unavailable"}</dd>
-            </dl>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 sm:gap-4">
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Timestamp</p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{formatPhilippineTime(selectedAudit.createdAt)}</p>
+              </div>
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Actor</p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{selectedAudit.actorFullName}</p>
+                <p className="mt-1 text-sm text-slate-500">{selectedAudit.actorEmail}</p>
+              </div>
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Target</p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{selectedAuditMetadata?.targetLabel || selectedAudit.targetTable}</p>
+                <p className="mt-1 text-sm text-slate-500">{selectedAuditMetadata?.targetSecondary || selectedAudit.targetId}</p>
+              </div>
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">IP address</p>
+                <p className="mt-2 font-mono text-sm text-slate-700">{selectedAuditMetadata?.ipAddress || "Unavailable"}</p>
+                <p className="mt-2 text-sm text-slate-700">{parseUserAgentLabel(selectedAuditMetadata?.userAgent)}</p>
+              </div>
+            </div>
 
             <div className="mt-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Raw payload (JSON)</p>
-              <pre className="mt-2 max-h-[28rem] overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                {selectedRawPayload}
-              </pre>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Modifications</p>
+              {selectedChanges.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">No explicit field changes detected.</p>
+              ) : (
+                <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-xs text-slate-500">
+                      <tr>
+                        <th className="px-4 py-2">Field</th>
+                        <th className="px-4 py-2">Before</th>
+                        <th className="px-4 py-2">After</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {selectedChanges.map((c) => (
+                        <tr key={c.field}>
+                          <td className="px-4 py-3 font-medium text-slate-900">{c.field}</td>
+                          <td className="px-4 py-3 text-slate-600">{c.before}</td>
+                          <td className="px-4 py-3 text-slate-900 font-semibold">{c.after}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-950 p-5 text-sm text-slate-100">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Raw payload</p>
+                  <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] uppercase tracking-[0.18em] text-slate-300">JSON</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRaw((s) => !s)}
+                    aria-expanded={showRaw}
+                    className="rounded-md bg-white/5 px-3 py-1 text-xs text-slate-200 transition hover:bg-white/10"
+                  >
+                    {showRaw ? "Hide raw" : "Show raw JSON"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyRaw}
+                    className="rounded-md bg-white/5 px-3 py-1 text-xs text-slate-200 transition hover:bg-white/10"
+                    aria-label="Copy JSON to clipboard"
+                  >
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadRaw}
+                    className="rounded-md bg-white/5 px-3 py-1 text-xs text-slate-200 transition hover:bg-white/10"
+                    aria-label="Download JSON"
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
+
+              {showRaw ? (
+                <pre className="mt-3 max-h-[28rem] overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-slate-200">
+                  {selectedRawPayload}
+                </pre>
+              ) : (
+                <div className="mt-3 rounded-lg border border-slate-800/30 bg-slate-900/40 p-4 text-sm text-slate-300">
+                  <p className="text-sm">Parsed fields shown above. Expand to view the full JSON payload.</p>
+                </div>
+              )}
             </div>
           </aside>
         </div>

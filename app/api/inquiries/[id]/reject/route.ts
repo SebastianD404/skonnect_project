@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 async function authorizeReviewUser() {
   const supabase = await createClient();
@@ -67,16 +68,44 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       ...existingThread,
     ];
 
-    const inquiry = await prisma.inquiry.update({
-      where: { id },
-      data: {
-        reviewStatus: "REJECTED",
-        response: rejectionReason,
-        respondedAt: new Date(),
-        isResolved: true,
-        lastUpdatedBy: "admin",
-        reviewThread: updatedThread,
-      },
+    const inquiry = await prisma.$transaction(async (tx) => {
+      const updated = await tx.inquiry.update({
+        where: { id },
+        data: {
+          reviewStatus: "REJECTED",
+          response: rejectionReason,
+          respondedAt: new Date(),
+          isResolved: true,
+          lastUpdatedBy: "admin",
+          reviewThread: updatedThread,
+        },
+      });
+
+      await writeAuditLog(tx, {
+        action: "REJECT_SKEAP_APPLICATION",
+        actorId: auth.user.id,
+        targetTable: "inquiries",
+        targetId: id,
+        beforeData: {
+          reviewStatus: "Pending review",
+        },
+        afterData: {
+          reviewStatus: updated.reviewStatus,
+          response: updated.response,
+        },
+        metadata: {
+          target: inquiryRecord.userId,
+          targetId: id,
+          reason: rejectionReason,
+        },
+        meta: {
+          reason: rejectionReason,
+          target: inquiryRecord.userId,
+          targetId: id,
+        },
+      });
+
+      return updated;
     });
 
     // TODO: replace with actual email service integration.

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getAuditRoleChangeContext, shortAuditId } from "./metadata";
+import {
+  getAuditActionSummary,
+  getAuditRoleChangeContext,
+  getAuditTargetContext,
+  shortAuditId,
+} from "./metadata";
 
 describe("getAuditRoleChangeContext", () => {
   it("prefers dedicated metadata values for role changes", () => {
@@ -41,6 +46,36 @@ describe("getAuditRoleChangeContext", () => {
     expect(context.oldRole).toBe("YOUTH");
     expect(context.newRole).toBe("GRANTEE");
     expect(context.ipAddress).toBe("");
+  });
+});
+
+describe("getAuditActionSummary", () => {
+  it("captures review notes for correction flags", () => {
+    const summary = getAuditActionSummary({
+      action: "FLAG_SUBMISSION_FOR_CORRECTION",
+      targetId: "submission-123",
+      metadata: {
+        reason: "Please upload the corrected grade report.",
+      },
+    });
+
+    expect(summary).toBe("Please upload the corrected grade report.");
+  });
+});
+
+describe("getAuditTargetContext", () => {
+  it("prefers explicit target data and secondary identifiers", () => {
+    const target = getAuditTargetContext({
+      action: "MANUAL_PROFILE_UPDATE",
+      targetId: "profile-456",
+      metadata: {
+        target: "Jamie Santos",
+        targetEmail: "jamie@example.com",
+      },
+    });
+
+    expect(target.label).toBe("Jamie Santos");
+    expect(target.secondary).toBe("jamie@example.com");
   });
 });
 

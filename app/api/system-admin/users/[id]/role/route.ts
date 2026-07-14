@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -94,31 +95,29 @@ export async function PATCH(
         });
       }
 
-      await tx.auditLog.create({
-        data: {
-          actorId: actor.id,
-          action: "UPDATE_USER_ROLE",
-          targetTable: "users",
-          targetId: target.id,
-          beforeData: {
-            role: target.role,
-            fullName: target.fullName,
-            email: target.email,
-          },
-          afterData: {
-            role: requestedRole,
-            fullName: target.fullName,
-            email: target.email,
-          },
-          metadata: {
-            targetUserId: target.id,
-            targetUserName: target.fullName,
-            targetUserEmail: target.email,
-            oldRole: target.role,
-            newRole: requestedRole,
-            ipAddress,
-            userAgent,
-          },
+      await writeAuditLog(tx, {
+        action: "UPDATE_USER_ROLE",
+        actorId: actor.id,
+        targetTable: "users",
+        targetId: target.id,
+        beforeData: {
+          role: target.role,
+          fullName: target.fullName,
+          email: target.email,
+        },
+        afterData: {
+          role: requestedRole,
+          fullName: target.fullName,
+          email: target.email,
+        },
+        metadata: {
+          targetUserId: target.id,
+          targetUserName: target.fullName,
+          targetUserEmail: target.email,
+          oldRole: target.role,
+          newRole: requestedRole,
+          ipAddress,
+          userAgent,
         },
       });
 

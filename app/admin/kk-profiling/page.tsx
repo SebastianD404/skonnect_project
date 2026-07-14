@@ -1,7 +1,7 @@
 import { prisma, getProfilingRegistrationCount, getProfilingRegistrationCountByStatus, getWeeklyProfilingRegistrationCount, getWeeklyProfilingRegistrationCountByClassification, getMonthlyProfilingRegistrationCount, hasProfilingRegistrationColumn, listProfilingRegistrations } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Role } from "@prisma/client";
-import { TrendingUp } from "lucide-react";
+import { Download, TrendingUp } from "lucide-react";
 import { KKProfilingPagination } from "./KKProfilingPagination";
 import { KKProfilingRegistrationsTable } from "@/app/admin/kk-profiling/KKProfilingRegistrationsTable";
 import KKProfilingStatusTabs from "./KKProfilingStatusTabs";
@@ -193,18 +193,27 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
                 <p className="text-sm uppercase tracking-[0.35em] text-[#0F3D5C]">Latest entries</p>
                 <h2 className="mt-2 text-2xl font-semibold text-slate-950">Recent KK profiling submissions</h2>
               </div>
-              <div className="relative">
-                <KKProfilingStatusTabs
-                  currentStatus={
-                    statusParam === "approved"
-                      ? "approved"
-                      : statusParam === "returned"
-                      ? "returned"
-                      : statusParam === "resubmitted"
-                      ? "resubmitted"
-                      : "pending"
-                  }
-                />
+              <div className="flex items-center gap-3">
+                <a
+                  href="/api/admin/kk-profiling/export"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </a>
+                <div className="relative">
+                  <KKProfilingStatusTabs
+                    currentStatus={
+                      statusParam === "approved"
+                        ? "approved"
+                        : statusParam === "returned"
+                        ? "returned"
+                        : statusParam === "resubmitted"
+                        ? "resubmitted"
+                        : "pending"
+                    }
+                  />
+                </div>
               </div>
             </div>
 

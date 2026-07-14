@@ -13,6 +13,7 @@ export default async function SystemAdminAuditPage() {
       beforeData: true,
       afterData: true,
       metadata: true,
+      meta: true,
       createdAt: true,
       actor: {
         select: {
@@ -48,6 +49,7 @@ export default async function SystemAdminAuditPage() {
           beforeData: audit.beforeData,
           afterData: audit.afterData,
           metadata: audit.metadata,
+          meta: audit.meta,
           createdAt: audit.createdAt.toISOString(),
           actorFullName: audit.actor.fullName,
           actorEmail: audit.actor.email,

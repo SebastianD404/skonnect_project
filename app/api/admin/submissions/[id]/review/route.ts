@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -12,9 +13,10 @@ type GradeRow = {
   grade?: number | string;
 };
 
-function computeAverageFromGradeRows(rows?: GradeRow[] | null): number | null {
-  if (!rows || rows.length === 0) return null;
-  const validGrades = rows
+function computeAverageFromGradeRows(rows?: unknown): number | null {
+  const gradeRows = Array.isArray(rows) ? (rows as GradeRow[]) : [];
+  if (gradeRows.length === 0) return null;
+  const validGrades = gradeRows
     .map((row) => Number(row.grade))
     .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
   if (validGrades.length === 0) return null;
@@ -73,12 +75,9 @@ export async function POST(
       );
     }
 
-    const existing: any = await prisma.submission.findUnique({
+    const existing = await prisma.submission.findUnique({
       where: { id },
-      // cast to any because some generated Prisma client versions may not
-      // include the `gradeRows` key in the select type even if the column
-      // exists in the database. We still want to select it at runtime.
-      select: ({
+      select: {
         id: true,
         coeFileUrl: true,
         gradeFileUrl: true,
@@ -91,7 +90,7 @@ export async function POST(
             generalAverage: true,
           },
         },
-      } as any),
+      } as Prisma.SubmissionSelect,
     });
 
     if (!existing) {
@@ -101,7 +100,7 @@ export async function POST(
     let flaggedFields: string[] = Array.isArray(existing.flaggedFields)
       ? (existing.flaggedFields as string[])
       : [];
-    let newStatus: any = existing.status;
+    let newStatus: Prisma.SubmissionUpdateInput["status"] = existing.status as Prisma.SubmissionUpdateInput["status"];
     let newReviewNotes = existing.status === "RETURNED_FOR_EDIT" ? null : reviewNotes;
 
     if (documentType === "coe") {
@@ -143,7 +142,7 @@ export async function POST(
     }
 
     // If we're approving a grade submission and the submission becomes fully approved, ensure a generalAverage is persisted.
-    const updateData: any = {
+    const updateData: Prisma.SubmissionUpdateInput = {
       status: newStatus,
       reviewNotes: newReviewNotes,
       flaggedFields,
@@ -153,7 +152,7 @@ export async function POST(
 
     const hasGradeReport = Boolean(existing.gradeFileUrl);
     if (newStatus === "APPROVED" && hasGradeReport && (existing.generalAverage === null || existing.generalAverage === undefined)) {
-      const computedAverage = computeAverageFromGradeRows(existing.gradeRows);
+      const computedAverage = computeAverageFromGradeRows(existing.gradeRows as unknown);
       const fallback = computedAverage ?? existing.grantee?.generalAverage ?? null;
       if (fallback !== null && fallback !== undefined) {
         updateData.generalAverage = fallback;
@@ -168,9 +167,43 @@ export async function POST(
       }
     }
 
-    const updated = await prisma.submission.update({
-      where: { id },
-      data: updateData,
+    const updated = await prisma.$transaction(async (tx) => {
+      const saved = await tx.submission.update({
+        where: { id },
+        data: updateData,
+      });
+
+      await writeAuditLog(tx, {
+        action: action === "APPROVE" ? "APPROVE_ACADEMIC_SUBMISSION" : "FLAG_SUBMISSION_FOR_CORRECTION",
+        actorId: appUser.id,
+        targetTable: "submissions",
+        targetId: id,
+        beforeData: {
+          status: existing.status,
+          flaggedFields: existing.flaggedFields ?? [],
+          reviewNotes: existing.reviewNotes ?? null,
+        },
+        afterData: {
+          status: saved.status,
+          flaggedFields,
+          reviewNotes: saved.reviewNotes ?? null,
+        },
+        metadata: {
+          documentType,
+          reason: action === "RETURN_FOR_UPDATE" ? reviewNotes : undefined,
+          target: existing.grantee ? `Submission ${id}` : `Submission ${id}`,
+          targetId: id,
+          targetEmail: undefined,
+        },
+        meta: {
+          documentType,
+          reason: action === "RETURN_FOR_UPDATE" ? reviewNotes : undefined,
+          target: `Submission ${id}`,
+          targetId: id,
+        },
+      });
+
+      return saved;
     });
 
     return NextResponse.json({ success: true, submission: updated });

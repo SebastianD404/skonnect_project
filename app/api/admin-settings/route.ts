@@ -4,6 +4,7 @@ import { Prisma, Role, ReminderType } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { ensureProfile } from "../../../lib/auth";
 import { parseReminderOffsets } from "../../../lib/reminders";
+import { writeAuditLog } from "../../../lib/audit/logger";
 
 const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
@@ -22,7 +23,7 @@ type AppUserWithSettings = {
   settings: { inquiryAlerts: boolean; submissionAlerts: boolean } | null;
 };
 
-async function getAppUser(authUser: any): Promise<AppUserWithSettings | null> {
+async function getAppUser(authUser: { id?: string; user?: { id?: string } }): Promise<AppUserWithSettings | null> {
   const linkedUser = await ensureProfile(authUser);
   if (!linkedUser) return null;
   const user = await prisma.user.findUnique({ where: { id: linkedUser.id } });
@@ -152,19 +153,41 @@ export async function POST(request: Request) {
       } as unknown as Prisma.UserUpdateInput,
     });
 
-    await upsertReminderSetting(
-      ReminderType.SKEAP_APPLICATION,
-      parseReminderOffsets(String(skeapReminderOffsets ?? "")),
-      typeof skeapDeadline === "string" ? skeapDeadline : null
-    );
+    const previousSettings = await getReminderSettings();
 
-    await upsertReminderSetting(
-      ReminderType.EVENT_REGISTRATION,
-      parseReminderOffsets(String(eventReminderOffsets ?? ""))
-    );
+    await prisma.$transaction(async (tx) => {
+      await upsertReminderSetting(
+        ReminderType.SKEAP_APPLICATION,
+        parseReminderOffsets(String(skeapReminderOffsets ?? "")),
+        typeof skeapDeadline === "string" ? skeapDeadline : null
+      );
+
+      await upsertReminderSetting(
+        ReminderType.EVENT_REGISTRATION,
+        parseReminderOffsets(String(eventReminderOffsets ?? ""))
+      );
+
+      await writeAuditLog(tx, {
+        action: "OVERRIDE_DEADLINE",
+        actorId: appUser.id,
+        targetTable: "reminder_settings",
+        targetId: appUser.id,
+        beforeData: previousSettings,
+        afterData: {
+          skeapReminderOffsets,
+          eventReminderOffsets,
+          skeapDeadline,
+        },
+        metadata: {
+          target: appUser.fullName,
+          targetId: appUser.id,
+          skeapDeadline,
+        },
+      });
+    });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Failed to update settings." }, { status: 500 });
   }
 }

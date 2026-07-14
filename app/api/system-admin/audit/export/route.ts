@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
         beforeData: true,
         afterData: true,
         metadata: true,
+        meta: true,
         createdAt: true,
         actor: {
           select: {
@@ -85,6 +86,7 @@ export async function GET(request: NextRequest) {
       "ip_address",
       "target_table",
       "metadata_json",
+      "meta_json",
     ];
 
     const rows = filteredAudits.map((audit) => {
@@ -106,6 +108,7 @@ export async function GET(request: NextRequest) {
         roleContext.ipAddress,
         audit.targetTable,
         JSON.stringify(audit.metadata ?? {}),
+        JSON.stringify(audit.meta ?? {}),
       ].map(csvEscape);
     });
 

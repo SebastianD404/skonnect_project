@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse, NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,27 +48,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const event = await prisma.event.create({
-      data: {
-        title: title.trim(),
-        description: description.trim(),
-        venue: venue.trim(),
-        eventDate: new Date(eventDate),
-        maxSlots: slots,
-        imageUrl: imageValue,
-        isKatipunan: isKatipunan || false,
-        createdById: appUser.id,
-        status: "UPCOMING",
-      },
-      include: {
-        createdBy: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
+    const event = await prisma.$transaction(async (tx) => {
+      const created = await tx.event.create({
+        data: {
+          title: title.trim(),
+          description: description.trim(),
+          venue: venue.trim(),
+          eventDate: new Date(eventDate),
+          maxSlots: slots,
+          imageUrl: imageValue,
+          isKatipunan: isKatipunan || false,
+          createdById: appUser.id,
+          status: "UPCOMING",
+        },
+        include: {
+          createdBy: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+            },
           },
         },
-      },
+      });
+
+      await writeAuditLog(tx, {
+        action: "CREATE_EVENT",
+        actorId: appUser.id,
+        targetTable: "events",
+        targetId: created.id,
+        beforeData: null,
+        afterData: {
+          title: created.title,
+          venue: created.venue,
+          eventDate: created.eventDate,
+          maxSlots: created.maxSlots,
+        },
+        metadata: {
+          target: created.title,
+          targetId: created.id,
+        },
+      });
+
+      return created;
     });
 
     return NextResponse.json(event, { status: 201 });

@@ -317,7 +317,9 @@ model AuditLog {
   beforeData  Json?
   afterData   Json?
   createdAt   DateTime @default(now())
+  recorded    DateTime @default(now())
   metadata    Json?
+  meta        Json?
   actor       User     @relation("ActorAuditLogs", fields: [actorId], references: [id])
 
   @@map("audit_logs")

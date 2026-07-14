@@ -3,6 +3,7 @@ import { Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 async function getActor() {
   const supabase = await createClient();
@@ -119,24 +120,22 @@ export async function PATCH(
         },
       });
 
-      await tx.auditLog.create({
-        data: {
-          actorId: actor.id,
-          action: typeof nextIsActive === "boolean" ? "UPDATE_USER_STATUS" : "UPDATE_USER_PROFILE",
-          targetTable: "users",
-          targetId: target.id,
-          beforeData: {
-            fullName: target.fullName,
-            email: target.email,
-            role: target.role,
-            isActive: target.isActive,
-          },
-          afterData: {
-            fullName: updated.fullName,
-            email: updated.email,
-            role: updated.role,
-            isActive: updated.isActive,
-          },
+      await writeAuditLog(tx, {
+        action: typeof nextIsActive === "boolean" ? "UPDATE_USER_STATUS" : "UPDATE_USER_PROFILE",
+        actorId: actor.id,
+        targetTable: "users",
+        targetId: target.id,
+        beforeData: {
+          fullName: target.fullName,
+          email: target.email,
+          role: target.role,
+          isActive: target.isActive,
+        },
+        afterData: {
+          fullName: updated.fullName,
+          email: updated.email,
+          role: updated.role,
+          isActive: updated.isActive,
         },
       });
 
@@ -178,20 +177,18 @@ export async function DELETE(
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.auditLog.create({
-        data: {
-          actorId: actor.id,
-          action: "DELETE_USER",
-          targetTable: "users",
-          targetId: target.id,
-          beforeData: {
-            fullName: target.fullName,
-            email: target.email,
-            role: target.role,
-            isActive: target.isActive,
-          },
-          afterData: Prisma.JsonNull,
+      await writeAuditLog(tx, {
+        action: "DELETE_USER",
+        actorId: actor.id,
+        targetTable: "users",
+        targetId: target.id,
+        beforeData: {
+          fullName: target.fullName,
+          email: target.email,
+          role: target.role,
+          isActive: target.isActive,
         },
+        afterData: Prisma.JsonNull,
       });
 
       await tx.user.delete({ where: { id: target.id } });

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 interface AttachedFileNote {
   fileId: string;
@@ -76,10 +77,11 @@ export async function PATCH(
   try {
     const { id } = await params;
     const auth = await authorizeReviewUser();
-    if (auth.error) {
+    if ("error" in auth) {
       return auth.error;
     }
 
+    const appUser = auth.user;
     const body = await request.json();
     const action = String(body.action ?? "").trim();
     const text = String(body.text ?? "").trim();
@@ -104,7 +106,7 @@ export async function PATCH(
       select: {
         reviewThread: true,
         userId: true,
-        application: { select: { school: true, yearLevel: true } },
+        application: { select: { school: true, yearLevel: true, applicantName: true } },
       },
     });
 
@@ -166,7 +168,7 @@ export async function PATCH(
         select: {
           reviewThread: true,
           userId: true,
-          application: { select: { school: true, currentCourse: true, yearLevel: true } },
+          application: { select: { school: true, currentCourse: true, yearLevel: true, applicantName: true } },
         },
       });
 
@@ -191,10 +193,31 @@ export async function PATCH(
         });
 
         if (targetUser?.role === Role.YOUTH || targetUser?.role === Role.GRANTEE) {
+          const previousRole = targetUser.role;
+
           await tx.user.update({
             where: { id: targetUser.id },
             data: {
               role: Role.GRANTEE,
+            },
+          });
+
+          await writeAuditLog(tx, {
+            action: "APPROVE_SKEAP_APPLICATION",
+            actorId: appUser.id,
+            targetTable: "users",
+            targetId: targetUser.id,
+            beforeData: {
+              role: previousRole,
+            },
+            afterData: {
+              role: Role.GRANTEE,
+            },
+            metadata: {
+              target: currentInquiry.application?.applicantName || currentInquiry.userId,
+              targetId: targetUser.id,
+              targetEmail: undefined,
+              applicantName: currentInquiry.application?.applicantName,
             },
           });
 

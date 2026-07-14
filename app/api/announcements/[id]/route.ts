@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse, NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 export async function PUT(
   req: NextRequest,
@@ -59,24 +60,48 @@ export async function PUT(
       );
     }
 
-    // Update announcement
-    const updated = await prisma.announcement.update({
-      where: { id },
-      data: {
-        title: title.trim(),
-        content: content.trim(),
-        imageUrl: imageUrl || null,
-        updatedAt: new Date(),
-      },
-      include: {
-        author: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
+    const updated = await prisma.$transaction(async (tx) => {
+      const saved = await tx.announcement.update({
+        where: { id },
+        data: {
+          title: title.trim(),
+          content: content.trim(),
+          imageUrl: imageUrl || null,
+          updatedAt: new Date(),
+        },
+        include: {
+          author: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+            },
           },
         },
-      },
+      });
+
+      await writeAuditLog(tx, {
+        action: "UPDATE_ANNOUNCEMENT",
+        actorId: appUser.id,
+        targetTable: "announcements",
+        targetId: id,
+        beforeData: {
+          title: announcement.title,
+          content: announcement.content,
+          imageUrl: announcement.imageUrl,
+        },
+        afterData: {
+          title: saved.title,
+          content: saved.content,
+          imageUrl: saved.imageUrl,
+        },
+        metadata: {
+          target: saved.title,
+          targetId: id,
+        },
+      });
+
+      return saved;
     });
 
     return NextResponse.json(updated);
@@ -135,9 +160,27 @@ export async function DELETE(
       );
     }
 
-    // Delete announcement
-    await prisma.announcement.delete({
-      where: { id },
+    await prisma.$transaction(async (tx) => {
+      await tx.announcement.delete({
+        where: { id },
+      });
+
+      await writeAuditLog(tx, {
+        action: "DELETE_ANNOUNCEMENT",
+        actorId: appUser.id,
+        targetTable: "announcements",
+        targetId: id,
+        beforeData: {
+          title: announcement.title,
+          content: announcement.content,
+          imageUrl: announcement.imageUrl,
+        },
+        afterData: null,
+        metadata: {
+          target: announcement.title,
+          targetId: id,
+        },
+      });
     });
 
     return NextResponse.json({ success: true });
