@@ -6,13 +6,17 @@ vi.mock("../lib/prisma", () => {
   const mockRegistrationFindMany = vi.fn();
   const mockReminderSettingFindUnique = vi.fn();
 
-  return {
-    __testMocks: {
+  // expose mocks globally so tests can access them without static imports
+  try {
+    (globalThis as any).__TEST_PRISMA_MOCKS = {
       mockReminderLogCreate,
       mockUserFindMany,
       mockRegistrationFindMany,
       mockReminderSettingFindUnique,
-    },
+    };
+  } catch {}
+
+  return {
     prisma: {
       reminderLog: {
         create: mockReminderLogCreate,
@@ -31,9 +35,8 @@ vi.mock("../lib/prisma", () => {
 });
 
 import { processEventReminders, processSkeapReminders } from "../scripts/send-reminders";
-import { __testMocks } from "../lib/prisma";
 
-const { mockReminderLogCreate, mockUserFindMany, mockRegistrationFindMany, mockReminderSettingFindUnique } = __testMocks;
+const { mockReminderLogCreate, mockUserFindMany, mockRegistrationFindMany, mockReminderSettingFindUnique } = (globalThis as any).__TEST_PRISMA_MOCKS;
 
 beforeEach(() => {
   mockReminderLogCreate.mockReset();

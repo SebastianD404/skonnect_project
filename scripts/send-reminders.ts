@@ -25,7 +25,15 @@ function isPastDate(date: Date, now: Date) {
   return date.getTime() < now.getTime();
 }
 
-export async function sendReminderLogs(userId: string, reminderType: ReminderType, targetType: string, targetId: string | null, channel: string, triggerDate: Date, metadata: Prisma.JsonValue) {
+export async function sendReminderLogs(
+  userId: string,
+  reminderType: ReminderType,
+  targetType: string,
+  targetId: string | null,
+  channel: string,
+  triggerDate: Date,
+  metadata: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
+) {
   return prisma.reminderLog.create({
     data: {
       userId,
@@ -34,7 +42,7 @@ export async function sendReminderLogs(userId: string, reminderType: ReminderTyp
       targetId,
       triggerDate,
       channel,
-      metadata,
+      metadata: metadata as any,
       success: true,
     },
   });

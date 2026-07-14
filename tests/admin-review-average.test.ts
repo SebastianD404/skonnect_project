@@ -7,8 +7,8 @@ const mockUpdate = vi.fn();
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     submission: {
-      findUnique: (...args) => mockFindUnique(...args),
-      update: (...args) => mockUpdate(...args),
+      findUnique: (...args: unknown[]) => mockFindUnique(...args),
+      update: (...args: unknown[]) => mockUpdate(...args),
     },
   },
 }));

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "../../../lib/supabase/server";
 import { Prisma, Role, ReminderType } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { ensureProfile } from "@/lib/auth";
-import { parseReminderOffsets } from "@/lib/reminders";
+import { prisma } from "../../../lib/prisma";
+import { ensureProfile } from "../../../lib/auth";
+import { parseReminderOffsets } from "../../../lib/reminders";
 
 const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
@@ -25,7 +25,8 @@ type AppUserWithSettings = {
 async function getAppUser(authUser: any): Promise<AppUserWithSettings | null> {
   const linkedUser = await ensureProfile(authUser);
   if (!linkedUser) return null;
-  return prisma.user.findUnique({ where: { id: linkedUser.id } }) as Promise<AppUserWithSettings | null>;
+  const user = await prisma.user.findUnique({ where: { id: linkedUser.id } });
+  return user as unknown as AppUserWithSettings | null;
 }
 
 async function getReminderSettings() {
@@ -37,11 +38,12 @@ async function getReminderSettings() {
     where: { type: ReminderType.EVENT_REGISTRATION },
   });
 
+  const skeapOffsets = Array.isArray(skeap?.offsets) ? skeap.offsets : [];
+  const eventOffsets = Array.isArray(event?.offsets) ? event.offsets : [];
+
   return {
-    skeapReminderOffsets:
-      skeap?.offsets.length > 0 ? skeap.offsets.join(", ") : DEFAULT_SETTINGS.skeapReminderOffsets,
-    eventReminderOffsets:
-      event?.offsets.length > 0 ? event.offsets.join(", ") : DEFAULT_SETTINGS.eventReminderOffsets,
+    skeapReminderOffsets: skeapOffsets.length > 0 ? skeapOffsets.join(", ") : DEFAULT_SETTINGS.skeapReminderOffsets,
+    eventReminderOffsets: eventOffsets.length > 0 ? eventOffsets.join(", ") : DEFAULT_SETTINGS.eventReminderOffsets,
     skeapDeadline: skeap?.deadline ? skeap.deadline.toISOString().slice(0, 10) : null,
   };
 }
