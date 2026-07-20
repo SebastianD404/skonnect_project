@@ -73,7 +73,7 @@ export default function DashboardHeader({
             <SearchIcon className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="search"
-              placeholder="Search grantees, events, inquiries..."
+              placeholder="Search grantees, inquiries..."
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
               className="w-full rounded-full border border-slate-200 bg-white py-2 pl-12 pr-4 text-sm text-slate-700 placeholder-slate-500 outline-none transition focus:ring-2 focus:ring-[#0F3D5C]/20 focus:border-[#0F3D5C]"
@@ -167,14 +167,6 @@ export default function DashboardHeader({
               )}
             </div>
           )}
-          <button
-            onClick={() => router.push("/admin/events?new=1")}
-            className="inline-flex items-center gap-2 rounded-full bg-[#0F3D5C] px-4 py-1.5 text-sm font-semibold text-white shadow-md transition hover:bg-[#0D2E47] active:scale-95"
-            title="Create new event"
-          >
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">New event</span>
-          </button>
           </div>
         </div>
       </div>

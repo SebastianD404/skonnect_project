@@ -116,7 +116,7 @@ export default function HomePage() {
               </h1>
               
               <p className="text-xl text-[#555555] leading-relaxed max-w-2xl">
-                Empowering Barangay Pico youth scholars with SKEAP event updates, scholarship tracking, and accessible multilingual support in one unified portal.
+                Empowering Barangay Pico youth scholars with scholarship tracking, and accessible multilingual support in one unified portal.
               </p>
               
               <div className="flex flex-col sm:flex-row flex-wrap items-start gap-3 pt-4">
@@ -246,18 +246,12 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <ServiceCard
               icon={<GraduationCapIcon />}
               title="SKEAP"
               desc="The SK Educational Assistance Program provides financial support for qualified students in Barangay Pico. Skip the trips to the SK office and easily submit your documents online."
               slug="skeap-scholarship"
-            />
-            <ServiceCard
-              icon={<CalendarIcon />}
-              title="Youth Events"
-              desc="The central hub for official Barangay Pico youth programs and SK activities. Browse upcoming events, view live registration slot counts in real time, and secure your seat before spots fill up."
-              slug="/events"
             />
             <ServiceCard
               icon={<BellIcon />}
@@ -268,7 +262,7 @@ export default function HomePage() {
             <ServiceCard
               icon={<ChatIcon />}
               title="Official Announcements"
-              desc="Stay updated with the latest announcements from SK officials. Get important updates on programs, events, and community initiatives."
+              desc="Stay updated with the latest announcements from SK officials. Get important updates on programs, community resources, and citizen support services."
               slug="/announcements"
             />
           </div>
@@ -318,7 +312,6 @@ export default function HomePage() {
               <h4 className="font-bold text-sm mb-3 uppercase tracking-wider">Links</h4>
               <ul className="space-y-2 text-sm text-white/70">
                 <li><a href="#programs" className="hover:text-white transition-colors">Programs</a></li>
-                <li><Link href="/events" className="hover:text-white transition-colors">Events</Link></li>
                 <li><Link href="/about" className="hover:text-white transition-colors">About</Link></li>
               </ul>
             </div>

@@ -200,8 +200,8 @@ export async function POST(request: NextRequest) {
     } as const;
 
     const created = await prisma.$transaction(async (tx) => {
-      const application = await tx.skeapApplication.create({ data: createData, select: { id: true } });
-      const inquiry = await tx.inquiry.create({
+      const application = await (tx as any).skeapApplication.create({ data: createData, select: { id: true } });
+      const inquiry = await (tx as any).inquiry.create({
         data: {
           userId: appUser.id,
           applicationId: application.id,

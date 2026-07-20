@@ -29,5 +29,6 @@ export async function writeAuditLog(client: AuditLogClient, input: AuditLogInput
     },
   };
 
-  return client.auditLog.create({ data });
+  const auditLogClient = client as PrismaClient & { auditLog?: { create: (args: { data: Prisma.AuditLogCreateInput }) => Promise<unknown> } };
+  return auditLogClient.auditLog!.create({ data });
 }

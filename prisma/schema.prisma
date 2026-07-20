@@ -217,6 +217,7 @@ model ProfilingRegistration {
   submittedAt             DateTime @default(now())
   reviewStatus            String   @default("Pending")
   reviewNotes             String?
+  residencyStatementAcknowledgement Boolean @default(false)
   idBackFileUrl           String?
   idDocumentType          String?
   idFrontFileUrl          String?

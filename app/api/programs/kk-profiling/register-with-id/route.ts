@@ -233,6 +233,7 @@ export async function POST(req: NextRequest) {
       assemblyTimes: formData.get("assemblyTimes"),
       noAssemblyReason: formData.get("noAssemblyReason"),
       consent: formData.get("consent") === "true",
+      residencyStatementAcknowledgement: formData.get("residencyStatementAcknowledgement") === "true",
       address: formData.get("address"),
       documentType: formData.get("documentType"),
     };
@@ -319,34 +320,39 @@ export async function POST(req: NextRequest) {
       data: { user: currentUser },
     } = await supabase.auth.getUser();
 
-    // Upload ID files
+    // Upload ID and residency files
     const uploads: Array<{ label: string; file: File }> = [];
-    const documentType = String(body.documentType || "Valid ID");
+    const frontFile = formData.get("frontFile") as File | null;
+    const backFile = formData.get("backFile") as File | null;
+    const residencyFile = formData.get("residencyFile") as File | null;
 
-    if (documentType === "Valid ID") {
-      const frontFile = formData.get("frontFile") as File | null;
-      const backFile = formData.get("backFile") as File | null;
-
-      if (!frontFile || !backFile) {
-        return NextResponse.json(
-          { error: "Please upload both the front and back of your valid ID." },
-          { status: 400 }
-        );
-      }
-
-      uploads.push({ label: "front", file: frontFile });
-      uploads.push({ label: "back", file: backFile });
-    } else {
-      const file = formData.get("file") as File | null;
-      if (!file) {
-        return NextResponse.json({ error: "Please provide a file to upload." }, { status: 400 });
-      }
-
-      uploads.push({ label: "single", file });
+    if (!frontFile || !backFile) {
+      return NextResponse.json(
+        { error: "Please upload both the front and back of your valid ID." },
+        { status: 400 }
+      );
     }
 
+    if (!residencyFile) {
+      return NextResponse.json(
+        { error: "Please upload your Certificate of Residency." },
+        { status: 400 }
+      );
+    }
+
+    if (!body.residencyStatementAcknowledgement) {
+      return NextResponse.json(
+        { error: "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months." },
+        { status: 400 }
+      );
+    }
+
+    uploads.push({ label: "front", file: frontFile });
+    uploads.push({ label: "back", file: backFile });
+    uploads.push({ label: "residency", file: residencyFile });
+
     // Create a temporary Supabase client to upload files with the authenticated user
-    let idDocumentType = documentType;
+    let idDocumentType = "Valid ID + Certificate of Residency";
     let idFrontFileUrl: string | null = null;
     let idBackFileUrl: string | null = null;
     let idSingleFileUrl: string | null = null;
@@ -371,13 +377,13 @@ export async function POST(req: NextRequest) {
         idFrontFileUrl = result.url;
       } else if (upload.label === "back") {
         idBackFileUrl = result.url;
-      } else if (upload.label === "single") {
+      } else if (upload.label === "residency") {
         idSingleFileUrl = result.url;
       }
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      const kkProfile = await tx.kKProfile.create({
+      const kkProfile = await (tx as any).kKProfile.create({
         data: {
           firstName: names.firstName,
           middleName: names.middleName,
@@ -393,14 +399,14 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      const existingByEmail = await tx.user.findFirst({
+      const existingByEmail = await (tx as any).user.findFirst({
         where: { email: { equals: email, mode: "insensitive" } },
         select: { id: true },
       });
 
       let appUser;
       if (existingByEmail) {
-        appUser = await tx.user.update({
+        appUser = await (tx as any).user.update({
           where: { id: existingByEmail.id },
           data: {
             authId,
@@ -415,7 +421,7 @@ export async function POST(req: NextRequest) {
           },
         });
       } else {
-        appUser = await tx.user.create({
+        appUser = await (tx as any).user.create({
           data: {
             authId,
             email,
@@ -433,7 +439,7 @@ export async function POST(req: NextRequest) {
 
       const address = `${resolvedSite}, ${BARANGAY_PICO}, ${municipality}, ${province}`;
 
-      await tx.profilingRegistration.create({
+      await (tx as any).profilingRegistration.create({
         data: {
           userId: appUser.id,
           fullName: names.fullName,
@@ -458,6 +464,7 @@ export async function POST(req: NextRequest) {
           assemblyTimes: String(body.assemblyTimes || "").trim() || null,
           noAssemblyReason: String(body.noAssemblyReason || "").trim() || null,
           consent: true,
+          residencyStatementAcknowledgement: true,
           idDocumentType,
           idFrontFileUrl,
           idBackFileUrl,
@@ -484,7 +491,7 @@ export async function POST(req: NextRequest) {
           ? "Your KK Profiling request has been received with your ID documents and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates."
           : "Your KK Profiling request has been received with your ID documents and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates.",
     });
-  } catch (err) {
+  } catch (err: any) {
     if (createdAuthUserId) {
       try {
         if (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {

@@ -28,6 +28,7 @@ type KKProfilingRegistrationData = {
   idFrontFileUrl?: string | null;
   idBackFileUrl?: string | null;
   idSingleFileUrl?: string | null;
+  residencyStatementAcknowledgement?: boolean;
   reviewStatus: string;
   submittedAt?: string | null;
 };
@@ -97,13 +98,13 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     assemblyTimes: registration.assemblyTimes ?? "",
     noAssemblyReason: registration.noAssemblyReason ?? "",
   });
-  const [idDocumentType, setIdDocumentType] = useState(registration.idDocumentType ?? "Valid ID");
   const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({ front: null, back: null, single: null });
   const [previewUrls, setPreviewUrls] = useState<PreviewUrls>({});
   const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null);
   const [previewModalAlt, setPreviewModalAlt] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [residencyStatementConfirmed, setResidencyStatementConfirmed] = useState(false);
 
   useEffect(() => {
     setForm({
@@ -127,8 +128,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       assemblyTimes: registration.assemblyTimes ?? "",
       noAssemblyReason: registration.noAssemblyReason ?? "",
     });
-    setIdDocumentType(registration.idDocumentType ?? "Valid ID");
     setSelectedFiles({ front: null, back: null, single: null });
+    setResidencyStatementConfirmed(false);
     setMessage(null);
   }, [registration]);
 
@@ -171,15 +172,6 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     }));
   }
 
-  function handleIdDocumentTypeChange(value: string) {
-    setIdDocumentType(value);
-    if (value === "Valid ID") {
-      setSelectedFiles({ front: null, back: null, single: null });
-    } else {
-      setSelectedFiles({ single: null, front: null, back: null });
-    }
-  }
-
   function handleFileChange(field: keyof SelectedFiles, file: File | null) {
     setSelectedFiles((current) => ({
       ...current,
@@ -207,7 +199,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
   function fileLabel(field: keyof SelectedFiles) {
     if (field === "front") return "Front of ID";
     if (field === "back") return "Back of ID";
-    return "Document file";
+    return "Certificate of Residency";
   }
 
   function renderPreview(field: keyof SelectedFiles, file: File | null) {
@@ -282,11 +274,11 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     if (!form.attendedKKAssembly.trim()) return "KK Assembly attendance is required.";
     if (form.attendedKKAssembly === "Yes" && !form.assemblyTimes?.trim()) return "Please indicate how many assemblies you attended.";
     if (form.attendedKKAssembly === "No" && !form.noAssemblyReason?.trim()) return "Please explain why you did not attend a KK Assembly.";
-    if (idDocumentType === "Valid ID") {
-      if (!selectedFiles.front && !registration.idFrontFileUrl) return "Please upload the front of your valid ID.";
-      if (!selectedFiles.back && !registration.idBackFileUrl) return "Please upload the back of your valid ID.";
-    } else {
-      if (!selectedFiles.single && !registration.idSingleFileUrl) return "Please upload your supporting document.";
+    if (!selectedFiles.front && !registration.idFrontFileUrl) return "Please upload the front of your valid ID.";
+    if (!selectedFiles.back && !registration.idBackFileUrl) return "Please upload the back of your valid ID.";
+    if (!selectedFiles.single && !registration.idSingleFileUrl) return "Please upload your Certificate of Residency.";
+    if (selectedFiles.single && !residencyStatementConfirmed) {
+      return "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months.";
     }
     return null;
   }
@@ -321,19 +313,17 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       formData.append("attendedKKAssembly", form.attendedKKAssembly);
       formData.append("assemblyTimes", form.assemblyTimes ?? "");
       formData.append("noAssemblyReason", form.noAssemblyReason ?? "");
-      formData.append("documentType", idDocumentType);
+      formData.append("documentType", "Valid ID + Certificate of Residency");
 
-      if (idDocumentType === "Valid ID") {
-        if (selectedFiles.front) {
-          formData.append("frontFile", selectedFiles.front);
-        }
-        if (selectedFiles.back) {
-          formData.append("backFile", selectedFiles.back);
-        }
-      } else {
-        if (selectedFiles.single) {
-          formData.append("file", selectedFiles.single);
-        }
+      if (selectedFiles.front) {
+        formData.append("frontFile", selectedFiles.front);
+      }
+      if (selectedFiles.back) {
+        formData.append("backFile", selectedFiles.back);
+      }
+      if (selectedFiles.single) {
+        formData.append("residencyFile", selectedFiles.single);
+        formData.append("residencyStatementConfirmed", String(residencyStatementConfirmed));
       }
 
       const response = await fetch("/api/programs/kk-profiling/registration-with-id", {
@@ -639,118 +629,87 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
           <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-4">
             <div className="space-y-4">
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="font-semibold">Identification document type</span>
-                <select
-                  value={idDocumentType}
-                  onChange={(e) => handleIdDocumentTypeChange(e.target.value)}
-                  className="rounded-2xl border border-slate-300 bg-white px-4 py-3"
-                >
-                  <option>Valid ID</option>
-                  <option>Birth Certificate</option>
-                  <option>Other supporting document</option>
-                </select>
-              </label>
-
-              {idDocumentType === "Valid ID" ? (
-                <div className="space-y-3 rounded-[1.5rem] border border-slate-300 bg-white p-4">
-                  <div className="text-sm">
-                    <p className="font-semibold text-slate-900">Currently on file</p>
-                    <p className="mt-2 text-xs uppercase tracking-wide text-slate-500">Valid ID</p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      {registration.idFrontFileUrl ? (
-                        <button
-                          type="button"
-                          onClick={() => openPreviewModal(registration.idFrontFileUrl ?? "", "Front of ID")}
-                          className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
-                        >
-                          <span>📄</span> View front
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-500">No front file</span>
-                      )}
-                      {registration.idBackFileUrl ? (
-                        <button
-                          type="button"
-                          onClick={() => openPreviewModal(registration.idBackFileUrl ?? "", "Back of ID")}
-                          className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
-                        >
-                          <span>📄</span> View back
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-500">No back file</span>
-                      )}
-                    </div>
+              <div className="space-y-3 rounded-[1.5rem] border border-slate-300 bg-white p-4">
+                <div className="text-sm">
+                  <p className="font-semibold text-slate-900">Currently on file</p>
+                  <p className="mt-2 text-xs uppercase tracking-wide text-slate-500">Valid ID + Certificate of Residency</p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {registration.idFrontFileUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => openPreviewModal(registration.idFrontFileUrl ?? "", "Front of ID")}
+                        className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
+                      >
+                        <span>📄</span> View front
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-500">No front file</span>
+                    )}
+                    {registration.idBackFileUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => openPreviewModal(registration.idBackFileUrl ?? "", "Back of ID")}
+                        className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
+                      >
+                        <span>📄</span> View back
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-500">No back file</span>
+                    )}
                   </div>
-
-                  <div className="border-t border-slate-200 pt-3">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {selectedFiles.front || selectedFiles.back ? "📸 Replacement files selected" : "Upload replacement"}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600">
-                      {selectedFiles.front || selectedFiles.back
-                        ? "Your new files will replace the current ones on file."
-                        : "Select new files to update your identification documents."}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3 rounded-[1.5rem] border border-slate-300 bg-white p-4">
-                  <div className="text-sm">
-                    <p className="font-semibold text-slate-900">Currently on file</p>
-                    <p className="mt-2 text-xs uppercase tracking-wide text-slate-500">{registration.idDocumentType || "Not uploaded"}</p>
+                  <div className="mt-3">
                     {registration.idSingleFileUrl ? (
                       <button
                         type="button"
-                        onClick={() => openPreviewModal(registration.idSingleFileUrl ?? "", "Uploaded document")}
-                        className="mt-3 inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
+                        onClick={() => openPreviewModal(registration.idSingleFileUrl ?? "", "Certificate of Residency")}
+                        className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
                       >
-                        <span>📄</span> View document
+                        <span>📄</span> View residency document
                       </button>
                     ) : (
-                      <span className="mt-3 block text-xs text-slate-500">No document on file</span>
+                      <span className="text-xs text-slate-500">No residency document</span>
                     )}
                   </div>
-
-                  <div className="border-t border-slate-200 pt-3">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {selectedFiles.single ? "📸 Replacement file selected" : "Upload replacement"}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600">
-                      {selectedFiles.single
-                        ? "Your new file will replace the current document on file."
-                        : "Select a new file to update your supporting document."}
-                    </p>
-                  </div>
                 </div>
-              )}
 
-              {idDocumentType === "Valid ID" ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="flex flex-col gap-3 rounded-[1.75rem] bg-white p-4 shadow-sm">
-                    <span className="font-semibold text-slate-900">Front of ID</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(event) => handleFileChange("front", event.target.files?.[0] ?? null)}
-                      className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
-                    />
-                    {renderPreview("front", selectedFiles.front ?? null)}
-                  </label>
-                  <label className="flex flex-col gap-3 rounded-[1.75rem] bg-white p-4 shadow-sm">
-                    <span className="font-semibold text-slate-900">Back of ID</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(event) => handleFileChange("back", event.target.files?.[0] ?? null)}
-                      className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
-                    />
-                    {renderPreview("back", selectedFiles.back ?? null)}
-                  </label>
+                <div className="border-t border-slate-200 pt-3">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {selectedFiles.front || selectedFiles.back || selectedFiles.single ? "📸 Replacement files selected" : "Upload replacement"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {selectedFiles.front || selectedFiles.back || selectedFiles.single
+                      ? "Your new files will replace the current ones on file."
+                      : "Select new files to update your identification documents."}
+                  </p>
                 </div>
-              ) : (
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
                 <label className="flex flex-col gap-3 rounded-[1.75rem] bg-white p-4 shadow-sm">
-                  <span className="font-semibold text-slate-900">Document file</span>
+                  <span className="font-semibold text-slate-900">Front of ID</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => handleFileChange("front", event.target.files?.[0] ?? null)}
+                    className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
+                  />
+                  {renderPreview("front", selectedFiles.front ?? null)}
+                </label>
+                <label className="flex flex-col gap-3 rounded-[1.75rem] bg-white p-4 shadow-sm">
+                  <span className="font-semibold text-slate-900">Back of ID</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => handleFileChange("back", event.target.files?.[0] ?? null)}
+                    className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
+                  />
+                  {renderPreview("back", selectedFiles.back ?? null)}
+                </label>
+                <label className="flex flex-col gap-3 rounded-[1.75rem] bg-white p-4 shadow-sm">
+                  <span className="font-semibold text-slate-900">Certificate of Residency</span>
+                  <p className="text-sm text-slate-600">
+                    Upload a residency certificate that explicitly states you have lived in the barangay for at least 8 months.
+                  </p>
                   <input
                     type="file"
                     accept="image/*,application/pdf"
@@ -758,8 +717,21 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                     className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
                   />
                   {renderPreview("single", selectedFiles.single ?? null)}
+                  {selectedFiles.single ? (
+                    <label className="mt-3 flex items-start gap-3 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={residencyStatementConfirmed}
+                        onChange={(event) => setResidencyStatementConfirmed(event.target.checked)}
+                        className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                      />
+                      <span>
+                        I confirm that the uploaded Certificate of Residency states I have lived in the barangay for at least 8 months.
+                      </span>
+                    </label>
+                  ) : null}
                 </label>
-              )}
+              </div>
             </div>
           </div>
         </div>

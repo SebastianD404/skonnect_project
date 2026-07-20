@@ -10,11 +10,6 @@ export default async function SKOfficialDashboardPage() {
   last30Days.setDate(now.getDate() - 30);
   const prev30Days = new Date(now);
   prev30Days.setDate(now.getDate() - 60);
-  const next30Days = new Date(now);
-  next30Days.setDate(now.getDate() + 30);
-  const next60Days = new Date(now);
-  next60Days.setDate(now.getDate() + 60);
-
   const supportInquiryFilter = {
     NOT: {
       subject: {
@@ -27,11 +22,10 @@ export default async function SKOfficialDashboardPage() {
   const [
     grantees,
     openInquiryCount,
-    upcomingEventCount,
     pendingSubmissionCount,
+    skeapApplicationCount,
     profilingRegistrationCount,
     profilingMonthlyRows,
-    upcomingEvents,
     recentInquiries,
     newGranteesLast30Days,
     newGranteesPrev30Days,
@@ -39,8 +33,6 @@ export default async function SKOfficialDashboardPage() {
     newOpenInquiriesPrev30Days,
     newPendingSubmissionsLast30Days,
     newPendingSubmissionsPrev30Days,
-    upcomingEventsNext30Days,
-    upcomingEventsNext60Days,
   ] = await Promise.all([
     prisma.grantee.findMany({
       take: 6,
@@ -67,37 +59,30 @@ export default async function SKOfficialDashboardPage() {
     prisma.inquiry.count({
       where: { ...supportInquiryFilter, isResolved: false },
     }),
-    prisma.event.count({
-      where: {
-        status: {
-          in: ["UPCOMING", "REGISTRATION_OPEN"],
-        },
-      },
-    }),
     prisma.submission.count({
       where: { status: "PENDING" },
     }),
-    getProfilingRegistrationCount(),
-    getMonthlyProfilingRegistrationCounts(6),
-    prisma.event.findMany({
-      take: 4,
-      orderBy: { eventDate: "asc" },
+    prisma.inquiry.count({
       where: {
-        status: {
-          in: ["UPCOMING", "REGISTRATION_OPEN"],
-        },
-      },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        venue: true,
-        eventDate: true,
-        status: true,
-        filledSlots: true,
-        maxSlots: true,
+        subject: { contains: "SKEAP application", mode: "insensitive" as const },
+        NOT: [
+          { reviewStatus: { contains: "cancel", mode: "insensitive" as const } },
+          { reviewStatus: { contains: "approve", mode: "insensitive" as const } },
+        ],
+        AND: [
+          {
+            OR: [
+              { reviewStatus: { contains: "pending", mode: "insensitive" as const } },
+              { reviewStatus: { contains: "return", mode: "insensitive" as const } },
+              { reviewStatus: { contains: "resubm", mode: "insensitive" as const } },
+              { reviewStatus: { contains: "respond", mode: "insensitive" as const } },
+            ],
+          },
+        ],
       },
     }),
+    getProfilingRegistrationCount(),
+    getMonthlyProfilingRegistrationCounts(6),
     prisma.inquiry.findMany({
       take: 4,
       orderBy: { createdAt: "desc" },
@@ -122,18 +107,6 @@ export default async function SKOfficialDashboardPage() {
     prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: prev30Days, lt: last30Days } } }),
     prisma.submission.count({ where: { submittedAt: { gte: last30Days }, status: "PENDING" } }),
     prisma.submission.count({ where: { submittedAt: { gte: prev30Days, lt: last30Days }, status: "PENDING" } }),
-    prisma.event.count({
-      where: {
-        status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-        eventDate: { gte: now, lt: next30Days },
-      },
-    }),
-    prisma.event.count({
-      where: {
-        status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-        eventDate: { gte: next30Days, lt: next60Days },
-      },
-    }),
   ]);
 
   // Build a contiguous last-N-months series (labels + counts)
@@ -193,8 +166,6 @@ export default async function SKOfficialDashboardPage() {
   const granteeDelta = formatDelta(newGranteesLast30Days, newGranteesPrev30Days);
   const inquiryDelta = formatDelta(newOpenInquiriesLast30Days, newOpenInquiriesPrev30Days);
   const submissionDelta = formatDelta(newPendingSubmissionsLast30Days, newPendingSubmissionsPrev30Days);
-  const eventDelta = formatDelta(upcomingEventsNext30Days, upcomingEventsNext60Days);
-
   const dateLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -211,11 +182,11 @@ export default async function SKOfficialDashboardPage() {
       iconName: "Users" as const,
     },
     {
-      label: "Upcoming Events",
-      value: `${upcomingEventCount}`,
-      sub: "next 30 days",
-      delta: eventDelta.delta,
-      up: eventDelta.up,
+      label: "SKEAP Applications",
+      value: `${skeapApplicationCount}`,
+      sub: "pending review",
+      delta: inquiryDelta.delta,
+      up: inquiryDelta.up,
       iconName: "CalendarDays" as const,
     },
     {
@@ -260,11 +231,7 @@ export default async function SKOfficialDashboardPage() {
       profilingRegistrationCount={profilingRegistrationCount}
       profilingSeries={profilingSeries}
       profilingMonths={profilingMonths}
-      upcomingEvents={upcomingEvents.map((event) => ({
-        ...event,
-        eventDate: event.eventDate.toISOString(),
-      }))}
-      recentInquiries={recentInquiries.map((inquiry) => ({
+      recentInquiries={recentInquiries.map((inquiry: any) => ({
         ...inquiry,
         createdAt: inquiry.createdAt.toISOString(),
       }))}

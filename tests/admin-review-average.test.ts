@@ -10,6 +10,10 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
       update: (...args: unknown[]) => mockUpdate(...args),
     },
+    $transaction: async (cb: any) => {
+      // Execute the callback with a transaction-like object that forwards updates to our mocks
+      return cb({ submission: { update: (...args: unknown[]) => mockUpdate(...args) } });
+    },
   },
 }));
 

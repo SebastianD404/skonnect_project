@@ -6,13 +6,13 @@ import { useEffect, useState } from "react";
 type SelectedFiles = {
   front?: File | null;
   back?: File | null;
-  single?: File | null;
+  residency?: File | null;
 };
 
 type PreviewUrls = {
   front?: string;
   back?: string;
-  single?: string;
+  residency?: string;
 };
 
 function formatBytes(bytes: number) {
@@ -22,12 +22,12 @@ function formatBytes(bytes: number) {
 }
 
 export default function KKProfilingVerifyIdPage() {
-  const [documentType, setDocumentType] = useState("Valid ID");
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({ front: null, back: null });
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({ front: null, back: null, residency: null });
   const [previewUrls, setPreviewUrls] = useState<PreviewUrls>({});
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [residencyStatementConfirmed, setResidencyStatementConfirmed] = useState(false);
 
   useEffect(() => {
     const urls: PreviewUrls = {};
@@ -38,8 +38,8 @@ export default function KKProfilingVerifyIdPage() {
     if (selectedFiles.back) {
       urls.back = URL.createObjectURL(selectedFiles.back);
     }
-    if (selectedFiles.single) {
-      urls.single = URL.createObjectURL(selectedFiles.single);
+    if (selectedFiles.residency) {
+      urls.residency = URL.createObjectURL(selectedFiles.residency);
     }
 
     setPreviewUrls(urls);
@@ -50,23 +50,13 @@ export default function KKProfilingVerifyIdPage() {
         }
       });
     };
-  }, [selectedFiles.front, selectedFiles.back, selectedFiles.single]);
+  }, [selectedFiles.front, selectedFiles.back, selectedFiles.residency]);
 
-  function resetFilesForType(type: string) {
+  function resetFiles() {
     setMessage(null);
     setSuccess(null);
-
-    if (type === "Valid ID") {
-      setSelectedFiles({ front: null, back: null });
-    } else {
-      setSelectedFiles({ single: null });
-    }
-  }
-
-  function handleDocumentTypeChange(event: ChangeEvent<HTMLSelectElement>) {
-    const nextType = event.target.value;
-    setDocumentType(nextType);
-    resetFilesForType(nextType);
+    setSelectedFiles({ front: null, back: null, residency: null });
+    setResidencyStatementConfirmed(false);
   }
 
   function handleFileChange(field: keyof SelectedFiles, file: File | null) {
@@ -86,7 +76,7 @@ export default function KKProfilingVerifyIdPage() {
   function fileLabel(field: keyof SelectedFiles) {
     if (field === "front") return "Front of ID";
     if (field === "back") return "Back of ID";
-    return "Document file";
+    return "Certificate of Residency";
   }
 
   function renderPreview(field: keyof SelectedFiles, file: File | null) {
@@ -141,27 +131,27 @@ export default function KKProfilingVerifyIdPage() {
     setMessage(null);
     setSuccess(null);
 
-    if (documentType === "Valid ID") {
-      if (!selectedFiles.front || !selectedFiles.back) {
-        setMessage("Please upload both the front and back of your ID.");
-        return;
-      }
-    } else if (!selectedFiles.single) {
-      setMessage("Please choose a file to upload.");
+    if (!selectedFiles.front || !selectedFiles.back) {
+      setMessage("Please upload both the front and back of your ID.");
+      return;
+    }
+    if (!selectedFiles.residency) {
+      setMessage("Please upload your Certificate of Residency.");
+      return;
+    }
+    if (!residencyStatementConfirmed) {
+      setMessage("Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months.");
       return;
     }
 
     setSubmitting(true);
     try {
       const formData = new FormData();
-      formData.append("documentType", documentType);
-
-      if (documentType === "Valid ID") {
-        formData.append("frontFile", selectedFiles.front as File);
-        formData.append("backFile", selectedFiles.back as File);
-      } else {
-        formData.append("file", selectedFiles.single as File);
-      }
+      formData.append("documentType", "Valid ID + Certificate of Residency");
+      formData.append("frontFile", selectedFiles.front as File);
+      formData.append("backFile", selectedFiles.back as File);
+      formData.append("residencyFile", selectedFiles.residency as File);
+      formData.append("residencyStatementConfirmed", String(residencyStatementConfirmed));
 
       const response = await fetch("/api/programs/kk-profiling/verify-id", {
         method: "POST",
@@ -172,12 +162,8 @@ export default function KKProfilingVerifyIdPage() {
       if (!response.ok) {
         setMessage(body.error || "Unable to upload your documents. Please try again.");
       } else {
-        setSuccess(
-          documentType === "Valid ID"
-            ? "Your ID front and back images were uploaded successfully."
-            : `Upload for ${body.type} received successfully.`
-        );
-        resetFilesForType(documentType);
+        setSuccess("Your documents were uploaded successfully.");
+        resetFiles();
       }
     } catch (error) {
       console.error(error);
@@ -187,9 +173,6 @@ export default function KKProfilingVerifyIdPage() {
     }
   }
 
-  const validIdMode = documentType === "Valid ID";
-  const requiresSingleFile = !validIdMode;
-
   return (
     <div className="min-h-screen bg-[#F3F7FB] text-slate-900">
       <main className="mx-auto max-w-4xl px-4 py-14 sm:px-6 lg:px-8">
@@ -198,36 +181,12 @@ export default function KKProfilingVerifyIdPage() {
             <p className="text-xs uppercase tracking-[0.35em] text-teal-600">KK Verification</p>
             <h1 className="text-3xl font-bold text-slate-900">Upload identification for KK verification</h1>
             <p className="text-sm text-slate-600">
-              Submit your valid ID or birth certificate so Barangay Pico staff can verify your KK profiling registration. You can also monitor your status on the KK Profiling status page.
-            </p>
-          </div>
+                Please upload both the front and back of your valid ID and your Certificate of Residency. Both document sets are required to verify your KK profiling registration.
+              </p>
+            </div>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="font-semibold">Document type</span>
-                <select
-                  value={documentType}
-                  onChange={handleDocumentTypeChange}
-                  className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3"
-                >
-                  <option>Valid ID</option>
-                  <option>Birth Certificate</option>
-                  <option>Other supporting document</option>
-                </select>
-              </label>
-
-              {requiresSingleFile ? (
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="font-semibold">Select file</span>
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    onChange={(event) => handleFileChange("single", event.target.files?.[0] ?? null)}
-                    className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3"
-                  />
-                </label>
-              ) : (
+            <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2 grid gap-4 md:grid-cols-2">
                   <label className="flex flex-col gap-2 text-sm rounded-3xl border border-slate-200 bg-slate-50 p-4">
                     <span className="font-semibold">Front of ID</span>
@@ -251,15 +210,34 @@ export default function KKProfilingVerifyIdPage() {
                     {renderPreview("back", selectedFiles.back ?? null)}
                   </label>
                 </div>
-              )}
-            </div>
-
-            {requiresSingleFile && selectedFiles.single ? (
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                {renderPreview("single", selectedFiles.single)}
               </div>
-            ) : null}
 
+              <div>
+                <label className="flex flex-col gap-2 text-sm rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <span className="font-semibold">Certificate of Residency</span>
+                  <p className="text-sm text-slate-600">
+                    Upload a residency certificate that explicitly states you have lived in the barangay for at least 8 months.
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(event) => handleFileChange("residency", event.target.files?.[0] ?? null)}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-3"
+                  />
+                  {renderPreview("residency", selectedFiles.residency ?? null)}
+                </label>
+                <label className="mt-4 flex items-start gap-3 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={residencyStatementConfirmed}
+                    onChange={(event) => setResidencyStatementConfirmed(event.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                  />
+                  <span>
+                    I confirm that the uploaded Certificate of Residency states I have lived in the barangay for at least 8 months.
+                  </span>
+                </label>
+              </div>
             {message ? (
               <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{message}</div>
             ) : null}
@@ -273,7 +251,7 @@ export default function KKProfilingVerifyIdPage() {
                 disabled={submitting}
                 className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
               >
-                {submitting ? "Uploading..." : validIdMode ? "Upload front and back" : "Upload document"}
+                {submitting ? "Uploading..." : "Upload documents"}
               </button>
               <p className="text-sm text-slate-500">Accepted formats: JPG, PNG, PDF. Maximum file size 10MB.</p>
             </div>

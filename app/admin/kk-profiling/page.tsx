@@ -89,12 +89,12 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
   const voters = { yes: 0, no: 0, unknown: 0 };
   const assemblies = { attended: 0, notAttended: 0 };
 
-  classificationGroups.forEach((group) => {
+  classificationGroups.forEach((group: any) => {
     const classification = group.youthClassification?.trim() || "Unknown";
     classifications.set(classification, group._count._all);
   });
 
-  ageGroupCounts.forEach((group) => {
+  ageGroupCounts.forEach((group: any) => {
     const label = group.youthAgeGroup?.trim();
     if (label && ageGroups[label] !== undefined) {
       ageGroups[label] = group._count._all;

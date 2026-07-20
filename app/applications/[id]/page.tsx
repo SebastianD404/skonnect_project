@@ -33,7 +33,7 @@ export default async function ApplicationPage({ params }: Props) {
   } = await supabase.auth.getUser();
 
   let currentUserId: string | null = null;
-  let appUserProfile = null;
+  let appUserProfile: Awaited<ReturnType<typeof ensureProfile>> = null;
   if (user) {
     const appUser = await ensureProfile(user);
     if (appUser) {

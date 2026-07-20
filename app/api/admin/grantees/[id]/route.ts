@@ -60,12 +60,12 @@ export async function PATCH(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const saved = await tx.grantee.update({
+      const saved = await (tx as any).grantee.update({
         where: { id },
         data: { status: nextStatus as "ACTIVE" | "GRADUATED" | "REMOVED" },
       });
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: "MUTATE_GRANTEE_STATUS",
         actorId: auth.user.id,
         targetTable: "grantees",

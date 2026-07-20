@@ -343,7 +343,7 @@ export default async function AdminInquiriesPage() {
       openInquiryCount={openInquiryCount}
       pendingSubmissionCount={pendingSubmissionCount}
       statsByPeriod={statsByPeriod}
-      inquiries={inquiries.map((inquiry) => ({
+      inquiries={inquiries.map((inquiry: any) => ({
         ...inquiry,
         createdAt: inquiry.createdAt.toISOString(),
         respondedAt: inquiry.respondedAt?.toISOString() ?? null,

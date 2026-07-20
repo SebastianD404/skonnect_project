@@ -4,6 +4,7 @@ import React, { useState, useEffect, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
+import DocumentOCRValidationExample, { type DocumentOCRKey, type DocumentOCRState } from "@/app/components/DocumentOCRValidationExample";
 import { Eye, EyeOff } from "lucide-react";
 
 const initialForm = {
@@ -33,6 +34,8 @@ const initialForm = {
   noAssemblyReason: "",
   consent: false,
 };
+
+const REQUIRED_DOCUMENT_TYPE = "Valid ID + Certificate of Residency";
 
 function computeAgeFromBirthDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -70,9 +73,7 @@ export default function KKProfilingForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [idDocumentType, setIdDocumentType] = useState("Valid ID");
-  const [idFiles, setIdFiles] = useState<{ front?: File | null; back?: File | null; single?: File | null }>({ front: null, back: null });
-  const [idPreviewUrls, setIdPreviewUrls] = useState<{ front?: string; back?: string; single?: string }>({});
+  const [idFiles, setIdFiles] = useState<{ front?: File | null; back?: File | null; residency?: File | null }>({ front: null, back: null, residency: null });
   const [successMessage, setSuccessMessage] = useState("Your KK Profiling application has been received and is now pending verification.");
   const [successRedirectTo, setSuccessRedirectTo] = useState("/programs/kk-profiling/status");
   const [successCredentials, setSuccessCredentials] = useState<{ username: string; temporaryPassword: string } | null>(null);
@@ -80,6 +81,13 @@ export default function KKProfilingForm() {
   const [accountExistsFallback, setAccountExistsFallback] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
+  const [ocrValidationState, setOcrValidationState] = useState<Record<DocumentOCRKey, DocumentOCRState>>({
+    front: { status: "idle", file: null },
+    back: { status: "idle", file: null },
+    residency: { status: "idle", file: null },
+  });
+
+  const isOcrVerified = Object.values(ocrValidationState).every((state) => state.status === "success");
 
   // Check if user is already approved and redirect
   useEffect(() => {
@@ -114,28 +122,6 @@ export default function KKProfilingForm() {
   }, [router]);
 
   // ID file preview effect
-  useEffect(() => {
-    const urls: { front?: string; back?: string; single?: string } = {};
-
-    if (idFiles.front) {
-      urls.front = URL.createObjectURL(idFiles.front);
-    }
-    if (idFiles.back) {
-      urls.back = URL.createObjectURL(idFiles.back);
-    }
-    if (idFiles.single) {
-      urls.single = URL.createObjectURL(idFiles.single);
-    }
-
-    setIdPreviewUrls(urls);
-    return () => {
-      Object.values(urls).forEach((url) => {
-        if (url) {
-          URL.revokeObjectURL(url);
-        }
-      });
-    };
-  }, [idFiles.front, idFiles.back, idFiles.single]);
 
   function setField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
     if (key === "birthDate") {
@@ -157,16 +143,6 @@ export default function KKProfilingForm() {
   function normalizedMiddleInitial(value: string) {
     const cleaned = value.replace(/[^a-zA-Z]/g, "").slice(0, 1).toUpperCase();
     return cleaned;
-  }
-
-  function handleIdDocumentTypeChange(e: ChangeEvent<HTMLSelectElement>) {
-    const nextType = e.target.value;
-    setIdDocumentType(nextType);
-    if (nextType === "Valid ID") {
-      setIdFiles({ front: null, back: null });
-    } else {
-      setIdFiles({ single: null });
-    }
   }
 
   function handleIdFileChange(field: keyof typeof idFiles, file: File | null) {
@@ -227,15 +203,16 @@ export default function KKProfilingForm() {
     if (!form.contactNumber.trim()) return "Contact number is required";
     if (!form.consent) return "You must agree to the informed consent";
     
-    // Validate ID upload
-    if (idDocumentType === "Valid ID") {
-      if (!idFiles.front || !idFiles.back) {
-        return "Please upload both front and back of your valid ID";
-      }
-    } else {
-      if (!idFiles.single) {
-        return "Please upload your document";
-      }
+    if (!idFiles.front || !idFiles.back) {
+      return "Please upload both the front and back of your valid ID.";
+    }
+
+    if (!idFiles.residency) {
+      return "Please upload your Certificate of Residency.";
+    }
+
+    if (!isOcrVerified) {
+      return "Please complete OCR validation for each uploaded document before submitting.";
     }
     
     return null;
@@ -298,13 +275,10 @@ export default function KKProfilingForm() {
       formData.append("address", address);
 
       // Add ID files
-      formData.append("documentType", idDocumentType);
-      if (idDocumentType === "Valid ID" && idFiles.front && idFiles.back) {
-        formData.append("frontFile", idFiles.front);
-        formData.append("backFile", idFiles.back);
-      } else if (idDocumentType !== "Valid ID" && idFiles.single) {
-        formData.append("file", idFiles.single);
-      }
+      formData.append("documentType", REQUIRED_DOCUMENT_TYPE);
+      formData.append("frontFile", idFiles.front as File);
+      formData.append("backFile", idFiles.back as File);
+      formData.append("residencyFile", idFiles.residency as File);
 
       const res = await fetch("/api/programs/kk-profiling/register-with-id", {
         method: "POST",
@@ -315,7 +289,12 @@ export default function KKProfilingForm() {
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
         setForm(initialForm);
-        setIdFiles({ front: null, back: null });
+        setIdFiles({ front: null, back: null, residency: null });
+        setOcrValidationState({
+          front: { status: "idle", file: null },
+          back: { status: "idle", file: null },
+          residency: { status: "idle", file: null },
+        });
         setMessage(null);
         setSuccessMessage(
           body?.message ||
@@ -641,112 +620,22 @@ export default function KKProfilingForm() {
 
       <hr className="my-6" />
 
-      <h4 className="text-lg font-semibold">PART III: Valid ID / Document Upload</h4>
-      <p className="text-sm text-slate-600">Please upload your valid ID or relevant document. This is required to verify your identity.</p>
-
-      <div>
-        <label className="flex flex-col">
-          <span className="text-sm font-semibold">Document Type *</span>
-          <select value={idDocumentType} onChange={handleIdDocumentTypeChange} className="mt-1 rounded-lg border px-3 py-2">
-            <option value="Valid ID">Valid ID (Front & Back)</option>
-            <option value="Birth Certificate">Birth Certificate</option>
-          </select>
-        </label>
-      </div>
+      <h4 className="text-lg font-semibold">PART III: Valid ID and Certificate of Residency</h4>
+      <p className="text-sm text-slate-600">Please upload both a valid ID and a Certificate of Residency. Your residency document must state that you have lived in Barangay Pico for at least 8 months.</p>
 
       <div className="space-y-4">
-        {idDocumentType === "Valid ID" ? (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold mb-2">Front of ID *</label>
-                <div className="relative">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => handleIdFileChange("front", e.target.files?.[0] || null)}
-                    className="hidden"
-                    id="id-front-file"
-                  />
-                  <label htmlFor="id-front-file" className="flex items-center justify-center w-full px-4 py-8 border-2 border-dashed rounded-lg cursor-pointer hover:bg-slate-50 transition">
-                    <span className="text-sm text-slate-600">Choose image or drag and drop</span>
-                  </label>
-                </div>
-                {idFiles.front && (
-                  <div className="mt-2 p-3 bg-slate-50 rounded-lg flex items-center justify-between">
-                    <span className="text-sm truncate">{idFiles.front.name}</span>
-                    <button type="button" onClick={() => removeIdFile("front")} className="text-xs text-red-600 hover:text-red-700">
-                      Remove
-                    </button>
-                  </div>
-                )}
-                {idPreviewUrls.front && (
-                  <div className="mt-2">
-                    <img src={idPreviewUrls.front} alt="Front of ID" className="max-h-40 rounded-lg" />
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold mb-2">Back of ID *</label>
-                <div className="relative">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => handleIdFileChange("back", e.target.files?.[0] || null)}
-                    className="hidden"
-                    id="id-back-file"
-                  />
-                  <label htmlFor="id-back-file" className="flex items-center justify-center w-full px-4 py-8 border-2 border-dashed rounded-lg cursor-pointer hover:bg-slate-50 transition">
-                    <span className="text-sm text-slate-600">Choose image or drag and drop</span>
-                  </label>
-                </div>
-                {idFiles.back && (
-                  <div className="mt-2 p-3 bg-slate-50 rounded-lg flex items-center justify-between">
-                    <span className="text-sm truncate">{idFiles.back.name}</span>
-                    <button type="button" onClick={() => removeIdFile("back")} className="text-xs text-red-600 hover:text-red-700">
-                      Remove
-                    </button>
-                  </div>
-                )}
-                {idPreviewUrls.back && (
-                  <div className="mt-2">
-                    <img src={idPreviewUrls.back} alt="Back of ID" className="max-h-40 rounded-lg" />
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div>
-            <label className="block text-sm font-semibold mb-2">Document *</label>
-            <div className="relative">
-              <input
-                type="file"
-                accept="image/*,.pdf"
-                onChange={(e) => handleIdFileChange("single", e.target.files?.[0] || null)}
-                className="hidden"
-                id="id-file"
-              />
-              <label htmlFor="id-file" className="flex items-center justify-center w-full px-4 py-8 border-2 border-dashed rounded-lg cursor-pointer hover:bg-slate-50 transition">
-                <span className="text-sm text-slate-600">Choose file or drag and drop</span>
-              </label>
-            </div>
-            {idFiles.single && (
-              <div className="mt-2 p-3 bg-slate-50 rounded-lg flex items-center justify-between">
-                <span className="text-sm truncate">{idFiles.single.name}</span>
-                <button type="button" onClick={() => removeIdFile("single")} className="text-xs text-red-600 hover:text-red-700">
-                  Remove
-                </button>
-              </div>
-            )}
-            {idPreviewUrls.single && idFiles.single?.type.startsWith("image/") && (
-              <div className="mt-2">
-                <img src={idPreviewUrls.single} alt="Document" className="max-h-40 rounded-lg" />
-              </div>
-            )}
-          </div>
-        )}
+        <DocumentOCRValidationExample
+          className="space-y-3"
+          onFileSelected={(key, file) => {
+            const field = key === "front" ? "front" : key === "back" ? "back" : "residency";
+            handleIdFileChange(field as keyof typeof idFiles, file);
+          }}
+          onRemoveFile={(key) => {
+            const field = key === "front" ? "front" : key === "back" ? "back" : "residency";
+            handleIdFileChange(field as keyof typeof idFiles, null);
+          }}
+          onValidationChange={setOcrValidationState}
+        />
       </div>
 
       <label className="flex items-start gap-3 mt-6">
@@ -810,7 +699,7 @@ export default function KKProfilingForm() {
         </div>
       )}
       <div className="flex items-center gap-3">
-        <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60">
+        <button type="submit" disabled={submitting || !isOcrVerified} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60">
           {submitting ? "Submitting..." : "Submit"}
         </button>
         {message && <p className="text-sm text-slate-700">{message}</p>}

@@ -69,7 +69,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     ];
 
     const inquiry = await prisma.$transaction(async (tx) => {
-      const updated = await tx.inquiry.update({
+      const updated = await (tx as any).inquiry.update({
         where: { id },
         data: {
           reviewStatus: "REJECTED",
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
       });
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: "REJECT_SKEAP_APPLICATION",
         actorId: auth.user.id,
         targetTable: "inquiries",

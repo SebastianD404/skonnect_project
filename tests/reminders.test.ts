@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildEventReminderMessage,
   buildSkeapReminderMessage,
   formatUtcDate,
   getReminderDates,
@@ -40,10 +39,4 @@ describe("reminder scheduling", () => {
     expect(message.body).toContain("2026-07-31");
   });
 
-  it("builds an event reminder message", () => {
-    const eventDate = new Date("2026-08-10T00:00:00.000Z");
-    const message = buildEventReminderMessage(3, "Youth Summit", eventDate);
-    expect(message.subject).toContain("Youth Summit");
-    expect(message.body).toContain("2026-08-10");
-  });
 });

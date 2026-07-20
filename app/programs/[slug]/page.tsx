@@ -121,7 +121,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
       { q: "How do I register?", a: "Click Register on an event page and confirm your details." },
       { q: "Can I cancel?", a: "Yes — cancellations before the cutoff release your slot to waiting users." },
     ],
-    cta: [{ label: "Browse events", href: "/events" }],
+    cta: [{ label: "Browse programs", href: "/programs" }],
   },
   "automated-reminders": {
     title: "Automated Reminders",

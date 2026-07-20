@@ -2,7 +2,6 @@ import "dotenv/config";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
-  buildEventReminderMessage,
   buildSkeapReminderMessage,
   formatUtcDate,
   getReminderDates,
@@ -12,9 +11,8 @@ import {
 const EMAIL_CHANNEL = "email";
 const IN_APP_CHANNEL = "in-app";
 const REMINDER_TYPE_SKEAP_APPLICATION = "SKEAP_APPLICATION" as const;
-const REMINDER_TYPE_EVENT_REGISTRATION = "EVENT_REGISTRATION" as const;
 
-type ReminderType = typeof REMINDER_TYPE_SKEAP_APPLICATION | typeof REMINDER_TYPE_EVENT_REGISTRATION;
+type ReminderType = typeof REMINDER_TYPE_SKEAP_APPLICATION;
 
 function normalizeDate(value: Date | string | null | undefined): Date | null {
   if (!value) return null;
@@ -55,25 +53,12 @@ async function getGranteesWithSkeapAccess() {
   });
 }
 
-async function getActiveEventRegistrations() {
-  return prisma.registration.findMany({
-    where: {
-      event: { status: { in: ["UPCOMING", "REGISTRATION_OPEN"] } },
-    },
-    include: { event: true, user: true },
-  });
-}
-
 async function loadReminderSettings() {
-  const [skeapSetting, eventSetting] = await Promise.all([
-    prisma.reminderSetting.findUnique({ where: { type: REMINDER_TYPE_SKEAP_APPLICATION } }),
-    prisma.reminderSetting.findUnique({ where: { type: REMINDER_TYPE_EVENT_REGISTRATION } }),
-  ]);
+  const skeapSetting = await prisma.reminderSetting.findUnique({ where: { type: REMINDER_TYPE_SKEAP_APPLICATION } });
 
   return {
     skeapOffsets: skeapSetting?.offsets ?? [],
     skeapDeadline: normalizeDate(skeapSetting?.deadline),
-    eventOffsets: eventSetting?.offsets ?? [],
   };
 }
 
@@ -123,63 +108,10 @@ export async function processSkeapReminders(settings: Awaited<ReturnType<typeof 
   );
 }
 
-export async function processEventReminders(settings: Awaited<ReturnType<typeof loadReminderSettings>>, now: Date) {
-  if (settings.eventOffsets.length === 0) {
-    return;
-  }
-
-  const registrations = await getActiveEventRegistrations();
-  await Promise.all(
-    registrations.map(async (registration) => {
-      const eventDate = normalizeDate(registration.event.eventDate);
-      if (!eventDate) return;
-      const reminderDates = getReminderDates(eventDate, settings.eventOffsets);
-      settings.eventOffsets.forEach(async (offset, index) => {
-        const reminderDate = reminderDates[index];
-        if (!shouldSendReminder(reminderDate, now)) return;
-
-        const message = buildEventReminderMessage(offset, registration.event.title, eventDate);
-        if (!registration.user.email) return;
-
-        await sendEmailStub(registration.user.email, message.subject, message.body);
-        await sendReminderLogs(
-          registration.user.id,
-          REMINDER_TYPE_EVENT_REGISTRATION,
-          "EVENT_REGISTRATION",
-          registration.event.id,
-          EMAIL_CHANNEL,
-          reminderDate,
-          {
-            eventId: registration.event.id,
-            eventTitle: registration.event.title,
-            subject: message.subject,
-            body: message.body,
-          }
-        );
-        await sendReminderLogs(
-          registration.user.id,
-          REMINDER_TYPE_EVENT_REGISTRATION,
-          "EVENT_REGISTRATION",
-          registration.event.id,
-          IN_APP_CHANNEL,
-          reminderDate,
-          {
-            eventId: registration.event.id,
-            eventTitle: registration.event.title,
-            subject: message.subject,
-            body: message.body,
-          }
-        );
-      });
-    })
-  );
-}
-
 async function main() {
   const now = new Date();
   const settings = await loadReminderSettings();
   await processSkeapReminders(settings, now);
-  await processEventReminders(settings, now);
 }
 
 if (require.main === module) {

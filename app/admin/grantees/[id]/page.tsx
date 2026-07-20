@@ -199,7 +199,7 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
           {grantee.submissions.length === 0 ? (
             <div className="rounded-3xl bg-slate-50 p-6 text-sm text-slate-500">No submissions found for this grantee.</div>
           ) : (
-            grantee.submissions.map((submission) => (
+            grantee.submissions.map((submission: any) => (
               <div key={submission.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>

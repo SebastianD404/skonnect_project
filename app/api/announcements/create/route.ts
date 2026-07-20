@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     const announcement = await prisma.$transaction(async (tx) => {
-      const created = await tx.announcement.create({
+      const created = await (tx as any).announcement.create({
         data: {
           title: title.trim(),
           content: content.trim(),
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: "CREATE_ANNOUNCEMENT",
         actorId: appUser.id,
         targetTable: "announcements",

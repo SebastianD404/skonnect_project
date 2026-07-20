@@ -89,7 +89,7 @@ export async function PUT(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const saved = await tx.profilingRegistration.update({
+      const saved = await (tx as any).profilingRegistration.update({
         where: { id },
         data: {
           fullName: fullName !== undefined ? fullName.trim() : registration.fullName,
@@ -147,7 +147,7 @@ export async function PUT(
         },
       });
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: "MANUAL_PROFILE_UPDATE",
         actorId: auth.user.id,
         targetTable: "kk_profiling_registrations",

@@ -38,11 +38,3 @@ export function buildSkeapReminderMessage(offset: ReminderOffset, deadline: Date
     body: `Your SKEAP submission deadline is ${deadlineDate}. Please submit your required documents ${offset === 1 ? "by tomorrow" : `in ${offset} days`} to stay on track.`,
   };
 }
-
-export function buildEventReminderMessage(offset: ReminderOffset, title: string, eventDate: Date): ReminderMessage {
-  const eventDateString = formatUtcDate(eventDate);
-  return {
-    subject: `Upcoming event: ${title} in ${offset} day${offset === 1 ? "" : "s"}`,
-    body: `You are registered for ${title} on ${eventDateString}. Please plan to attend and arrive on time.`,
-  };
-}

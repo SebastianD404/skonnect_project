@@ -62,7 +62,7 @@ export async function PATCH(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const nextUser = await tx.user.update({
+      const nextUser = await (tx as any).user.update({
         where: { id: target.id },
         data: { role: requestedRole },
         select: {
@@ -83,7 +83,7 @@ export async function PATCH(
       });
 
       if (requestedRole === Role.GRANTEE) {
-        await tx.grantee.upsert({
+        await (tx as any).grantee.upsert({
           where: { userId: target.id },
           create: {
             userId: target.id,
@@ -95,7 +95,7 @@ export async function PATCH(
         });
       }
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: "UPDATE_USER_ROLE",
         actorId: actor.id,
         targetTable: "users",

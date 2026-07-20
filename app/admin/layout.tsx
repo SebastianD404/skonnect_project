@@ -35,15 +35,8 @@ export default async function AdminLayout({
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  const [upcomingEventCount, openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount, newGranteesToday, approvedMemberCountToday] =
+  const [openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount, newGranteesToday, approvedMemberCountToday] =
     await Promise.all([
-      prisma.event.count({
-        where: {
-          status: {
-            in: ["UPCOMING", "REGISTRATION_OPEN"],
-          },
-        },
-      }),
       prisma.inquiry.count({
         where: { ...supportInquiryFilter, isResolved: false },
       }),
@@ -61,13 +54,11 @@ export default async function AdminLayout({
     ]);
   // compute today's counts for sidebar badges (show only items added today)
   const [
-    upcomingEventCountToday,
     openInquiryCountToday,
     skeapApplicationCountToday,
     pendingDocumentCountToday,
     profilingRegistrationCountToday,
   ] = await Promise.all([
-    prisma.event.count({ where: { createdAt: { gte: startOfToday } } }),
     prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfToday } } }),
     prisma.inquiry.count({
       where: {
@@ -84,7 +75,6 @@ export default async function AdminLayout({
     <div className="h-screen w-screen overflow-hidden bg-[#F8FBFF] text-slate-950">
       <div className="mx-auto flex h-full max-w-[1480px]">
         <AdminSidebar
-          upcomingEventCount={upcomingEventCountToday}
           openInquiryCount={openInquiryCountToday}
           skeapApplicationCount={skeapApplicationCountToday}
           pendingDocumentCount={pendingDocumentCountToday}

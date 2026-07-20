@@ -7,8 +7,12 @@ describe("Prisma auth fields", () => {
     const schemaPath = path.resolve(process.cwd(), "prisma/schema.prisma");
     const schema = readFileSync(schemaPath, "utf8");
 
-    expect(schema).toContain("username      String?  @unique");
-    expect(schema).toContain("mustSecureAccount    Boolean  @default(false)");
-    expect(schema).toContain("usesTemporaryPassword Boolean @default(false)");
+    // Normalize whitespace to make assertions robust to formatting changes
+    const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+    const normalized = norm(schema);
+
+    expect(normalized).toContain("username String? @unique");
+    expect(normalized).toContain("mustSecureAccount Boolean @default(false)");
+    expect(normalized).toContain("usesTemporaryPassword Boolean @default(false)");
   });
 });

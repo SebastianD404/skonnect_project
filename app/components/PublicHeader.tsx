@@ -27,7 +27,6 @@ function getRoleHomePath(role?: SessionUser["role"]) {
 function shouldRedirectSignedInFromPath(pathname: string) {
   if (pathname === "/") return true;
   if (pathname.startsWith("/about")) return true;
-  if (pathname.startsWith("/events")) return true;
   if (pathname.startsWith("/programs")) return true;
   if (pathname.startsWith("/announcements")) return true;
   return false;
@@ -134,8 +133,6 @@ export function PublicHeader() {
 
   const activePath = pathname.startsWith("/programs")
     ? "/programs"
-    : pathname.startsWith("/events")
-    ? "/events"
     : pathname.startsWith("/about")
     ? "/about"
     : isScrolledToProgramsSection && pathname === "/"
@@ -166,7 +163,6 @@ export function PublicHeader() {
         <nav className="hidden items-center gap-1 text-sm md:flex relative">
           <Link href="/" className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
           <Link href="/about" className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 opacity-100`}>About</Link>
-          <Link href="/events" className={`${navLinkClass(activePath, "/events")} transition-opacity duration-200 opacity-100`}>Events</Link>
           <Link
             href="/#programs"
             onClick={handleProgramsClick}

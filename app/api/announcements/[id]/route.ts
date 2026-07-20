@@ -61,7 +61,7 @@ export async function PUT(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const saved = await tx.announcement.update({
+      const saved = await (tx as any).announcement.update({
         where: { id },
         data: {
           title: title.trim(),
@@ -80,7 +80,7 @@ export async function PUT(
         },
       });
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: "UPDATE_ANNOUNCEMENT",
         actorId: appUser.id,
         targetTable: "announcements",
@@ -161,11 +161,11 @@ export async function DELETE(
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.announcement.delete({
+      await (tx as any).announcement.delete({
         where: { id },
       });
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: "DELETE_ANNOUNCEMENT",
         actorId: appUser.id,
         targetTable: "announcements",

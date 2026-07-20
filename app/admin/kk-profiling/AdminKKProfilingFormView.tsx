@@ -358,46 +358,41 @@ export function AdminKKProfilingFormView({
               <p className="text-sm font-semibold text-slate-900">Uploaded identification</p>
               <p className="mt-2 text-sm text-slate-600">{registration.idDocumentType || "Not uploaded"}</p>
 
-              {registration.idDocumentType === "Valid ID" ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {registration.idFrontFileUrl ? (
-                    <a
-                      href={registration.idFrontFileUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                    >
-                      View front of ID
-                    </a>
-                  ) : null}
-                  {registration.idBackFileUrl ? (
-                    <a
-                      href={registration.idBackFileUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                    >
-                      View back of ID
-                    </a>
-                  ) : null}
-                  {!registration.idFrontFileUrl && !registration.idBackFileUrl ? (
-                    <p className="mt-4 text-sm text-slate-600">No front/back ID images were uploaded for this registration.</p>
-                  ) : null}
-                </div>
-              ) : registration.idSingleFileUrl ? (
-                <div className="mt-4">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {registration.idFrontFileUrl ? (
+                  <a
+                    href={registration.idFrontFileUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
+                  >
+                    View front of ID
+                  </a>
+                ) : null}
+                {registration.idBackFileUrl ? (
+                  <a
+                    href={registration.idBackFileUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
+                  >
+                    View back of ID
+                  </a>
+                ) : null}
+                {registration.idSingleFileUrl ? (
                   <a
                     href={registration.idSingleFileUrl}
                     target="_blank"
                     rel="noreferrer noopener"
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
                   >
-                    View uploaded document
+                    View Certificate of Residency
                   </a>
-                </div>
-              ) : (
-                <p className="mt-4 text-sm text-slate-600">No uploaded ID documents were stored for this registration.</p>
-              )}
+                ) : null}
+                {!registration.idFrontFileUrl && !registration.idBackFileUrl && !registration.idSingleFileUrl ? (
+                  <p className="mt-4 text-sm text-slate-600">No uploaded ID documents were stored for this registration.</p>
+                ) : null}
+              </div>
             </div>
 
             <div className="mt-6 flex justify-end">

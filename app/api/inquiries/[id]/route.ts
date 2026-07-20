@@ -163,7 +163,7 @@ export async function PATCH(
     }
 
     const updatedInquiry = await prisma.$transaction(async (tx) => {
-      const currentInquiry = await tx.inquiry.findUnique({
+      const currentInquiry = await (tx as any).inquiry.findUnique({
         where: { id },
         select: {
           reviewThread: true,
@@ -178,7 +178,7 @@ export async function PATCH(
 
       const updatedThreadFromTx = [message, ...existingThreadFromTx] as unknown as Prisma.InputJsonArray;
 
-      const updated = await tx.inquiry.update({
+      const updated = await (tx as any).inquiry.update({
         where: { id },
         data: {
           ...updateData,
@@ -187,7 +187,7 @@ export async function PATCH(
       });
 
       if (action === "approve" && currentInquiry?.userId) {
-        const targetUser = await tx.user.findUnique({
+        const targetUser = await (tx as any).user.findUnique({
           where: { id: currentInquiry.userId },
           select: { id: true, role: true },
         });
@@ -195,14 +195,14 @@ export async function PATCH(
         if (targetUser?.role === Role.YOUTH || targetUser?.role === Role.GRANTEE) {
           const previousRole = targetUser.role;
 
-          await tx.user.update({
+          await (tx as any).user.update({
             where: { id: targetUser.id },
             data: {
               role: Role.GRANTEE,
             },
           });
 
-          await writeAuditLog(tx, {
+          await writeAuditLog(tx as any, {
             action: "APPROVE_SKEAP_APPLICATION",
             actorId: appUser.id,
             targetTable: "users",
@@ -221,7 +221,7 @@ export async function PATCH(
             },
           });
 
-          await tx.grantee.upsert({
+          await (tx as any).grantee.upsert({
             where: { userId: targetUser.id },
             create: {
               userId: targetUser.id,

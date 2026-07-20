@@ -106,7 +106,7 @@ export default async function GranteeOverviewPage() {
               </h1>
 
               <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600">
-                Track approvals and return-for-edit requests, see your next required action, and stay updated on SK events.
+                Track approvals and return-for-edit requests, see your next required action, and stay informed on SK announcements.
               </p>
 
               <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -117,13 +117,6 @@ export default async function GranteeOverviewPage() {
                   <ClipboardList className="h-4 w-4" />
                   Open requirements
                   <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                </Link>
-                <Link
-                  href="/grantee-dashboard/events"
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-                >
-                  <CalendarCheck className="h-4 w-4" />
-                  Open events
                 </Link>
               </div>
 
@@ -144,13 +137,13 @@ export default async function GranteeOverviewPage() {
                   <p className="mt-2 text-sm text-slate-300">
                     {nextEvent
                       ? "You're registered and all set."
-                      : "Browse events to register for one."}
+                      : "Keep your profile updated for future opportunities."}
                   </p>
 
-                  <div className="mt-6 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur">
+                  <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur">
                     <div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Event date
+                        Next registration
                       </div>
                       <div className="mt-0.5 text-sm font-medium text-white">
                         {nextEvent
@@ -161,12 +154,6 @@ export default async function GranteeOverviewPage() {
                           : "-"}
                       </div>
                     </div>
-                    <Link
-                      href="/grantee-dashboard/events"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-900 transition hover:bg-slate-100"
-                    >
-                      <ArrowUpRight className="h-4 w-4" />
-                    </Link>
                   </div>
                 </div>
               </div>
@@ -198,14 +185,6 @@ export default async function GranteeOverviewPage() {
             total={tracker.total}
             pct={tracker.pct}
           />
-          <StatCard
-            icon={<CalendarCheck className="h-4 w-4" />}
-            label="Upcoming events"
-            value={upcomingRegistered.length}
-            note="Registrations with future schedule"
-            accent="from-sky-400 to-indigo-500"
-            tint="bg-sky-50 text-sky-700 ring-sky-200"
-          />
         </section>
 
         <section className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr]">
@@ -225,12 +204,6 @@ export default async function GranteeOverviewPage() {
                 icon={<FileText className="h-4 w-4" />}
                 title="Submit requirements"
                 description="Upload semester files and track approvals."
-              />
-              <ActionTile
-                href="/grantee-dashboard/events"
-                icon={<CalendarCheck className="h-4 w-4" />}
-                title="Browse events"
-                description="Register for upcoming SK community events."
               />
               <ActionTile
                 href="/grantee-dashboard/contact-support"

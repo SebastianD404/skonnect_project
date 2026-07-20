@@ -51,45 +51,44 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData();
-    const documentType = String(formData.get("documentType") || "Valid ID");
+    const frontFile = formData.get("frontFile") as File | null;
+    const backFile = formData.get("backFile") as File | null;
+    const residencyFile = formData.get("residencyFile") as File | null;
+    const residencyStatementConfirmed = formData.get("residencyStatementConfirmed") === "true";
 
     const uploads: Array<{ label: string; file: File }> = [];
 
-    if (documentType === "Valid ID") {
-      const frontFile = formData.get("frontFile") as File | null;
-      const backFile = formData.get("backFile") as File | null;
-
-      if (!frontFile || !backFile) {
-        return NextResponse.json(
-          { error: "Please upload both the front and back of your valid ID." },
-          { status: 400 }
-        );
-      }
-
-      if (!isImageType(frontFile.type) || !isImageType(backFile.type)) {
-        return NextResponse.json(
-          { error: "Valid ID uploads must be image files (JPG, PNG, or WEBP)." },
-          { status: 400 }
-        );
-      }
-
-      uploads.push({ label: "front", file: frontFile });
-      uploads.push({ label: "back", file: backFile });
-    } else {
-      const file = formData.get("file") as File | null;
-      if (!file) {
-        return NextResponse.json({ error: "Please provide a file to upload." }, { status: 400 });
-      }
-
-      if (!ALLOWED_TYPES.has(file.type)) {
-        return NextResponse.json(
-          { error: "Only PDF, PNG, JPG, and WEBP files are allowed." },
-          { status: 400 }
-        );
-      }
-
-      uploads.push({ label: "single", file });
+    if (!frontFile || !backFile) {
+      return NextResponse.json(
+        { error: "Please upload both the front and back of your valid ID." },
+        { status: 400 }
+      );
     }
+
+    if (!residencyFile) {
+      return NextResponse.json(
+        { error: "Please upload your Certificate of Residency." },
+        { status: 400 }
+      );
+    }
+
+    if (!residencyStatementConfirmed) {
+      return NextResponse.json(
+        { error: "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months." },
+        { status: 400 }
+      );
+    }
+
+    if (!isImageType(frontFile.type) || !isImageType(backFile.type)) {
+      return NextResponse.json(
+        { error: "Valid ID uploads must be image files (JPG, PNG, or WEBP)." },
+        { status: 400 }
+      );
+    }
+
+    uploads.push({ label: "front", file: frontFile });
+    uploads.push({ label: "back", file: backFile });
+    uploads.push({ label: "residency", file: residencyFile });
 
     const uploadedFiles: Array<{ label: string; path: string; url: string | null }> = [];
 
@@ -121,18 +120,13 @@ export async function POST(request: NextRequest) {
 
     const updateData: Record<string, unknown> = {
       reviewStatus: "Resubmitted",
-      idDocumentType: documentType,
+      idDocumentType: "Valid ID + Certificate of Residency",
+      residencyStatementAcknowledgement: true,
     };
 
-    if (documentType === "Valid ID") {
-      updateData.idFrontFileUrl = uploadedFiles.find((file) => file.label === "front")?.url ?? null;
-      updateData.idBackFileUrl = uploadedFiles.find((file) => file.label === "back")?.url ?? null;
-      updateData.idSingleFileUrl = null;
-    } else {
-      updateData.idSingleFileUrl = uploadedFiles[0]?.url ?? null;
-      updateData.idFrontFileUrl = null;
-      updateData.idBackFileUrl = null;
-    }
+    updateData.idFrontFileUrl = uploadedFiles.find((file) => file.label === "front")?.url ?? null;
+    updateData.idBackFileUrl = uploadedFiles.find((file) => file.label === "back")?.url ?? null;
+    updateData.idSingleFileUrl = uploadedFiles.find((file) => file.label === "residency")?.url ?? null;
 
     const updatedRegistration = await prisma.profilingRegistration.update({
       where: { id: latestRegistration.id },
@@ -141,7 +135,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      type: documentType,
       files: uploadedFiles,
       reviewStatus: updatedRegistration.reviewStatus,
       idDocumentType: updatedRegistration.idDocumentType,

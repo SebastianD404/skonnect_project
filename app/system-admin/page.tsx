@@ -267,12 +267,12 @@ export default async function SystemAdminDashboardPage() {
             </p>
             <div className="mt-4 space-y-3">
               {roleDistribution.map((role) => {
-                const pct = (role.count / totalUsers) * 100;
+                const pct = (Number(role.count) / Number(totalUsers)) * 100;
                 return (
                   <div key={role.label}>
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-slate-900">{role.label}</span>
-                      <span className="tabular-nums text-slate-500">{role.count}</span>
+                      <span className="tabular-nums text-slate-500">{String(role.count)}</span>
                     </div>
                     <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
                       <div className={`h-full rounded-full ${role.tone}`} style={{ width: `${pct}%` }} />

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users } from "lucide-react";
+import { ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 
@@ -48,7 +48,6 @@ function deriveDisplayName(fullName?: string | null, email?: string | null) {
 }
 
 interface AdminSidebarProps {
-  upcomingEventCount: number;
   openInquiryCount: number;
   skeapApplicationCount: number;
   pendingDocumentCount: number;
@@ -58,7 +57,6 @@ interface AdminSidebarProps {
 }
 
 export default function AdminSidebar({
-  upcomingEventCount,
   openInquiryCount,
   skeapApplicationCount,
   pendingDocumentCount,
@@ -123,7 +121,6 @@ export default function AdminSidebar({
     {
       title: "Programs & Engagement",
       items: [
-        { label: "Events", href: "/admin/events", icon: CalendarDays, badge: upcomingEventCount },
         { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: skeapApplicationCount },
         { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: pendingDocumentCount },
       ],

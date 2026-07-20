@@ -12,7 +12,6 @@ const DEFAULT_STATE = {
   inquiryAlerts: true,
   submissionAlerts: true,
   skeapReminderOffsets: "7, 3, 1",
-  eventReminderOffsets: "7, 3, 1",
   skeapDeadline: "",
 };
 
@@ -40,7 +39,6 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
           inquiryAlerts: data.settings?.inquiryAlerts ?? prev.inquiryAlerts,
           submissionAlerts: data.settings?.submissionAlerts ?? prev.submissionAlerts,
           skeapReminderOffsets: data.reminderSettings?.skeapReminderOffsets ?? prev.skeapReminderOffsets,
-          eventReminderOffsets: data.reminderSettings?.eventReminderOffsets ?? prev.eventReminderOffsets,
           skeapDeadline: data.reminderSettings?.skeapDeadline ?? prev.skeapDeadline,
         }));
       } catch (error) {
@@ -235,18 +233,6 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
                   </label>
                 </div>
 
-                <div className="mt-6 grid gap-4 sm:grid-cols-1">
-                  <label className="space-y-2 text-sm text-slate-700">
-                    Event reminder offsets
-                    <input
-                      value={formState.eventReminderOffsets}
-                      onChange={(event) => handleChange("eventReminderOffsets", event.target.value)}
-                      placeholder="7, 3, 1"
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
-                    />
-                    <p className="text-xs text-slate-500">Comma-separated days before event dates.</p>
-                  </label>
-                </div>
               </div>
 
               <div className="flex flex-col gap-3 rounded-[1.75rem] border border-slate-200 bg-[#F8FAFF] p-6 text-sm text-slate-700 shadow-sm sm:flex-row sm:items-center sm:justify-between">

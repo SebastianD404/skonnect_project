@@ -103,7 +103,7 @@ export async function PATCH(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const nextUser = await tx.user.update({
+      const nextUser = await (tx as any).user.update({
         where: { id: target.id },
         data: {
           ...(typeof nextFullName !== "undefined" ? { fullName: nextFullName } : {}),
@@ -120,7 +120,7 @@ export async function PATCH(
         },
       });
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: typeof nextIsActive === "boolean" ? "UPDATE_USER_STATUS" : "UPDATE_USER_PROFILE",
         actorId: actor.id,
         targetTable: "users",
@@ -177,7 +177,7 @@ export async function DELETE(
     }
 
     await prisma.$transaction(async (tx) => {
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: "DELETE_USER",
         actorId: actor.id,
         targetTable: "users",
@@ -191,7 +191,7 @@ export async function DELETE(
         afterData: Prisma.JsonNull,
       });
 
-      await tx.user.delete({ where: { id: target.id } });
+      await (tx as any).user.delete({ where: { id: target.id } });
     });
 
     return NextResponse.json({ success: true });

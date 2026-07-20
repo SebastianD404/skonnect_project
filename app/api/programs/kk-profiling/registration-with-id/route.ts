@@ -47,7 +47,6 @@ export async function PUT(request: NextRequest) {
   }
 
   const formData = await request.formData();
-  const documentType = String(formData.get("documentType") || "Valid ID");
 
   const registration = await prisma.profilingRegistration.findFirst({
     where: { userId: appUser.id },
@@ -83,41 +82,46 @@ export async function PUT(request: NextRequest) {
   const uploads: Array<{ label: string; file: File }> = [];
   const frontFile = formData.get("frontFile") as File | null;
   const backFile = formData.get("backFile") as File | null;
-  const singleFile = formData.get("file") as File | null;
+  const residencyFile = formData.get("residencyFile") as File | null;
+  const residencyStatementAcknowledgement = formData.get("residencyStatementConfirmed") === "true";
 
-  if (documentType === "Valid ID") {
-    if (frontFile && !backFile) {
-      return NextResponse.json({ error: "Please upload both the front and back of your valid ID." }, { status: 400 });
-    }
-    if (backFile && !frontFile) {
-      return NextResponse.json({ error: "Please upload both the front and back of your valid ID." }, { status: 400 });
-    }
+  if (frontFile && !backFile) {
+    return NextResponse.json({ error: "Please upload both the front and back of your valid ID." }, { status: 400 });
+  }
+  if (backFile && !frontFile) {
+    return NextResponse.json({ error: "Please upload both the front and back of your valid ID." }, { status: 400 });
+  }
 
-    if (frontFile && backFile) {
-      uploads.push({ label: "front", file: frontFile });
-      uploads.push({ label: "back", file: backFile });
-    } else if (registration.idDocumentType !== "Valid ID" && (!registration.idFrontFileUrl || !registration.idBackFileUrl)) {
-      return NextResponse.json({ error: "Please upload both the front and back of your valid ID." }, { status: 400 });
-    }
-  } else {
-    if (singleFile) {
-      uploads.push({ label: "single", file: singleFile });
-    } else if (registration.idDocumentType !== documentType && !registration.idSingleFileUrl) {
-      return NextResponse.json({ error: "Please upload your document." }, { status: 400 });
-    }
+  if (!residencyFile && !registration.idSingleFileUrl) {
+    return NextResponse.json({ error: "Please upload your Certificate of Residency." }, { status: 400 });
+  }
+
+  if (residencyFile && !residencyStatementAcknowledgement) {
+    return NextResponse.json(
+      { error: "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months." },
+      { status: 400 }
+    );
+  }
+
+  if (frontFile && backFile) {
+    uploads.push({ label: "front", file: frontFile });
+    uploads.push({ label: "back", file: backFile });
+  } else if (!registration.idFrontFileUrl || !registration.idBackFileUrl) {
+    return NextResponse.json({ error: "Please upload both the front and back of your valid ID." }, { status: 400 });
+  }
+
+  if (residencyFile) {
+    uploads.push({ label: "residency", file: residencyFile });
   }
 
   const uploadResults: Record<string, string | null> = {
     front: registration.idFrontFileUrl,
     back: registration.idBackFileUrl,
-    single: registration.idSingleFileUrl,
+    residency: registration.idSingleFileUrl,
   };
 
   for (const upload of uploads) {
     if (!ALLOWED_TYPES.has(upload.file.type)) {
-      if (documentType === "Valid ID") {
-        return NextResponse.json({ error: "Valid ID uploads must be JPG, PNG, or WEBP images." }, { status: 400 });
-      }
       return NextResponse.json({ error: "Only PDF, JPG, PNG, and WEBP files are allowed." }, { status: 400 });
     }
 
@@ -134,10 +138,13 @@ export async function PUT(request: NextRequest) {
     data: {
       ...payload,
       birthDate: new Date(payload.birthDate),
-      idDocumentType: documentType,
-      idFrontFileUrl: documentType === "Valid ID" ? uploadResults.front : null,
-      idBackFileUrl: documentType === "Valid ID" ? uploadResults.back : null,
-      idSingleFileUrl: documentType === "Valid ID" ? null : uploadResults.single,
+      idDocumentType: "Valid ID + Certificate of Residency",
+      idFrontFileUrl: uploadResults.front,
+      idBackFileUrl: uploadResults.back,
+      idSingleFileUrl: uploadResults.residency,
+      residencyStatementAcknowledgement: residencyFile
+        ? residencyStatementAcknowledgement
+        : registration.residencyStatementAcknowledgement,
       reviewStatus: "Resubmitted",
     },
   });

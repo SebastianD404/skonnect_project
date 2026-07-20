@@ -29,7 +29,7 @@ export async function GET() {
 
   // Fetch the latest SKEAP application for this user (if any) so the client
   // can autofill additional profile fields like address, age, gender, contact.
-  let skeapApplication = null;
+  let skeapApplication: any = null;
   try {
     skeapApplication = await prisma.skeapApplication.findFirst({
       where: { userId: profile.id },
@@ -49,7 +49,7 @@ export async function GET() {
   }
 
   // Fetch KK profiling data if the user has a linked KK profile
-  let kkProfile = null;
+  let kkProfile: any = null;
   try {
     if (profile.kkProfileId) {
       kkProfile = await prisma.kKProfile.findUnique({
@@ -69,7 +69,7 @@ export async function GET() {
     kkProfile = null;
   }
 
-  let latestKkRegistration = null;
+  let latestKkRegistration: any = null;
   try {
     latestKkRegistration = await prisma.profilingRegistration.findFirst({
       where: { userId: profile.id },

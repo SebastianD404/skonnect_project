@@ -55,7 +55,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
 
     // Extract URLs from message body
     if (typeof inquiry.message === "string") {
-      const matches = Array.from((inquiry.message || "").matchAll(/https?:\/\/[^"]+/g));
+      // matchAll returns an iterator of RegExpMatchArray, but Array.from types it as unknown[] under strict checks
+      const matches = Array.from((inquiry.message || "").matchAll(/https?:\/\/[^\"]+/g)) as RegExpMatchArray[];
       matches.forEach((m) => {
         if (typeof m[0] === "string") urls.push(m[0]);
       });
@@ -100,7 +101,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
 
     // Remove inquiry row in a transaction
     await prisma.$transaction(async (tx) => {
-      await tx.inquiry.delete({ where: { id: applicationId } });
+      await (tx as any).inquiry.delete({ where: { id: applicationId } });
     });
 
     // Revalidate applicant and admin lists

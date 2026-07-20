@@ -168,12 +168,12 @@ export async function POST(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const saved = await tx.submission.update({
+      const saved = await (tx as any).submission.update({
         where: { id },
         data: updateData,
       });
 
-      await writeAuditLog(tx, {
+      await writeAuditLog(tx as any, {
         action: action === "APPROVE" ? "APPROVE_ACADEMIC_SUBMISSION" : "FLAG_SUBMISSION_FOR_CORRECTION",
         actorId: appUser.id,
         targetTable: "submissions",

@@ -10,7 +10,6 @@ const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
   submissionAlerts: true,
   skeapReminderOffsets: "7, 3, 1",
-  eventReminderOffsets: "7, 3, 1",
   skeapDeadline: null,
 };
 
@@ -35,16 +34,10 @@ async function getReminderSettings() {
     where: { type: ReminderType.SKEAP_APPLICATION },
   });
 
-  const event = await prisma.reminderSetting.findUnique({
-    where: { type: ReminderType.EVENT_REGISTRATION },
-  });
-
   const skeapOffsets = Array.isArray(skeap?.offsets) ? skeap.offsets : [];
-  const eventOffsets = Array.isArray(event?.offsets) ? event.offsets : [];
 
   return {
     skeapReminderOffsets: skeapOffsets.length > 0 ? skeapOffsets.join(", ") : DEFAULT_SETTINGS.skeapReminderOffsets,
-    eventReminderOffsets: eventOffsets.length > 0 ? eventOffsets.join(", ") : DEFAULT_SETTINGS.eventReminderOffsets,
     skeapDeadline: skeap?.deadline ? skeap.deadline.toISOString().slice(0, 10) : null,
   };
 }
@@ -113,7 +106,6 @@ export async function POST(request: Request) {
     inquiryAlerts,
     submissionAlerts,
     skeapReminderOffsets,
-    eventReminderOffsets,
     skeapDeadline,
   } = payload;
 
@@ -162,11 +154,6 @@ export async function POST(request: Request) {
         typeof skeapDeadline === "string" ? skeapDeadline : null
       );
 
-      await upsertReminderSetting(
-        ReminderType.EVENT_REGISTRATION,
-        parseReminderOffsets(String(eventReminderOffsets ?? ""))
-      );
-
       await writeAuditLog(tx, {
         action: "OVERRIDE_DEADLINE",
         actorId: appUser.id,
@@ -175,7 +162,6 @@ export async function POST(request: Request) {
         beforeData: previousSettings,
         afterData: {
           skeapReminderOffsets,
-          eventReminderOffsets,
           skeapDeadline,
         },
         metadata: {

@@ -410,7 +410,7 @@ export default async function SkeapApplicationsPage() {
   console.log("DEBUG QUEUE ARRAY - Loaded Rows Length:", inquiries.length);
   console.log(
     "DEBUG RAW DATA ROWS:",
-    inquiries.map((r) => ({ id: r.id, reviewStatus: r.reviewStatus, user: { fullName: r.user?.fullName, email: r.user?.email, grantee: r.user?.grantee } }))
+    inquiries.map((r: any) => ({ id: r.id, reviewStatus: r.reviewStatus, user: { fullName: r.user?.fullName, email: r.user?.email, grantee: r.user?.grantee } }))
   );
 
   const applications = inquiries.map(mapInquiryToApplication);

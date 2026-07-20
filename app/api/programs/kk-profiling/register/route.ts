@@ -415,7 +415,7 @@ export async function POST(req: Request) {
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      const kkProfile = await tx.kKProfile.create({
+      const kkProfile = await (tx as any).kKProfile.create({
         data: {
           firstName: names.firstName,
           middleName: names.middleName,
@@ -431,14 +431,14 @@ export async function POST(req: Request) {
         },
       });
 
-      const existingByEmail = await tx.user.findFirst({
+      const existingByEmail = await (tx as any).user.findFirst({
         where: { email: { equals: email, mode: "insensitive" } },
         select: { id: true },
       });
 
       let appUser;
       if (existingByEmail) {
-        appUser = await tx.user.update({
+        appUser = await (tx as any).user.update({
           where: { id: existingByEmail.id },
           data: {
             authId,
@@ -453,7 +453,7 @@ export async function POST(req: Request) {
           },
         });
       } else {
-        appUser = await tx.user.create({
+        appUser = await (tx as any).user.create({
           data: {
             authId,
             email,
@@ -471,7 +471,7 @@ export async function POST(req: Request) {
 
       const address = `${resolvedSite}, ${BARANGAY_PICO}, ${municipality}, ${province}`;
 
-      await tx.profilingRegistration.create({
+      await (tx as any).profilingRegistration.create({
         data: {
           userId: appUser.id,
           fullName: names.fullName,
@@ -518,7 +518,7 @@ export async function POST(req: Request) {
           ? "Your KK Profiling request has been received and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates."
           : "Your KK Profiling request has been received and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates.",
     });
-  } catch (err) {
+  } catch (err: any) {
     if (createdAuthUserId) {
       try {
         if (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {

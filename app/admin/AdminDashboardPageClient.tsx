@@ -1,21 +1,8 @@
 "use client";
 
-import { useMemo, useState, useRef } from "react";
-import Link from "next/link";
-import YouthParticipationChart from "../../components/YouthParticipationChart";
-import { Check, Clock, MoreHorizontal, Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check } from "lucide-react";
 import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
-
-interface EventItem {
-  id: string;
-  title: string;
-  description: string;
-  venue: string;
-  eventDate: string;
-  status: string;
-  filledSlots: number;
-  maxSlots: number;
-}
 
 interface InquiryItem {
   id: string;
@@ -43,29 +30,10 @@ interface AdminDashboardPageClientProps {
   openInquiryCount: number;
   pendingSubmissionCount: number;
   stats: StatItem[];
-  upcomingEvents: EventItem[];
-  recentInquiries: InquiryItem[];
   profilingRegistrationCount: number;
-  profilingSeries?: number[];
-  profilingMonths?: string[];
-}
-
-const taskItems = [
-  { label: "Approve pending submissions", done: false },
-  { label: "Reply to inquiries", done: true },
-  { label: "Finalize event schedule", done: false },
-  { label: "Upload announcement", done: true },
-];
-
-function StatusPill({ tone, children }: { tone: "open" | "scheduled" | "draft"; children: React.ReactNode }) {
-  const classes =
-    tone === "open"
-      ? "bg-emerald-100 text-emerald-700"
-      : tone === "scheduled"
-      ? "bg-sky-100 text-sky-700"
-      : "bg-slate-100 text-slate-700";
-
-  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${classes}`}>{children}</span>;
+  profilingSeries: number[];
+  profilingMonths: string[];
+  recentInquiries: InquiryItem[];
 }
 
 export default function AdminDashboardPageClient({
@@ -73,26 +41,12 @@ export default function AdminDashboardPageClient({
   openInquiryCount,
   pendingSubmissionCount,
   stats,
-  upcomingEvents,
-  recentInquiries,
   profilingRegistrationCount,
-  profilingSeries = [],
-  profilingMonths = [],
+  profilingSeries,
+  profilingMonths,
+  recentInquiries,
 }: AdminDashboardPageClientProps) {
   const [searchQuery, setSearchQuery] = useState("");
-
-  const filteredEvents = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) {
-      return upcomingEvents;
-    }
-    return upcomingEvents.filter((event) => {
-      return [event.title, event.description, event.venue, event.status]
-        .join(" ")
-        .toLowerCase()
-        .includes(query);
-    });
-  }, [upcomingEvents, searchQuery]);
 
   const filteredInquiries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -120,72 +74,7 @@ export default function AdminDashboardPageClient({
 
       <div className="flex-1 py-8">
         <div className="px-8 flex flex-col gap-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 items-stretch">
-            <div className="lg:col-span-2 flex flex-col gap-6">
-              <div className="w-full min-w-0 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Youth Participation</h3>
-                    <div className="flex items-baseline gap-2 mt-1">
-                      <span className="text-4xl font-bold text-slate-800">{profilingRegistrationCount.toLocaleString()}</span>
-                      <span className="text-sm font-medium text-emerald-500">{profilingSeries.length > 1 ? `+${profilingSeries[profilingSeries.length - 1] - profilingSeries[profilingSeries.length - 2]}` : "+0"}</span>
-                    </div>
-                  </div>
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-50 text-slate-600 border border-slate-100">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-pulse" />
-                    Updated by SK officials
-                  </span>
-                </div>
-                <YouthParticipationChart />
-              </div>
-
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-base font-semibold text-slate-950">Upcoming events</p>
-                    <p className="text-sm text-slate-500">Manage scheduled youth activities</p>
-                  </div>
-                  <Link href="/admin/events" className="text-xs font-medium text-slate-600 hover:text-slate-950 transition hover:underline">
-                    Manage →
-                  </Link>
-                </div>
-
-                <div className="mt-5 grid grid-cols-[1.5fr_1fr_0.9fr_0.9fr_auto] gap-3 border-b border-slate-200 pb-3 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
-                  <div>Event</div>
-                  <div>Date</div>
-                  <div>Attendees</div>
-                  <div>Status</div>
-                  <div />
-                </div>
-
-                <ul className="divide-y divide-slate-200">
-                  {filteredEvents.length === 0 ? (
-                    <li className="py-16 text-center text-sm text-slate-500">No upcoming events match that search.</li>
-                  ) : (
-                    filteredEvents.map((event) => {
-                      const tone = event.status === "REGISTRATION_OPEN" ? "open" : event.status === "UPCOMING" ? "scheduled" : "draft";
-                      return (
-                        <li key={event.id} className="grid grid-cols-[1.5fr_1fr_0.9fr_0.9fr_auto] items-center gap-3 py-4 text-sm text-slate-700">
-                          <div className="font-medium text-slate-950">{event.title}</div>
-                          <div>{new Date(event.eventDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                          <div className="flex items-center gap-1 text-slate-600">
-                            <Users className="h-3.5 w-3.5" />
-                            {event.filledSlots}
-                          </div>
-                          <div>
-                            <StatusPill tone={tone}>{event.status.replace(/_/g, " ")}</StatusPill>
-                          </div>
-                          <button className="text-slate-500 hover:text-slate-900">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
-                        </li>
-                      );
-                    })
-                  )}
-                </ul>
-              </div>
-            </div>
-
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6 items-stretch">
             <div className="flex flex-col gap-6 h-full">
               <div className="flex-1 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm flex flex-col">
                 <div className="flex justify-between items-center mb-4">
@@ -210,8 +99,10 @@ export default function AdminDashboardPageClient({
                   </p>
                 </div>
               </div>
+            </div>
 
-              <div className="flex-1 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+            <div className="flex flex-col gap-6 h-full">
+              <div className="flex-1 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm flex flex-col">
                 <div>
                   <div className="flex justify-between items-center mb-6">
                     <div>

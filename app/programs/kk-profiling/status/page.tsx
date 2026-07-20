@@ -425,46 +425,41 @@ export default function KKProfilingStatusPage() {
                 <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
                   <p className="text-sm font-semibold text-slate-900">Uploaded identification</p>
                   <p className="mt-2 text-sm text-slate-600">{profile.idDocumentType || "Not uploaded yet"}</p>
-                  {profile.idDocumentType === "Valid ID" ? (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      {profile.idFrontFileUrl ? (
-                        <a
-                          href={profile.idFrontFileUrl}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
-                        >
-                          View front of ID
-                        </a>
-                      ) : null}
-                      {profile.idBackFileUrl ? (
-                        <a
-                          href={profile.idBackFileUrl}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
-                        >
-                          View back of ID
-                        </a>
-                      ) : null}
-                      {!profile.idFrontFileUrl && !profile.idBackFileUrl ? (
-                        <p className="mt-4 text-sm text-slate-600">No ID images were found for this submission.</p>
-                      ) : null}
-                    </div>
-                  ) : profile.idSingleFileUrl ? (
-                    <div className="mt-4">
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {profile.idFrontFileUrl ? (
+                      <a
+                        href={profile.idFrontFileUrl}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
+                      >
+                        View front of ID
+                      </a>
+                    ) : null}
+                    {profile.idBackFileUrl ? (
+                      <a
+                        href={profile.idBackFileUrl}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
+                      >
+                        View back of ID
+                      </a>
+                    ) : null}
+                    {profile.idSingleFileUrl ? (
                       <a
                         href={profile.idSingleFileUrl}
                         target="_blank"
                         rel="noreferrer noopener"
                         className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
                       >
-                        View uploaded document
+                        View Certificate of Residency
                       </a>
-                    </div>
-                  ) : (
-                    <p className="mt-4 text-sm text-slate-600">No uploaded ID documents are stored for this registration.</p>
-                  )}
+                    ) : null}
+                    {!profile.idFrontFileUrl && !profile.idBackFileUrl && !profile.idSingleFileUrl ? (
+                      <p className="mt-4 text-sm text-slate-600">No uploaded ID documents are stored for this registration.</p>
+                    ) : null}
+                  </div>
                 </div>
 
                 {profile.reviewNotes ? (

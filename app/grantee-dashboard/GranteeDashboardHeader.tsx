@@ -30,7 +30,6 @@ export default function GranteeDashboardHeader() {
         <nav className="hidden items-center gap-1 text-sm md:flex">
           <Link href="/grantee-dashboard" prefetch className={navClass(pathname, "/grantee-dashboard")}>Overview</Link>
           <Link href="/grantee-dashboard/documents" prefetch className={navClass(pathname, "/grantee-dashboard/documents")}>Submissions</Link>
-          <Link href="/grantee-dashboard/events" prefetch className={navClass(pathname, "/grantee-dashboard/events")}>Events</Link>
           <Link href="/grantee-dashboard/announcements" prefetch className={navClass(pathname, "/grantee-dashboard/announcements")}>Announcements</Link>
         </nav>
 

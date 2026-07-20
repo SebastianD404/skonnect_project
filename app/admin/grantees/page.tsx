@@ -127,11 +127,7 @@ export default async function AdminGranteesPage() {
     }),
     prisma.inquiry.count({ where: { isResolved: false } }),
     prisma.submission.count({ where: { status: "PENDING" } }),
-    prisma.event.count({
-      where: {
-        status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-      },
-    }),
+    0,
     prisma.grantee.count({ where: { createdAt: { gte: startOfToday } } }),
     prisma.grantee.count({ where: { createdAt: { gte: prevDay, lt: startOfToday } } }),
     prisma.grantee.count({ where: { createdAt: { gte: startOfWeek } } }),
@@ -156,18 +152,8 @@ export default async function AdminGranteesPage() {
     prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: prevMonth, lt: startOfMonth } } }),
     prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: startOfQuarter } } }),
     prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: prevQuarter, lt: startOfQuarter } } }),
-    prisma.event.count({
-      where: {
-        status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-        eventDate: { gte: now, lt: next30Days },
-      },
-    }),
-    prisma.event.count({
-      where: {
-        status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-        eventDate: { gte: next30Days, lt: next60Days },
-      },
-    }),
+    0,
+    0,
   ]);
 
   const formatDelta = (current: number, previous: number) => {
@@ -424,7 +410,7 @@ export default async function AdminGranteesPage() {
     },
   });
 
-  const granteeRows: GranteeTableRow[] = grantees.map((grantee) => {
+  const granteeRows: GranteeTableRow[] = grantees.map((grantee: any) => {
     const latestInquiry = grantee.user.inquiries?.[0] ?? null;
     const latestSubmission = grantee.submissions?.[0] ?? null;
     const application = latestInquiry?.application
@@ -469,7 +455,7 @@ export default async function AdminGranteesPage() {
     };
   });
 
-  const fallbackRows: GranteeTableRow[] = granteeUsersWithoutProfile.map((user) => ({
+  const fallbackRows: GranteeTableRow[] = granteeUsersWithoutProfile.map((user: any) => ({
     id: `user-${user.id}`,
     fullName: user.fullName,
     email: user.email,
@@ -489,7 +475,7 @@ export default async function AdminGranteesPage() {
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
+    .map((part: any) => part[0]?.toUpperCase())
     .join("") || "?";
 
   return (

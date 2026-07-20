@@ -2,7 +2,6 @@ import type { Language } from "@prisma/client";
 import { generateAnswer, type GeminiMessage } from "@/lib/chatbot/gemini";
 import { detectLanguage, languageToInstruction } from "@/lib/chatbot/language";
 import { formatRetrievedContext, retrieveChunksWithCache } from "@/lib/chatbot/retrieval";
-import { prisma } from "@/lib/prisma";
 
 export async function runRagAnswer(params: {
   question: string;
@@ -34,13 +33,6 @@ export async function runRagAnswer(params: {
     return (
       containsRegistrationKeywords(q) ||
       (containsSlotKeywords(q) && containsEventKeywords(q))
-    );
-  }
-
-  function isEventListingQuery(q: string) {
-    return (
-      containsEventKeywords(q) &&
-      /\b(list|listed|show|what|which|real time|realtime|currently|live|posted|ilista|lista|listaan|iparang|makita|kitain)\b/i.test(q)
     );
   }
 
@@ -127,145 +119,6 @@ export async function runRagAnswer(params: {
     return `There are currently no upcoming events listed on SKonnect.`;
   }
 
-  function localizeUpcomingEvents(events: any[], language: Language, topic?: string | null) {
-    const lines = events.map((e: any) => {
-      const date = e.eventDate ? new Date(e.eventDate).toISOString().split("T")[0] : "TBA";
-      const remaining = Math.max(0, (e.maxSlots ?? 0) - (e.filledSlots ?? 0));
-      return `- ${e.title} — ${date} @ ${e.venue}${e.maxSlots ? ` (${language === "FILIPINO" ? "natitirang slots" : language === "ILOCANO" ? "natengnga a slots" : "slots remaining"}: ${remaining})` : ""}`;
-    });
-
-    if (language === "FILIPINO") {
-      const header = topic ? `Oo — may ${events.length} paparating na kaganapan tungkol sa ${topic}:` : `Oo — may ${events.length} paparating na kaganapan:`;
-      return `${header}\n\n${lines.join("\n")}\n\nPumunta sa SKonnect portal para magrehistro.`;
-    }
-
-    if (language === "ILOCANO") {
-      const header = topic ? `Wen — adda ${events.length} a sumaruno a pasamak maipanggep iti ${topic}:` : `Wen — adda ${events.length} a sumaruno a pasamak:`;
-      return `${header}\n\n${lines.join("\n")}\n\nSumrek ka iti SKonnect portal tapno agparehistro.`;
-    }
-
-    const header = topic ? `There ${events.length === 1 ? "is" : "are"} ${events.length} upcoming event${events.length === 1 ? "" : "s"} about ${topic}:` : `There are currently ${events.length} upcoming event${events.length === 1 ? "" : "s"}:`;
-    return `${header}\n\n${lines.join("\n")}\n\nVisit the SKonnect portal to register.`;
-  }
-
-  const earlyTopic = extractTopicKeyword(params.question);
-
-  // Early: handle topic-specific sports queries like "ti kwa ngy, volleyball" or
-  // "goodmorning idol ada ba ti event nga basketball" before falling back to the
-  // generic RAG answer.
-  if (earlyTopic) {
-    try {
-      const now = new Date();
-      const events = await prisma.event.findMany({
-        where: {
-          eventDate: { gte: now },
-          status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-          OR: [
-            { title: { contains: earlyTopic, mode: "insensitive" } },
-            { description: { contains: earlyTopic, mode: "insensitive" } },
-          ],
-        },
-        orderBy: { eventDate: "asc" },
-        take: 10,
-      });
-
-      if (events.length > 0) {
-        const resp = localizeUpcomingEvents(events, params.language, earlyTopic);
-        return { response: resp, chunksUsed: chunks.length };
-      }
-
-      return { response: localizeNoEvents(params.language, earlyTopic), chunksUsed: chunks.length };
-    } catch (e) {
-      console.warn("Topic lookup failed:", e);
-    }
-  }
-
-  if (isEventListingQuery(params.question) || isUpcomingQuery(params.question)) {
-    try {
-      const now = new Date();
-      const topic = extractTopicKeyword(params.question);
-      const monthYear = parseMonthYear(params.question);
-      const eventDateFilter = monthYear
-        ? {
-            gte: new Date(Date.UTC(monthYear.year, monthYear.month, 1, 0, 0, 0)),
-            lt: new Date(Date.UTC(monthYear.year, monthYear.month + 1, 1, 0, 0, 0)),
-          }
-        : { gte: now };
-
-      const events = await prisma.event.findMany({
-        where: {
-          eventDate: eventDateFilter,
-          status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-          ...(topic
-            ? {
-                OR: [
-                  { title: { contains: topic, mode: "insensitive" } },
-                  { description: { contains: topic, mode: "insensitive" } },
-                ],
-              }
-            : {}),
-        },
-        orderBy: { eventDate: "asc" },
-        take: 10,
-      });
-
-      if (events.length > 0) {
-        if (isRegistrationQuery(params.question) || containsSlotKeywords(params.question)) {
-          const openEvents = events.filter((e) => (e.maxSlots ?? 0) > (e.filledSlots ?? 0));
-          if (openEvents.length > 0) {
-            const lines = openEvents.map((e) => {
-              const date = e.eventDate ? new Date(e.eventDate).toISOString().split("T")[0] : "TBA";
-              const remaining = Math.max(0, (e.maxSlots ?? 0) - (e.filledSlots ?? 0));
-              return { title: e.title, date, venue: e.venue, remaining };
-            });
-            const resp = localizeOpenEvents(lines, params.language);
-            return { response: resp, chunksUsed: chunks.length };
-          }
-        }
-
-        const resp = localizeUpcomingEvents(events, params.language, topic);
-        return { response: resp, chunksUsed: chunks.length };
-      }
-
-      return { response: localizeNoEvents(params.language, topic ?? undefined), chunksUsed: chunks.length };
-    } catch (e) {
-      console.warn("Live upcoming lookup failed:", e);
-      // continue to other fallbacks
-    }
-  }
-
-  if (isRegistrationQuery(params.question)) {
-    try {
-      const now = new Date();
-      const events = await prisma.event.findMany({
-        where: {
-          eventDate: { gte: now },
-          status: { in: ["UPCOMING", "REGISTRATION_OPEN"] },
-        },
-        orderBy: { eventDate: "asc" },
-        take: 10,
-      });
-
-      const openEvents = events.filter((e) => (e.maxSlots ?? 0) > (e.filledSlots ?? 0));
-
-      if (openEvents.length > 0) {
-        const lines = openEvents.map((e) => {
-          const date = e.eventDate ? new Date(e.eventDate).toISOString().split("T")[0] : "TBA";
-          const remaining = (e.maxSlots ?? 0) - (e.filledSlots ?? 0);
-          return { title: e.title, date, venue: e.venue, remaining };
-        });
-
-        const resp = localizeOpenEvents(lines, params.language);
-        return { response: resp, chunksUsed: chunks.length };
-      }
-
-      // No live open events found; fall back to RAG summary below.
-    } catch (e) {
-      console.warn("Live event lookup failed:", e);
-      // continue to retrieval-based response
-    }
-  }
-
   // Quick local post-processing: if the query is event-related and the retrieved
   // context strongly indicates events, return a concise factual summary instead
   // of relying solely on the model.
@@ -340,21 +193,6 @@ function getFallbackMessage(detectedLanguage: string) {
   return "Sorry, I don't have enough information to answer that. You can submit a formal inquiry to the SK officials through the portal's inquiry form.";
 }
 
-function localizeOpenEvents(events: { title: string; date: string; venue: string; remaining: number }[], language: Language) {
-  if (language === "FILIPINO") {
-    const lines = events.map((e) => `- ${e.title} — ${e.date} @ ${e.venue}${e.remaining !== undefined ? ` (natitirang slots: ${e.remaining})` : ""}`);
-    return `Oo — may ${events.length} paparating na kaganapan:\n\n${lines.join("\n")}\n\nPumunta sa SKonnect portal para magrehistro.`;
-  }
-
-  if (language === "ILOCANO") {
-    const lines = events.map((e) => `- ${e.title} — ${e.date} @ ${e.venue}${e.remaining !== undefined ? ` (natengnga a slots: ${e.remaining})` : ""}`);
-    return `Wen — adda ${events.length} a sumaruno a pasamak:\n\n${lines.join("\n")}\n\nSumrek ka iti SKonnect portal tapno agparehistro.`;
-  }
-
-  // default English
-  const lines = events.map((e) => `- ${e.title} — ${e.date} @ ${e.venue}${e.remaining !== undefined ? ` (slots remaining: ${e.remaining})` : ""}`);
-  return `There are currently ${events.length} upcoming event${events.length === 1 ? "" : "s"}:\n\n${lines.join("\n")}\n\nVisit the SKonnect portal to register.`;
-}
 
 function localizeRagSummary(bullets: string[], language: Language) {
   if (language === "FILIPINO") {
