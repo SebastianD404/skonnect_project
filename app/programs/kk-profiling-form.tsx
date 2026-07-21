@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
 import DocumentOCRValidationExample, { type DocumentOCRKey, type DocumentOCRState } from "@/app/components/DocumentOCRValidationExample";
+import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { Eye, EyeOff } from "lucide-react";
 
 const initialForm = {
@@ -145,6 +146,121 @@ export default function KKProfilingForm() {
     return cleaned;
   }
 
+  function normalizeText(value: string) {
+    return String(value)
+      .trim()
+      .toLowerCase()
+      .replace(/[\u2018\u2019\u201C\u201D]/g, "'")
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function parseIsoDate(value: string) {
+    const parts = String(value).split("-").map(Number);
+    if (parts.length !== 3) return null;
+    const [year, month, day] = parts;
+    if (
+      Number.isNaN(year) ||
+      Number.isNaN(month) ||
+      Number.isNaN(day) ||
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > 31
+    ) {
+      return null;
+    }
+    return new Date(Date.UTC(year, month - 1, day));
+  }
+
+  function parseDateCandidatesFromText(text: string) {
+    const normalizedText = String(text)
+      .replace(/[\u2018\u2019\u201C\u201D]/g, "'")
+      .replace(/[^0-9\-\/\. ]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const results: Date[] = [];
+
+    const pushUniqueDate = (date: Date | null) => {
+      if (!date || Number.isNaN(date.getTime())) return;
+      const iso = date.toISOString();
+      if (!results.some((existing) => existing.toISOString() === iso)) {
+        results.push(date);
+      }
+    };
+
+    const ymdRegex = /(?<!\d)(\d{4})[\/\-. ](\d{1,2})[\/\-. ](\d{1,2})(?!\d)/g;
+    let match: RegExpExecArray | null;
+    while ((match = ymdRegex.exec(normalizedText))) {
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        pushUniqueDate(new Date(Date.UTC(year, month - 1, day)));
+      }
+    }
+
+    const mdyRegex = /(?<!\d)(\d{1,2})[\/\-. ](\d{1,2})[\/\-. ](\d{4})(?!\d)/g;
+    while ((match = mdyRegex.exec(normalizedText))) {
+      const first = Number(match[1]);
+      const second = Number(match[2]);
+      const year = Number(match[3]);
+
+      const maybeMdy = first >= 1 && first <= 12 && second >= 1 && second <= 31
+        ? new Date(Date.UTC(year, first - 1, second))
+        : null;
+      const maybeDmy = second >= 1 && second <= 12 && first >= 1 && first <= 31
+        ? new Date(Date.UTC(year, second - 1, first))
+        : null;
+
+      pushUniqueDate(maybeMdy);
+      if (maybeDmy && maybeDmy.toISOString() !== maybeMdy?.toISOString()) {
+        pushUniqueDate(maybeDmy);
+      }
+    }
+
+    return results;
+  }
+
+  function doesProfileNameMatchIdText() {
+    const firstName = String(form.firstName || "").trim();
+    const lastName = String(form.lastName || "").trim();
+
+    if (!firstName || !lastName) {
+      return true;
+    }
+
+    const frontText = ocrValidationState.front.status === "success"
+      ? String(ocrValidationState.front.text ?? "")
+      : "";
+
+    if (!frontText) {
+      return true;
+    }
+
+    return doesOcrTextMatchName(firstName, lastName, frontText, 0.8);
+  }
+
+  function doesProfileBirthDateMatchIdText() {
+    const profileDate = parseIsoDate(form.birthDate);
+    if (!profileDate) {
+      return true;
+    }
+
+    const idTexts = [ocrValidationState.front, ocrValidationState.back]
+      .filter((state) => state.status === "success")
+      .map((state) => state.text ?? "");
+
+    const candidates = idTexts.flatMap((text) => parseDateCandidatesFromText(text));
+    if (candidates.length === 0) {
+      return true;
+    }
+
+    return candidates.some((date) => date.getTime() === profileDate.getTime());
+  }
+
   function handleIdFileChange(field: keyof typeof idFiles, file: File | null) {
     setIdFiles((current) => ({
       ...current,
@@ -200,7 +316,23 @@ export default function KKProfilingForm() {
     if (!form.age) return "Age is required";
     if (!form.birthDate) return "Birth date is required";
     if (!form.email.trim()) return "Email is required";
+    if (!form.facebook.trim()) return "Facebook account name is required";
     if (!form.contactNumber.trim()) return "Contact number is required";
+    if (!form.civilStatus) return "Civil status is required";
+    if (!form.youthClassification) return "Youth classification is required";
+    if (!form.youthAgeGroup) return "Youth age group is required";
+    if (!form.workStatus) return "Work status is required";
+    if (!form.educationalBackground) return "Educational background is required";
+    if (!form.registeredSKVoter) return "Registered SK voter status is required";
+    if (!form.votedLastSK) return "SK election participation status is required";
+    if (!form.registeredNationalVoter) return "Registered national voter status is required";
+    if (!form.attendedKKAssembly) return "KK assembly attendance status is required";
+    if (form.attendedKKAssembly === "Yes" && !form.assemblyTimes) {
+      return "Please indicate how many KK assemblies you attended.";
+    }
+    if (form.attendedKKAssembly === "No" && !form.noAssemblyReason) {
+      return "Please indicate why you did not attend KK assemblies.";
+    }
     if (!form.consent) return "You must agree to the informed consent";
     
     if (!idFiles.front || !idFiles.back) {
@@ -213,6 +345,14 @@ export default function KKProfilingForm() {
 
     if (!isOcrVerified) {
       return "Please complete OCR validation for each uploaded document before submitting.";
+    }
+
+    if (!doesProfileNameMatchIdText()) {
+      return "Your name does not match the name on your ID.";
+    }
+
+    if (!doesProfileBirthDateMatchIdText()) {
+      return "Your birthdate does not match the birthdate on your ID.";
     }
     
     return null;
@@ -626,6 +766,10 @@ export default function KKProfilingForm() {
       <div className="space-y-4">
         <DocumentOCRValidationExample
           className="space-y-3"
+          firstName={form.firstName}
+          middleInitial={form.middleInitial}
+          lastName={form.lastName}
+          profileBirthDate={form.birthDate}
           onFileSelected={(key, file) => {
             const field = key === "front" ? "front" : key === "back" ? "back" : "residency";
             handleIdFileChange(field as keyof typeof idFiles, file);

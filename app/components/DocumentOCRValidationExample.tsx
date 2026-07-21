@@ -11,10 +11,17 @@ export type DocumentOCRState = {
   badgeText?: string;
   message?: string;
   text?: string;
+  parsedDates?: string[];
+  birthdateMatched?: boolean;
   file?: File | null;
 };
 
 type DocumentOCRValidationExampleProps = {
+  firstName?: string;
+  middleInitial?: string;
+  lastName?: string;
+  showDebug?: boolean;
+  profileBirthDate?: string;
   onFileSelected?: (key: DocumentOCRKey, file: File | null) => void;
   onValidationChange?: (state: Record<DocumentOCRKey, DocumentOCRState>) => void;
   onRemoveFile?: (key: DocumentOCRKey) => void;
@@ -22,9 +29,14 @@ type DocumentOCRValidationExampleProps = {
 };
 
 export default function DocumentOCRValidationExample({
+  firstName,
+  profileBirthDate,
+  middleInitial,
+  lastName,
   onFileSelected,
   onValidationChange,
   onRemoveFile,
+  showDebug = false,
   className,
 }: DocumentOCRValidationExampleProps) {
   const [docs, setDocs] = useState<Record<DocumentOCRKey, DocumentOCRState>>({
@@ -94,6 +106,8 @@ export default function DocumentOCRValidationExample({
       status: "error",
       message: "Only image files are accepted. Please upload JPG or PNG.",
       text: undefined,
+      parsedDates: undefined,
+      birthdateMatched: undefined,
     });
     onFileSelected?.(key, null);
   };
@@ -101,7 +115,7 @@ export default function DocumentOCRValidationExample({
   async function processFile(file: File | null, key: DocumentOCRKey) {
     if (!file) {
       setPreviewUrl(key, null);
-      setDoc(key, { file: null, status: "idle", message: undefined, text: undefined });
+      setDoc(key, { file: null, status: "idle", message: undefined, text: undefined, parsedDates: undefined, birthdateMatched: undefined });
       onFileSelected?.(key, null);
       return;
     }
@@ -118,19 +132,28 @@ export default function DocumentOCRValidationExample({
 
     try {
       const docType = key === "residency" ? "certificate" : key === "front" ? "front_id" : "back_id";
-      const result = await scanDocument(file, docType as never);
+      const result = await scanDocument(file, docType as never, {
+        firstName: key === "front" || key === "residency" ? firstName : undefined,
+        lastName: key === "front" || key === "residency" ? lastName : undefined,
+        middleInitial: key === "front" ? middleInitial : undefined,
+        profileBirthDate: key === "back" ? profileBirthDate : undefined,
+      });
 
       setDoc(key, {
         status: result.status === "success" ? "success" : "error",
         badgeText: result.badgeText,
         message: result.message,
         text: result.text,
+        parsedDates: Array.isArray(result.parsedDates) ? result.parsedDates : undefined,
+        birthdateMatched: typeof result.birthdateMatched === "boolean" ? result.birthdateMatched : undefined,
       });
     } catch (err: unknown) {
       setDoc(key, {
         status: "error",
         badgeText: "Unreadable Image",
         message: String(err instanceof Error ? err.message : err) || "Unable to process this image. Please try again.",
+        parsedDates: undefined,
+        birthdateMatched: undefined,
       });
     }
   }
@@ -233,6 +256,15 @@ export default function DocumentOCRValidationExample({
           </div>
         ) : null}
 
+        {showDebug && state.parsedDates && state.parsedDates.length > 0 ? (
+          <div className="mt-2 text-xs text-slate-600">
+            <div><strong>Parsed dates:</strong> {state.parsedDates.join(", ")}</div>
+            {typeof state.birthdateMatched === "boolean" ? (
+              <div><strong>Birthdate matched:</strong> {state.birthdateMatched ? "yes" : "no"}</div>
+            ) : null}
+          </div>
+        ) : null}
+
         {hasFile ? (
           <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-700 font-medium">
             <button
@@ -252,7 +284,7 @@ export default function DocumentOCRValidationExample({
                 e.stopPropagation();
                 clearInput(key);
                 clearPreview(key);
-                setDoc(key, { file: null, status: "idle", message: undefined, text: undefined });
+                setDoc(key, { file: null, status: "idle", message: undefined, text: undefined, parsedDates: undefined, birthdateMatched: undefined });
                 onFileSelected?.(key, null);
                 onRemoveFile?.(key);
               }}

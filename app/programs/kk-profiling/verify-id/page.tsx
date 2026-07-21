@@ -27,7 +27,6 @@ export default function KKProfilingVerifyIdPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
-  const [residencyStatementConfirmed, setResidencyStatementConfirmed] = useState(false);
 
   useEffect(() => {
     const urls: PreviewUrls = {};
@@ -56,7 +55,6 @@ export default function KKProfilingVerifyIdPage() {
     setMessage(null);
     setSuccess(null);
     setSelectedFiles({ front: null, back: null, residency: null });
-    setResidencyStatementConfirmed(false);
   }
 
   function handleFileChange(field: keyof SelectedFiles, file: File | null) {
@@ -139,10 +137,7 @@ export default function KKProfilingVerifyIdPage() {
       setMessage("Please upload your Certificate of Residency.");
       return;
     }
-    if (!residencyStatementConfirmed) {
-      setMessage("Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months.");
-      return;
-    }
+    // No residency checkbox required when a residency file is uploaded.
 
     setSubmitting(true);
     try {
@@ -151,7 +146,6 @@ export default function KKProfilingVerifyIdPage() {
       formData.append("frontFile", selectedFiles.front as File);
       formData.append("backFile", selectedFiles.back as File);
       formData.append("residencyFile", selectedFiles.residency as File);
-      formData.append("residencyStatementConfirmed", String(residencyStatementConfirmed));
 
       const response = await fetch("/api/programs/kk-profiling/verify-id", {
         method: "POST",
@@ -225,18 +219,7 @@ export default function KKProfilingVerifyIdPage() {
                     className="rounded-xl border border-slate-300 bg-white px-4 py-3"
                   />
                   {renderPreview("residency", selectedFiles.residency ?? null)}
-                </label>
-                <label className="mt-4 flex items-start gap-3 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={residencyStatementConfirmed}
-                    onChange={(event) => setResidencyStatementConfirmed(event.target.checked)}
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                  />
-                  <span>
-                    I confirm that the uploaded Certificate of Residency states I have lived in the barangay for at least 8 months.
-                  </span>
-                </label>
+                  </label>
               </div>
             {message ? (
               <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{message}</div>

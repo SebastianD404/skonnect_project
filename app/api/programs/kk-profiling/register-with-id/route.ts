@@ -1,8 +1,16 @@
+import { execFile } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { promisify } from "util";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
+import { parseOcrWorkerOutput } from "@/lib/ocrWorker";
+import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
+import { verifyBackIdBirthdate } from "@/lib/verifyBackIdBirthdate";
 import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
@@ -14,6 +22,51 @@ import {
   normalizePurok,
   splitFullName,
 } from "@/lib/kk";
+
+const execFileAsync = promisify(execFile);
+
+async function getOcrResult(file: File, documentType: "front_id" | "back_id" | "certificate") {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ocr-"));
+  const safeName = String(file.name)
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .slice(0, 200);
+  const tempPath = path.join(tempDir, `upload-${Date.now()}-${Math.random().toString(16).slice(2)}.${safeName.split(".").pop() || "bin"}`);
+
+  try {
+    fs.writeFileSync(tempPath, Buffer.from(await file.arrayBuffer()));
+    const scriptPath = path.join(process.cwd(), "scripts", "ocr-worker.cjs");
+    let stdout = "";
+
+      try {
+      const execResult = await execFileAsync(process.execPath, [scriptPath, tempPath, documentType], {
+        cwd: process.cwd(),
+        timeout: 120000,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      stdout = execResult.stdout || "";
+    } catch (error: unknown) {
+      const execError = error as { stdout?: string; stderr?: string; message?: string };
+      stdout = execError.stdout || "";
+      if (!stdout) {
+        throw error;
+      }
+    }
+
+    return parseOcrWorkerOutput(stdout);
+  } finally {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // ignore cleanup errors
+    }
+    try {
+      fs.rmdirSync(tempDir);
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+}
 
 function isBarangayPico(value: string) {
   const normalized = value.trim().toLowerCase().replace(/\./g, "").replace(/\s+/g, " ");
@@ -340,9 +393,71 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!body.residencyStatementAcknowledgement) {
+    // If a residency file was uploaded, the residency acknowledgement checkbox
+    // is redundant because the document itself should state the 8-month residency.
+    // Only require the explicit checkbox when no residency file is present.
+    if (!body.residencyStatementAcknowledgement && !residencyFile) {
       return NextResponse.json(
         { error: "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months." },
+        { status: 400 }
+      );
+    }
+
+    const frontOcrResult = await getOcrResult(frontFile, "front_id");
+    if (!frontOcrResult.success || !frontOcrResult.text) {
+      return NextResponse.json(
+        { error: "Unable to verify the uploaded front ID. Please upload a clearer photo." },
+        { status: 400 }
+      );
+    }
+
+    const frontNameMatches = doesOcrTextMatchName(
+      firstNameInput,
+      lastNameInput,
+      frontOcrResult.text,
+      0.8
+    );
+
+    if (!frontNameMatches) {
+      return NextResponse.json(
+        { error: "The name on your profile does not match the name on the front of your ID." },
+        { status: 400 }
+      );
+    }
+
+    // Verify birthdate on the back of the ID matches the profile birthDate
+    const backOcrResult = await getOcrResult(backFile, "back_id");
+    if (!backOcrResult.success || !backOcrResult.text) {
+      return NextResponse.json(
+        { error: "Unable to verify the uploaded back ID. Please upload a clearer photo." },
+        { status: 400 }
+      );
+    }
+
+    const birthCheck = verifyBackIdBirthdate(backOcrResult.text, birthDateInput);
+    if (!birthCheck.isValid) {
+      return NextResponse.json({ error: birthCheck.message, parsedDates: birthCheck.parsedDates }, { status: 400 });
+    }
+
+    // Verify name on the Certificate of Residency matches the profile (and by extension the ID)
+    const residencyOcrResult = await getOcrResult(residencyFile, "certificate");
+    if (!residencyOcrResult.success || !residencyOcrResult.text) {
+      return NextResponse.json(
+        { error: "Unable to verify the uploaded Certificate of Residency. Please upload a clearer photo." },
+        { status: 400 }
+      );
+    }
+
+    const residencyNameMatches = doesOcrTextMatchName(
+      firstNameInput,
+      lastNameInput,
+      residencyOcrResult.text,
+      0.8
+    );
+
+    if (!residencyNameMatches) {
+      return NextResponse.json(
+        { error: "The name on your Certificate of Residency does not match the profile or the ID." },
         { status: 400 }
       );
     }
@@ -464,7 +579,6 @@ export async function POST(req: NextRequest) {
           assemblyTimes: String(body.assemblyTimes || "").trim() || null,
           noAssemblyReason: String(body.noAssemblyReason || "").trim() || null,
           consent: true,
-          residencyStatementAcknowledgement: true,
           idDocumentType,
           idFrontFileUrl,
           idBackFileUrl,
@@ -526,6 +640,10 @@ export async function POST(req: NextRequest) {
     }
 
     console.error(err);
+    if (process.env.NODE_ENV !== "production") {
+      // In development include the error message to help debugging.
+      return NextResponse.json({ error: "Invalid request", detail: String(err?.message || err) }, { status: 400 });
+    }
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 }

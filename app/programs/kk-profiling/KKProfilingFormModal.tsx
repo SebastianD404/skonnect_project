@@ -104,7 +104,6 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
   const [previewModalAlt, setPreviewModalAlt] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [residencyStatementConfirmed, setResidencyStatementConfirmed] = useState(false);
 
   useEffect(() => {
     setForm({
@@ -129,7 +128,6 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       noAssemblyReason: registration.noAssemblyReason ?? "",
     });
     setSelectedFiles({ front: null, back: null, single: null });
-    setResidencyStatementConfirmed(false);
     setMessage(null);
   }, [registration]);
 
@@ -277,9 +275,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     if (!selectedFiles.front && !registration.idFrontFileUrl) return "Please upload the front of your valid ID.";
     if (!selectedFiles.back && !registration.idBackFileUrl) return "Please upload the back of your valid ID.";
     if (!selectedFiles.single && !registration.idSingleFileUrl) return "Please upload your Certificate of Residency.";
-    if (selectedFiles.single && !residencyStatementConfirmed) {
-      return "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months.";
-    }
+    // Residency confirmation is captured from the uploaded document itself; no checkbox required.
     return null;
   }
 
@@ -323,7 +319,6 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       }
       if (selectedFiles.single) {
         formData.append("residencyFile", selectedFiles.single);
-        formData.append("residencyStatementConfirmed", String(residencyStatementConfirmed));
       }
 
       const response = await fetch("/api/programs/kk-profiling/registration-with-id", {
@@ -717,19 +712,6 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                     className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
                   />
                   {renderPreview("single", selectedFiles.single ?? null)}
-                  {selectedFiles.single ? (
-                    <label className="mt-3 flex items-start gap-3 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={residencyStatementConfirmed}
-                        onChange={(event) => setResidencyStatementConfirmed(event.target.checked)}
-                        className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                      />
-                      <span>
-                        I confirm that the uploaded Certificate of Residency states I have lived in the barangay for at least 8 months.
-                      </span>
-                    </label>
-                  ) : null}
                 </label>
               </div>
             </div>

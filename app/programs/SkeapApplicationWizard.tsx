@@ -108,15 +108,16 @@ function getRequiredUploadKeys(requirements?: string[]) {
 }
 
 function findUploadFileForKey(files: UploadedFile[], key: SkeapUploadKey) {
-  const normalizedMatch = (file: UploadedFile) => {
-    if (file.requirement === key) return true;
-    if (normalizeUploadRequirement(file.requirement || file.name || "") === key) return true;
-    return normalizeUploadRequirement(file.name || "") === key;
-  };
+  const exactMatch = files.find((file) => file.status === "done" && file.url && file.requirement === key);
+  if (exactMatch) return exactMatch;
 
-  const doneFile = files.find((file) => file.status === "done" && file.url && normalizedMatch(file));
-  if (doneFile) return doneFile;
-  return files.find(normalizedMatch);
+  return files.find((file) => {
+    if (file.status !== "done" || !file.url) return false;
+    if (!file.requirement) {
+      return normalizeUploadRequirement(file.name || "") === key;
+    }
+    return false;
+  });
 }
 
 function formatPermanentAddress(parts: Array<string | undefined | null>) {
@@ -136,7 +137,7 @@ function isUploadCompleteForKey(files: UploadedFile[], key: SkeapUploadKey) {
   });
 }
 
-const STEPS = ["Profile", "Scholarship", "Educational Background", "Uploads"] as const;
+const STEPS = ["Profile", "School", "Educational Background", "Uploads"] as const;
 
 export default function SkeapApplicationWizard({ onClose, requirements }: { onClose: () => void; requirements?: string[] }) {
   const [step, setStep] = useState(0);
@@ -147,90 +148,6 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   const [course, setCourse] = useState("");
   const [yearLevel, setYearLevel] = useState("");
   const [gwa, setGwa] = useState("");
-
-  // Grades input - list of subjects and numeric grades. GWA is computed from these.
-  const [grades, setGrades] = useState<{ id: string; subject: string; grade: string }[]>(() => [
-    { id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, subject: "", grade: "" },
-  ]);
-  const computedGwa = useMemo(() => {
-    const nums = grades.map((g) => parseFloat(g.grade)).filter((n) => !Number.isNaN(n));
-    if (nums.length === 0) return "";
-    const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
-    return String(Math.round(avg * 100) / 100);
-  }, [grades]);
-
-  // Course timeline (semesters per year) for progress tracking
-  const [timelineYears, setTimelineYears] = useState<number>(4);
-  const [timelineSemestersPerYear, setTimelineSemestersPerYear] = useState<number[]>([2, 2, 2, 2]);
-  const [timelineLabels, setTimelineLabels] = useState<string[]>(() => Array.from({ length: 4 }).map((_, i) => `Year ${i + 1}`));
-  
-
-  function addGradeRow() {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    setGrades((p) => [...p, { id, subject: "", grade: "" }]);
-  }
-
-  function updateGrade(id: string, field: "subject" | "grade", value: string) {
-    setGrades((p) => p.map((g) => (g.id === id ? { ...g, [field]: value } : g)));
-  }
-
-  function removeGrade(id: string) {
-    setGrades((p) => {
-      if (p.length <= 1) return p; // keep at least one row
-      return p.filter((g) => g.id !== id);
-    });
-  }
-
-  function applyPreset(val: string) {
-    if (val === "4-2-2-2-2") {
-      setTimelineYears(4);
-      setTimelineSemestersPerYear([2, 2, 2, 2]);
-      setTimelineLabels(Array.from({ length: 4 }).map((_, i) => `Year ${i + 1}`));
-    } else if (val === "4-2-3-3-2") {
-      // KCP IT example: 2,3,3,2
-      setTimelineYears(4);
-      setTimelineSemestersPerYear([2, 3, 3, 2]);
-      setTimelineLabels(Array.from({ length: 4 }).map((_, i) => `Year ${i + 1}`));
-    } else if (val === "5-2-2-2-2-2") {
-      setTimelineYears(5);
-      setTimelineSemestersPerYear([2, 2, 2, 2, 2]);
-      setTimelineLabels(Array.from({ length: 5 }).map((_, i) => `Year ${i + 1}`));
-    } else if (val === "custom") {
-      setTimelineYears((y) => y || 4);
-      setTimelineSemestersPerYear((s) => (s.length ? s : Array.from({ length: timelineYears }).map(() => 2)));
-      setTimelineLabels((s) => (s.length ? s : Array.from({ length: timelineYears }).map((_, i) => `Year ${i + 1}`)));
-    }
-  }
-
-  function updateSemesters(yearIndex: number, sems: number) {
-    setTimelineSemestersPerYear((prev) => {
-      const copy = [...prev];
-      copy[yearIndex] = sems;
-      return copy;
-    });
-  }
-
-  function addYear() {
-    setTimelineSemestersPerYear((prev) => [...prev, 2]);
-    setTimelineYears((y) => {
-      const next = y + 1;
-      setTimelineLabels((labels) => [...labels, `Year ${next}`]);
-      return next;
-    });
-  }
-
-  function removeYear(yearIndex: number) {
-    setTimelineSemestersPerYear((prev) => prev.filter((_, i) => i !== yearIndex));
-    setTimelineYears((y) => {
-      const next = Math.max(0, y - 1);
-      setTimelineLabels((labels) => labels.filter((_, i) => i !== yearIndex));
-      return next;
-    });
-  }
-
-  function updateLabel(index: number, value: string) {
-    setTimelineLabels((prev) => prev.map((l, i) => (i === index ? value : l)));
-  }
 
   
 
@@ -426,9 +343,6 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
     if (step === 1) {
       if (!course.trim()) return "Course is required.";
       if (!yearLevel.trim()) return "Year level is required.";
-      if (grades.length === 0) return "Please add at least one subject grade.";
-      const parsed = Number(computedGwa);
-      if (Number.isNaN(parsed) || parsed < 0 || parsed > 100) return "Computed GWA must be between 0 and 100.";
       if (!fathersName.trim()) return "Father's name is required.";
       if (!fathersContact.trim()) return "Father's contact is required.";
       if (!mothersMaidenName.trim()) return "Mother's maiden name is required.";
@@ -485,7 +399,6 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
     if (currentStep === 1) {
       if (!course.trim()) missing.push("course");
       if (!yearLevel.trim()) missing.push("yearLevel");
-      if (grades.length === 0) missing.push("grades");
       if (!fathersName.trim()) missing.push("fathersName");
       if (!fathersContact.trim()) missing.push("fathersContact");
       if (!mothersMaidenName.trim()) missing.push("mothersMaidenName");
@@ -580,14 +493,14 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         const errorText = "The selected file is empty. Please choose a non-empty file.";
         console.error("SKEAP upload failed: zero-byte file", { requirement, normalizedKey, fileName: file.name });
         setFiles((prev) => [
-          ...prev.filter((f) => normalizeUploadRequirement(f.requirement || f.name || "") !== normalizedKey),
+          ...prev.filter((f) => f.requirement !== normalizedKey),
           { ...newUpload, status: "error", error: errorText },
         ]);
         return;
       }
 
       setFiles((prev) => [
-        ...prev.filter((f) => normalizeUploadRequirement(f.requirement || f.name || "") !== normalizedKey),
+        ...prev.filter((f) => f.requirement !== normalizedKey),
         newUpload,
       ]);
 
@@ -673,13 +586,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
           schoolName,
           currentCourse: course,
           yearLevel,
-          gwa: computedGwa,
-          grades: grades.map((g) => ({ subject: g.subject, grade: g.grade })),
-          timeline: {
-            years: timelineYears,
-            semestersPerYear: timelineSemestersPerYear,
-            labels: timelineLabels,
-          },
+          gwa: gwa,
           enrollmentFileUrl: enrollmentFileUrl || doneUrls[0],
           reportCardFileUrl: reportCardFileUrl || doneUrls[1],
           photoFileUrl: photoFileUrl || doneUrls.find(Boolean),
@@ -1135,101 +1042,6 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                 <option value="6">6</option>
               </select>
             </label>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Grades</label>
-              <p className="text-sm text-slate-500">Add each subject and its numeric grade. GWA is calculated automatically.</p>
-              <div className="mt-2 space-y-2">
-                {grades.map((g) => (
-                  <div key={g.id} className="flex items-center gap-2">
-                    <input
-                      value={g.subject}
-                      onChange={(e) => updateGrade(g.id, "subject", e.target.value)}
-                      placeholder="Subject"
-                      className="flex-1 min-w-0 rounded-xl border px-3 py-2 text-sm"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={g.grade}
-                      onChange={(e) => updateGrade(g.id, "grade", e.target.value)}
-                      placeholder="Grade"
-                      className="w-28 rounded-xl border px-3 py-2 text-sm flex-shrink-0"
-                    />
-                    {grades.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => removeGrade(g.id)}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-white text-slate-700 flex-shrink-0 ml-1 relative z-10"
-                        aria-label="Remove subject"
-                      >
-                        ×
-                      </button>
-                    ) : (
-                      <div className="w-9" />
-                    )}
-                  </div>
-                ))}
-
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={addGradeRow} className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                    Add subject
-                  </button>
-                  <div className="ml-auto text-sm text-slate-600">
-                    GWA: <span className="font-semibold">{computedGwa || "—"}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Course timeline</label>
-              <p className="text-sm text-slate-500">Add each year and select number of semesters. Use Add year to append rows.</p>
-              <div className="mt-2 space-y-2">
-                {timelineSemestersPerYear.map((sems, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input
-                      value={timelineLabels[i] ?? `Year ${i + 1}`}
-                      onChange={(e) => updateLabel(i, e.target.value)}
-                      placeholder={`Year ${i + 1}`}
-                      className="flex-1 min-w-0 rounded-xl border px-3 py-2 text-sm"
-                    />
-
-                    <select
-                      value={String(sems)}
-                      onChange={(e) => updateSemesters(i, Number(e.target.value) || 1)}
-                      className="w-28 rounded-xl border px-3 py-2 text-sm"
-                    >
-                      <option value="1">1</option>
-                      <option value="2">2</option>
-                      <option value="3">3</option>
-                    </select>
-
-                    {timelineSemestersPerYear.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => removeYear(i)}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-white text-slate-700 flex-shrink-0 ml-1 relative z-10"
-                        aria-label={`Remove year ${i + 1}`}
-                      >
-                        ×
-                      </button>
-                    ) : (
-                      <div className="w-9" />
-                    )}
-                  </div>
-                ))}
-
-                <div className="mt-2">
-                  <button type="button" onClick={addYear} className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                    Add year
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
 
           <div className="mt-4 grid gap-3">

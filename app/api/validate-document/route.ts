@@ -5,6 +5,8 @@ import path from "path";
 import { promisify } from "util";
 import { NextResponse } from "next/server";
 import { parseOcrWorkerOutput } from "../../../lib/ocrWorker";
+import { doesOcrTextMatchName } from "../../../lib/ocrNameVerification";
+import { verifyBackIdBirthdate } from "../../../lib/verifyBackIdBirthdate";
 
 export const runtime = "nodejs";
 
@@ -18,6 +20,7 @@ type ValidationResponse = {
   isValid: boolean;
   matchedKeywords: string[];
   text: string;
+  nameMatched?: boolean;
   error?: string;
 };
 
@@ -83,6 +86,9 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file");
     const documentType = formData.get("documentType");
+    const firstName = String(formData.get("firstName") ?? "").trim();
+    const lastName = String(formData.get("lastName") ?? "").trim();
+    const profileBirthDate = String(formData.get("profileBirthDate") ?? formData.get("birthDate") ?? "").trim();
 
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -139,7 +145,74 @@ export async function POST(request: Request) {
       }
 
       const result = parseOcrWorkerOutput(stdout);
-      return NextResponse.json(getFriendlyValidationResponse(documentType, result));
+      const response = getFriendlyValidationResponse(documentType, result);
+
+      if (documentType === "front_id" && firstName && lastName && response.success && response.isValid) {
+        const nameMatched = doesOcrTextMatchName(firstName, lastName, result.text, 0.8);
+        if (!nameMatched) {
+          return NextResponse.json(
+              {
+                ...response,
+                success: false,
+                status: "error",
+                badgeText: "Name Mismatch",
+                message: "Name mismatch — the name on this ID does not match the profile.",
+                isValid: false,
+                nameMatched: false,
+              },
+              { status: 400 }
+            );
+        }
+
+        return NextResponse.json({ ...response, nameMatched: true });
+      }
+
+      // For Certificates (residency), verify the name if the client provided profile names
+      if (documentType === "certificate" && firstName && lastName && response.success && response.isValid) {
+        const nameMatched = doesOcrTextMatchName(firstName, lastName, result.text, 0.8);
+        if (!nameMatched) {
+          return NextResponse.json(
+            {
+              ...response,
+              success: false,
+              status: "error",
+              badgeText: "Name Mismatch",
+              message: "Name mismatch — the name on this document does not match the profile.",
+              isValid: false,
+              nameMatched: false,
+              parsedDates: [],
+            },
+            { status: 400 }
+          );
+        }
+
+        return NextResponse.json({ ...response, nameMatched: true });
+      }
+
+      // Back-side birthdate verification: if client provided a profile birthdate,
+      // attempt to parse dates from the OCR text and verify a match.
+      if (documentType === "back_id" && profileBirthDate && response.success && response.isValid) {
+        const birthCheck = verifyBackIdBirthdate(result.text, profileBirthDate);
+        if (!birthCheck.isValid) {
+          return NextResponse.json(
+            {
+              ...response,
+              success: false,
+              status: "error",
+              badgeText: "Birthdate Mismatch",
+              message: birthCheck.message,
+              isValid: false,
+              error: undefined,
+              parsedDates: birthCheck.parsedDates ?? [],
+            },
+            { status: 400 }
+          );
+        }
+
+        return NextResponse.json({ ...response, birthdateMatched: true, parsedDates: birthCheck.parsedDates });
+      }
+
+      return NextResponse.json({ ...response, nameMatched: documentType === "front_id" ? Boolean(firstName && lastName) : undefined });
     } finally {
       try {
         fs.unlinkSync(tempPath);

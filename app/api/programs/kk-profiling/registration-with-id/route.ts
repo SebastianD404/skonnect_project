@@ -83,7 +83,7 @@ export async function PUT(request: NextRequest) {
   const frontFile = formData.get("frontFile") as File | null;
   const backFile = formData.get("backFile") as File | null;
   const residencyFile = formData.get("residencyFile") as File | null;
-  const residencyStatementAcknowledgement = formData.get("residencyStatementConfirmed") === "true";
+  const residencyStatementAcknowledgement = registration.residencyStatementAcknowledgement || Boolean(residencyFile);
 
   if (frontFile && !backFile) {
     return NextResponse.json({ error: "Please upload both the front and back of your valid ID." }, { status: 400 });
@@ -96,12 +96,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Please upload your Certificate of Residency." }, { status: 400 });
   }
 
-  if (residencyFile && !residencyStatementAcknowledgement) {
-    return NextResponse.json(
-      { error: "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months." },
-      { status: 400 }
-    );
-  }
+
 
   if (frontFile && backFile) {
     uploads.push({ label: "front", file: frontFile });
@@ -133,21 +128,20 @@ export async function PUT(request: NextRequest) {
     uploadResults[upload.label] = url;
   }
 
-  const updated = await prisma.profilingRegistration.update({
-    where: { id: registration.id },
-    data: {
+    const updateData: Record<string, unknown> = {
       ...payload,
       birthDate: new Date(payload.birthDate),
       idDocumentType: "Valid ID + Certificate of Residency",
       idFrontFileUrl: uploadResults.front,
       idBackFileUrl: uploadResults.back,
       idSingleFileUrl: uploadResults.residency,
-      residencyStatementAcknowledgement: residencyFile
-        ? residencyStatementAcknowledgement
-        : registration.residencyStatementAcknowledgement,
       reviewStatus: "Resubmitted",
-    },
-  });
+    };
+
+    const updated = await prisma.profilingRegistration.update({
+      where: { id: registration.id },
+      data: updateData,
+    });
 
   return NextResponse.json({
     ...updated,

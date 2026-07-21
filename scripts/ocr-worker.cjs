@@ -55,7 +55,14 @@ const FRONT_ID_TERMS = [
   "Expiration Date",
   "Passport No",
   "ID Number",
+  "ID No",
+  "ID No.",
   "Card Number",
+  "Name",
+  "Student",
+  "College",
+  "University",
+  "School",
 ];
 
 const BACK_ID_TERMS = [
@@ -72,6 +79,14 @@ const BACK_ID_TERMS = [
   "Valid Until",
   "Authorized",
   "Approved",
+  "Contact",
+  "Information",
+  "Rules",
+  "Use",
+  "Card",
+  "Issued",
+  "Office",
+  "Emergency",
 ];
 
 const CERTIFICATE_TERMS = [
@@ -128,12 +143,20 @@ async function main() {
       const hasGenericId = genericMatches.length >= 2;
       const isFrontId = frontMatches.length >= 1;
       const isBackId = backMatches.length >= 1;
+      const hasSchoolIdText = /\b(student|college|university|school|id no\.?|id\s*no\.?|id number)\b/i.test(rawText);
 
+      // Relaxed validation rules: front IDs still require front-specific signals,
+      // but back IDs can be accepted if they contain generic ID keywords plus
+      // either explicit back-side terms or a reasonably long OCR output (many IDs
+      // print terms on the back that aren't in our keyword list and OCR can be noisy).
       let isValidId = false;
       if (documentType === "front_id") {
-        isValidId = hasGenericId && !hasCertificateTerms && isFrontId;
+        isValidId = hasGenericId && !hasCertificateTerms && (isFrontId || hasSchoolIdText);
       } else {
-        isValidId = hasGenericId && !hasCertificateTerms && (isBackId || !isFrontId);
+        const longEnough = rawText.replace(/\s+/g, " ").trim().length >= 60;
+        // Accept back ID when generic matches found and not a certificate, and
+        // either explicit back terms found or the OCR output looks substantive.
+        isValidId = hasGenericId && !hasCertificateTerms && (isBackId || longEnough || !isFrontId);
       }
 
       const result = {

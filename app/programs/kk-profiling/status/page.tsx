@@ -180,8 +180,14 @@ export default function KKProfilingStatusPage() {
       }
     } catch (fetchError) {
       if (!mountedRef.current) return;
+      const msg = String((fetchError as any)?.message || "");
+      const isAbort = (fetchError as any)?.name === "AbortError" || /aborted|abort|signal/i.test(msg);
+      if (isAbort) {
+        // Ignore aborts — they are expected when we refresh or unmount
+        return;
+      }
       if (!background) {
-        setError(String((fetchError as any)?.message || "Unable to load KK Profile status."));
+        setError(msg || "Unable to load KK Profile status.");
         setProfile(null);
       }
     } finally {

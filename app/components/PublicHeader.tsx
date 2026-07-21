@@ -75,8 +75,11 @@ export function PublicHeader() {
       }
 
       const rect = programsSection.getBoundingClientRect();
-      // Highlight Programs button when the section is near the top of viewport
-      setIsScrolledToProgramsSection(rect.top < 200 && rect.bottom > 0);
+      // Consider the Programs nav active only while the Programs section is
+      // visible in the viewport. Once the user scrolls past the section, it
+      // should deactivate and allow Home to become active again.
+      const sectionInView = rect.top < window.innerHeight && rect.bottom > 0;
+      setIsScrolledToProgramsSection(sectionInView);
     };
 
     window.addEventListener("scroll", handleScroll);
@@ -135,6 +138,8 @@ export function PublicHeader() {
     ? "/programs"
     : pathname.startsWith("/about")
     ? "/about"
+    : pathname.startsWith("/announcements")
+    ? "/announcements"
     : isScrolledToProgramsSection && pathname === "/"
     ? "/programs"
     : "/";
@@ -170,6 +175,7 @@ export function PublicHeader() {
           >
             Programs
           </Link>
+          <Link href="/announcements" className={`${navLinkClass(activePath, "/announcements")} transition-opacity duration-200 opacity-100`}>Announcements</Link>
         </nav>
 
         <div className="flex items-center gap-3">

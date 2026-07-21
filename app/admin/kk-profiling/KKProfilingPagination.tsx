@@ -1,16 +1,21 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { startTransition, useTransition } from "react";
 
 interface KKProfilingPaginationProps {
   pageNumber: number;
   totalPages: number;
+  // Optional base path for the pagination links, e.g. '/admin/kk-profiling' or '/admin/members'
+  basePath?: string;
 }
 
-export function KKProfilingPagination({ pageNumber, totalPages }: KKProfilingPaginationProps) {
+export function KKProfilingPagination({ pageNumber, totalPages, basePath = "/admin/kk-profiling" }: KKProfilingPaginationProps) {
   const router = useRouter();
   const [isPending, startTransitionState] = useTransition();
+
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const goToPage = (targetPage: number) => {
     if (targetPage < 1 || targetPage > totalPages || targetPage === pageNumber) {
@@ -18,7 +23,12 @@ export function KKProfilingPagination({ pageNumber, totalPages }: KKProfilingPag
     }
 
     startTransitionState(() => {
-      router.push(`/admin/kk-profiling?page=${targetPage}`, { scroll: false });
+      // Preserve existing query params (e.g., status) and only set `page`
+      const params = new URLSearchParams(String(searchParams ?? ""));
+      params.set("page", String(targetPage));
+      const url = `${basePath}${params.toString() ? `?${params.toString()}` : ""}`;
+      // If basePath equals current pathname, keep it; otherwise use provided basePath
+      router.push(url, { scroll: false });
     });
   };
 
