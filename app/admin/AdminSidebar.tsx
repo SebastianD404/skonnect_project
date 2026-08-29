@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users } from "lucide-react";
+import { ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users, Banknote } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 
@@ -123,6 +123,12 @@ export default function AdminSidebar({
       items: [
         { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: skeapApplicationCount },
         { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: pendingDocumentCount },
+      ],
+    },
+    {
+      title: "Finance",
+      items: [
+        { label: "Accounting", href: "/admin/accounting", icon: Banknote },
       ],
     },
     {

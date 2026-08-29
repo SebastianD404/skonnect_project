@@ -15,6 +15,7 @@ import {
   PencilLine,
   Sparkles,
 } from "lucide-react";
+import ReturnedForEditCard from "./ReturnedForEditCard";
 import { buildSemesterTracker } from "@/lib/semester-progress";
 
 export default async function GranteeOverviewPage() {
@@ -71,7 +72,7 @@ export default async function GranteeOverviewPage() {
   const submissions = appUser.grantee?.submissions ?? [];
   const pendingCount = submissions.filter((s) => s.status === "PENDING").length;
   const approvedCount = submissions.filter((s) => s.status === "APPROVED").length;
-  const needsEditCount = submissions.filter((s) => s.status === "REJECTED").length;
+  const needsEditCount = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
 
   const tracker = buildSemesterTracker(submissions);
 
@@ -185,6 +186,7 @@ export default async function GranteeOverviewPage() {
             total={tracker.total}
             pct={tracker.pct}
           />
+          <ReturnedForEditCard count={needsEditCount} />
         </section>
 
         <section className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr]">
