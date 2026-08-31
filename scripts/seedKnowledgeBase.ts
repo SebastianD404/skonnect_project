@@ -38,7 +38,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "SKEAP stands for Sangguniang Kabataan Educational Assistance Program. It is the scholarship program administered by the SK of Barangay Pico, La Trinidad, Benguet. SKEAP provides educational financial assistance to eligible youth residents who are currently enrolled in college or vocational programs. There are currently 55 active SKEAP grantees as of the time the system was built. About 4 grantees have been removed or graduated in the last 2 years.",
+      "SKEAP stands for Sangguniang Kabataan Educational Assistance Program. It is the scholarship program administered by the SK of Barangay Pico, La Trinidad, Benguet. SKEAP provides educational financial assistance to eligible youth residents who are currently enrolled in college or vocational programs. The number of active grantees changes over time and should be checked from the live system records rather than from static knowledge base text.",
     metadata: {
       category: "skeap_overview",
       language: "ENGLISH",
@@ -49,6 +49,46 @@ const chunks: KnowledgeChunk[] = [
       "SKEAP eligibility criteria: To qualify for the SKEAP scholarship, an applicant must meet all of the following requirements: (1) Residency — the applicant must be a resident of Barangay Pico, La Trinidad, Benguet; (2) Age — the applicant must be within the youth age bracket (15 to 30 years old) as defined by SK guidelines; (3) GPA — the applicant must have a minimum general average or GPA of 80% (or equivalent grade) to apply and to maintain the scholarship each semester.",
     metadata: {
       category: "skeap_overview",
+      language: "ENGLISH",
+    },
+  },
+  {
+    content: `Where to get SKEAP application requirements (Saan kukunin ang mga requirements / Papanak alaen dagiti requirements / Ayna ti pag alaak kadagita nga requirements):
+- Barangay Certificate of Residency: Get this at the Barangay Hall. (Kunin sa Barangay / Alaen idiay Barangay / Pag alaak: Barangay Hall)
+- Certificate of Enrollment, Latest Grade Report, or Transcript of Records (TOR): Get this at your School. (Kunin sa Eskwelahan / Alaen idiay Eskwelaan / Pag alaak: Eskwelaan)
+- Family Income Certificate or Income Tax Return (ITR): Get this from where your parents are working. (Kunin sa trabaho ng magulang / Alaen idiay pagubraan iti nagannak)
+- SKEAP Application Form: You can download this directly from the SKEAP portal. (Kunin sa SKEAP portal / Alaen idiay SKEAP portal / Pag alaak: SKEAP portal)
+
+(Keywords for vector search: Saan kukunin, Papanak alaen, Aynak nga alan, Adino nga alak, Papanak mangala, sadino, ayan, Ayna ti pag alaak, Ayna ti pagalaak, pagalaak, kadagita nga requirements)`,
+    metadata: {
+      category: "skeap_requirements_location",
+      language: "FILIPINO",
+    },
+  },
+  {
+    content: `Pangalaan iti amin nga requirements para iti SKEAP (Where to get all SKEAP requirements):
+- Barangay Certificate of Residency / Indigency: Alaen wenno kumpirmaen idiay Barangay Hall ti Pico.
+- Certificate of Enrollment / Grade Report / Transcript of Records (TOR): Alaen idiay Registrar wenno opisina ti eskuela/unibersidad mo.
+- Family Income Certificate / Income Tax Return (ITR): Alaen idiay pagtatrabahuan ti nagannak mo (employer) wenno BIR/MSWDO.
+- Birth Certificate / Valid ID: Alaen idiay PSA (Philippine Statistics Authority) wenno Local Civil Registrar.
+- SKEAP Application Form: I-download wenno alaen ti kopia idiay SKEAP portal.
+
+(Vector search keywords: pag alaak, pagalaak, papanak alaen, aynak nga alan, adino nga alak, dagijy, dagiti, daduma, daduma nga requirements, ngy, ngay, papel, dokumento, requirement, saan kukunin)`,
+    metadata: {
+      category: "skeap_requirements_location_ilocano",
+      language: "ILOCANO",
+    },
+  },
+  {
+    content: `Where to get/obtain SKEAP application requirements:
+- Barangay Certificate of Residency / Indigency: Obtain from the Barangay Hall of Pico.
+- Certificate of Enrollment (COE) / Registration Form: Request from your school's Registrar Office or download via your school student portal.
+- Grade Report / Transcript of Records (TOR): Request from your school Registrar or Department Dean.
+- Birth Certificate: Obtain from the Philippine Statistics Authority (PSA) or Local Civil Registrar (LCR).
+- Certificate of Tax Exemption / Low Income: Obtain from the BIR or Municipal Social Welfare and Development Office (MSWDO) / Barangay Hall.
+- Application Form: Download directly from the SKEAP portal or pick up a printed copy at the Barangay Hall of Pico.`,
+    metadata: {
+      category: "skeap_requirements_issuance",
       language: "ENGLISH",
     },
   },
@@ -94,7 +134,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "How to apply for SKEAP through SKonnect: Youth residents who meet the eligibility criteria (resident of Barangay Pico, aged 15–30, GPA of at least 80%) can apply for SKEAP through the public youth portal of SKonnect when application slots are open. The online application form collects personal information, academic details, and allows document uploads. The SK officials review submitted applications through the administrative dashboard. Applicants will be notified via email about the status of their application.",
+      "How to apply for SKEAP: Youth residents who meet the eligibility criteria (resident of Barangay Pico, aged 15–30, GPA of at least 80%) can apply for SKEAP through the SKEAP portal when application slots are open. The online application form collects personal information, academic details, and allows document uploads. The SK officials review submitted applications through the administrative dashboard. Applicants will be notified via email about the status of their application.",
     metadata: {
       category: "skeap_overview",
       language: "ENGLISH",
@@ -110,7 +150,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "SKonnect Event Management: SK officials can create events in SKonnect by entering the event title, description, date, time, venue, and maximum number of participant slots. The system displays real-time slot availability publicly on the youth portal. When all slots are filled, registration automatically closes and no more participants can register. Events go through the following status stages: Upcoming → Registration Open → Registration Closed → Completed.",
+      "SKonnect Event Management: SK officials can create events in SKonnect by entering the event title, description, date, time, venue, and maximum number of participant slots. The system displays real-time slot availability publicly on the SKEAP portal. When all slots are filled, registration automatically closes and no more participants can register. Events go through the following status stages: Upcoming → Registration Open → Registration Closed → Completed.",
     metadata: {
       category: "events",
       language: "ENGLISH",
@@ -126,7 +166,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "How to register for an SK event through SKonnect: Youth residents can register for SK events through the public youth portal. Each event listing shows the event title, description, date, time, venue, number of remaining registration slots, eligibility requirements, and registration deadline. To register, a youth resident must be logged in to the youth portal and click the Register button before the deadline or before slots run out. A registration confirmation email is sent automatically after signing up. Some events have slot limits, and registration closes automatically when full.",
+      "How to register for an SK event through SKonnect: Youth residents can register for SK events through the SKEAP portal. Each event listing shows the event title, description, date, time, venue, number of remaining registration slots, eligibility requirements, and registration deadline. To register, a youth resident must be logged in to the SKEAP portal and click the Register button before the deadline or before slots run out. A registration confirmation email is sent automatically after signing up. Some events have slot limits, and registration closes automatically when full.",
     metadata: {
       category: "events",
       language: "ENGLISH",
@@ -134,7 +174,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "Event information visible to the public: For each SK event posted on the SKonnect youth portal, the following information is publicly visible: event title and description, date, time, and venue, number of remaining registration slots, who can register (eligibility), and the registration deadline. Payout schedule information for the Katipunan ng Kabataan is visible to SKEAP grantees. Contact person details are not listed publicly — inquiries can be submitted through the portal's inquiry form or the AI chatbot.",
+      "Event information visible to the public: For each SK event posted on the SKEAP portal, the following information is publicly visible: event title and description, date, time, and venue, number of remaining registration slots, who can register (eligibility), and the registration deadline. Payout schedule information for the Katipunan ng Kabataan is visible to SKEAP grantees. Contact person details are not listed publicly — inquiries can be submitted through the portal's inquiry form or the AI chatbot.",
     metadata: {
       category: "events",
       language: "ENGLISH",
@@ -150,7 +190,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "SKonnect Public Youth Portal: The public youth portal is the part of SKonnect accessible to all youth residents of Barangay Pico without needing to log in. It displays all upcoming SK events with dates, venues, and live slot counters. Residents can click on any event to see full details and register. The portal also has a dedicated SKEAP information page with eligibility criteria, document requirements, and instructions on how to apply. Youth can also submit formal inquiries to the SK through the portal's inquiry form or by chatting with the AI chatbot.",
+      "SKEAP portal: The SKEAP portal is the part of SKonnect accessible to all youth residents of Barangay Pico without needing to log in. It displays all upcoming SK events with dates, venues, and live slot counters. Residents can click on any event to see full details and register. The portal also has a dedicated SKEAP information page with eligibility criteria, document requirements, and instructions on how to apply. Youth can also submit formal inquiries to the SK through the portal's inquiry form or by chatting with the AI chatbot.",
     metadata: {
       category: "portal",
       language: "ENGLISH",
@@ -158,7 +198,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "Youth resident account: Youth residents of Barangay Pico can create an account on the SKonnect public youth portal. With an account, they can: register for SK events online, receive email notifications about upcoming events, check SKEAP information and eligibility, submit inquiries to SK officials, and use the AI chatbot for 24/7 assistance. Registration for a youth account requires a valid email address and proof of residency in Barangay Pico.",
+      "Youth resident account: Youth residents of Barangay Pico can create an account on the SKEAP portal. With an account, they can: register for SK events online, receive email notifications about upcoming events, check SKEAP information and eligibility, submit inquiries to SK officials, and use the AI chatbot for 24/7 assistance. Registration for a youth account requires a valid email address and proof of residency in Barangay Pico.",
     metadata: {
       category: "portal",
       language: "ENGLISH",
@@ -166,7 +206,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "SK Announcements Feed: SKonnect has a dedicated announcements feed on the public youth portal that displays official SK news, program updates, and event announcements. This feed is separate from the SK's Facebook page and is always available and organized. Youth residents who register on the portal receive email notifications when new announcements are posted.",
+      "SK Announcements Feed: SKonnect has a dedicated announcements feed on the SKEAP portal that displays official SK news, program updates, and event announcements. This feed is separate from the SK's Facebook page and is always available and organized. Youth residents who register on the portal receive email notifications when new announcements are posted.",
     metadata: {
       category: "portal",
       language: "ENGLISH",
@@ -174,7 +214,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "SKEAP grantee portal access: SKEAP grantees have a special login on SKonnect that gives them access to their personal scholarship dashboard in addition to the public youth portal features. Through their dashboard, grantees can: view their current scholarship status (Active, Graduated, or Removed), see their compliance submission history and evaluation results for each semester, upload required semester documents (Certificate of Enrollment and grade report), receive automated email reminders before submission deadlines, and check the schedule for upcoming Katipunan ng Kabataan payouts.",
+      "SKEAP grantee portal access: SKEAP grantees have a special login on SKonnect that gives them access to their personal scholarship dashboard in addition to the SKEAP portal features. Through their dashboard, grantees can: view their current scholarship status (Active, Graduated, or Removed), see their compliance submission history and evaluation results for each semester, upload required semester documents (Certificate of Enrollment and grade report), receive automated email reminders before submission deadlines, and check the schedule for upcoming Katipunan ng Kabataan payouts.",
     metadata: {
       category: "portal",
       language: "ENGLISH",
@@ -182,7 +222,7 @@ const chunks: KnowledgeChunk[] = [
   },
   {
     content:
-      "SKonnect AI Helpdesk Chatbot: SKonnect includes a multilingual AI chatbot that is available 24/7 on the public youth portal. The chatbot can answer questions in English, Filipino (Tagalog), and Ilocano. It uses a RAG (Retrieval-Augmented Generation) pipeline powered by Google Gemini, which means it reads live data from the SKonnect system to give accurate and up-to-date answers about SKEAP eligibility, event schedules, slot availability, how to register, what documents to submit, and who to contact for specific concerns. The chatbot is not able to process applications, approve documents, or make administrative decisions — those functions are handled exclusively by SK officials.",
+      "SKonnect AI Helpdesk Chatbot: SKonnect includes a multilingual AI chatbot that is available 24/7 on the SKEAP portal. The chatbot can answer questions in English, Filipino (Tagalog), and Ilocano. It uses a RAG (Retrieval-Augmented Generation) pipeline powered by Google Gemini, which means it reads live data from the SKonnect system to give accurate and up-to-date answers about SKEAP eligibility, event schedules, slot availability, how to register, what documents to submit, and who to contact for specific concerns. The chatbot is not able to process applications, approve documents, or make administrative decisions — those functions are handled exclusively by SK officials.",
     metadata: {
       category: "chatbot",
       language: "ENGLISH",

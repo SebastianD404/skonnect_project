@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Wallet, Search } from "lucide-react";
+import * as XLSX from "xlsx";
+import { Wallet, Search, Download } from "lucide-react";
 // If you have shadcn/ui components installed, replace the native select below
 // with shadcn's `Select` imports, e.g.:
 // import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -86,6 +87,11 @@ export default function AdminAccountingPage() {
     return filteredWithSubmission.slice(start, start + rowsPerPage);
   }, [filteredWithSubmission, currentPage]);
 
+  const budgetSemesterParam = useMemo(() => {
+    const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
+    return encodeURIComponent(cleanedSemester);
+  }, [selectedSemester]);
+
   const SEMESTER_OPTIONS = [
     "2026-2027 First Semester (Current)",
     "2025-2026 Second Semester",
@@ -113,107 +119,72 @@ export default function AdminAccountingPage() {
     }
   }
 
-  // fetch data on mount
+  // fetch data on mount and whenever the selected semester or payout filter changes
   useEffect(() => {
     let mounted = true;
 
     async function load() {
       setLoading(true);
+      setErrorMessage(null);
+
       try {
-        // fetch grantees (source of truth) for the selected semester and budget
         const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
-        console.log("Cleaned Semester:", cleanedSemester);
         const encoded = encodeURIComponent(cleanedSemester);
-        const claimedQuery = claimedFilter === 'all' ? '' : `&claimed=${claimedFilter === 'received' ? 'true' : 'false'}`;
-        const [gRes, sRes] = await Promise.all([fetch(`/api/grantees?semester=${encoded}${claimedQuery}`), fetch("/api/budget")]);
+        const claimedQuery = claimedFilter === "all" ? "" : `&claimed=${claimedFilter === "received" ? "true" : "false"}`;
+        const [gRes, sRes] = await Promise.all([
+          fetch(`/api/grantees?semester=${encoded}${claimedQuery}`),
+          fetch(`/api/budget?semester=${encoded}`),
+        ]);
 
         if (!gRes.ok) throw new Error("Failed to load grantees");
         if (!sRes.ok) throw new Error("Failed to load settings");
 
         const gData = await gRes.json();
-        console.log("API Data:", gData);
         const sData = await sRes.json();
 
         if (!mounted) return;
+
         const raw = gData;
         const list = Array.isArray(raw)
           ? raw
           : Array.isArray(raw.grantees)
-          ? raw.grantees
-          : Array.isArray(raw.data)
-          ? raw.data
-          : [];
+            ? raw.grantees
+            : Array.isArray(raw.data)
+              ? raw.data
+              : [];
 
-        // If no grantees were returned for the selected semester, try a safe fallback:
-        // fetch recent grantees (no semester filter) and use those so the UI isn't empty.
-        let finalList = list;
-        if (finalList.length === 0) {
-          try {
-            const fallbackRes = await fetch('/api/grantees');
-            if (fallbackRes.ok) {
-              const fb = await fallbackRes.json().catch(() => null);
-              const fbList = Array.isArray(fb)
-                ? fb
-                : Array.isArray(fb?.grantees)
-                ? fb.grantees
-                : Array.isArray(fb?.data)
-                ? fb.data
-                : [];
-
-              if (fbList.length > 0) {
-                console.log('Falling back to most recent grantees:', fbList.slice(0, 5));
-                finalList = fbList;
-                // Update selected semester to the semester of the first item if available
-                const firstSemester = fbList[0]?.semester ?? fbList[0]?.submission?.semester ?? '';
-                if (firstSemester) setSelectedSemester(String(firstSemester));
-              }
-            }
-          } catch (e) {
-            // ignore fallback errors — leave list empty
-          }
-        }
-        // map to local shape
         setGrantees(
-          finalList
-            .map((r: any) => {
-              // robust name extraction from various API shapes
-              const name =
-                r.student_name ?? r.studentName ?? r.fullName ??
-                (r.user ? `${r.user.firstName ?? ""} ${r.user.lastName ?? ""}`.trim() : undefined) ??
-                "Unknown";
+          list.map((r: any) => {
+            const name =
+              r.student_name ?? r.studentName ?? r.fullName ??
+              (r.user ? `${r.user.firstName ?? ""} ${r.user.lastName ?? ""}`.trim() : undefined) ??
+              "Unknown";
 
-              const semesterVal = r.semester ?? r.submission?.semester ?? r.latestSemester ?? "";
-              // Prefer explicit claimed boolean from API; fall back to payout/status strings
-              const apiClaimed = typeof r.claimed === 'boolean' ? r.claimed : undefined;
-              const payoutStr = String(r.payout_status ?? r.payoutStatus ?? r.status ?? "");
-              const isClaimed = typeof apiClaimed === 'boolean' ? apiClaimed : (payoutStr.toLowerCase().includes("received") || payoutStr.toLowerCase().includes("claimed"));
+            const effectiveSemester = String(r.semester ?? r.submission?.semester ?? r.latestSemester ?? selectedSemester ?? "");
+            const apiClaimed = typeof r.claimed === "boolean" ? r.claimed : undefined;
+            const payoutStr = String(r.payout_status ?? r.payoutStatus ?? r.status ?? "");
+            const isClaimed = typeof apiClaimed === "boolean"
+              ? apiClaimed
+              : payoutStr.toLowerCase().includes("received") || payoutStr.toLowerCase().includes("claimed");
 
-                return {
-                  id: String(r.id),
-                  name: String(name),
-                  // Force displayed semester to currently selected semester so table groups under it
-                  semester: String(selectedSemester ?? semesterVal ?? ""),
-                  status: isClaimed ? "Claimed" : "Pending Payout",
-                  claimed: Boolean(isClaimed),
-                  submitted: Boolean(r.submitted ?? (r.submission ? true : false)),
-                  submissionStatus: r.submissionStatus ?? r.submission?.status ?? null,
-                  claimedAt: r.claimedAt ?? r.claimed_at ?? null,
-                };
-            })
-            // filter by selectedSemester if set — use lenient matching to handle different formats
-            .filter((g: any) => {
-              if (!selectedSemester) return true;
-              const norm = String(cleanedSemester).toLowerCase();
-              if (!norm) return true;
-              const sem = String(g.semester || "").toLowerCase();
-              return sem.includes(norm) || norm.includes(sem);
-            })
+            return {
+              id: String(r.id),
+              name: String(name),
+              semester: effectiveSemester,
+              status: isClaimed ? "Claimed" : "Pending Payout",
+              claimed: Boolean(isClaimed),
+              submitted: Boolean(r.submitted ?? (r.submission ? true : false)),
+              submissionStatus: r.submissionStatus ?? r.submission?.status ?? null,
+              claimedAt: r.claimedAt ?? r.claimed_at ?? null,
+            };
+          })
         );
 
         if (sData && typeof sData.totalBudget !== "undefined") {
           setTotalBudget(typeof sData.totalBudget === "number" ? sData.totalBudget : Number(sData.totalBudget ?? 0));
         }
       } catch (err) {
+        setGrantees([]);
         setErrorMessage(err instanceof Error ? err.message : String(err));
       } finally {
         if (mounted) setLoading(false);
@@ -271,7 +242,8 @@ export default function AdminAccountingPage() {
     setSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/budget', {
+      const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
+      const res = await fetch(`/api/budget?semester=${encodeURIComponent(cleanedSemester)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ totalBudget }),
@@ -293,6 +265,49 @@ export default function AdminAccountingPage() {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function handleExportCsv() {
+    const budget = totalBudget ?? 0;
+    const remaining = remainingBudget;
+
+    const reportRows: (string | number | null)[][] = [
+      ['Educational Assistance Disbursement Report'],
+      ['Semester:', selectedSemester],
+      ['Total Budget:', budget],
+      ['Remaining Funds:', remaining],
+      ['Total Claimed:', claimedCount],
+      [],
+      ['Student Name', 'Semester', 'Submission Status', 'Payout Status', 'Claimed Date'],
+    ];
+
+    filteredWithSubmission.forEach((g) => {
+      reportRows.push([
+        g.name,
+        g.semester,
+        g.submissionState ?? 'Not submitted',
+        g.status === 'Claimed' ? 'Received' : 'Pending',
+        g.claimedAt ? new Date(g.claimedAt).toLocaleString() : '-',
+      ]);
+    });
+
+    const worksheet = XLSX.utils.aoa_to_sheet(reportRows);
+    worksheet['!cols'] = [
+      { wch: 25 },
+      { wch: 30 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 24 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 20 },
+      { wch: 22 },
+      { wch: 24 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Disbursement Report');
+    XLSX.writeFile(workbook, 'Disbursement_Report.xlsx');
   }
 
   async function toggleClaimed(id: string) {
@@ -351,8 +366,46 @@ export default function AdminAccountingPage() {
 
   return (
     <main className="px-6 pb-12 pt-8">
-      <h1 className="text-2xl font-semibold text-slate-900">Accounting • Offline Cash Disbursements</h1>
-      <p className="mt-1 text-sm text-slate-600">Track and mark offline cash payouts for grantees.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Accounting • Offline Cash Disbursements</h1>
+          <p className="mt-1 text-sm text-slate-600">Track and mark offline cash payouts for grantees.</p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </button>
+
+          <div className="w-72">
+            <label className="sr-only">Semester</label>
+            <select
+              value={selectedSemester}
+              onChange={(e) => setSelectedSemester(e.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none shadow-sm focus:border-sky-400"
+              aria-label="Filter by semester"
+            >
+              {semesters.length > 0
+                ? semesters.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name}
+                      {s.isCurrent ? ' (Current)' : ''}
+                    </option>
+                  ))
+                : SEMESTER_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+            </select>
+          </div>
+        </div>
+      </div>
       {/* global error banner removed — use inline validation under the input instead */}
       {successMessage ? (
         <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
@@ -379,7 +432,13 @@ export default function AdminAccountingPage() {
                 <div className="flex flex-col">
                   <input
                     type="number"
-                      value={totalBudget !== null ? String(totalBudget) : ''}
+                    value={totalBudget !== null ? String(totalBudget) : ''}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSaveBudget();
+                      }
+                    }}
                     onChange={(e) => {
                       setTotalBudget(Number(e.target.value || 0));
                       setValidationError(null);
@@ -454,29 +513,6 @@ export default function AdminAccountingPage() {
           </div>
 
           <div className="flex items-center gap-3 ml-4 flex-shrink-0">
-            <div className="w-56">
-              <label className="sr-only">Semester</label>
-              <select
-                value={selectedSemester}
-                onChange={(e) => setSelectedSemester(e.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none shadow-sm focus:border-sky-400"
-                aria-label="Filter by semester"
-              >
-                {semesters.length > 0
-                  ? semesters.map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.name}
-                        {s.isCurrent ? ' (Current)' : ''}
-                      </option>
-                    ))
-                  : SEMESTER_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-              </select>
-            </div>
-
             <div className="inline-flex items-center gap-1 bg-white rounded-full border border-slate-100 shadow-sm p-1">
               {['All','Submitted','Not submitted'].map((tab) => (
                 <button

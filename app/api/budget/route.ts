@@ -1,39 +1,79 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-// Use `db` as the database connection variable name per project convention
 const db = prisma;
+
+const normalizeSemester = (value?: string | null) =>
+  String(value ?? "").replace(/\s*\(current\)$/i, "").trim();
 
 export async function PUT(request: Request) {
   try {
+    const url = new URL(request.url);
+    const semester = normalizeSemester(url.searchParams.get("semester"));
     const body = await request.json();
     const tb = Number(body.totalBudget ?? 0);
+
     if (!Number.isFinite(tb)) {
       return NextResponse.json({ ok: false, error: "invalid totalBudget" }, { status: 400 });
     }
 
-    // Use Prisma upsert for type-safe persistence to the adminSettings model.
-    // This requires adding `AdminSettings` model to your schema.prisma.
-    // use a consistent key for the default budget record
+    let semesterRow = null as { id: string; name: string } | null;
+    if (semester) {
+      semesterRow = await db.semester.findFirst({
+        where: { name: { equals: semester, mode: "insensitive" } },
+        select: { id: true, name: true },
+      });
+    }
+
+    const key = semester ? `semester_budget:${semesterRow?.id ?? semester}` : "default_budget";
+
     await db.adminSettings.upsert({
-      where: { key: 'default_budget' },
+      where: { key },
       update: { totalBudget: tb },
-      create: { key: 'default_budget', totalBudget: tb },
+      create: { key, totalBudget: tb },
     });
 
-    return NextResponse.json({ ok: true, totalBudget: tb });
+    return NextResponse.json({ ok: true, totalBudget: tb, semester: semester || null });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const row = await db.adminSettings.findUnique({ where: { key: 'default_budget' } });
-    if (row) return NextResponse.json({ totalBudget: Number.isFinite(row.totalBudget) ? row.totalBudget : 0 });
-    return NextResponse.json({ totalBudget: 0 });
+    const url = new URL(request.url);
+    const semester = normalizeSemester(url.searchParams.get("semester"));
+
+    if (semester) {
+      const semesterRow = await db.semester.findFirst({
+        where: { name: { equals: semester, mode: "insensitive" } },
+        select: { id: true, name: true },
+      });
+
+      const key = `semester_budget:${semesterRow?.id ?? semester}`;
+      const row = await db.adminSettings.findUnique({ where: { key } });
+
+      if (row) {
+        return NextResponse.json({
+          totalBudget: Number.isFinite(row.totalBudget) ? row.totalBudget : 0,
+          semester: semesterRow?.name ?? semester,
+        });
+      }
+
+      return NextResponse.json({ totalBudget: 0, semester: semesterRow?.name ?? semester });
+    }
+
+    const row = await db.adminSettings.findUnique({ where: { key: "default_budget" } });
+    if (row) {
+      return NextResponse.json({
+        totalBudget: Number.isFinite(row.totalBudget) ? row.totalBudget : 0,
+        semester: null,
+      });
+    }
+
+    return NextResponse.json({ totalBudget: 0, semester: null });
   } catch (error) {
-    return NextResponse.json({ totalBudget: 0 });
+    return NextResponse.json({ totalBudget: 0, semester: null });
   }
 }

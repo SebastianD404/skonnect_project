@@ -96,12 +96,19 @@ export async function POST(request: NextRequest) {
     }
 
     const language = detectLanguage(userMessage);
+    const db = prisma;
+    const activeGranteeCount = await db.grantee.count({
+      where: {
+        status: "ACTIVE",
+      },
+    });
 
     if (!authorizedUser) {
       const assistantText = await runRagAnswer({
         question: userMessage,
         language,
         history: [],
+        liveSystemContext: `Current Update: We are currently supporting ${activeGranteeCount} active SKEAP scholars this semester. If the user asks about the current count, use this number and ignore any conflicting figures from older context.`,
       });
 
       await prisma.chatLog.create({
@@ -169,6 +176,7 @@ export async function POST(request: NextRequest) {
         role: message.role === "ASSISTANT" ? "assistant" : "user",
         content: message.content,
       })),
+      liveSystemContext: `Current Update: We are currently supporting ${activeGranteeCount} active SKEAP scholars this semester. If the user asks about the current count, use this number and ignore any conflicting figures from older context.`,
     });
 
     const createdAssistantMessage = await prisma.chatMessage.create({
