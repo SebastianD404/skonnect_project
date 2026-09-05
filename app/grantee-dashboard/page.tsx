@@ -19,6 +19,7 @@ import ReturnedForEditCard from "./ReturnedForEditCard";
 import { buildSemesterTracker } from "@/lib/semester-progress";
 
 export default async function GranteeOverviewPage() {
+  const db = prisma;
   const supabase = await createClient();
   const {
     data: { user },
@@ -28,7 +29,7 @@ export default async function GranteeOverviewPage() {
     redirect("/login");
   }
 
-  const appUser = await prisma.user.findFirst({
+  const appUser = await db.user.findFirst({
     where: {
       OR: [{ authId: user.id }, { email: user.email ?? "" }],
     },
@@ -40,23 +41,12 @@ export default async function GranteeOverviewPage() {
           },
         },
       },
-      registrations: {
-        include: {
-          event: {
-            select: {
-              id: true,
-              title: true,
-              eventDate: true,
-            },
-          },
-        },
-      },
     },
   });
 
   if (appUser && appUser.authId !== user.id) {
     try {
-      await prisma.user.update({
+      await db.user.update({
         where: { id: appUser.id },
         data: { authId: user.id },
       });
@@ -75,12 +65,13 @@ export default async function GranteeOverviewPage() {
   const needsEditCount = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
 
   const tracker = buildSemesterTracker(submissions);
-
-  const upcomingRegistered = appUser.registrations
-    .filter((r) => new Date(r.event.eventDate) >= new Date())
-    .sort((a, b) => new Date(a.event.eventDate).getTime() - new Date(b.event.eventDate).getTime());
-
-  const nextEvent = upcomingRegistered[0]?.event;
+  const deadlineSetting = await db.reminderSetting.findUnique({
+    where: { type: "SKEAP_APPLICATION" },
+    select: { deadline: true },
+  });
+  const deadlineLabel = deadlineSetting?.deadline
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" }).format(deadlineSetting.deadline)
+    : "Deadline not set";
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 text-slate-900">
@@ -130,29 +121,22 @@ export default async function GranteeOverviewPage() {
                 <div className="relative">
                   <div className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100 ring-1 ring-inset ring-white/15">
                     <Sparkles className="h-3 w-3" />
-                    Next up
+                    NEXT UP
                   </div>
                   <h3 className="mt-4 text-2xl font-semibold tracking-tight">
-                    {nextEvent?.title ?? "No upcoming events"}
+                    Next Submission Deadline
                   </h3>
                   <p className="mt-2 text-sm text-slate-300">
-                    {nextEvent
-                      ? "You're registered and all set."
-                      : "Keep your profile updated for future opportunities."}
+                    Prepare your Certificate of Enrollment and required documents.
                   </p>
 
                   <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur">
                     <div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Next registration
+                        DEADLINE DATE &amp; TIME
                       </div>
                       <div className="mt-0.5 text-sm font-medium text-white">
-                        {nextEvent
-                          ? new Date(nextEvent.eventDate).toLocaleString(undefined, {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })
-                          : "-"}
+                        {deadlineLabel}
                       </div>
                     </div>
                   </div>

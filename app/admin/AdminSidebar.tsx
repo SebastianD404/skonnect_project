@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Users, Banknote } from "lucide-react";
+import { ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users, Banknote } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 
@@ -134,7 +134,7 @@ export default function AdminSidebar({
     {
       title: "Communication",
       items: [
-        { label: "Announcements", href: "/admin/announcements", icon: Megaphone },
+        { label: "Broadcast", href: "/admin/broadcast", icon: Radio },
         { label: "Inquiries", href: "/admin/inquiries", icon: Inbox, badge: openInquiryCount },
       ],
     },

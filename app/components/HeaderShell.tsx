@@ -12,6 +12,7 @@ export function HeaderShell() {
     pathname.startsWith("/admin") ||
     pathname.startsWith("/system-admin") ||
     pathname.startsWith("/grantee-dashboard") ||
+    pathname.startsWith("/grantee") ||
     hiddenPaths.includes(pathname)
   ) {
     return null;

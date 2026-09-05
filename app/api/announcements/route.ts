@@ -1,13 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
+const db = prisma;
+
 export async function GET() {
   try {
     console.log("Fetching announcements...");
-    console.log("Prisma client available:", !!prisma);
-    console.log("Prisma announcement model available:", !!prisma.announcement);
+    console.log("Prisma client available:", !!db);
+    console.log("Prisma announcement model available:", !!db.announcement);
 
-    const announcements = await prisma.announcement.findMany({
+    const announcements = await db.announcement.findMany({
       where: {
         isPublished: true,
       },

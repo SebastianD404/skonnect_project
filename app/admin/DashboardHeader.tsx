@@ -103,9 +103,9 @@ export default function DashboardHeader({
 
               {/* Notifications Dropdown */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-slate-200 bg-white shadow-xl z-50">
-                  <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                    <h3 className="font-semibold text-slate-900">Notifications</h3>
+                <div className="absolute right-0 mt-2 w-96 max-h-[420px] flex flex-col rounded-2xl bg-white shadow-2xl border border-gray-100 z-50 overflow-hidden">
+                  <div className="sticky top-0 bg-white/95 backdrop-blur-sm px-4 py-3 border-b border-gray-100 flex items-center justify-between z-10">
+                    <span className="font-semibold text-gray-900 text-sm">Notifications</span>
                     <button
                       onClick={() => setShowNotifications(false)}
                       className="text-slate-400 hover:text-slate-600"
@@ -113,16 +113,16 @@ export default function DashboardHeader({
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                  <div className="max-h-96 divide-y divide-slate-200 overflow-y-auto">
+                  <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-1.5">
                     {openInquiryCount > 0 && (
-                      <div className="px-4 py-3 hover:bg-slate-50 cursor-pointer transition">
+                      <div className="rounded-xl px-3 py-2 hover:bg-slate-50 cursor-pointer transition">
                         <div className="flex items-start gap-3">
                           <div className="mt-1 h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-slate-900 text-sm">
                               {openInquiryCount} Open Inquiries
                             </p>
-                            <p className="text-xs text-slate-500 mt-1">
+                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                               Awaiting your response
                             </p>
                           </div>
@@ -130,14 +130,14 @@ export default function DashboardHeader({
                       </div>
                     )}
                     {pendingSubmissionCount > 0 && (
-                      <div className="px-4 py-3 hover:bg-slate-50 cursor-pointer transition">
+                      <div className="rounded-xl px-3 py-2 hover:bg-slate-50 cursor-pointer transition">
                         <div className="flex items-start gap-3">
                           <div className="mt-1 h-2 w-2 rounded-full bg-sky-500 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-slate-900 text-sm">
                               {pendingSubmissionCount} Pending Submissions
                             </p>
-                            <p className="text-xs text-slate-500 mt-1">
+                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                               Under review queue
                             </p>
                           </div>
@@ -145,7 +145,7 @@ export default function DashboardHeader({
                       </div>
                     )}
                     {openInquiryCount === 0 && pendingSubmissionCount === 0 && (
-                      <div className="px-4 py-8 text-center">
+                      <div className="px-3 py-8 text-center">
                         <p className="text-sm text-slate-500">
                           All caught up! No new notifications.
                         </p>

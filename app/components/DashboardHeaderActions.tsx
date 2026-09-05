@@ -2,12 +2,34 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface DashboardHeaderActionsProps {
   notifications?: string[];
   messages?: string[];
   requiredRole?: string | string[];
 }
+
+type NotificationItem = {
+  id: string;
+  text: string;
+  createdAt?: string;
+};
+
+type SupportThread = {
+  id: string;
+  subject: string;
+  createdAt: string;
+  response: string | null;
+  isResolved: boolean;
+};
+
+type ThreadMessage = {
+  id: string;
+  role: "admin" | "applicant";
+  createdAt: string;
+  text: string;
+};
 
 export function DashboardHeaderActions({ notifications = [], messages = [], requiredRole }: DashboardHeaderActionsProps) {
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
@@ -17,9 +39,65 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
   const [profileEmail, setProfileEmail] = useState("");
   const [profileAvatar, setProfileAvatar] = useState("");
   const [isDark, setIsDark] = useState(false);
-  const [supportMessages, setSupportMessages] = useState<string[]>([]);
+  const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
+  const [broadcastNotifications, setBroadcastNotifications] = useState<NotificationItem[]>([]);
+  const [inAppNotifications, setInAppNotifications] = useState<NotificationItem[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [selectedThread, setSelectedThread] = useState<SupportThread | null>(null);
+  const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
+  const [replyText, setReplyText] = useState("");
+  const [loadingThread, setLoadingThread] = useState(false);
+  const [sendingReply, setSendingReply] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
+  const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [visibleCount, setVisibleCount] = useState(3);
+  const [hasExpandedNotifications, setHasExpandedNotifications] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const formatRelativeTime = (createdAt?: string) => {
+    if (!createdAt) return "";
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000));
+    if (elapsedSeconds < 60) return "Just now";
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+    if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) return `${elapsedHours}h`;
+    const elapsedDays = Math.floor(elapsedHours / 24);
+    if (elapsedDays < 7) return `${elapsedDays}d`;
+    const elapsedWeeks = Math.floor(elapsedDays / 7);
+    if (elapsedWeeks < 5) return `${elapsedWeeks}w`;
+    return new Date(createdAt).toLocaleDateString();
+  };
+
+  const truncateMessage = (text: string, limit: number = 160) => {
+    if (!text) return '';
+    return text.length > limit ? text.substring(0, limit).trim() + '...' : text;
+  };
+
+  const markNotificationAsRead = async (notificationId: string) => {
+    setReadNotificationIds((current) => new Set(current).add(notificationId));
+    try {
+      await fetch("/api/my/notifications/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationId }),
+      });
+    } catch {
+      // Keep the optimistic read state when the server is temporarily unavailable.
+    }
+  };
+
+  const handleNotificationClick = (notification: NotificationItem) => {
+    void markNotificationAsRead(notification.id);
+    setOpenPanel("none");
+    setSelectedNotification(notification);
+  };
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -31,6 +109,7 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpenPanel("none");
+        setSelectedNotification(null);
       }
     }
 
@@ -41,6 +120,29 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
+
+  useEffect(() => {
+    if (!profileId) return;
+    let active = true;
+
+    async function loadReadNotifications() {
+      try {
+        const response = await fetch("/api/my/notifications/read", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active && Array.isArray(data.notificationIds)) {
+          setReadNotificationIds(new Set(data.notificationIds));
+        }
+      } catch {
+        // Keep local state when persisted read state is temporarily unavailable.
+      }
+    }
+
+    loadReadNotifications();
+    return () => {
+      active = false;
+    };
+  }, [profileId]);
 
   useEffect(() => {
     if (!profileId) return;
@@ -100,22 +202,6 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
         window.dispatchEvent(new Event('skonnect-profile-updated'));
 
         if (serverUser.role === 'GRANTEE') {
-          setLoadingMessages(true);
-          try {
-            const inboxRes = await fetch('/api/my/inquiries', { cache: 'no-store' });
-            if (inboxRes.ok) {
-              const data = await inboxRes.json();
-              const replies = (data.inquiries || [])
-                .filter((item: any) => item.response)
-                .map((item: any) => `${item.subject}: ${item.response}`);
-              setSupportMessages(replies);
-            }
-          } catch {
-            setSupportMessages([]);
-          } finally {
-            setLoadingMessages(false);
-          }
-
           try {
             const remindersRes = await fetch('/api/my/reminders', { cache: 'no-store' });
             if (remindersRes.ok) {
@@ -123,9 +209,9 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
               const reminders = (data.reminders || []).map((item: any) => {
                 const subject = item.metadata?.subject || item.targetType || "Reminder";
                 const body = item.metadata?.body || item.metadata?.message || item.channel || "You have a reminder.";
-                return `${subject}: ${body}`;
+                return { id: `reminder:${item.id}`, text: `${subject}: ${body}`, createdAt: item.createdAt || item.sentAt };
               });
-              setSupportMessages((prev) => [...reminders, ...prev]);
+              setInAppNotifications(reminders);
             }
           } catch {
             // ignore reminder fetch errors
@@ -197,11 +283,19 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       .map((part) => part[0]?.toUpperCase())
       .join("") || "?";
 
-  const displayedMessages = messages.length > 0 ? messages : supportMessages;
-  const notificationCount = notifications?.length ?? 0;
-  const messageCount = messages && messages.length ? messages.length : supportMessages.length || 0;
+  const displayedNotifications: NotificationItem[] = [
+    ...notifications.map((notification, index) => ({ id: `provided:${index}:${notification}`, text: notification })),
+    ...inAppNotifications,
+    ...broadcastNotifications,
+  ];
+  const filteredNotifications = filter === 'unread'
+    ? displayedNotifications.filter((notification) => !readNotificationIds.has(notification.id))
+    : displayedNotifications;
+  const visibleNotifications = filteredNotifications.slice(0, visibleCount);
+  const notificationCount = displayedNotifications.length;
+  const messageCount = supportThreads.length;
   const [unreadNotifications, setUnreadNotifications] = useState<number>(notifications?.length ?? 0);
-  const [unreadMessages, setUnreadMessages] = useState<number>(() => (messages && messages.length ? messages.length : supportMessages.length || 0));
+  const [unreadMessages, setUnreadMessages] = useState<number>(() => supportThreads.length);
   const [clearedNotifications, setClearedNotifications] = useState(false);
   const [clearedMessages, setClearedMessages] = useState(false);
   const [lastSeenNotificationsCount, setLastSeenNotificationsCount] = useState<number | null>(null);
@@ -242,6 +336,65 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       // ignore storage errors
     }
   };
+
+  useEffect(() => {
+    if (serverRole !== "GRANTEE" || !profileId) return;
+
+    let active = true;
+
+    async function refreshGranteeMessages() {
+      setLoadingMessages(true);
+      try {
+        const [inquiriesResponse, messagesResponse, announcementsResponse] = await Promise.all([
+          fetch("/api/my/inquiries", { cache: "no-store" }),
+          fetch("/api/my/messages", { cache: "no-store" }),
+          fetch("/api/announcements", { cache: "no-store" }),
+        ]);
+        if (!active) return;
+
+        const inquiriesData = inquiriesResponse.ok ? await inquiriesResponse.json() : { inquiries: [] };
+        const messagesData = messagesResponse.ok ? await messagesResponse.json() : { messages: [] };
+        const announcementsData = announcementsResponse.ok ? await announcementsResponse.json() : [];
+        const broadcastMessages = (messagesData.messages || [])
+          .map((item: any) => ({ id: `message:${item.id}`, text: `${item.subject}: ${item.body}`, createdAt: item.createdAt }));
+
+        setSupportThreads((inquiriesData.inquiries || []).map((item: any) => ({
+          id: item.id,
+          subject: item.subject,
+          createdAt: item.createdAt,
+          response: item.response ?? null,
+          isResolved: Boolean(item.isResolved),
+        })));
+        setBroadcastNotifications(broadcastMessages);
+        const announcementNotifications = (Array.isArray(announcementsData) ? announcementsData : [])
+          .map((item: any) => ({ id: `announcement:${item.id}`, text: `Announcement: ${item.title}: ${item.content}`, createdAt: item.publishedAt || item.createdAt }));
+        setInAppNotifications((current) => [
+          ...current.filter((item) => !item.text.startsWith("Announcement: ")),
+          ...announcementNotifications,
+        ]);
+      } catch {
+        // Keep the last successful message state when a refresh is unavailable.
+      } finally {
+        if (active) setLoadingMessages(false);
+      }
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") refreshGranteeMessages();
+    }
+
+    refreshGranteeMessages();
+    const refreshTimer = window.setInterval(refreshGranteeMessages, 10000);
+    window.addEventListener("focus", refreshGranteeMessages);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      window.removeEventListener("focus", refreshGranteeMessages);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [profileId, serverRole]);
 
   // Sync notifications count only when new items arrive (increase). Clearing hides badge until new items.
   useEffect(() => {
@@ -300,19 +453,100 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       lastSeenMessagesCount,
     }, profileId);
   }, [messageCount, clearedNotifications, clearedMessages, lastSeenNotificationsCount, lastSeenMessagesCount, profileId, unreadMessages]);
-  // Normalize messages to objects { subject, reply } so rendering is consistent
-  const messageItems = (displayedMessages || []).map((m: any) => {
-    if (!m) return { subject: "", reply: "" };
-    if (typeof m === "string") {
-      const idx = m.indexOf(":");
-      if (idx >= 0) {
-        return { subject: m.slice(0, idx).trim(), reply: m.slice(idx + 1).trim() };
-      }
-      return { subject: m, reply: "" };
+  async function openThread(thread: SupportThread) {
+    setOpenPanel("none");
+    setSelectedThread(thread);
+    setLoadingThread(true);
+    try {
+      const response = await fetch(`/api/my/inquiries/${thread.id}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to load conversation.");
+      setThreadMessages(data.inquiry?.thread ?? []);
+    } catch {
+      setThreadMessages([]);
+    } finally {
+      setLoadingThread(false);
     }
-    // If already an object, map fields
-    return { subject: m.subject || m.title || "", reply: m.reply || m.response || "" };
-  });
+  }
+
+  async function sendThreadReply() {
+    if (!selectedThread || !replyText.trim() || sendingReply) return;
+    setSendingReply(true);
+    try {
+      const response = await fetch(`/api/my/inquiries/${selectedThread.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: replyText }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to send reply.");
+      setThreadMessages((current) => [...current, data.reply]);
+      setReplyText("");
+      setSupportThreads((current) => current.map((item) => item.id === selectedThread.id ? { ...item, response: null, isResolved: false } : item));
+    } catch {
+      // Keep the conversation open so the user can retry.
+    } finally {
+      setSendingReply(false);
+    }
+  }
+
+  const conversationModal = selectedThread && portalReady ? createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Support conversation" onClick={(event) => { if (event.target === event.currentTarget) setSelectedThread(null); }}>
+      <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-700">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0F3D5C]">Support conversation</p>
+            <h2 className="mt-1 truncate text-lg font-bold text-slate-900 dark:text-slate-100">{selectedThread.subject}</h2>
+          </div>
+          <button type="button" onClick={() => setSelectedThread(null)} className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
+        </div>
+        <div className="max-h-[50vh] min-h-24 flex-1 space-y-3 overflow-y-auto px-1 py-4 pr-2">
+          {loadingThread ? <p className="text-sm text-slate-500">Loading conversation...</p> : threadMessages.map((message) => (
+            <div key={message.id} className={`max-w-[90%] rounded-2xl p-3 ${message.role === "admin" ? "bg-sky-50 text-slate-800 dark:bg-slate-800 dark:text-slate-200" : "ml-auto bg-[#0F3D5C] text-white"}`}>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-70">{message.role === "admin" ? "Admin" : "You"}</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.text}</p>
+              <p className="mt-2 text-[11px] opacity-60">{new Date(message.createdAt).toLocaleString()}</p>
+            </div>
+          ))}
+        </div>
+        <form className="sticky bottom-0 mt-2 border-t border-slate-200 bg-white pt-4 dark:border-slate-700 dark:bg-slate-900" onSubmit={(event) => { event.preventDefault(); sendThreadReply(); }}>
+          <label htmlFor="support-reply" className="sr-only">Reply to support</label>
+          <textarea id="support-reply" value={replyText} onChange={(event) => setReplyText(event.target.value)} rows={3} placeholder="Write a reply..." className="w-full resize-none rounded-2xl border border-slate-300 p-3 text-sm outline-none focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/15" disabled={sendingReply} />
+          <div className="mt-3 flex justify-end">
+            <button type="submit" disabled={sendingReply || !replyText.trim()} className="rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{sendingReply ? "Sending..." : "Send Reply"}</button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
+  const notificationModal = selectedNotification && portalReady ? createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="notification-modal-title"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) setSelectedNotification(null);
+      }}
+    >
+      <div
+        className="relative w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl flex flex-col dark:bg-slate-900"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <h2 id="notification-modal-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Notification</h2>
+          <button type="button" onClick={() => setSelectedNotification(null)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">Close</button>
+        </div>
+        <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 dark:text-slate-300">{selectedNotification.text}</p>
+        <p className="mt-5 text-xs text-slate-500 dark:text-slate-400">
+          {selectedNotification.createdAt ? new Date(selectedNotification.createdAt).toLocaleString() : "Date unavailable"}
+        </p>
+      </div>
+    </div>,
+    document.body
+  ) : null;
 
   return (
     <div className="relative flex items-center gap-3" ref={wrapperRef}>
@@ -328,7 +562,7 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
               writeStorageState({
                 clearedNotifications: true,
                 clearedMessages,
-                lastSeenNotificationsCount: notifications?.length ?? 0,
+                lastSeenNotificationsCount: displayedNotifications.length,
                 lastSeenMessagesCount,
               }, profileId);
             }
@@ -357,19 +591,74 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
         </button>
 
         {openPanel === "notifications" && (
-          <div className={`absolute right-0 mt-2 z-20 w-80 overflow-hidden rounded-3xl border shadow-2xl ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
-            <div className="space-y-3 p-4">
-              <p className="text-sm font-semibold text-[#0F3D5C] dark:text-sky-300">Notifications</p>
-              {notifications.length > 0 ? (
-                <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                  {notifications.map((notification, idx) => (
-                    <div key={`${notification}-${idx}`} className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800">{notification}</div>
-                  ))}
+          <div className={`absolute right-0 mt-2 flex max-h-[600px] w-96 flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl z-50 ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "text-slate-900"}`}>
+            <div className="shrink-0 bg-white/95 px-4 py-3 backdrop-blur-sm dark:bg-slate-900/95">
+              <span className="font-semibold text-gray-900 text-sm dark:text-slate-100">Notifications</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1 border-b border-gray-100 px-3 py-2 dark:border-slate-700">
+              {(['all', 'unread'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    setFilter(option);
+                    setVisibleCount(3);
+                    setHasExpandedNotifications(false);
+                  }}
+                  className={filter === option
+                    ? 'rounded-full bg-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600'
+                    : 'rounded-full px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'}
+                >
+                  {option === 'all' ? 'All' : 'Unread'}
+                </button>
+              ))}
+            </div>
+            <div className={`min-h-0 flex-1 p-2 ${hasExpandedNotifications ? "max-h-[550px] overflow-y-auto [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300" : "overflow-hidden"}`}>
+              {visibleNotifications.length > 0 ? (
+                <div className="space-y-2">
+                {visibleNotifications.map((notification, idx) => (
+                  <button
+                    key={`${notification.text}-${idx}`}
+                    type="button"
+                    onClick={() => handleNotificationClick(notification)}
+                    className={`flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-xl p-3 text-left text-sm transition-all ${readNotificationIds.has(notification.id) ? "bg-white text-slate-600 hover:bg-gray-50 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800" : "bg-blue-50 text-slate-700 hover:bg-blue-100/50 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"}`}
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                        <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.5 1.5V19h17v-1.5L19 16Z" />
+                      </svg>
+                    </span>
+                    <span className="min-w-0 flex-1 overflow-hidden">
+                      <p className="block overflow-hidden break-words text-ellipsis line-clamp-4 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">{truncateMessage(notification.text, 160)}</p>
+                      {notification.createdAt && <span className="mt-1 block text-xs text-slate-400">{formatRelativeTime(notification.createdAt)}</span>}
+                    </span>
+                    {!readNotificationIds.has(notification.id) && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" aria-label="Unread" />}
+                  </button>
+                ))}
                 </div>
               ) : (
-                <p className="text-sm text-slate-500 italic dark:text-slate-400">No notifications yet</p>
+                <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
+                  <svg viewBox="0 0 24 24" className="h-8 w-8 text-slate-300" fill="currentColor" aria-hidden="true">
+                    <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.5 1.5V19h17v-1.5L19 16Z" />
+                  </svg>
+                  <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">You&apos;re all caught up! No new notifications.</p>
+                </div>
               )}
             </div>
+            {visibleNotifications.length < filteredNotifications.length && (
+              <div className="shrink-0 border-t border-gray-100 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVisibleCount((current) => current + 5);
+                    setHasExpandedNotifications(true);
+                  }}
+                  className="w-full rounded-lg bg-gray-200 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600"
+                >
+                  See previous notifications
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -387,7 +676,7 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
                 clearedNotifications,
                 clearedMessages: true,
                 lastSeenNotificationsCount,
-                lastSeenMessagesCount: (messages && messages.length) ? messages.length : supportMessages.length || 0,
+                lastSeenMessagesCount: supportThreads.length,
               }, profileId);
             }
           }}
@@ -417,13 +706,13 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
               <p className="text-sm font-semibold text-[#0F3D5C] dark:text-sky-300">Messages</p>
               {loadingMessages ? (
                 <p className="text-sm text-slate-500 italic dark:text-slate-400">Loading messages…</p>
-              ) : messageItems.length > 0 ? (
+              ) : supportThreads.length > 0 ? (
                 <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                  {messageItems.map((item, idx) => (
-                    <div key={`${item.subject}-${idx}`} className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-800">
-                      <p className="text-sm font-semibold text-slate-900">{item.subject}</p>
-                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">Admin: {item.reply}</p>
-                    </div>
+                  {supportThreads.map((item) => (
+                    <button key={item.id} type="button" onClick={() => openThread(item)} className="block w-full min-w-0 overflow-hidden rounded-2xl bg-slate-50 p-3 text-left transition hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700">
+                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{item.subject}</p>
+                      <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-slate-600 dark:text-slate-300">{item.response || "No reply yet. Open to view the conversation."}</p>
+                    </button>
                   ))}
                 </div>
               ) : (
@@ -487,6 +776,9 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
           </div>
         )}
       </div>
+      {conversationModal}
+      {notificationModal}
+      {conversationModal}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Wallet, Search, Download } from "lucide-react";
+import { getRecentSemesters } from "@/lib/semester";
 // If you have shadcn/ui components installed, replace the native select below
 // with shadcn's `Select` imports, e.g.:
 // import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -29,10 +30,8 @@ export default function AdminAccountingPage() {
   const [grantees, setGrantees] = useState<Grantee[]>([]);
   const [totalBudget, setTotalBudget] = useState<number | null>(null);
   const [query, setQuery] = useState("");
-  const [selectedSemester, setSelectedSemester] = useState<string>(
-    "2026-2027 First Semester (Current)"
-  );
-  const [semesters, setSemesters] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>([]);
+  const recentSemesters = getRecentSemesters();
+  const [selectedSemester, setSelectedSemester] = useState<string>(recentSemesters[0].name);
 
   const claimedCount = useMemo(() => grantees.filter((g) => g.status === "Claimed").length, [grantees]);
 
@@ -91,12 +90,6 @@ export default function AdminAccountingPage() {
     const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
     return encodeURIComponent(cleanedSemester);
   }, [selectedSemester]);
-
-  const SEMESTER_OPTIONS = [
-    "2026-2027 First Semester (Current)",
-    "2025-2026 Second Semester",
-    "2025-2026 First Semester",
-  ];
 
   async function markClaimed(id: string) {
     if (processingIds[id]) return;
@@ -196,36 +189,6 @@ export default function AdminAccountingPage() {
       mounted = false;
     };
   }, [selectedSemester, claimedFilter]);
-
-  // Fetch semester options on mount
-  useEffect(() => {
-    let mounted = true;
-    async function loadSemesters() {
-      try {
-        const res = await fetch('/api/semesters');
-        if (!res.ok) throw new Error('Failed to load semesters');
-        const data = await res.json();
-        if (!mounted) return;
-        const list = Array.isArray(data.semesters) ? data.semesters : [];
-        setSemesters(list);
-
-        // set default selected semester to the current one when available
-        const current = list.find((s: any) => s.isCurrent) as any | undefined;
-        if (current) {
-          setSelectedSemester(current.name);
-        } else if (list.length > 0) {
-          setSelectedSemester(list[0].name);
-        }
-      } catch (err) {
-        // ignore; leave semesters empty
-      }
-    }
-
-    loadSemesters();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   async function handleSaveBudget() {
     if (isSaving) return;
@@ -390,18 +353,11 @@ export default function AdminAccountingPage() {
               className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none shadow-sm focus:border-sky-400"
               aria-label="Filter by semester"
             >
-              {semesters.length > 0
-                ? semesters.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name}
-                      {s.isCurrent ? ' (Current)' : ''}
-                    </option>
-                  ))
-                : SEMESTER_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
+              {recentSemesters.map((semester) => (
+                <option key={semester.name} value={semester.name}>
+                  {semester.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>

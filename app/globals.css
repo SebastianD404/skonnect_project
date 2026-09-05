@@ -96,3 +96,16 @@ main, section, article, [role="main"] {
 .secure-login-password::-webkit-textfield-decoration-wrapper {
   display: none !important;
 }
+
+/* Hide native password reveal controls when a custom visibility toggle is used. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+}

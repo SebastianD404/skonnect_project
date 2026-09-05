@@ -28,7 +28,6 @@ function shouldRedirectSignedInFromPath(pathname: string) {
   if (pathname === "/") return true;
   if (pathname.startsWith("/about")) return true;
   if (pathname.startsWith("/programs")) return true;
-  if (pathname.startsWith("/announcements")) return true;
   return false;
 }
 
@@ -134,12 +133,31 @@ export function PublicHeader() {
     fetchSession();
   }, []);
 
+  useEffect(() => {
+    async function refreshProfile(event: Event) {
+      const detail = (event as CustomEvent<Partial<SessionUser>>).detail;
+      if (detail?.fullName !== undefined || detail?.email !== undefined || detail?.avatarUrl !== undefined) {
+        setSessionUser((current) => current ? { ...current, ...detail } : current);
+      }
+
+      try {
+        const response = await fetch("/api/session", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data?.user) setSessionUser(data.user);
+      } catch {
+        // Keep the immediately updated client state when reconciliation is unavailable.
+      }
+    }
+
+    window.addEventListener("skonnect-profile-updated", refreshProfile);
+    return () => window.removeEventListener("skonnect-profile-updated", refreshProfile);
+  }, []);
+
   const activePath = pathname.startsWith("/programs")
     ? "/programs"
     : pathname.startsWith("/about")
     ? "/about"
-    : pathname.startsWith("/announcements")
-    ? "/announcements"
     : isScrolledToProgramsSection && pathname === "/"
     ? "/programs"
     : "/";
@@ -175,7 +193,6 @@ export function PublicHeader() {
           >
             Programs
           </Link>
-          <Link href="/announcements" className={`${navLinkClass(activePath, "/announcements")} transition-opacity duration-200 opacity-100`}>Announcements</Link>
         </nav>
 
         <div className="flex items-center gap-3">

@@ -242,7 +242,7 @@ export default function HomePage() {
               Everything youth need in one place
             </h2>
             <p className="text-lg text-[#555555] max-w-2xl mx-auto">
-              Apply for educational assistance, register for youth events, stay updated with official announcements, submit profiling data, and get support — all from one dashboard.
+              Apply for educational assistance, register for youth events, submit profiling data, and get support — all from one dashboard.
             </p>
           </div>
 
@@ -258,12 +258,6 @@ export default function HomePage() {
               title="KK Profiling"
               desc="Register as an official member of the Katipunan ng Kabataan in Barangay Pico. Submit your profiling data online to ensure your voice is counted and help shape upcoming youth initiatives, policies, and community projects."
               slug="kk-profiling"
-            />
-            <ServiceCard
-              icon={<ChatIcon />}
-              title="Official Announcements"
-              desc="Stay updated with the latest announcements from SK officials. Get important updates on programs, community resources, and citizen support services."
-              slug="/announcements"
             />
           </div>
         </div>

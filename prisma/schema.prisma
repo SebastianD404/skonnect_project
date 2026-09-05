@@ -32,11 +32,14 @@ model User {
   chatMessages           ChatMessage[]
   eventsCreated          Event[]                 @relation("EventCreator")
   grantee                Grantee?
+  granteeMessages        GranteeMessage[]        @relation("GranteeMessageRecipient")
   inquiries              Inquiry[]
+  notifications          Notification[]
   profilingRegistrations ProfilingRegistration[]
   registrations          Registration[]
   skeapApplications      SkeapApplication[]
   reminderLogs           ReminderLog[]
+  sentGranteeMessages    GranteeMessage[]        @relation("GranteeMessageSender")
   kkProfile              KKProfile?              @relation(fields: [kkProfileId], references: [id])
 
   @@map("users")
@@ -273,6 +276,34 @@ model NotificationLog {
   success Boolean  @default(true)
 
   @@map("notification_logs")
+}
+
+model Notification {
+  id         String    @id @default(uuid())
+  userId     String
+  sourceKey  String
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceKey])
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model GranteeMessage {
+  id          String   @id @default(uuid())
+  userId      String
+  senderId    String?
+  subject     String
+  body        String
+  createdAt   DateTime @default(now())
+  user        User     @relation("GranteeMessageRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  sender      User?    @relation("GranteeMessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("grantee_messages")
 }
 
 enum ReminderType {

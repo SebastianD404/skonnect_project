@@ -3,6 +3,9 @@ import { NextResponse, NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
+
+const db = prisma;
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,9 +44,10 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    const transporter = createGmailTransporter();
 
-    const announcement = await prisma.$transaction(async (tx) => {
-      const created = await (tx as any).announcement.create({
+    const announcement = await db.$transaction(async (tx) => {
+      const created = await tx.announcement.create({
         data: {
           title: title.trim(),
           content: content.trim(),
@@ -63,7 +67,7 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      await writeAuditLog(tx as any, {
+      await writeAuditLog(tx, {
         action: "CREATE_ANNOUNCEMENT",
         actorId: appUser.id,
         targetTable: "announcements",
@@ -82,6 +86,22 @@ export async function POST(req: NextRequest) {
 
       return created;
     });
+
+    const grantees = await db.user.findMany({
+      where: { role: "GRANTEE", isActive: true },
+      select: { id: true, email: true },
+    });
+    await db.granteeMessage.createMany({
+      data: grantees.map((grantee) => ({
+        userId: grantee.id,
+        senderId: appUser.id,
+        subject: title.trim(),
+        body: content.trim(),
+      })),
+    });
+    await Promise.allSettled(
+      grantees.map((grantee) => sendBroadcastEmail(transporter, grantee.email, title.trim(), content.trim()))
+    );
 
     return NextResponse.json(announcement, { status: 201 });
   } catch (error) {

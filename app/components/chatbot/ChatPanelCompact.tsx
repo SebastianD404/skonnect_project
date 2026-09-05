@@ -198,7 +198,7 @@ export function ChatPanelCompact({
           <p className="text-xs text-slate-500">Loading recent messages...</p>
         ) : messageList.length === 0 ? (
           <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
-            Ask about SKEAP requirements, deadlines, submissions, or event registration steps.
+            Ask about SKEAP requirements, deadlines, or submissions.
           </p>
         ) : (
           <>

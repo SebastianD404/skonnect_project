@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useActionState } from "react";
-import { updateProfileName } from "@/app/actions/profile";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -20,6 +20,16 @@ type ProfileSettingsFormProps = {
 
 function looksLikeEmail(value: string) {
   return value.includes("@");
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function dispatchProfileUpdate(fullName: string, email: string, phoneNumber = "") {
+  window.dispatchEvent(new CustomEvent("skonnect-profile-updated", {
+    detail: { fullName, email, phoneNumber },
+  }));
 }
 
 function toDisplayName(name: string, email: string) {
@@ -50,21 +60,26 @@ export function ProfileSettingsForm({
   yearLevel,
   needsGranteeProfile,
 }: ProfileSettingsFormProps) {
-  const [state, formAction, isPending] = useActionState(updateProfileName, null);
+  const router = useRouter();
+  const initialProfile = useRef({ fullName, email, phoneNumber });
+  const [state, setState] = useState<{ error?: string; message?: string } | null>(null);
+  const [isPending, setIsPending] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [draftFullName, setDraftFullName] = useState(toDisplayName(fullName, email));
   const [draftEmail, setDraftEmail] = useState(email);
   const [draftPhoneNumber, setDraftPhoneNumber] = useState(phoneNumber ?? "");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [draftSchool, setDraftSchool] = useState(
     school === GRANTEE_PLACEHOLDER_SCHOOL ? "" : school
   );
   const [draftYearLevel, setDraftYearLevel] = useState(
     yearLevel === GRANTEE_PLACEHOLDER_YEAR_LEVEL ? "" : yearLevel
   );
-
-  function broadcastProfileUpdate() {
-    window.dispatchEvent(new Event("skonnect-profile-updated"));
-  }
 
   useEffect(() => {
     // Prefer server-stored avatar; fall back to local storage for older data
@@ -84,30 +99,14 @@ export function ProfileSettingsForm({
       } catch {}
     })();
 
-    const storedName = localStorage.getItem("skonnect-profile-name");
-    const storedEmail = localStorage.getItem("skonnect-profile-email");
-    const storedPhoneNumber = localStorage.getItem("skonnect-profile-phone");
+    localStorage.setItem("skonnect-profile-name", toDisplayName(initialProfile.current.fullName, initialProfile.current.email));
+    localStorage.setItem("skonnect-profile-email", initialProfile.current.email);
 
-    if (storedName) {
-      setDraftFullName(toDisplayName(storedName, storedEmail || email));
+    if (initialProfile.current.phoneNumber) {
+      localStorage.setItem("skonnect-profile-phone", initialProfile.current.phoneNumber);
     }
 
-    if (storedEmail) {
-      setDraftEmail(storedEmail);
-    }
-
-    if (storedPhoneNumber) {
-      setDraftPhoneNumber(storedPhoneNumber);
-    }
-
-    localStorage.setItem("skonnect-profile-name", toDisplayName(fullName, email));
-    localStorage.setItem("skonnect-profile-email", email);
-
-    if (phoneNumber) {
-      localStorage.setItem("skonnect-profile-phone", phoneNumber);
-    }
-
-    broadcastProfileUpdate();
+    window.dispatchEvent(new Event("skonnect-profile-updated"));
   }, []);
 
   useEffect(() => {
@@ -121,9 +120,10 @@ export function ProfileSettingsForm({
         localStorage.removeItem("skonnect-profile-phone");
       }
 
-      broadcastProfileUpdate();
+      dispatchProfileUpdate(draftFullName, draftEmail, draftPhoneNumber);
+      router.refresh();
     }
-  }, [state?.message, draftFullName, draftEmail, draftPhoneNumber]);
+  }, [state?.message, draftFullName, draftEmail, draftPhoneNumber, router]);
 
   function handleAvatarUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -142,7 +142,7 @@ export function ProfileSettingsForm({
           setAvatarPreview(body.avatarUrl);
           // Keep a local copy for backward compatibility
           try { localStorage.setItem("skonnect-avatar", body.avatarUrl); } catch {}
-          broadcastProfileUpdate();
+          dispatchProfileUpdate(draftFullName, draftEmail, draftPhoneNumber);
         }
       })
       .catch(() => {});
@@ -153,13 +153,52 @@ export function ProfileSettingsForm({
       .then(() => {
         localStorage.removeItem("skonnect-avatar");
         setAvatarPreview(null);
-        broadcastProfileUpdate();
+        dispatchProfileUpdate(draftFullName, draftEmail, draftPhoneNumber);
       })
       .catch(() => {
         localStorage.removeItem("skonnect-avatar");
         setAvatarPreview(null);
-        broadcastProfileUpdate();
+        dispatchProfileUpdate(draftFullName, draftEmail, draftPhoneNumber);
       });
+  }
+
+  function handleEmailChange(value: string) {
+    setDraftEmail(value);
+    dispatchProfileUpdate(draftFullName, value);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setState(null);
+
+    if (!isValidEmail(draftEmail)) {
+      setState({ error: "Please enter a valid email address." });
+      return;
+    }
+
+    setIsPending(true);
+    try {
+      const response = await fetch("/api/grantee/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: draftFullName,
+          email: draftEmail,
+          phoneNumber: draftPhoneNumber,
+          school: draftSchool,
+          yearLevel: draftYearLevel,
+          currentPassword,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+      const result = (await response.json()) as { error?: string; message?: string };
+      setState(response.ok ? result : { error: result.error || "We could not update your profile. Please try again." });
+    } catch {
+      setState({ error: "We could not reach the profile service. Please try again." });
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (
@@ -202,7 +241,7 @@ export function ProfileSettingsForm({
       <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]">Personal details</p>
 
-        <form action={formAction} className="mt-6 space-y-5">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
           {role === "GRANTEE" && needsGranteeProfile ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
               Complete your grantee profile to unlock document submissions.
@@ -217,7 +256,11 @@ export function ProfileSettingsForm({
               id="fullName"
               name="fullName"
               value={draftFullName}
-              onChange={(event) => setDraftFullName(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setDraftFullName(value);
+                dispatchProfileUpdate(value, draftEmail);
+              }}
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
             />
           </div>
@@ -230,9 +273,14 @@ export function ProfileSettingsForm({
                 name="email"
                 type="email"
                 value={draftEmail}
-                onChange={(event) => setDraftEmail(event.target.value)}
+                onChange={(event) => handleEmailChange(event.target.value)}
+                autoComplete="email"
+                required
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
               />
+              {draftEmail.trim() && !isValidEmail(draftEmail) ? (
+                <p className="mt-2 text-xs text-red-600" role="alert">Enter a valid email address.</p>
+              ) : null}
             </div>
             <div>
               <label htmlFor="phoneNumber" className="block text-sm font-medium text-slate-700 mb-2">Phone number</label>
@@ -278,14 +326,56 @@ export function ProfileSettingsForm({
             </div>
           ) : null}
 
+          <div className="border-t border-slate-200 pt-5">
+            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]">Change password</p>
+            <p className="mt-1 text-sm text-slate-500">Leave these fields blank to keep your current password.</p>
+            <div className="mt-5 space-y-4">
+              <div className="w-full">
+                <label htmlFor="currentPassword" className="mb-2 block text-sm font-medium text-slate-700">Current password</label>
+                <div className="relative">
+                  <input id="currentPassword" name="currentPassword" type={showCurrentPassword ? "text" : "password"} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="new-password" data-lpignore="true" className="h-12 w-full rounded-xl border border-slate-300 px-4 py-3 pr-10 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10" />
+                  {currentPassword.length > 0 ? (
+                    <button type="button" onClick={() => setShowCurrentPassword((visible) => !visible)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-[#0F3D5C]" aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}>
+                      {showCurrentPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label htmlFor="newPassword" className="mb-2 block text-sm font-medium text-slate-700">New password</label>
+                  <div className="relative">
+                    <input id="newPassword" name="newPassword" type={showNewPassword ? "text" : "password"} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" data-lpignore="true" className="h-12 w-full rounded-xl border border-slate-300 px-4 py-3 pr-10 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10" />
+                    {newPassword.length > 0 ? (
+                      <button type="button" onClick={() => setShowNewPassword((visible) => !visible)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-[#0F3D5C]" aria-label={showNewPassword ? "Hide new password" : "Show new password"}>
+                        {showNewPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium text-slate-700">Confirm password</label>
+                  <div className="relative">
+                    <input id="confirmPassword" name="confirmPassword" type={showConfirmPassword ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" data-lpignore="true" className="h-12 w-full rounded-xl border border-slate-300 px-4 py-3 pr-10 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10" />
+                    {confirmPassword.length > 0 ? (
+                      <button type="button" onClick={() => setShowConfirmPassword((visible) => !visible)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-[#0F3D5C]" aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}>
+                        {showConfirmPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {state?.error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
               {state.error}
             </div>
           )}
 
           {state?.message && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status">
               {state.message}
             </div>
           )}

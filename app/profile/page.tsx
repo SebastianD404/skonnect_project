@@ -6,6 +6,8 @@ import { SettingsShell } from "@/app/components/SettingsShell";
 import { ProfileSettingsForm } from "./profile-settings-form";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
 
+const db = prisma;
+
 export default async function ProfilePage() {
   const supabase = await createClient();
   const {
@@ -21,7 +23,7 @@ export default async function ProfilePage() {
     redirect("/login");
   }
 
-  const appUser = await prisma.user.findUnique({
+  const appUser = await db.user.findUnique({
     where: { id: baseProfile.id },
     select: {
       fullName: true,

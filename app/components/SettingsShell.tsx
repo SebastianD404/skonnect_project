@@ -53,15 +53,6 @@ export function SettingsShell({
 		const hasServerProfile = profileNameFromServer !== undefined || profileEmailFromServer !== undefined || profileAvatarFromServer !== undefined;
 
 		if (hasServerProfile) {
-			if (profileNameFromServer) {
-				setProfileName(profileNameFromServer);
-			}
-			if (profileEmailFromServer) {
-				setProfileEmail(profileEmailFromServer);
-			}
-			if (profileAvatarFromServer !== undefined) {
-				setProfileAvatar(profileAvatarFromServer);
-			}
 			try {
 				if (profileNameFromServer) {
 					localStorage.setItem("skonnect-profile-name", profileNameFromServer);
@@ -81,8 +72,22 @@ export function SettingsShell({
 	}, [profileNameFromServer, profileEmailFromServer, profileAvatarFromServer]);
 
 	useEffect(() => {
-		function syncProfile() {
+		function syncProfile(event?: Event) {
 			try {
+				const profileEvent = event as CustomEvent<{ fullName?: string; email?: string; avatarUrl?: string }> | undefined;
+				if (profileEvent?.detail) {
+					if (profileEvent.detail.fullName !== undefined) {
+						setProfileName(toDisplayName(profileEvent.detail.fullName, profileEvent.detail.email || profileEmailFromServer || ""));
+					}
+					if (profileEvent.detail.email !== undefined) {
+						setProfileEmail(profileEvent.detail.email);
+					}
+					if (profileEvent.detail.avatarUrl !== undefined) {
+						setProfileAvatar(profileEvent.detail.avatarUrl);
+					}
+					return;
+				}
+
 				const storedName = localStorage.getItem("skonnect-profile-name") || "";
 				const storedEmail = localStorage.getItem("skonnect-profile-email") || "";
 				const storedAvatar = localStorage.getItem("skonnect-avatar") || "";
