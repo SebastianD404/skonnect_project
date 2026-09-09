@@ -77,14 +77,24 @@ export async function POST(request: Request) {
     });
     const recipients = grantees.map(({ user }) => user);
 
-    await db.granteeMessage.createMany({
-      data: recipients.map((grantee) => ({
-        userId: grantee.id,
-        senderId: appUser.id,
-        subject,
-        body,
-      })),
-    });
+    await Promise.all(recipients.map(async (grantee) => {
+      const message = await db.granteeMessage.create({
+        data: {
+          userId: grantee.id,
+          senderId: appUser.id,
+          subject,
+          body,
+        },
+        select: { id: true },
+      });
+      await db.notification.create({
+        data: {
+          userId: grantee.id,
+          sourceKey: `message:${message.id}`,
+          isRead: false,
+        },
+      });
+    }));
 
     let emailed = 0;
     let emailFailed = 0;
@@ -94,8 +104,8 @@ export async function POST(request: Request) {
       await Promise.all(
         recipients.map(async (grantee) => {
           try {
-            await sendBroadcastEmail(transporter, grantee.email, subject, body);
-            emailed += 1;
+            const result = await sendBroadcastEmail(transporter, grantee.id, grantee.email, subject, body);
+            if (result) emailed += 1;
           } catch (error) {
             emailFailed += 1;
             console.error("Nodemailer error:", error);

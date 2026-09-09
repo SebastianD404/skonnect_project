@@ -270,12 +270,6 @@ export function PublicHeader() {
                         href="/profile"
                         className="block px-4 py-3 text-sm text-slate-700 transition hover:bg-slate-50"
                       >
-                        Profile
-                      </Link>
-                      <Link
-                        href="/account"
-                        className="block px-4 py-3 text-sm text-slate-700 transition hover:bg-slate-50"
-                      >
                         Settings
                       </Link>
                       <div className="border-t border-slate-200" />

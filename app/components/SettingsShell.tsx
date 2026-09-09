@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { Bell, LockKeyhole, UserCircle } from "lucide-react";
 
 type SettingsShellProps = {
 	title: string;
@@ -45,6 +46,7 @@ export function SettingsShell({
 	profileAvatar: profileAvatarFromServer,
 }: SettingsShellProps) {
 	const router = useRouter();
+	const pathname = usePathname();
 	const [profileName, setProfileName] = useState(profileNameFromServer ?? "Your account");
 	const [profileEmail, setProfileEmail] = useState(profileEmailFromServer ?? "");
 	const [profileAvatar, setProfileAvatar] = useState(profileAvatarFromServer ?? "");
@@ -123,27 +125,6 @@ export function SettingsShell({
 		};
 	}, [profileNameFromServer, profileEmailFromServer, profileAvatarFromServer]);
 
-	useEffect(() => {
-		function syncTheme() {
-			try {
-				const savedTheme = localStorage.getItem("skonnect-theme");
-				const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-				const shouldUseDark = savedTheme === "dark" || (!savedTheme && systemPrefersDark) || savedTheme === "system" && systemPrefersDark;
-				document.documentElement.classList.toggle("dark", shouldUseDark);
-				document.documentElement.dataset.theme = shouldUseDark ? "dark" : (savedTheme || "light");
-				document.documentElement.style.colorScheme = shouldUseDark ? "dark" : "light";
-			} catch (error) {}
-		}
-
-		syncTheme();
-		window.addEventListener("storage", syncTheme);
-		window.addEventListener("skonnect-theme-updated", syncTheme as EventListener);
-		return () => {
-			window.removeEventListener("storage", syncTheme);
-			window.removeEventListener("skonnect-theme-updated", syncTheme as EventListener);
-		};
-	}, []);
-
 	const initials = useMemo(() => {
 		return profileName
 			.split(" ")
@@ -154,9 +135,9 @@ export function SettingsShell({
 	}, [profileName]);
 
 	return (
-		<main className="min-h-screen bg-[#F0F2F5] text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
+		<main className="min-h-screen bg-[#F0F2F5] text-slate-900">
 			<div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 lg:px-6">
-				<div className="mb-4 flex items-center justify-between rounded-[2rem] border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900">
+				<div className="mb-4 flex items-center justify-between rounded-[2rem] border border-slate-200 bg-white px-4 py-3 shadow-sm">
 					<button
 						type="button"
 						onClick={() => router.back()}
@@ -173,8 +154,8 @@ export function SettingsShell({
 				</div>
 
 				<div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-					<aside className="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900">
-						<div className="flex items-center gap-3 rounded-[1.5rem] bg-slate-50 px-4 py-4 transition-colors dark:bg-slate-800/70">
+					<aside className="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
+						<div className="flex items-center gap-3 rounded-[1.5rem] bg-slate-50 px-4 py-4">
 							<div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-base font-bold text-white shadow-sm">
 								{profileAvatar ? <img src={profileAvatar} alt={profileName} className="h-full w-full object-cover" /> : initials}
 							</div>
@@ -191,26 +172,40 @@ export function SettingsShell({
 							<p className="mt-2 text-sm leading-6 text-white/80">{description}</p>
 						</div>
 
-						<div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600 transition-colors dark:bg-slate-800 dark:text-slate-300">
-							Use the back button above to return to the previous page.
-						</div>
-
 						<nav className="mt-4 space-y-2">
-							<Link href="/profile" className="block rounded-2xl px-4 py-4 transition hover:bg-slate-50">
-								<p className="text-sm font-bold text-[#0F3D5C]">Profile settings</p>
-								<p className="mt-1 text-sm leading-6 text-slate-500">Edit your name and profile photo.</p>
+							<Link
+								href="/profile"
+								className={pathname === "/profile"
+									? "block rounded-r-lg border-l-4 border-blue-600 bg-blue-50 px-4 py-4 text-blue-700 transition-colors"
+									: "block rounded-lg px-4 py-4 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"}
+							>
+								<UserCircle className="mr-3 inline-block h-5 w-5 align-middle" aria-hidden="true" />
+								<p className="text-sm font-semibold">Personal Details</p>
+								<p className="mt-1 text-sm leading-6 opacity-75">Edit your identity and academic details.</p>
 							</Link>
-							<Link href="/account" className="block rounded-2xl px-4 py-4 transition hover:bg-slate-50">
-								<p className="text-sm font-bold text-[#0F3D5C]">Account preferences</p>
-								<p className="mt-1 text-sm leading-6 text-slate-500">Choose appearance and other basics.</p>
-							</Link>
+							{[
+								{ href: "/settings/security", label: "Password & Security", description: "Change your password securely.", icon: LockKeyhole },
+								{ href: "/settings/notifications", label: "Notifications", description: "Manage alerts and assembly schedules.", icon: Bell },
+							].map(({ href, label, description: itemDescription, icon: Icon }) => (
+								<Link
+									key={href}
+									href={href}
+									className={pathname === href
+										? "block rounded-r-lg border-l-4 border-blue-600 bg-blue-50 px-4 py-4 text-blue-700 transition-colors"
+										: "block rounded-lg px-4 py-4 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"}
+								>
+									<Icon className="mr-3 inline-block h-5 w-5 align-middle" aria-hidden="true" />
+									<p className="inline align-middle text-sm font-semibold">{label}</p>
+									<p className="mt-1 text-sm leading-6 opacity-75">{itemDescription}</p>
+								</Link>
+								))}
 						</nav>
 					</aside>
 
-					<section className="min-w-0 rounded-[2rem] border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900">
-						<div className="border-b border-slate-200 px-4 py-4 sm:px-6 lg:px-8 dark:border-slate-700">
+					<section className="min-w-0 rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+						<div className="border-b border-slate-200 px-4 py-4 sm:px-6 lg:px-8">
 							<p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#0F3D5C]">{title}</p>
-							<p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
+							<p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
 						</div>
 						<div className="p-4 sm:p-6 lg:p-8">{children}</div>
 					</section>

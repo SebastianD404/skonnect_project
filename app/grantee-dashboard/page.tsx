@@ -11,7 +11,6 @@ import {
   Clock3,
   FileText,
   Mail,
-  Megaphone,
   PencilLine,
   Sparkles,
 } from "lucide-react";
@@ -196,12 +195,6 @@ export default async function GranteeOverviewPage() {
                 icon={<Mail className="h-4 w-4" />}
                 title="Contact support"
                 description="Send a message to SK officials and create an inquiry."
-              />
-              <ActionTile
-                href="/grantee-dashboard/announcements"
-                icon={<Megaphone className="h-4 w-4" />}
-                title="Read announcements"
-                description="Catch official updates and scholarship notices."
               />
             </div>
           </div>

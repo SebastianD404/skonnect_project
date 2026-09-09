@@ -99,8 +99,16 @@ export async function POST(req: NextRequest) {
         body: content.trim(),
       })),
     });
+    await db.notification.createMany({
+      data: grantees.map((grantee) => ({
+        userId: grantee.id,
+        sourceKey: `announcement:${announcement.id}`,
+        isRead: false,
+      })),
+      skipDuplicates: true,
+    });
     await Promise.allSettled(
-      grantees.map((grantee) => sendBroadcastEmail(transporter, grantee.email, title.trim(), content.trim()))
+      grantees.map((grantee) => sendBroadcastEmail(transporter, grantee.id, grantee.email, title.trim(), content.trim()))
     );
 
     return NextResponse.json(announcement, { status: 201 });

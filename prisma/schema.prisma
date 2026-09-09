@@ -12,6 +12,7 @@ model User {
   id                     String                  @id @default(uuid())
   authId                 String                  @unique
   email                  String                  @unique
+  emailNotifications     Boolean                 @default(true)
   fullName               String
   phoneNumber            String?
   role                   Role                    @default(YOUTH)

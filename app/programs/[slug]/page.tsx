@@ -141,7 +141,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
       { q: "How do I enable reminders?", a: "Enable notifications from your account preferences and select channels." },
       { q: "Can I opt-out?", a: "Yes — you can disable reminders anytime in settings." },
     ],
-    cta: [{ label: "Manage notification settings", href: "/account" }],
+    cta: [{ label: "Manage notification settings", href: "/profile" }],
   },
   "multilingual-helpdesk": {
     title: "Multilingual Helpdesk",

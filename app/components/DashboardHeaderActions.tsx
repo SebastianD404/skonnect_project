@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNotificationState } from "./NotificationProvider";
 
 interface DashboardHeaderActionsProps {
   notifications?: string[];
@@ -32,13 +33,19 @@ type ThreadMessage = {
 };
 
 export function DashboardHeaderActions({ notifications = [], messages = [], requiredRole }: DashboardHeaderActionsProps) {
+  const {
+    readNotificationIds,
+    unreadCount: liveUnreadCount,
+    syncNotifications,
+    markNotificationAsRead,
+    markAllNotificationsAsRead,
+  } = useNotificationState();
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
   const [serverRole, setServerRole] = useState<string | undefined>(undefined);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [profileName, setProfileName] = useState("Your account");
   const [profileEmail, setProfileEmail] = useState("");
   const [profileAvatar, setProfileAvatar] = useState("");
-  const [isDark, setIsDark] = useState(false);
   const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
   const [broadcastNotifications, setBroadcastNotifications] = useState<NotificationItem[]>([]);
   const [inAppNotifications, setInAppNotifications] = useState<NotificationItem[]>([]);
@@ -50,11 +57,11 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
   const [sendingReply, setSendingReply] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
-  const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [visibleCount, setVisibleCount] = useState(3);
   const [hasExpandedNotifications, setHasExpandedNotifications] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const hasRequestedRead = useRef(false);
 
   const formatRelativeTime = (createdAt?: string) => {
     if (!createdAt) return "";
@@ -74,19 +81,6 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
   const truncateMessage = (text: string, limit: number = 160) => {
     if (!text) return '';
     return text.length > limit ? text.substring(0, limit).trim() + '...' : text;
-  };
-
-  const markNotificationAsRead = async (notificationId: string) => {
-    setReadNotificationIds((current) => new Set(current).add(notificationId));
-    try {
-      await fetch("/api/my/notifications/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationId }),
-      });
-    } catch {
-      // Keep the optimistic read state when the server is temporarily unavailable.
-    }
   };
 
   const handleNotificationClick = (notification: NotificationItem) => {
@@ -120,29 +114,6 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
-
-  useEffect(() => {
-    if (!profileId) return;
-    let active = true;
-
-    async function loadReadNotifications() {
-      try {
-        const response = await fetch("/api/my/notifications/read", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = await response.json();
-        if (active && Array.isArray(data.notificationIds)) {
-          setReadNotificationIds(new Set(data.notificationIds));
-        }
-      } catch {
-        // Keep local state when persisted read state is temporarily unavailable.
-      }
-    }
-
-    loadReadNotifications();
-    return () => {
-      active = false;
-    };
-  }, [profileId]);
 
   useEffect(() => {
     if (!profileId) return;
@@ -232,26 +203,13 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       } catch (error) {}
     }
 
-    function syncTheme() {
-      try {
-        const savedTheme = localStorage.getItem("skonnect-theme");
-        const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        setIsDark(savedTheme === "dark" || (savedTheme !== "light" && systemPrefersDark));
-      } catch (error) {}
-    }
-
     syncProfile();
-    syncTheme();
     window.addEventListener("storage", syncProfile);
     window.addEventListener("skonnect-profile-updated", syncProfile as EventListener);
-    window.addEventListener("storage", syncTheme);
-    window.addEventListener("skonnect-theme-updated", syncTheme as EventListener);
 
     return () => {
       window.removeEventListener("storage", syncProfile);
       window.removeEventListener("skonnect-profile-updated", syncProfile as EventListener);
-      window.removeEventListener("storage", syncTheme);
-      window.removeEventListener("skonnect-theme-updated", syncTheme as EventListener);
         // Removed focus and visibility listeners and polling
     };
   }, []);
@@ -284,14 +242,20 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       .join("") || "?";
 
   const displayedNotifications: NotificationItem[] = [
-    ...notifications.map((notification, index) => ({ id: `provided:${index}:${notification}`, text: notification })),
+    ...notifications.map<NotificationItem>((notification, index) => ({ id: `provided:${index}:${notification}`, text: notification })),
     ...inAppNotifications,
     ...broadcastNotifications,
-  ];
+  ].sort((a, b) => {
+    if (!a.createdAt && !b.createdAt) return 0;
+    if (!a.createdAt) return 1;
+    if (!b.createdAt) return -1;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
   const filteredNotifications = filter === 'unread'
     ? displayedNotifications.filter((notification) => !readNotificationIds.has(notification.id))
     : displayedNotifications;
   const visibleNotifications = filteredNotifications.slice(0, visibleCount);
+  const notificationSignature = displayedNotifications.map((notification) => notification.id).join("|");
   const notificationCount = displayedNotifications.length;
   const messageCount = supportThreads.length;
   const [unreadNotifications, setUnreadNotifications] = useState<number>(notifications?.length ?? 0);
@@ -301,6 +265,29 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
   const [lastSeenNotificationsCount, setLastSeenNotificationsCount] = useState<number | null>(null);
   const [lastSeenMessagesCount, setLastSeenMessagesCount] = useState<number | null>(null);
   const STORAGE_KEY_BASE = "skonnect-dashboard-badge-state";
+
+  useEffect(() => {
+    syncNotifications(displayedNotifications);
+  // The signature prevents the shared count update from retriggering on every render.
+  // The provider separately reacts when its read-ID set changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationSignature, readNotificationIds, syncNotifications]);
+
+  useEffect(() => {
+    const isOpen = openPanel === "notifications";
+    if (!isOpen) {
+      hasRequestedRead.current = false;
+      return;
+    }
+
+    if (liveUnreadCount > 0 && !hasRequestedRead.current) {
+      hasRequestedRead.current = true;
+      void markAllNotificationsAsRead(displayedNotifications.map((notification) => notification.id));
+    }
+    // The signature changes when new items arrive, but the ref prevents a
+    // second bulk mutation during the same open session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPanel, liveUnreadCount, notificationSignature, markAllNotificationsAsRead]);
 
   const getStorageKey = (userId: string | null) => {
     return userId ? `${STORAGE_KEY_BASE}:${userId}` : STORAGE_KEY_BASE;
@@ -492,24 +479,24 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
 
   const conversationModal = selectedThread && portalReady ? createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Support conversation" onClick={(event) => { if (event.target === event.currentTarget) setSelectedThread(null); }}>
-      <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-700">
+      <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0F3D5C]">Support conversation</p>
-            <h2 className="mt-1 truncate text-lg font-bold text-slate-900 dark:text-slate-100">{selectedThread.subject}</h2>
+            <h2 className="mt-1 truncate text-lg font-bold text-slate-900">{selectedThread.subject}</h2>
           </div>
-          <button type="button" onClick={() => setSelectedThread(null)} className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
+          <button type="button" onClick={() => setSelectedThread(null)} className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100">Close</button>
         </div>
         <div className="max-h-[50vh] min-h-24 flex-1 space-y-3 overflow-y-auto px-1 py-4 pr-2">
           {loadingThread ? <p className="text-sm text-slate-500">Loading conversation...</p> : threadMessages.map((message) => (
-            <div key={message.id} className={`max-w-[90%] rounded-2xl p-3 ${message.role === "admin" ? "bg-sky-50 text-slate-800 dark:bg-slate-800 dark:text-slate-200" : "ml-auto bg-[#0F3D5C] text-white"}`}>
+            <div key={message.id} className={`max-w-[90%] rounded-2xl p-3 ${message.role === "admin" ? "bg-sky-50 text-slate-800" : "ml-auto bg-[#0F3D5C] text-white"}`}>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-70">{message.role === "admin" ? "Admin" : "You"}</p>
               <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.text}</p>
               <p className="mt-2 text-[11px] opacity-60">{new Date(message.createdAt).toLocaleString()}</p>
             </div>
           ))}
         </div>
-        <form className="sticky bottom-0 mt-2 border-t border-slate-200 bg-white pt-4 dark:border-slate-700 dark:bg-slate-900" onSubmit={(event) => { event.preventDefault(); sendThreadReply(); }}>
+        <form className="sticky bottom-0 mt-2 border-t border-slate-200 bg-white pt-4" onSubmit={(event) => { event.preventDefault(); sendThreadReply(); }}>
           <label htmlFor="support-reply" className="sr-only">Reply to support</label>
           <textarea id="support-reply" value={replyText} onChange={(event) => setReplyText(event.target.value)} rows={3} placeholder="Write a reply..." className="w-full resize-none rounded-2xl border border-slate-300 p-3 text-sm outline-none focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/15" disabled={sendingReply} />
           <div className="mt-3 flex justify-end">
@@ -532,15 +519,15 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
       }}
     >
       <div
-        className="relative w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl flex flex-col dark:bg-slate-900"
+        className="relative w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl flex flex-col"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
-          <h2 id="notification-modal-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Notification</h2>
-          <button type="button" onClick={() => setSelectedNotification(null)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">Close</button>
+          <h2 id="notification-modal-title" className="text-lg font-semibold text-slate-900">Notification</h2>
+          <button type="button" onClick={() => setSelectedNotification(null)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700">Close</button>
         </div>
-        <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 dark:text-slate-300">{selectedNotification.text}</p>
-        <p className="mt-5 text-xs text-slate-500 dark:text-slate-400">
+        <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{selectedNotification.text}</p>
+        <p className="mt-5 text-xs text-slate-500">
           {selectedNotification.createdAt ? new Date(selectedNotification.createdAt).toLocaleString() : "Date unavailable"}
         </p>
       </div>
@@ -555,10 +542,9 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
           type="button"
           onClick={() => {
             const next = openPanel === "notifications" ? "none" : "notifications";
+            const wasClosed = openPanel !== "notifications";
             setOpenPanel(next);
-            if (next === "notifications") {
-              setClearedNotifications(true);
-              setUnreadNotifications(0);
+            if (next === "notifications" && wasClosed) {
               writeStorageState({
                 clearedNotifications: true,
                 clearedMessages,
@@ -583,19 +569,19 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
               <path d="M13.73 21a2 2 0 0 1-3.46 0" />
             </svg>
           )}
-          {unreadNotifications > 0 && (
+          {liveUnreadCount > 0 && (
             <span className="absolute -top-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#0F3D5C] text-[10px] font-bold text-white">
-              {unreadNotifications > 99 ? "99+" : unreadNotifications}
+              {liveUnreadCount > 99 ? "99+" : liveUnreadCount}
             </span>
           )}
         </button>
 
         {openPanel === "notifications" && (
-          <div className={`absolute right-0 mt-2 flex max-h-[600px] w-96 flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl z-50 ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "text-slate-900"}`}>
-            <div className="shrink-0 bg-white/95 px-4 py-3 backdrop-blur-sm dark:bg-slate-900/95">
-              <span className="font-semibold text-gray-900 text-sm dark:text-slate-100">Notifications</span>
+          <div className="absolute right-0 z-50 mt-2 flex max-h-[600px] w-96 flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-slate-900 shadow-2xl">
+            <div className="shrink-0 bg-white/95 px-4 py-3 backdrop-blur-sm">
+              <span className="text-sm font-semibold text-gray-900">Notifications</span>
             </div>
-            <div className="flex shrink-0 items-center gap-1 border-b border-gray-100 px-3 py-2 dark:border-slate-700">
+            <div className="flex shrink-0 items-center gap-1 border-b border-gray-100 px-3 py-2">
               {(['all', 'unread'] as const).map((option) => (
                 <button
                   key={option}
@@ -607,7 +593,7 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
                   }}
                   className={filter === option
                     ? 'rounded-full bg-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600'
-                    : 'rounded-full px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'}
+                    : 'rounded-full px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100'}
                 >
                   {option === 'all' ? 'All' : 'Unread'}
                 </button>
@@ -621,9 +607,9 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
                     key={`${notification.text}-${idx}`}
                     type="button"
                     onClick={() => handleNotificationClick(notification)}
-                    className={`flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-xl p-3 text-left text-sm transition-all ${readNotificationIds.has(notification.id) ? "bg-white text-slate-600 hover:bg-gray-50 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800" : "bg-blue-50 text-slate-700 hover:bg-blue-100/50 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"}`}
+                    className={`flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-xl p-3 text-left text-sm transition-all ${readNotificationIds.has(notification.id) ? "bg-white text-slate-600 hover:bg-gray-50" : "bg-blue-50 text-slate-700 hover:bg-blue-100/50"}`}
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300" aria-hidden="true">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500" aria-hidden="true">
                       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
                         <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.5 1.5V19h17v-1.5L19 16Z" />
                       </svg>
@@ -641,19 +627,19 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
                   <svg viewBox="0 0 24 24" className="h-8 w-8 text-slate-300" fill="currentColor" aria-hidden="true">
                     <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.5 1.5V19h17v-1.5L19 16Z" />
                   </svg>
-                  <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">You&apos;re all caught up! No new notifications.</p>
+                  <p className="mt-3 text-sm text-slate-500">You&apos;re all caught up! No new notifications.</p>
                 </div>
               )}
             </div>
             {visibleNotifications.length < filteredNotifications.length && (
-              <div className="shrink-0 border-t border-gray-100 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+              <div className="shrink-0 border-t border-gray-100 bg-white p-3">
                 <button
                   type="button"
                   onClick={() => {
                     setVisibleCount((current) => current + 5);
                     setHasExpandedNotifications(true);
                   }}
-                  className="w-full rounded-lg bg-gray-200 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600"
+                  className="w-full rounded-lg bg-gray-200 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-300"
                 >
                   See previous notifications
                 </button>
@@ -701,22 +687,22 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
         </button>
 
         {openPanel === "messages" && (
-          <div className={`absolute right-0 mt-2 z-20 w-80 overflow-hidden rounded-3xl border shadow-2xl ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
+          <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
             <div className="space-y-3 p-4">
-              <p className="text-sm font-semibold text-[#0F3D5C] dark:text-sky-300">Messages</p>
+              <p className="text-sm font-semibold text-[#0F3D5C]">Messages</p>
               {loadingMessages ? (
-                <p className="text-sm text-slate-500 italic dark:text-slate-400">Loading messages…</p>
+                <p className="text-sm italic text-slate-500">Loading messages…</p>
               ) : supportThreads.length > 0 ? (
-                <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                <div className="space-y-2 text-sm text-slate-600">
                   {supportThreads.map((item) => (
-                    <button key={item.id} type="button" onClick={() => openThread(item)} className="block w-full min-w-0 overflow-hidden rounded-2xl bg-slate-50 p-3 text-left transition hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700">
-                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{item.subject}</p>
-                      <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-slate-600 dark:text-slate-300">{item.response || "No reply yet. Open to view the conversation."}</p>
+                    <button key={item.id} type="button" onClick={() => openThread(item)} className="block w-full min-w-0 overflow-hidden rounded-2xl bg-slate-50 p-3 text-left transition hover:bg-slate-100">
+                      <p className="truncate text-sm font-semibold text-slate-900">{item.subject}</p>
+                      <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-slate-600">{item.response || "No reply yet. Open to view the conversation."}</p>
                     </button>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-slate-500 italic dark:text-slate-400">No messages yet</p>
+                <p className="text-sm italic text-slate-500">No messages yet</p>
               )}
             </div>
           </div>
@@ -727,7 +713,7 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
         <button
           type="button"
           onClick={() => setOpenPanel(openPanel === "settings" ? "none" : "settings")}
-          className={`inline-flex items-center gap-2 rounded-full px-2 py-2 text-left shadow-sm transition ${isDark ? "bg-slate-900/95 text-slate-100 hover:bg-slate-800" : "bg-white/95 text-slate-700 hover:bg-slate-50"}`}
+          className="inline-flex items-center gap-2 rounded-full bg-white/95 px-2 py-2 text-left text-slate-700 shadow-sm transition hover:bg-slate-50"
           aria-expanded={openPanel === "settings"}
           aria-label={`Open account menu for ${profileName}`}
           title={profileName}
@@ -740,36 +726,33 @@ export function DashboardHeaderActions({ notifications = [], messages = [], requ
             )}
           </span>
 
-          <svg viewBox="0 0 24 24" className={`h-3 w-3 ${isDark ? "text-slate-400" : "text-slate-500"}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" className="h-3 w-3 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m6 9 6 6 6-6" />
           </svg>
         </button>
 
         {openPanel === "settings" && (
-          <div className={`absolute right-0 mt-2 z-20 w-80 overflow-hidden rounded-3xl border shadow-2xl ${isDark ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
+          <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
             <div className="p-2">
               <div className="flex items-center gap-3 rounded-2xl px-4 py-4">
                 <div className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-sm font-bold text-white">
                   {profileAvatar ? <img src={profileAvatar} alt={profileName} className="h-full w-full object-cover" /> : initials}
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{profileName}</p>
-                  <p className="truncate text-xs text-slate-500 dark:text-slate-400">{profileEmail}</p>
+                  <p className="truncate text-sm font-medium text-slate-900">{profileName}</p>
+                  <p className="truncate text-xs text-slate-500">{profileEmail}</p>
                 </div>
               </div>
 
-              <div className={`my-1 border-t ${isDark ? "border-slate-700" : "border-slate-200"}`} />
+              <div className="my-1 border-t border-slate-200" />
 
-              <Link href="/profile" className="block rounded-2xl px-4 py-3 text-sm text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
-                Profile
-              </Link>
-              <Link href="/account" className="block rounded-2xl px-4 py-3 text-sm text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+              <Link href="/profile" className="block rounded-2xl px-4 py-3 text-sm text-slate-700 transition hover:bg-slate-50">
                 Settings
               </Link>
 
-              <div className={`my-1 border-t ${isDark ? "border-slate-700" : "border-slate-200"}`} />
+              <div className="my-1 border-t border-slate-200" />
 
-              <Link href="/logout" className="block rounded-2xl px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+              <Link href="/logout" className="block rounded-2xl px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
                 Sign out
               </Link>
             </div>

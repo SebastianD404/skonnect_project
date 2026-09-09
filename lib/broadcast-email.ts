@@ -1,4 +1,7 @@
 import nodemailer from "nodemailer";
+import { prisma } from "@/lib/prisma";
+
+const db = prisma;
 
 function escapeHtml(value: string) {
   return value
@@ -51,10 +54,21 @@ export function buildBroadcastHtml(subject: string, body: string) {
 
 export async function sendBroadcastEmail(
   transporter: nodemailer.Transporter,
+  userId: string,
   to: string,
   subject: string,
   body: string
 ) {
+  const recipient = await db.user.findUnique({
+    where: { id: userId },
+    select: { id: true, emailNotifications: true },
+  });
+
+  if (!recipient || !recipient.emailNotifications) {
+    console.log(`Skipping email for user ${userId}: notifications disabled.`);
+    return null;
+  }
+
   const from = `SKEAP Admin <${process.env.GMAIL_USER}>`;
   return transporter.sendMail({
     from,

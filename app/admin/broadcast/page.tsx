@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Check, CheckCircle2, ChevronDown, Loader2, Radio, Search, Send } from "lucide-react";
 
 type Grantee = { id: string; fullName: string; email: string };
@@ -31,6 +31,26 @@ export default function BroadcastPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setGranteeMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setGranteeMenuOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     if (!success) return;
@@ -161,13 +181,13 @@ export default function BroadcastPage() {
             ))}
           </div>
           {audienceType === "CUSTOM" ? (
-            <div className="relative mt-4">
+            <div ref={dropdownRef} className="relative z-50 mt-4">
               <button type="button" onClick={() => setGranteeMenuOpen((open) => !open)} disabled={submitting || loadingGrantees} className="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-700">
                 <span className="truncate">{loadingGrantees ? "Loading grantees..." : selectedGrantees.length ? selectedGrantees.map((grantee) => grantee.fullName).join(", ") : "Search and select grantees"}</span>
                 <ChevronDown className="ml-3 h-4 w-4 flex-shrink-0" aria-hidden="true" />
               </button>
               {granteeMenuOpen ? (
-                <div className="absolute z-10 mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                <div className="absolute z-50 mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
                   <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3">
                     <Search className="h-4 w-4 text-slate-400" aria-hidden="true" />
                     <input value={granteeSearch} onChange={(event) => setGranteeSearch(event.target.value)} placeholder="Search by name or email" className="w-full py-2 text-sm outline-none" autoFocus />

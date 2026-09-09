@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -68,12 +67,6 @@ export function ProfileSettingsForm({
   const [draftFullName, setDraftFullName] = useState(toDisplayName(fullName, email));
   const [draftEmail, setDraftEmail] = useState(email);
   const [draftPhoneNumber, setDraftPhoneNumber] = useState(phoneNumber ?? "");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [draftSchool, setDraftSchool] = useState(
     school === GRANTEE_PLACEHOLDER_SCHOOL ? "" : school
   );
@@ -187,9 +180,6 @@ export function ProfileSettingsForm({
           phoneNumber: draftPhoneNumber,
           school: draftSchool,
           yearLevel: draftYearLevel,
-          currentPassword,
-          newPassword,
-          confirmPassword,
         }),
       });
       const result = (await response.json()) as { error?: string; message?: string };
@@ -325,48 +315,6 @@ export function ProfileSettingsForm({
               </div>
             </div>
           ) : null}
-
-          <div className="border-t border-slate-200 pt-5">
-            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]">Change password</p>
-            <p className="mt-1 text-sm text-slate-500">Leave these fields blank to keep your current password.</p>
-            <div className="mt-5 space-y-4">
-              <div className="w-full">
-                <label htmlFor="currentPassword" className="mb-2 block text-sm font-medium text-slate-700">Current password</label>
-                <div className="relative">
-                  <input id="currentPassword" name="currentPassword" type={showCurrentPassword ? "text" : "password"} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="new-password" data-lpignore="true" className="h-12 w-full rounded-xl border border-slate-300 px-4 py-3 pr-10 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10" />
-                  {currentPassword.length > 0 ? (
-                    <button type="button" onClick={() => setShowCurrentPassword((visible) => !visible)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-[#0F3D5C]" aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}>
-                      {showCurrentPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label htmlFor="newPassword" className="mb-2 block text-sm font-medium text-slate-700">New password</label>
-                  <div className="relative">
-                    <input id="newPassword" name="newPassword" type={showNewPassword ? "text" : "password"} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" data-lpignore="true" className="h-12 w-full rounded-xl border border-slate-300 px-4 py-3 pr-10 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10" />
-                    {newPassword.length > 0 ? (
-                      <button type="button" onClick={() => setShowNewPassword((visible) => !visible)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-[#0F3D5C]" aria-label={showNewPassword ? "Hide new password" : "Show new password"}>
-                        {showNewPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium text-slate-700">Confirm password</label>
-                  <div className="relative">
-                    <input id="confirmPassword" name="confirmPassword" type={showConfirmPassword ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" data-lpignore="true" className="h-12 w-full rounded-xl border border-slate-300 px-4 py-3 pr-10 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10" />
-                    {confirmPassword.length > 0 ? (
-                      <button type="button" onClick={() => setShowConfirmPassword((visible) => !visible)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-[#0F3D5C]" aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}>
-                        {showConfirmPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
 
           {state?.error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">

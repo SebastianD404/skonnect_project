@@ -20,6 +20,7 @@ export async function GET() {
 
   const notifications = await db.notification.findMany({
     where: { userId: appUser.id, isRead: true },
+    orderBy: { createdAt: "desc" },
     select: { sourceKey: true },
   });
   const notificationIds = notifications.map((notification) => notification.sourceKey);
