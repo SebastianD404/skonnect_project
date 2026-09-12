@@ -107,8 +107,8 @@ export default function HomePage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             {/* Left Content */}
             <div className="space-y-8">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/20 bg-gradient-to-r from-[#0F3D5C]/8 to-[#00B4E5]/8 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0F3D5C]">
-                <span className="w-2 h-2 bg-[#0F3D5C] rounded-full"></span>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#b8d0df] bg-[#eaf6fb] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#123f5f]">
+                <span className="h-2 w-2 rounded-full bg-[#164f70]"></span>
                 Sangguniang Kabataan · Barangay Pico
               </div>
               
@@ -234,7 +234,7 @@ export default function HomePage() {
       <section id="programs" className="w-full bg-slate-50 px-6 py-16 lg:px-12">
         {/* Top Section: Timeline Process */}
         <div className="mx-auto mb-20 max-w-6xl">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#245b7a]">
             SKEAP GRANT · APPLICATION PROCESS
           </div>
           <h2 className="mb-3 text-3xl font-extrabold tracking-tight text-slate-900 lg:text-4xl">
