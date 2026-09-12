@@ -15,11 +15,12 @@ import {
   X,
 } from "lucide-react";
 import { buildSemesterTracker } from "@/lib/semester-progress";
+import type { SubmissionStatus } from "@prisma/client";
 
 type SubmissionItem = {
   id: string;
   semester: string;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
+  status: SubmissionStatus;
   generalAverage: number | null;
   reviewNotes: string | null;
   flaggedFields?: string[];

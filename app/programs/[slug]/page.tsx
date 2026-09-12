@@ -290,7 +290,7 @@ export default async function ProgramPage({ params }: Props) {
                   <span className="block">
                     <span className="text-blue-900">Katipunan ng Kabataan</span>{" "}
                     <span className="text-blue-900">(KK)</span>{" "}
-                    <span className="text-red-700">Profiling</span>
+                    <span className="text-red-800">Profiling</span>
                   </span>
                 ) : (
                   data.title

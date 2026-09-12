@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState, useMemo, useEffect } from "react";
+import type { SubmissionStatus } from "@prisma/client";
 import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Search } from "lucide-react";
 
 interface SubmissionRow {
@@ -9,7 +10,7 @@ interface SubmissionRow {
   gradeFileUrl: string;
   coeFileUrl: string;
   generalAverage: number | null;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
+  status: SubmissionStatus;
   reviewNotes: string | null;
   flaggedFields?: string[];
   submittedAt: string;

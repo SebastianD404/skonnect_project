@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { SubmissionStatus } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { normalizeUploadRequirement, normalizeUploadedFiles, SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
+import { normalizeUploadedFiles, SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
+import { getSkeapMaxSlots } from "@/lib/skeap-capacity";
 
 function buildSkeapInquiryMessage(data: {
   applicantName?: string;
@@ -169,7 +171,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const createData = {
+    const baseCreateData = {
       userId: appUser.id,
       school: schoolName,
       currentCourse,
@@ -197,16 +199,32 @@ export async function POST(request: NextRequest) {
       uploadedFiles,
       photoFileUrl: body.photoFileUrl || undefined,
       // keep uploaded files as normalized JSON
-    } as const;
+    };
 
+    const maxSlots = await getSkeapMaxSlots();
     const created = await prisma.$transaction(async (tx) => {
-      const application = await (tx as any).skeapApplication.create({ data: createData, select: { id: true } });
-      const inquiry = await (tx as any).inquiry.create({
+      const activeCount = await tx.skeapApplication.count({
+        where: { status: "APPROVED" },
+      });
+      const isWaitlisted = activeCount >= maxSlots;
+      const waitlistPosition = isWaitlisted
+        ? (await tx.skeapApplication.count({ where: { status: "WAITLISTED" } })) + 1
+        : null;
+      const createData = {
+        ...baseCreateData,
+        status: (isWaitlisted ? "WAITLISTED" : "PENDING") as SubmissionStatus,
+        waitlistPosition,
+      };
+      const application = await tx.skeapApplication.create({ data: createData, select: { id: true } });
+      const applicantMessage = isWaitlisted
+        ? `Your SKEAP application has been received and placed on the waitlist at position ${waitlistPosition} because all ${maxSlots} scholarship slots are currently filled.`
+        : "Applicant submitted a SKEAP application.";
+      const inquiry = await tx.inquiry.create({
         data: {
           userId: appUser.id,
           applicationId: application.id,
           subject: "SKEAP application submitted",
-          message: buildSkeapInquiryMessage({
+          message: `${applicantMessage}\n\n${buildSkeapInquiryMessage({
             applicantName: createData.applicantName,
             schoolName: createData.school,
             currentCourse,
@@ -217,15 +235,24 @@ export async function POST(request: NextRequest) {
             reportCardFileUrl,
             photoFileUrl: createData.photoFileUrl,
             uploadedFiles: createData.uploadedFiles,
-          }),
-          reviewStatus: "Pending review",
+          })}`,
+          reviewStatus: isWaitlisted ? "Waitlisted" : "Pending review",
         },
         select: { id: true },
       });
-      return { applicationId: application.id, inquiryId: inquiry.id };
+      return { applicationId: application.id, inquiryId: inquiry.id, isWaitlisted, waitlistPosition };
     });
 
-    return NextResponse.json({ success: true, applicationId: created.applicationId, inquiryId: created.inquiryId });
+    return NextResponse.json({
+      success: true,
+      applicationId: created.applicationId,
+      inquiryId: created.inquiryId,
+      status: created.isWaitlisted ? "WAITLISTED" : "PENDING",
+      waitlistPosition: created.waitlistPosition,
+      message: created.isWaitlisted
+        ? `Your application was successfully placed on the waitlist at position ${created.waitlistPosition} because all ${maxSlots} scholarship slots are currently filled.`
+        : "Your SKEAP application was submitted successfully.",
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to submit SKEAP application";
     return NextResponse.json({ error: message }, { status: 500 });

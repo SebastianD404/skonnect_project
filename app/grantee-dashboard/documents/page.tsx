@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import GranteeDocumentsClient from "./GranteeDocumentsClient";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
+import type { SubmissionStatus } from "@prisma/client";
 
 export default async function GranteeDocumentsPage() {
   const supabase = await createClient();
@@ -41,7 +42,7 @@ export default async function GranteeDocumentsPage() {
   let submissions: Array<{
     id: string;
     semester: string;
-    status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
+    status: SubmissionStatus;
     generalAverage: number | null;
     gradeRows?: Array<{ subject: string; grade: number }> | null;
     reviewNotes: string | null;

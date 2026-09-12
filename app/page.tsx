@@ -15,31 +15,34 @@ export default function HomePage() {
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
 
-  // Fetch KK profile status on mount
   useEffect(() => {
     let mounted = true;
-    setLoadingKkProfile(true);
 
-    fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" })
-      .then(async (response) => {
+    async function loadKkProfileStatus() {
+      setLoadingKkProfile(true);
+      try {
+        const sessionResponse = await fetch("/api/session", { cache: "no-store" });
+        if (!sessionResponse.ok) return;
+        const sessionData = await sessionResponse.json();
+        if (!sessionData.user) return;
+
+        const response = await fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" });
         if (!mounted) return;
         if (response.ok) {
           const data = await response.json();
-          // Check both registration status and profile status for approval
           const status = data.registration?.reviewStatus || data.profile?.status;
-          if (status) {
-            setKkProfileStatus(status);
-          }
+          setKkProfileStatus(status || null);
         } else {
           setKkProfileStatus(null);
         }
-      })
-      .catch(() => {
+      } catch {
         if (mounted) setKkProfileStatus(null);
-      })
-      .finally(() => {
+      } finally {
         if (mounted) setLoadingKkProfile(false);
-      });
+      }
+    }
+
+    void loadKkProfileStatus();
 
     return () => {
       mounted = false;
@@ -227,38 +230,117 @@ export default function HomePage() {
         <div className="h-px bg-gradient-to-r from-transparent via-[#0F3D5C]/20 to-transparent"></div>
       </div>
 
-      {/* ── REGISTRY OF SERVICES ── */}
-      <section id="programs" className="relative py-10">
-        {/* Background elements */}
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tl from-[#00B4E5]/8 to-transparent rounded-full blur-3xl -z-10"></div>
+      {/* ── SKEAP APPLICATION PROCESS ── */}
+      <section id="programs" className="w-full bg-slate-50 px-6 py-16 lg:px-12">
+        {/* Top Section: Timeline Process */}
+        <div className="mx-auto mb-20 max-w-6xl">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">
+            SKEAP GRANT · APPLICATION PROCESS
+          </div>
+          <h2 className="mb-3 text-3xl font-extrabold tracking-tight text-slate-900 lg:text-4xl">
+            Your path to the SKEAP Grant
+          </h2>
+          <p className="mb-16 max-w-xl text-sm text-slate-600 lg:text-base">
+            A streamlined, transparent application process. Submit your requirements online and track your approval status in real-time.
+          </p>
 
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="mb-16 text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/20 bg-gradient-to-r from-[#0F3D5C]/8 to-[#00B4E5]/8 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0F3D5C] mb-6">
-              <span className="w-2 h-2 bg-[#0F3D5C] rounded-full"></span>
-              SKonnect Services
+          {/* Timeline Grid with Dotted Line */}
+          <div className="relative">
+            {/* Connecting dashed line for desktop */}
+            <div className="absolute left-12 right-12 top-6 z-0 hidden border-t-2 border-dashed border-slate-300 md:block" />
+
+            <div className="relative z-10 grid grid-cols-1 gap-10 md:grid-cols-3">
+              {/* Step 1 */}
+              <div className="flex flex-col items-start rounded-2xl border border-slate-100 bg-white/60 p-6 shadow-sm md:border-none md:bg-transparent md:p-0 md:shadow-none">
+                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-blue-900 shadow-sm">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 1: Account Setup</h3>
+                <p className="text-sm leading-relaxed text-slate-600">Create your secure profile via KK Profiling.</p>
+              </div>
+
+              {/* Step 2 */}
+              <div className="flex flex-col items-start rounded-2xl border border-slate-100 bg-white/60 p-6 shadow-sm md:border-none md:bg-transparent md:p-0 md:shadow-none">
+                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-blue-900 shadow-sm">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 2: Submit Documents</h3>
+                <p className="text-sm leading-relaxed text-slate-600">Upload the required documents.</p>
+              </div>
+
+              {/* Step 3 */}
+              <div className="flex flex-col items-start rounded-2xl border border-slate-100 bg-white/60 p-6 shadow-sm md:border-none md:bg-transparent md:p-0 md:shadow-none">
+                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-blue-900 shadow-sm">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 3: Track Status</h3>
+                <p className="text-sm leading-relaxed text-slate-600">Monitor your application progress directly from your dashboard.</p>
+              </div>
             </div>
-            <h2 className="text-4xl md:text-5xl font-black tracking-tight bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] bg-clip-text text-transparent mb-4">
-              Everything youth need in one place
+          </div>
+        </div>
+
+        {/* Bottom Section: Dark Navy Container with Embedded White Card */}
+        <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 rounded-3xl bg-[#0b1d3a] px-8 py-12 text-white shadow-xl lg:grid-cols-2 lg:px-16 lg:py-16">
+          {/* Left Info Column */}
+          <div>
+            <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">
+              YOUR OFFICIAL REGISTRATION GATEWAY
+            </span>
+            <h2 className="mt-2 mb-4 text-3xl font-extrabold tracking-tight text-white">
+              Katipunan ng Kabataan (KK) Profiling
             </h2>
-            <p className="text-lg text-[#555555] max-w-2xl mx-auto">
-              Apply for educational assistance, register for youth events, submit profiling data, and get support — all from one dashboard.
+            <p className="text-sm leading-relaxed text-slate-300 lg:text-base">
+              Join the official youth registry of Barangay Pico. Completing your Katipunan ng Kabataan profile helps verify your local residency and serves as your secure gateway to apply for the SKEAP grant.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <ServiceCard
-              icon={<GraduationCapIcon />}
-              title="SKEAP"
-              desc="The SK Educational Assistance Program provides financial support for qualified students in Barangay Pico. Skip the trips to the SK office and easily submit your documents online."
-              slug="skeap-scholarship"
-            />
-            <ServiceCard
-              icon={<BellIcon />}
-              title="KK Profiling"
-              desc="Register as an official member of the Katipunan ng Kabataan in Barangay Pico. Submit your profiling data online to ensure your voice is counted and help shape upcoming youth initiatives, policies, and community projects."
-              slug="kk-profiling"
-            />
+          {/* Right White Card Column */}
+          <div className="rounded-2xl bg-white p-6 text-slate-900 shadow-2xl lg:p-8">
+            <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              WHY IT MATTERS
+            </div>
+            <ul className="mb-8 space-y-4 text-sm text-slate-700">
+              <li className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <span>Identify and document barangay youth demographics.</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <span>Inform SK programs and local youth policies.</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <span>Update the NYC National Youth Database.</span>
+              </li>
+            </ul>
+            <Link
+              href="/programs/kk-profiling"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0b1d3a] px-6 py-3 text-sm font-medium text-white shadow-md transition-colors duration-200 hover:bg-[#132d56]"
+            >
+              Start KK Profiling
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </Link>
           </div>
         </div>
       </section>
@@ -271,10 +353,10 @@ export default function HomePage() {
 
         <div className="mx-auto max-w-7xl px-6 text-center">
           <h2 className="text-5xl md:text-6xl font-black leading-tight text-[#0B2545] mb-6">
-            Built for the youth of <br/> Barangay Pico
+            Secure your educational assistance today.
           </h2>
           <p className="text-xl text-slate-700 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Sign up once. Track your scholarship, register for events, and get real answers — all in one record.
+            Sign up once. Track your scholarship requirements and receive immediate updates on your grant status.
           </p>
           <Link
             href="/programs/kk-profiling"
@@ -298,7 +380,7 @@ export default function HomePage() {
                 <span className="font-bold text-lg">SKonnect</span>
               </div>
               <p className="text-sm text-white/70 leading-6">
-                Youth services platform<br/>
+                Official Scholarship Management Portal<br/>
                 for Barangay Pico
               </p>
             </div>
@@ -340,95 +422,5 @@ export default function HomePage() {
         </div>
       </footer>
     </div>
-  );
-}
-
-
-function ServiceCard({
-  icon,
-  title,
-  desc,
-  id,
-  slug,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  desc: string;
-  id?: string;
-  slug?: string;
-}) {
-  const href = slug?.startsWith("/")
-    ? slug
-    : slug
-    ? `/programs/${slug}`
-    : "/chatbot";
-
-  return (
-    <Link
-      id={id}
-      href={href}
-      className="group relative rounded-2xl border border-[#0F3D5C]/10 bg-gradient-to-br from-white to-[#F5F7FB] p-6 shadow-sm hover:shadow-xl transition-all duration-300 hover:border-[#0F3D5C]/30 hover:-translate-y-0.5"
-    >
-      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-[#00B4E5]/5 to-transparent rounded-full -z-10 group-hover:from-[#00B4E5]/10 transition-all duration-300"></div>
-      
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#00B4E5] to-[#0F3D5C] shadow-lg mb-4 group-hover:shadow-xl transition-all duration-300 group-hover:scale-105">
-        {icon}
-      </div>
-      
-      <h3 className="text-xl font-bold text-[#0F3D5C] mb-3">
-        {title}
-      </h3>
-      
-      <p className="text-[#555555] leading-relaxed text-sm">
-        {desc}
-      </p>
-      
-      <div className="mt-4 text-sm font-bold text-[#0F3D5C] inline-flex items-center gap-1">
-        Learn more →
-      </div>
-    </Link>
-  );
-}
-
-/* Icon Components with Cyan/Blue Gradient */
-function GraduationCapIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 10v6m0 0v4m0-4H2m20-4l-8.5-5.5a2 2 0 0 0-2.999 0L2 10m20 0l-10-6.464" />
-      <circle cx="12" cy="17" r="2" fill="white" />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-      <circle cx="9" cy="16" r="1.5" fill="white" />
-      <circle cx="15" cy="16" r="1.5" fill="white" />
-    </svg>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  );
-}
-
-function ChatIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      <circle cx="9" cy="10" r="1" fill="white" />
-      <circle cx="12" cy="10" r="1" fill="white" />
-      <circle cx="15" cy="10" r="1" fill="white" />
-    </svg>
   );
 }

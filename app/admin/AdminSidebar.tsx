@@ -122,6 +122,7 @@ export default function AdminSidebar({
       title: "Programs & Engagement",
       items: [
         { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: skeapApplicationCount },
+        { label: "SKEAP Waitlist", href: "/admin/skeap-waitlist", icon: ClipboardList },
         { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: pendingDocumentCount },
       ],
     },

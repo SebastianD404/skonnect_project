@@ -331,7 +331,7 @@ export default function AdminAccountingPage() {
     <main className="px-6 pb-12 pt-8">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Accounting • Offline Cash Disbursements</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">Accounting • Cash Disbursements</h1>
           <p className="mt-1 text-sm text-slate-600">Track and mark offline cash payouts for grantees.</p>
         </div>
 

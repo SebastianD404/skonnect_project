@@ -184,14 +184,14 @@ export function PublicHeader() {
         </Link>
 
         <nav className="hidden items-center gap-1 text-sm md:flex relative">
-          <Link href="/" className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
+          <Link href="/" onClick={handleLogoClick} className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
           <Link href="/about" className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 opacity-100`}>About</Link>
           <Link
             href="/#programs"
             onClick={handleProgramsClick}
             className={`${navLinkClass(isScrolledToProgramsSection ? "/programs" : "", "/programs")} transition-opacity duration-200 opacity-100`}
           >
-            Programs
+            Application
           </Link>
         </nav>
 

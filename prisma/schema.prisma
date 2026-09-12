@@ -123,6 +123,7 @@ model SkeapApplication {
   enrollmentFileUrl String
   reportCardFileUrl String
   status            SubmissionStatus @default(PENDING)
+  waitlistPosition  Int?
   submittedAt       DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   applicantName     String?
@@ -147,7 +148,17 @@ model SkeapApplication {
   user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, submittedAt(sort: Desc)])
+  @@index([status, waitlistPosition])
   @@map("skeap_applications")
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Int
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
 }
 
 model Event {
@@ -445,6 +456,7 @@ enum SubmissionStatus {
   PENDING
   APPROVED
   REJECTED
+  WAITLISTED
   RETURNED_FOR_EDIT
 }
 

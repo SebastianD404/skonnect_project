@@ -160,17 +160,17 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
             ) : (
               <>
                 <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">SK Program Access</p>
-                <h3 className="mt-2 text-3xl font-semibold text-slate-900">KK profiling required</h3>
+                <h3 className="mt-2 text-3xl font-semibold text-slate-900">Set up your KK Profile first</h3>
                 <p className="mt-4 text-sm leading-7 text-slate-600">
-                  To apply for the SKEAP scholarship and register for community events, you must have a verified Katipunan ng Kabataan (KK) profile. If you already have an SKonnect account, please log in to continue. If you do not have an account, register for KK profiling so your account can be verified.
+                  To apply for the SKEAP grant, you first need an official Katipunan ng Kabataan (KK) profile to verify your residency in Barangay Pico. Already have an SKonnect account? Log in to continue your application.
                 </p>
 
-                <div className="mt-8 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3">
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
                   <Link
                     href={typeof window !== "undefined" ? `/programs/kk-profiling?redirect=${encodeURIComponent(window.location.href)}` : "/programs/kk-profiling"}
-                    className="inline-flex justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
+                    className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
-                    Go to KK Profiling
+                    Create KK Profile
                   </Link>
                   <button
                     type="button"
@@ -179,7 +179,7 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                         window.location.href = `/login?redirect=${encodeURIComponent(window.location.href)}`;
                       }
                     }}
-                    className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    className="inline-flex justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
                   >
                     Log in
                   </button>

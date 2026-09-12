@@ -42,11 +42,30 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   };
 
   useEffect(() => {
-    refresh();
-    const timer = window.setInterval(refresh, 30000);
-    window.addEventListener("focus", refresh);
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function startPollingIfAuthenticated() {
+      try {
+        const sessionResponse = await fetch("/api/session", { cache: "no-store" });
+        if (!sessionResponse.ok) return;
+        const sessionData = await sessionResponse.json();
+        if (cancelled || !sessionData.user) return;
+
+        await refresh();
+        if (cancelled) return;
+        timer = window.setInterval(refresh, 30000);
+        window.addEventListener("focus", refresh);
+      } catch {
+        // Keep notification polling disabled when session lookup is unavailable.
+      }
+    }
+
+    void startPollingIfAuthenticated();
+
     return () => {
-      window.clearInterval(timer);
+      cancelled = true;
+      if (timer !== undefined) window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
   }, []);

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { Role } from "@prisma/client";
+import { Role, SubmissionStatus } from "@prisma/client";
 import SubmissionReviewTable from "./SubmissionReviewTable";
 
 type Submission = {
@@ -13,7 +13,7 @@ type Submission = {
   coeFileUrl: string;
   gradeRows?: Array<{ subject: string; grade: number }> | null;
   generalAverage: number | null;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_EDIT";
+  status: SubmissionStatus;
   reviewNotes: string | null;
   flaggedFields: string[];
   submittedAt: string;

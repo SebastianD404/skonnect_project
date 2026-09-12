@@ -168,9 +168,13 @@ export async function PATCH(
         select: {
           reviewThread: true,
           userId: true,
-          application: { select: { school: true, currentCourse: true, yearLevel: true, applicantName: true } },
+          application: { select: { id: true, status: true, school: true, currentCourse: true, yearLevel: true, applicantName: true } },
         },
       });
+
+      if (action === "approve" && currentInquiry?.application?.status === "WAITLISTED") {
+        throw new Error("Waitlisted applications must be promoted from the waitlist before approval.");
+      }
 
       const existingThreadFromTx = (Array.isArray(currentInquiry?.reviewThread)
         ? currentInquiry!.reviewThread
@@ -187,6 +191,13 @@ export async function PATCH(
       });
 
       if (action === "approve" && currentInquiry?.userId) {
+        if (currentInquiry.application?.id) {
+          await (tx as any).skeapApplication.update({
+            where: { id: currentInquiry.application.id },
+            data: { status: "APPROVED", waitlistPosition: null },
+          });
+        }
+
         const targetUser = await (tx as any).user.findUnique({
           where: { id: currentInquiry.userId },
           select: { id: true, role: true },

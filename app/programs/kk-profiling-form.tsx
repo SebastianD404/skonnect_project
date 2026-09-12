@@ -93,29 +93,41 @@ export default function KKProfilingForm() {
   // Check if user is already approved and redirect
   useEffect(() => {
     let mounted = true;
-    setIsCheckingStatus(true);
 
-    fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" })
-      .then(async (response) => {
+    async function checkApprovedProfile() {
+      try {
+        const sessionResponse = await fetch("/api/session", { cache: "no-store" });
+        if (!sessionResponse.ok) {
+          if (mounted) setIsCheckingStatus(false);
+          return;
+        }
+
+        const sessionData = await sessionResponse.json();
+        if (!sessionData.user) {
+          if (mounted) setIsCheckingStatus(false);
+          return;
+        }
+
+        const response = await fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" });
         if (!mounted) return;
         if (response.ok) {
           const data = await response.json();
           const profileStatus = data.profile?.status || "";
           const isApprovedStatus = profileStatus.toLowerCase().includes("approved");
-          
-          if (isApprovedStatus === true) {
-            // Immediately redirect approved users - no UI shown
+
+          if (isApprovedStatus) {
             router.replace("/programs/kk-profiling/status");
             return;
           }
         }
-        // User is not approved, show form
+
+        setIsCheckingStatus(false);
+      } catch {
         if (mounted) setIsCheckingStatus(false);
-      })
-      .catch(() => {
-        // Error checking status, show form as fallback
-        if (mounted) setIsCheckingStatus(false);
-      });
+      }
+    }
+
+    void checkApprovedProfile();
 
     return () => {
       mounted = false;
@@ -528,7 +540,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex flex-col">
-          <span className="text-sm font-semibold">Middle Initial</span>
+          <span className="text-sm font-semibold">Middle Name / Initial</span>
           <input
             value={form.middleInitial}
             onChange={(e) => setField("middleInitial", normalizedMiddleInitial(e.target.value))}
