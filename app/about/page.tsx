@@ -48,63 +48,6 @@ export default function AboutPage() {
             </div>
           </section>
 
-          <section id="ordinances" className="space-y-8">
-            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex flex-col gap-2">
-                <p className="text-xs uppercase tracking-[0.35em] text-teal-600">Barangay Ordinances</p>
-                <h2 className="text-3xl font-semibold text-slate-900">Official ordinances for youth programs</h2>
-                <p className="text-slate-600 leading-7">
-                  These ordinances guide how Barangay Pico supports youth organizations, honors academic achievement, and funds competitions for young residents.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-3">
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.35em] text-[#0F3D5C]">Ordinance No. 1-2023</p>
-                <h3 className="mt-3 text-xl font-semibold text-slate-900">Youth Organizations Registration</h3>
-                <p className="mt-2 text-slate-600 leading-7">
-                  Registered youth organizations are prioritized for SK funds when implementing approved programs, projects, and activities, as long as the allotment follows existing laws, rules, and regulations.
-                </p>
-                <p className="mt-4 text-slate-600 leading-7 font-semibold">Registration requirements:</p>
-                <ul className="mt-3 space-y-2 text-slate-600 leading-7 list-disc list-inside">
-                  <li>Completed application form for the organization and each member</li>
-                  <li>Roster of members and officers</li>
-                  <li>ID card with proof of residency for each member</li>
-                  <li>Organization constitution and by-laws</li>
-                </ul>
-              </div>
-
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.35em] text-[#0F3D5C]">Ordinance No. 2-2023</p>
-                <h3 className="mt-3 text-xl font-semibold text-slate-900">Graduate Incentive Program</h3>
-                <p className="mt-2 text-slate-600 leading-7">
-                  The cash incentive program honors graduates of Barangay Pico who meet residency and age requirements, and who are recognized for academic achievement at high school or college levels.
-                </p>
-                <p className="mt-4 text-slate-600 leading-7 font-semibold">Qualification highlights:</p>
-                <ul className="mt-3 space-y-2 text-slate-600 leading-7 list-disc list-inside">
-                  <li>Must be a bona fide resident of Barangay Pico</li>
-                  <li>Must be 15–30 years old</li>
-                  <li>Must be a graduate of high school, college, or university</li>
-                </ul>
-              </div>
-
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.35em] text-[#0F3D5C]">Ordinance No. 3-2023</p>
-                <h3 className="mt-3 text-xl font-semibold text-slate-900">Youth Support System</h3>
-                <p className="mt-2 text-slate-600 leading-7">
-                  This ordinance provides financial support to youth participants and teams competing in sports, academic, or cultural competitions, with awards based on competition level and group size.
-                </p>
-                <p className="mt-4 text-slate-600 leading-7 font-semibold">Required documents:</p>
-                <ul className="mt-3 space-y-2 text-slate-600 leading-7 list-disc list-inside">
-                  <li>Application form</li>
-                  <li>Photocopy of ID card with three specimens</li>
-                  <li>Proof of participation from organizers or registration form</li>
-                </ul>
-              </div>
-            </div>
-          </section>
-
           <section className="grid gap-8 lg:grid-cols-3">
             <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.35em] text-teal-600">SK Ordinance</p>

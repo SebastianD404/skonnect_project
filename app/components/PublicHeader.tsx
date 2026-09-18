@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { DashboardHeaderActions } from "./DashboardHeaderActions";
 
 interface SessionUser {
   fullName?: string;
@@ -13,6 +14,8 @@ interface SessionUser {
 
 function getRoleHomePath(role?: SessionUser["role"]) {
   switch (role) {
+    case "YOUTH":
+      return "/youth-dashboard";
     case "GRANTEE":
       return "/grantee-dashboard";
     case "SK_OFFICIAL":
@@ -116,7 +119,8 @@ export function PublicHeader() {
         const user = data?.user || null;
         const destination = getRoleHomePath(user?.role);
 
-        if (destination && shouldRedirectSignedInFromPath(pathname)) {
+        const intentionallyOpenedPublicPage = window.location.search === "?from=dashboard" || window.location.search === "?from=youth-dashboard";
+        if (destination && shouldRedirectSignedInFromPath(pathname) && !intentionallyOpenedPublicPage) {
           router.replace(destination);
           return;
         }
@@ -176,7 +180,7 @@ export function PublicHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href="/" onClick={handleLogoClick} className="flex items-center gap-3">
+        <Link href="/" onClick={handleLogoClick} className="flex items-center gap-3" aria-label="Go to SKonnect home" title="Go to home">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
             SK
           </div>
@@ -199,6 +203,9 @@ export function PublicHeader() {
           {authLoading ? (
             <div className="h-10 w-32 rounded-full bg-slate-200/70 animate-pulse" />
           ) : sessionUser ? (
+            sessionUser.role === "YOUTH" ? (
+              <DashboardHeaderActions requiredRole="YOUTH" supportInboxPath="/youth-dashboard/inquiries" />
+            ) : (
             <div className="relative flex items-center gap-3" ref={wrapperRef}>
               <button
                 type="button"
@@ -289,6 +296,7 @@ export function PublicHeader() {
                 </div>
               )}
             </div>
+            )
           ) : (
             <>
               <Link

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import HeroCtaButton from "@/app/components/HeroCtaButton";
+import OrdinancesSection from "@/components/OrdinancesSection";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Mail } from "lucide-react";
@@ -344,6 +345,8 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <OrdinancesSection />
 
       {/* ── CLOSING CTA ── */}
       <section className="relative py-24 overflow-hidden">

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { DashboardHeaderActions } from "@/app/components/DashboardHeaderActions";
 
 function navClass(pathname: string, href: string) {
-  const isActive = pathname === href;
+  const isActive = pathname === href || pathname.startsWith(`${href}/`);
   return (
     "px-4 py-2 font-semibold rounded-lg transition-colors duration-200 " +
     (isActive
@@ -14,16 +14,14 @@ function navClass(pathname: string, href: string) {
   );
 }
 
-export default function GranteeDashboardHeader() {
+export default function YouthDashboardHeader() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
+    <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 shadow-sm backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href="/grantee-dashboard" className="flex items-center gap-3" aria-label="Go to the grantee dashboard" title="Go to dashboard">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
-            SK
-          </div>
+        <Link href="/?from=youth-dashboard" className="flex items-center gap-3" aria-label="Go to SKonnect home" title="Go to home">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] text-xs font-black tracking-tighter text-white shadow-lg">SK</div>
           <span className="text-xl font-black tracking-tight text-[#0F3D5C]">SKonnect</span>
         </Link>
 
@@ -33,7 +31,7 @@ export default function GranteeDashboardHeader() {
           <Link href="/?from=dashboard#programs" className={navClass(pathname, "/programs")}>Application</Link>
         </nav>
 
-        <DashboardHeaderActions requiredRole="GRANTEE" />
+        <DashboardHeaderActions requiredRole="YOUTH" supportInboxPath="/youth-dashboard/inquiries" />
       </div>
     </header>
   );
