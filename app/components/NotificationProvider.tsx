@@ -2,12 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-type NotificationReference = { id: string };
-
 type NotificationContextValue = {
   readNotificationIds: Set<string>;
   unreadCount: number;
-  syncNotifications: (notifications: NotificationReference[]) => void;
   markNotificationAsRead: (notificationId: string) => Promise<void>;
   markAllNotificationsAsRead: (notificationIds: string[]) => Promise<void>;
 };
@@ -17,7 +14,6 @@ const NotificationContext = createContext<NotificationContextValue | null>(null)
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
   const [serverUnreadCount, setServerUnreadCount] = useState<number | null>(null);
-  const [localUnreadCount, setLocalUnreadCount] = useState(0);
   const mutationVersion = useRef(0);
 
   const refresh = async () => {
@@ -70,14 +66,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     };
   }, []);
 
-  const syncNotifications = useCallback((notifications: NotificationReference[]) => {
-    setLocalUnreadCount(notifications.filter((notification) => !readNotificationIds.has(notification.id)).length);
-  }, [readNotificationIds]);
-
   const markNotificationAsRead = useCallback(async (notificationId: string) => {
     mutationVersion.current += 1;
     setReadNotificationIds((current) => new Set(current).add(notificationId));
-    setLocalUnreadCount((current) => Math.max(0, current - 1));
     setServerUnreadCount((current) => current === null ? 0 : Math.max(0, current - 1));
     try {
       await fetch("/api/my/notifications/read", {
@@ -93,10 +84,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const markAllNotificationsAsRead = useCallback(async (notificationIds: string[]) => {
     mutationVersion.current += 1;
     setReadNotificationIds((current) => new Set([...current, ...notificationIds]));
-    setLocalUnreadCount(0);
     setServerUnreadCount(0);
     try {
-      await fetch("/api/my/notifications/read-all", { method: "POST" });
+      await fetch("/api/my/notifications/read-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationIds }),
+      });
     } catch {
       // Keep the optimistic state when the background update is unavailable.
     }
@@ -104,11 +98,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const value = useMemo<NotificationContextValue>(() => ({
     readNotificationIds,
-    unreadCount: serverUnreadCount ?? localUnreadCount,
-    syncNotifications,
+    unreadCount: serverUnreadCount ?? 0,
     markNotificationAsRead,
     markAllNotificationsAsRead,
-  }), [readNotificationIds, serverUnreadCount, localUnreadCount, syncNotifications, markNotificationAsRead, markAllNotificationsAsRead]);
+  }), [readNotificationIds, serverUnreadCount, markNotificationAsRead, markAllNotificationsAsRead]);
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }

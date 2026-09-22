@@ -95,11 +95,12 @@ function computeAge(birthDate: Date) {
 
 function getSupabaseAdminClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase admin configuration");
+    throw new Error(
+      "Missing Supabase admin configuration. Set SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY on the server."
+    );
   }
 
   return createSupabaseClient(supabaseUrl, serviceRoleKey, {
@@ -110,7 +111,9 @@ function getSupabaseAdminClient() {
   });
 }
 
-async function uploadFile(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, file: File, suffix: string) {
+type SupabaseStorageClient = Awaited<ReturnType<typeof createSupabaseServerClient>> | ReturnType<typeof getSupabaseAdminClient>;
+
+async function uploadFile(supabase: SupabaseStorageClient, userId: string, file: File, suffix: string) {
   const safeFileName = String(file.name)
     .replace(/\s+/g, "-")
     .replace(/[^a-zA-Z0-9._-]/g, "")
@@ -152,7 +155,7 @@ async function findExistingAuthIdByEmail(email: string) {
     }
   }
 
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
+  if (!process.env.SUPABASE_SECRET_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return null;
   }
 
@@ -296,19 +299,20 @@ export async function POST(req: NextRequest) {
     }
 
     const firstNameInput = String(body.firstName || "").trim();
+    const middleNameInput = String(body.middleInitial || "").trim();
     const lastNameInput = String(body.lastName || "").trim();
     const email = String(body.email || "").trim().toLowerCase();
     const contactNumber = String(body.contactNumber || "").trim();
 
-    if (!firstNameInput || !lastNameInput) {
-      return NextResponse.json({ error: "First and last name are required" }, { status: 400 });
+    if (!firstNameInput || !middleNameInput || !lastNameInput) {
+      return NextResponse.json({ error: "First, middle, and last name are required" }, { status: 400 });
     }
 
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    const names = splitFullName(`${firstNameInput} ${String(body.middleInitial || "").trim()} ${lastNameInput}`);
+    const names = splitFullName(`${firstNameInput} ${middleNameInput} ${lastNameInput}`);
     const birthDateInput = String(body.birthDate || "");
 
     let birthDate: Date;
@@ -411,6 +415,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (frontOcrResult.documentSide === "back") {
+      return NextResponse.json(
+        { error: "This appears to be the back of the ID. Please upload the front of your valid ID." },
+        { status: 400 }
+      );
+    }
+
     const frontNameMatches = doesOcrTextMatchName(
       firstNameInput,
       lastNameInput,
@@ -467,17 +478,13 @@ export async function POST(req: NextRequest) {
     uploads.push({ label: "residency", file: residencyFile });
 
     // Create a temporary Supabase client to upload files with the authenticated user
-    let idDocumentType = "Valid ID + Certificate of Residency";
+    const idDocumentType = "Valid ID + Certificate of Residency";
     let idFrontFileUrl: string | null = null;
     let idBackFileUrl: string | null = null;
     let idSingleFileUrl: string | null = null;
 
-    if (!currentUser?.id) {
-      return NextResponse.json(
-        { error: "Unable to upload ID documents because the user session could not be established." },
-        { status: 500 }
-      );
-    }
+    const storageUserId = currentUser?.id ?? authId;
+    const storageClient = currentUser?.id ? supabase : getSupabaseAdminClient();
 
     for (const upload of uploads) {
       if (upload.file.size > 10 * 1024 * 1024) {
@@ -487,7 +494,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const result = await uploadFile(supabase, currentUser.id, upload.file, upload.label);
+      const result = await uploadFile(storageClient, storageUserId, upload.file, upload.label);
       if (upload.label === "front") {
         idFrontFileUrl = result.url;
       } else if (upload.label === "back") {
@@ -498,8 +505,21 @@ export async function POST(req: NextRequest) {
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      const kkProfile = await (tx as any).kKProfile.create({
-        data: {
+      const kkProfile = await (tx as any).kKProfile.upsert({
+        where: { email },
+        update: {
+          firstName: names.firstName,
+          middleName: names.middleName,
+          lastName: names.lastName,
+          fullName: names.fullName,
+          purok: resolvedSite,
+          addressLine,
+          barangay: BARANGAY_PICO,
+          birthDate,
+          contactNumber,
+          isVerified: false,
+        },
+        create: {
           firstName: names.firstName,
           middleName: names.middleName,
           lastName: names.lastName,
@@ -558,6 +578,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: appUser.id,
           fullName: names.fullName,
+          middleName: names.middleName,
           address,
           sex: String(body.sex || "").trim() || "Not specified",
           age,
@@ -608,7 +629,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     if (createdAuthUserId) {
       try {
-        if (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
+        if (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY) {
           const supabaseAdmin = getSupabaseAdminClient();
           await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
         }
@@ -617,7 +638,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+    const errorCode = err instanceof Prisma.PrismaClientKnownRequestError ? err.code : err?.code;
+    if (errorCode === "P2002") {
       return NextResponse.json(
         {
           error:
@@ -634,16 +656,32 @@ export async function POST(req: NextRequest) {
 
     if (err instanceof Error && err.message.includes("Missing Supabase")) {
       return NextResponse.json(
-        { error: "Server is missing Supabase configuration." },
-        { status: 500 }
+        {
+          error:
+            "Server is missing Supabase admin configuration. Add SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY to the server environment and restart the app.",
+        },
+        { status: 503 }
+      );
+    }
+
+    if (err instanceof Error && /unregistered api key|invalid api key/i.test(err.message)) {
+      return NextResponse.json(
+        { error: "Supabase server credentials are invalid or belong to a different project." },
+        { status: 503 }
       );
     }
 
     console.error(err);
     if (process.env.NODE_ENV !== "production") {
       // In development include the error message to help debugging.
-      return NextResponse.json({ error: "Invalid request", detail: String(err?.message || err) }, { status: 400 });
+      return NextResponse.json(
+        { error: "Unable to submit KK Profiling application.", detail: String(err?.message || err) },
+        { status: 500 }
+      );
     }
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Unable to submit KK Profiling application. Please try again later." },
+      { status: 500 }
+    );
   }
 }

@@ -28,7 +28,7 @@ export default function YouthDashboardHeader() {
         <nav className="hidden items-center gap-1 text-sm md:flex">
           <Link href="/?from=dashboard" className={navClass(pathname, "/")}>Home</Link>
           <Link href="/about?from=dashboard" className={navClass(pathname, "/about")}>About</Link>
-          <Link href="/?from=dashboard#programs" className={navClass(pathname, "/programs")}>Application</Link>
+          <Link href="/programs/kk-profiling/status" className={navClass(pathname, "/programs")}>Application</Link>
         </nav>
 
         <DashboardHeaderActions requiredRole="YOUTH" supportInboxPath="/youth-dashboard/inquiries" />

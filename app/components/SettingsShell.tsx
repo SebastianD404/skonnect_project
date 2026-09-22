@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, LockKeyhole, UserCircle } from "lucide-react";
+import { useAuth } from "./AuthProvider";
 
 type SettingsShellProps = {
 	title: string;
@@ -47,9 +48,13 @@ export function SettingsShell({
 }: SettingsShellProps) {
 	const router = useRouter();
 	const pathname = usePathname();
+	const { user: authUser } = useAuth();
 	const [profileName, setProfileName] = useState(profileNameFromServer ?? "Your account");
 	const [profileEmail, setProfileEmail] = useState(profileEmailFromServer ?? "");
 	const [profileAvatar, setProfileAvatar] = useState(profileAvatarFromServer ?? "");
+	const sharedProfileName = authUser?.fullName ?? profileName;
+	const sharedProfileEmail = authUser?.email ?? profileEmail;
+	const sharedProfileAvatar = authUser?.avatarUrl ?? profileAvatar;
 
 	useEffect(() => {
 		const hasServerProfile = profileNameFromServer !== undefined || profileEmailFromServer !== undefined || profileAvatarFromServer !== undefined;
@@ -126,13 +131,13 @@ export function SettingsShell({
 	}, [profileNameFromServer, profileEmailFromServer, profileAvatarFromServer]);
 
 	const initials = useMemo(() => {
-		return profileName
+		return sharedProfileName
 			.split(" ")
 			.filter(Boolean)
 			.slice(0, 2)
 			.map((part) => part[0]?.toUpperCase())
 			.join("") || "?";
-	}, [profileName]);
+	}, [sharedProfileName]);
 
 	return (
 		<main className="min-h-screen bg-[#F0F2F5] text-slate-900">
@@ -157,12 +162,12 @@ export function SettingsShell({
 					<aside className="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
 						<div className="flex items-center gap-3 rounded-[1.5rem] bg-slate-50 px-4 py-4">
 							<div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-base font-bold text-white shadow-sm">
-								{profileAvatar ? <img src={profileAvatar} alt={profileName} className="h-full w-full object-cover" /> : initials}
+								{sharedProfileAvatar ? <img src={sharedProfileAvatar} alt={sharedProfileName} className="h-full w-full object-cover" /> : initials}
 							</div>
 							<div className="min-w-0">
 								<p className="truncate text-sm font-semibold uppercase tracking-[0.2em] text-[#0F3D5C]">Logged in as</p>
-								<p className="truncate text-base font-bold text-slate-900">{profileName}</p>
-								<p className="truncate text-sm text-slate-500">{profileEmail || "Profile ready"}</p>
+								<p className="truncate text-base font-bold text-slate-900">{sharedProfileName}</p>
+								<p className="truncate text-sm text-slate-500">{sharedProfileEmail || "Profile ready"}</p>
 							</div>
 						</div>
 

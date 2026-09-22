@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import KKProfilingFormModal from "@/app/programs/kk-profiling/KKProfilingFormModal";
 import KKProfilingApprovedSummaryCard from "@/app/programs/kk-profiling/KKProfilingApprovedSummaryCard";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Clock3, FileText, ShieldCheck } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
@@ -231,9 +231,6 @@ export default function KKProfilingStatusPage() {
   }, []);
 
   const statusBadge = profile ? getStatusBadge(profile.status || "Pending verification") : null;
-  const isReturnedStatus = profile?.status.toLowerCase().includes("returned");
-  const isResubmittedStatus = profile?.status.toLowerCase().includes("resubmitted");
-  
   // NUCLEAR OPTION 2: Strict Type Booleans - Eliminate Falsy Traps
   // Never use loose checks like !user.hasSeenModal or && !hasSeen
   // Require explicit boolean evaluation against true/false only
@@ -298,7 +295,7 @@ export default function KKProfilingStatusPage() {
       )}
 
       {/* Data validation guard */}
-      {isMounted && !isProfileDataValid && (
+      {isMounted && !loading && !isProfileDataValid && !noProfile && !error && !authRequired && (
         <main className="mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:px-8">
           <div className="rounded-[2rem] border border-slate-200 bg-white p-10 text-center text-sm text-slate-600 shadow-sm">
             Loading your KK profiling status...
@@ -307,7 +304,7 @@ export default function KKProfilingStatusPage() {
       )}
 
       {/* Only render main content if data is valid and mounted */}
-      {isMounted && isProfileDataValid && (
+      {isMounted && (isProfileDataValid || noProfile || error || authRequired) && (
         <main className="mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:px-8">
           <div className="mb-4 flex items-center gap-2 text-sm text-slate-600">
             <button
@@ -337,76 +334,173 @@ export default function KKProfilingStatusPage() {
               Loading your KK profiling status...
             </div>
           ) : noProfile ? (
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm text-slate-900">
-              <h2 className="text-xl font-semibold">No KK Profiling found</h2>
-              <p className="mt-3 text-sm leading-7 text-slate-700">
-                We could not find a KK Profiling registration linked to your account. Please register so you can track your status.
-              </p>
-              <div className="mt-6">
-                <Link
-                  href="/programs/kk-profiling"
-                  className="inline-flex items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-                >
-                  Register for KK Profiling
-                </Link>
+            <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
+              <div className="bg-[linear-gradient(120deg,#0f3d5c_0%,#145b72_58%,#e7f4f1_160%)] px-6 py-8 text-white sm:px-10 sm:py-10">
+                <div className="flex max-w-3xl flex-col gap-6">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25">
+                    <FileText className="h-6 w-6" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-teal-100">Application center</p>
+                    <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Start your KK Profiling application</h2>
+                    <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-100 sm:text-base">
+                      You do not have an active KK Profiling application yet. Complete the registration once and this page will become your dedicated place to track review progress, documents, and next steps.
+                    </p>
+                  </div>
+                  <div>
+                    <Link
+                      href="/programs/kk-profiling"
+                      className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-[#0F3D5C] shadow-lg transition hover:-translate-y-0.5 hover:bg-teal-50"
+                    >
+                      Begin application
+                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-6 py-8 sm:px-10 sm:py-10">
+                <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
+                  <section aria-labelledby="application-process-heading">
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-teal-700">What to expect</p>
+                    <h3 id="application-process-heading" className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">A clear path from registration to review</h3>
+                    <div className="mt-6 divide-y divide-slate-200 border-y border-slate-200">
+                      <div className="flex gap-4 py-5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-50 text-sm font-bold text-teal-800">1</span>
+                        <div>
+                          <p className="font-semibold text-slate-950">Complete your profile</p>
+                          <p className="mt-1 text-sm leading-6 text-slate-600">Enter your personal details and upload the required identification documents.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-4 py-5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-sm font-bold text-amber-800">2</span>
+                        <div>
+                          <p className="font-semibold text-slate-950">Staff verification</p>
+                          <p className="mt-1 text-sm leading-6 text-slate-600">Barangay Pico staff review your information and documents for completeness.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-4 py-5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-sm font-bold text-emerald-800">3</span>
+                        <div>
+                          <p className="font-semibold text-slate-950">Monitor your decision</p>
+                          <p className="mt-1 text-sm leading-6 text-slate-600">Return here to see your status, reviewer notes, and any requested updates.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <aside className="border-l-0 border-slate-200 lg:border-l lg:pl-8">
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Before you begin</p>
+                    <div className="mt-4 space-y-4">
+                      <div className="flex gap-3">
+                        <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" aria-hidden="true" />
+                        <p className="text-sm leading-6 text-slate-600">Have a valid ID and Certificate of Residency ready for upload.</p>
+                      </div>
+                      <div className="flex gap-3">
+                        <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" aria-hidden="true" />
+                        <p className="text-sm leading-6 text-slate-600">The form saves your progress while you work in this browser.</p>
+                      </div>
+                      <div className="flex gap-3">
+                        <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" aria-hidden="true" />
+                        <p className="text-sm leading-6 text-slate-600">After submission, this page becomes your application dashboard.</p>
+                      </div>
+                    </div>
+                  </aside>
+                </div>
               </div>
             </div>
           ) : error ? (
-            <div className="rounded-[2rem] border border-rose-200 bg-rose-50 p-8 shadow-sm text-slate-900">
-              <h2 className="text-xl font-semibold">Unable to load status</h2>
-              <p className="mt-3 text-sm leading-7 text-slate-700">{error}</p>
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <Link
-                  href="/programs/kk-profiling"
-                  className="inline-flex items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-                >
-                  Go to KK Profiling registration
-                </Link>
-                {authRequired ? (
-                  <Link
-                    href="/login?next=%2Fprograms%2Fkk-profiling%2Fstatus"
-                    className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-50"
-                  >
-                    Sign in to view status
-                  </Link>
-                ) : null}
+            authRequired ? (
+              <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
+                <div className="bg-[linear-gradient(120deg,#0f3d5c_0%,#145b72_58%,#e7f4f1_160%)] px-6 py-8 text-white sm:px-10 sm:py-10">
+                  <div className="max-w-2xl">
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-teal-100">Your application center</p>
+                    <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Sign in to continue</h2>
+                    <p className="mt-4 max-w-xl text-sm leading-7 text-slate-100 sm:text-base">
+                      Sign in to view your KK Profiling application, or begin a new application if you are not registered yet.
+                    </p>
+                    <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                      <Link
+                        href="/login?next=%2Fprograms%2Fkk-profiling%2Fstatus"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-[#0F3D5C] shadow-lg transition hover:-translate-y-0.5 hover:bg-teal-50"
+                      >
+                        Sign in to view status
+                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                      </Link>
+                      <Link
+                        href="/programs/kk-profiling"
+                        className="inline-flex items-center justify-center rounded-xl border border-white/40 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+                      >
+                        Begin new application
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-4 px-6 py-6 sm:grid-cols-3 sm:px-10">
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-950">Track progress</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">See review updates in one place.</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-950">Manage documents</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">Review submitted identification.</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-950">Stay informed</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">Find notes and next steps quickly.</p>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-8 text-slate-900 shadow-sm">
+                <h2 className="text-xl font-semibold">We could not load your status</h2>
+                <p className="mt-3 text-sm leading-7 text-slate-700">{error}</p>
+                <button
+                  type="button"
+                  onClick={() => fetchProfile()}
+                  className="mt-6 inline-flex items-center justify-center rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  Try again
+                </button>
+              </div>
+            )
           ) : profile ? (
-            <div className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-              <div className="space-y-6 rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.35em] text-slate-500">Current status</p>
-                    <h2 className="mt-2 text-3xl font-bold text-slate-950">{profile.status}</h2>
-                  </div>
-                  <div
-                    className={`inline-flex items-center rounded-full px-4 py-2 text-sm font-semibold text-white ${
-                      statusBadge?.tone === "emerald"
-                        ? "bg-emerald-600"
-                        : statusBadge?.tone === "amber"
-                        ? "bg-amber-500"
-                        : statusBadge?.tone === "sky"
-                        ? "bg-sky-600"
-                        : "bg-slate-500"
-                    }`}
-                  >
-                    {statusBadge?.label}
+            <div className="space-y-6">
+              <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
+                <div className="bg-[linear-gradient(120deg,#0f3d5c_0%,#145b72_58%,#e7f4f1_160%)] px-6 py-8 text-white sm:px-10">
+                  <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-teal-100">Application overview</p>
+                      <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{profile.status}</h2>
+                      <p className="mt-2 text-sm text-slate-100">Your KK Profiling application is being tracked here.</p>
+                    </div>
+                    <span className={`inline-flex w-fit items-center rounded-full px-4 py-2 text-sm font-semibold ${
+                      statusBadge?.tone === "emerald" ? "bg-emerald-100 text-emerald-900" :
+                      statusBadge?.tone === "amber" ? "bg-amber-100 text-amber-900" :
+                      statusBadge?.tone === "sky" ? "bg-sky-100 text-sky-900" : "bg-white/15 text-white ring-1 ring-white/25"
+                    }`}>
+                      {statusBadge?.label}
+                    </span>
                   </div>
                 </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                    <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Registered name</p>
-                    <p className="mt-3 text-lg font-semibold text-slate-950">{profile.fullName}</p>
-                  </div>
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                    <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Submitted</p>
-                    <p className="mt-3 text-lg font-semibold text-slate-950">{formattedDate ?? "Unknown"}</p>
-                  </div>
+                <div className="grid gap-5 border-b border-slate-200 px-6 py-6 sm:grid-cols-3 sm:px-10">
+                  <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Applicant</p><p className="mt-2 font-semibold text-slate-950">{profile.fullName}</p></div>
+                  <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Submitted</p><p className="mt-2 font-semibold text-slate-950">{formattedDate ?? "Unknown"}</p></div>
+                  <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Next step</p><p className="mt-2 font-semibold text-slate-950">{isApprovedStatus ? "Access your benefits" : "Await staff review"}</p></div>
                 </div>
+                <div className="grid gap-4 px-6 py-5 sm:grid-cols-3 sm:px-10">
+                  {["Application submitted", "Staff verification", "Decision and update"].map((step, index) => {
+                    const complete = isApprovedStatus || index === 0;
+                    const active = !complete && index === 1;
+                    return <div key={step} className="flex items-center gap-3" aria-current={active ? "step" : undefined}><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${complete ? "bg-teal-700 text-white" : active ? "bg-teal-50 text-teal-700 ring-2 ring-teal-200" : "bg-slate-100 text-slate-400"}`}>{complete ? "✓" : active ? <span className="flex items-center gap-0.5" aria-label="In progress"><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse" /><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse [animation-delay:150ms]" /><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse [animation-delay:300ms]" /></span> : index + 1}</span><span className={`text-sm font-medium ${complete ? "text-slate-900" : active ? "text-teal-800" : "text-slate-400"}`}>{step}{active ? <span className="ml-2 text-xs font-normal text-slate-500">In progress</span> : null}</span></div>;
+                  })}
+                </div>
+              </section>
 
-                <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6">
+              <div className="grid items-stretch gap-6 lg:grid-cols-[1fr_0.85fr]">
+              <div className="divide-y divide-slate-200 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+
+                <div className="p-6 sm:p-7">
                   <p className="text-sm font-semibold text-slate-900">Registration details</p>
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <div>
@@ -428,7 +522,7 @@ export default function KKProfilingStatusPage() {
                   </div>
                 </div>
 
-                <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="p-6 sm:p-7">
                   <p className="text-sm font-semibold text-slate-900">Uploaded identification</p>
                   <p className="mt-2 text-sm text-slate-600">{profile.idDocumentType || "Not uploaded yet"}</p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -476,14 +570,14 @@ export default function KKProfilingStatusPage() {
                 ) : null}
 
                 {isApprovedStatus === true ? (
-                  <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6">
+                  <div className="bg-emerald-50 p-6 sm:p-7">
                     <h3 className="text-lg font-semibold text-emerald-900">Your Application is Approved</h3>
                     <p className="mt-3 text-sm leading-7 text-emerald-800">
                       Congratulations! Your KK Profiling registration has been successfully approved by Barangay Pico. You can now access member-only programs and benefits. Your complete application information is available in the summary card on the right.
                     </p>
                   </div>
                 ) : (
-                  <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="bg-slate-50/70 p-6 sm:p-7">
                     <h3 className="text-lg font-semibold text-slate-900">What happens next</h3>
                     <p className="mt-3 text-sm leading-7 text-slate-600">
                       Your KK Profiling registration is under review. You will receive an update when Barangay Pico staff verify your details. If your registration is returned, please follow the admin note and re-submit any required updates.
@@ -492,7 +586,7 @@ export default function KKProfilingStatusPage() {
                 )}
               </div>
 
-              <aside className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
+              <aside className="h-full rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)] lg:sticky lg:top-24">
                 <div className="flex flex-col gap-5">
                   {isApprovedStatus === true ? (
                     <KKProfilingApprovedSummaryCard
@@ -535,15 +629,15 @@ export default function KKProfilingStatusPage() {
                             <div>
                               <p className="text-sm font-semibold text-slate-900">KK Profiling form</p>
                               <p className="mt-2 text-sm text-slate-600">
-                                Review and update your registration details if any information is incorrect.
+                                Review and update your registration details when information needs correction.
                               </p>
                             </div>
                             <button
                               type="button"
                               onClick={() => setShowFormModal(true)}
-                              className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                              className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
                             >
-                              View KK Profiling Form
+                              View
                             </button>
                           </div>
                         </div>
@@ -552,6 +646,7 @@ export default function KKProfilingStatusPage() {
                   )}
                 </div>
               </aside>
+              </div>
             </div>
           ) : null}
         </main>

@@ -250,11 +250,11 @@ export async function POST(req: Request) {
 
     const firstNameInput = String(body.firstName || "").trim();
     const lastNameInput = String(body.lastName || "").trim();
-    const middleInitialInput = String(body.middleInitial || "")
-      .replace(/[^a-zA-Z]/g, "")
-      .slice(0, 1)
-      .toUpperCase();
-    const fullNameFromParts = [firstNameInput, middleInitialInput, lastNameInput]
+    const middleNameInput = String(body.middleInitial || "")
+      .replace(/[^a-zA-Z\s.'-]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const fullNameFromParts = [firstNameInput, middleNameInput, lastNameInput]
       .filter(Boolean)
       .join(" ")
       .replace(/\s+/g, " ")
@@ -277,8 +277,8 @@ export async function POST(req: Request) {
     const birthDate = body.birthDate ? new Date(body.birthDate) : null;
     const sex = String(body.sex || "").trim() || "Not specified";
 
-    if (!fullName) {
-      return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+    if (!firstNameInput || !middleNameInput || !lastNameInput) {
+      return NextResponse.json({ error: "First, middle, and last name are required" }, { status: 400 });
     }
     if (!purok) {
       return NextResponse.json(
@@ -475,6 +475,7 @@ export async function POST(req: Request) {
         data: {
           userId: appUser.id,
           fullName: names.fullName,
+          middleName: names.middleName,
           address,
           sex,
           age,

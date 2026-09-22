@@ -42,12 +42,14 @@ export function doesOcrTextMatchName(
     return false;
   }
 
-  const firstPass = firstTokens.every(
-    (token) => getBestNameMatchScore(token, ocrWords) >= threshold
-  );
-  const lastPass = lastTokens.every(
-    (token) => getBestNameMatchScore(token, ocrWords) >= threshold
-  );
+  const averageScore = (tokens: string[]) => {
+    const scores = tokens.map((token) => getBestNameMatchScore(token, ocrWords));
+    return scores.reduce((total, score) => total + score, 0) / scores.length;
+  };
+
+  const relaxedThreshold = Math.min(threshold, 0.65);
+  const firstPass = averageScore(firstTokens) >= relaxedThreshold;
+  const lastPass = averageScore(lastTokens) >= relaxedThreshold;
 
   return firstPass && lastPass;
 }

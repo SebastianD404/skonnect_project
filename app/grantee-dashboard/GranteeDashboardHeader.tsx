@@ -14,7 +14,7 @@ function navClass(pathname: string, href: string) {
   );
 }
 
-export default function GranteeDashboardHeader() {
+export default function GranteeDashboardHeader({ requiredRole = "GRANTEE" }: { requiredRole?: string | null }) {
   const pathname = usePathname();
 
   return (
@@ -30,10 +30,10 @@ export default function GranteeDashboardHeader() {
         <nav className="hidden items-center gap-1 text-sm md:flex">
           <Link href="/?from=dashboard" className={navClass(pathname, "/")}>Home</Link>
           <Link href="/about?from=dashboard" className={navClass(pathname, "/about")}>About</Link>
-          <Link href="/?from=dashboard#programs" className={navClass(pathname, "/programs")}>Application</Link>
+          <Link href="/programs/kk-profiling/status" className={navClass(pathname, "/programs")}>Application</Link>
         </nav>
 
-        <DashboardHeaderActions requiredRole="GRANTEE" />
+        <DashboardHeaderActions requiredRole={requiredRole ?? undefined} />
       </div>
     </header>
   );

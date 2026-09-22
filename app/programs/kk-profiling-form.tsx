@@ -37,6 +37,60 @@ const initialForm = {
 };
 
 const REQUIRED_DOCUMENT_TYPE = "Valid ID + Certificate of Residency";
+const KK_PROFILING_DRAFT_KEY = "skonnect:kk-profiling-draft";
+const KK_PROFILING_FILES_DB = "skonnect-kk-profiling-files";
+const KK_PROFILING_FILES_STORE = "documents";
+type ProfilingDocumentKey = "front" | "back" | "residency";
+
+function openProfilingFilesDb() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = window.indexedDB.open(KK_PROFILING_FILES_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(KK_PROFILING_FILES_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveProfilingFile(key: ProfilingDocumentKey, file: File | null) {
+  const db = await openProfilingFilesDb();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(KK_PROFILING_FILES_STORE, "readwrite");
+    transaction.objectStore(KK_PROFILING_FILES_STORE).put(file, key);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+}
+
+async function loadProfilingFiles() {
+  const db = await openProfilingFilesDb();
+  const files = await Promise.all(
+    (["front", "back", "residency"] as ProfilingDocumentKey[]).map(
+      (key) =>
+        new Promise<[ProfilingDocumentKey, File | null]>((resolve, reject) => {
+          const request = db
+            .transaction(KK_PROFILING_FILES_STORE, "readonly")
+            .objectStore(KK_PROFILING_FILES_STORE)
+            .get(key);
+          request.onsuccess = () => resolve([key, request.result ?? null]);
+          request.onerror = () => reject(request.error);
+        })
+    )
+  );
+  db.close();
+  return Object.fromEntries(files) as Partial<Record<ProfilingDocumentKey, File | null>>;
+}
+
+async function clearProfilingFiles() {
+  const db = await openProfilingFilesDb();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(KK_PROFILING_FILES_STORE, "readwrite");
+    transaction.objectStore(KK_PROFILING_FILES_STORE).clear();
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+}
 
 function computeAgeFromBirthDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -82,6 +136,7 @@ export default function KKProfilingForm() {
   const [accountExistsFallback, setAccountExistsFallback] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
+  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
   const [ocrValidationState, setOcrValidationState] = useState<Record<DocumentOCRKey, DocumentOCRState>>({
     front: { status: "idle", file: null },
     back: { status: "idle", file: null },
@@ -89,6 +144,47 @@ export default function KKProfilingForm() {
   });
 
   const isOcrVerified = Object.values(ocrValidationState).every((state) => state.status === "success");
+
+  useEffect(() => {
+    let active = true;
+    void loadProfilingFiles()
+      .then((files) => {
+        if (active && Object.values(files).some(Boolean)) {
+          setIdFiles((current) => ({ ...current, ...files }));
+        }
+      })
+      .catch((error) => console.warn("Unable to restore KK profiling documents", error));
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const savedDraft = window.sessionStorage.getItem(KK_PROFILING_DRAFT_KEY);
+      if (savedDraft) {
+        const parsedDraft = JSON.parse(savedDraft);
+        if (parsedDraft && typeof parsedDraft === "object") {
+          setForm({ ...initialForm, ...parsedDraft });
+        }
+      }
+    } catch (error) {
+      console.warn("Unable to restore KK profiling draft", error);
+    } finally {
+      setHasLoadedDraft(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedDraft) return;
+
+    try {
+      window.sessionStorage.setItem(KK_PROFILING_DRAFT_KEY, JSON.stringify(form));
+    } catch (error) {
+      console.warn("Unable to save KK profiling draft", error);
+    }
+  }, [form, hasLoadedDraft]);
 
   // Check if user is already approved and redirect
   useEffect(() => {
@@ -154,8 +250,10 @@ export default function KKProfilingForm() {
   }
 
   function normalizedMiddleInitial(value: string) {
-    const cleaned = value.replace(/[^a-zA-Z]/g, "").slice(0, 1).toUpperCase();
-    return cleaned;
+    return value
+      .replace(/[^a-zA-Z\s.'-]/g, "")
+      .replace(/\s+/g, " ")
+      .slice(0, 80);
   }
 
   function normalizeText(value: string) {
@@ -274,6 +372,7 @@ export default function KKProfilingForm() {
   }
 
   function handleIdFileChange(field: keyof typeof idFiles, file: File | null) {
+    void saveProfilingFile(field, file).catch((error) => console.warn("Unable to save KK profiling document", error));
     setIdFiles((current) => ({
       ...current,
       [field]: file,
@@ -281,6 +380,7 @@ export default function KKProfilingForm() {
   }
 
   function removeIdFile(field: keyof typeof idFiles) {
+    void saveProfilingFile(field, null).catch((error) => console.warn("Unable to remove KK profiling document", error));
     setIdFiles((current) => ({
       ...current,
       [field]: null,
@@ -320,6 +420,7 @@ export default function KKProfilingForm() {
   function validate() {
     if (!form.lastName.trim()) return "Last name is required";
     if (!form.firstName.trim()) return "First name is required";
+    if (!form.middleInitial.trim()) return "Middle name is required";
     if (!form.sitio.trim()) return "Sitio is required";
     if (!form.barangay.trim()) return "Barangay is required";
     if (!form.municipality.trim()) return "Municipality is required";
@@ -441,6 +542,8 @@ export default function KKProfilingForm() {
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
         setForm(initialForm);
+        window.sessionStorage.removeItem(KK_PROFILING_DRAFT_KEY);
+        void clearProfilingFiles().catch((error) => console.warn("Unable to clear KK profiling documents", error));
         setIdFiles({ front: null, back: null, residency: null });
         setOcrValidationState({
           front: { status: "idle", file: null },
@@ -511,10 +614,10 @@ export default function KKProfilingForm() {
         </div>
       ) : (
         <>
-        <form onSubmit={handleSubmit} className="grid gap-4">
+        <form onSubmit={handleSubmit} className="grid gap-x-4 gap-y-6 [&_label]:gap-1.5">
           <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
 
-      <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
+      <div className="relative mb-8 rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
         <div className="min-w-0 pr-24">
           <strong>Informed Consent</strong>
           <p className="mt-2">The Profiling aims to gather KK member information for the National Youth Commission. Data will be stored and used for database management by the NYC. Participation is voluntary. No monetary compensation will be provided.</p>
@@ -525,7 +628,7 @@ export default function KKProfilingForm() {
       </div>
 
 
-      <h4 className="text-lg font-semibold">PART I: Profile</h4>
+      <h4 className="mt-10 mb-6 text-lg font-semibold">PART I: Profile</h4>
       <p className="text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -540,12 +643,13 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex flex-col">
-          <span className="text-sm font-semibold">Middle Name / Initial</span>
+          <span className="text-sm font-semibold">Middle Name *</span>
           <input
             value={form.middleInitial}
             onChange={(e) => setField("middleInitial", normalizedMiddleInitial(e.target.value))}
-            maxLength={1}
-            className="mt-1 rounded-lg border px-3 py-2 uppercase"
+            maxLength={80}
+            required
+            className="mt-1 rounded-lg border px-3 py-2"
           />
         </label>
       </div>
@@ -637,7 +741,7 @@ export default function KKProfilingForm() {
         <input value={form.contactNumber} onChange={(e) => setField("contactNumber", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2" />
       </label>
 
-      <h4 className="text-lg font-semibold">PART II: Demographic Characteristics</h4>
+      <h4 className="mt-10 mb-6 text-lg font-semibold">PART II: Demographic Characteristics</h4>
 
       <label className="flex flex-col">
         <span className="text-sm font-semibold">Civil Status *</span>
@@ -782,6 +886,7 @@ export default function KKProfilingForm() {
           middleInitial={form.middleInitial}
           lastName={form.lastName}
           profileBirthDate={form.birthDate}
+          initialFiles={idFiles}
           onFileSelected={(key, file) => {
             const field = key === "front" ? "front" : key === "back" ? "back" : "residency";
             handleIdFileChange(field as keyof typeof idFiles, file);

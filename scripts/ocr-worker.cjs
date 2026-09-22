@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { createRequire } = require("module");
+const sharp = require("sharp");
 
 const requireFromScript = createRequire(__filename);
 const { createWorker, PSM } = requireFromScript("tesseract.js");
@@ -99,6 +100,14 @@ const CERTIFICATE_TERMS = [
   "Residency",
 ];
 
+const CERTIFICATE_DOCUMENT_TERMS = [
+  "Certificate of Residency",
+  "certificate",
+  "residency",
+  "resident",
+  "residing",
+];
+
 function normalizeText(text) {
   return text.toLowerCase();
 }
@@ -129,21 +138,32 @@ async function main() {
   try {
     await worker.load();
     await worker.reinitialize("eng");
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO.toString() });
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT.toString() });
 
-    const { data } = await worker.recognize(fileBuffer);
+    const processedBuffer = await sharp(fileBuffer)
+      .grayscale()
+      .normalize()
+      .linear(1.5, -(128 * 1.5) + 128)
+      .toBuffer();
+
+    const { data } = await worker.recognize(processedBuffer);
     const rawText = String(data?.text || "");
 
     if (documentType === "front_id" || documentType === "back_id") {
       const genericMatches = findMatches(rawText, ID_KEYWORDS);
       const frontMatches = findMatches(rawText, FRONT_ID_TERMS);
       const backMatches = findMatches(rawText, BACK_ID_TERMS);
-      const hasCertificateTerms = findMatches(rawText, CERTIFICATE_TERMS).length > 0;
+      // A school ID may legitimately mention Pico or Barangay Pico. Only
+      // certificate-specific wording should exclude it from ID validation.
+      const hasCertificateTerms = findMatches(rawText, CERTIFICATE_DOCUMENT_TERMS).length > 0;
+      const strongFrontMatches = frontMatches.filter((match) => match.toLowerCase() !== "name");
+      const looksLikeBackId = backMatches.length > 0 && strongFrontMatches.length === 0;
 
       const hasGenericId = genericMatches.length >= 2;
       const isFrontId = frontMatches.length >= 1;
       const isBackId = backMatches.length >= 1;
       const hasSchoolIdText = /\b(student|college|university|school|id no\.?|id\s*no\.?|id number)\b/i.test(rawText);
+      const hasIdSignal = hasGenericId || hasSchoolIdText;
 
       // Relaxed validation rules: front IDs still require front-specific signals,
       // but back IDs can be accepted if they contain generic ID keywords plus
@@ -151,12 +171,12 @@ async function main() {
       // print terms on the back that aren't in our keyword list and OCR can be noisy).
       let isValidId = false;
       if (documentType === "front_id") {
-        isValidId = hasGenericId && !hasCertificateTerms && (isFrontId || hasSchoolIdText);
+        isValidId = hasIdSignal && !hasCertificateTerms && (isFrontId || hasSchoolIdText);
       } else {
         const longEnough = rawText.replace(/\s+/g, " ").trim().length >= 60;
         // Accept back ID when generic matches found and not a certificate, and
         // either explicit back terms found or the OCR output looks substantive.
-        isValidId = hasGenericId && !hasCertificateTerms && (isBackId || longEnough || !isFrontId);
+        isValidId = hasIdSignal && !hasCertificateTerms && (isBackId || longEnough || !isFrontId);
       }
 
       const result = {
@@ -164,6 +184,7 @@ async function main() {
         isValid: isValidId,
         matchedKeywords: genericMatches,
         text: rawText,
+        documentSide: looksLikeBackId ? "back" : "unknown",
       };
       process.stdout.write(JSON.stringify(result));
       return;
@@ -171,8 +192,8 @@ async function main() {
 
     const matchedKeywords = findMatches(rawText, CERTIFICATE_TERMS);
     const hasGeneralTerm = matchedKeywords.length > 0;
-    const hasEight = /\b8\b/i.test(rawText) || /\beight\b/i.test(rawText);
-    const hasMonths = /\bmonths\b/i.test(rawText);
+    const hasEight = /\b(8|08|eight)\b/i.test(rawText);
+    const hasMonths = /\b(months?|mos\.?)\b/i.test(rawText);
     const result = {
       success: true,
       isValid: hasGeneralTerm && hasEight && hasMonths,

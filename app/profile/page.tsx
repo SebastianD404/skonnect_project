@@ -8,7 +8,7 @@ import { isGranteeProfileComplete } from "@/lib/grantee-profile";
 
 const db = prisma;
 
-export default async function ProfilePage() {
+export default async function ProfilePage({ searchParams }: { searchParams?: Promise<{ email_confirmation?: string; reason?: string }> }) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -45,6 +45,8 @@ export default async function ProfilePage() {
 
   const needsGranteeProfile =
     appUser.role === "GRANTEE" && !isGranteeProfileComplete(appUser.grantee);
+  const confirmationParams = searchParams ? await searchParams : undefined;
+  const pendingEmail = (user as typeof user & { new_email?: string | null }).new_email ?? null;
 
   return (
     <SettingsShell
@@ -70,6 +72,9 @@ export default async function ProfilePage() {
         school={appUser.grantee?.school ?? ""}
         yearLevel={appUser.grantee?.yearLevel ?? ""}
         needsGranteeProfile={needsGranteeProfile}
+        emailConfirmation={confirmationParams?.email_confirmation}
+        emailConfirmationReason={confirmationParams?.reason}
+        pendingEmail={pendingEmail}
       />
     </SettingsShell>
   );

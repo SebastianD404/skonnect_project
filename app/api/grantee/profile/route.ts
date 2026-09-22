@@ -5,6 +5,9 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const formData = new FormData();
+    const submittedEmail = typeof payload.email === "string" ? payload.email : "";
+
+    console.log("Profile email payload:", submittedEmail);
 
     for (const field of ["fullName", "email", "phoneNumber", "school", "yearLevel", "currentPassword", "newPassword", "confirmPassword"]) {
       const value = payload[field];

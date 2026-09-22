@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
@@ -15,6 +15,9 @@ type ProfileSettingsFormProps = {
   school: string;
   yearLevel: string;
   needsGranteeProfile: boolean;
+  emailConfirmation?: string;
+  emailConfirmationReason?: string;
+  pendingEmail?: string | null;
 };
 
 function looksLikeEmail(value: string) {
@@ -58,21 +61,27 @@ export function ProfileSettingsForm({
   school,
   yearLevel,
   needsGranteeProfile,
+  emailConfirmation,
+  emailConfirmationReason,
+  pendingEmail,
 }: ProfileSettingsFormProps) {
   const router = useRouter();
-  const initialProfile = useRef({ fullName, email, phoneNumber });
-  const [state, setState] = useState<{ error?: string; message?: string } | null>(null);
+  const [state, setState] = useState<{ error?: string; message?: string } | null>(
+    emailConfirmation === "success"
+      ? { message: "Your email was confirmed successfully." }
+      : emailConfirmation === "error"
+        ? { error: emailConfirmationReason === "otp_expired" ? "This confirmation link has expired or was already used. Submit the email change again to receive a new link." : "We could not confirm this email link. Submit the email change again to receive a new link." }
+        : null
+  );
   const [isPending, setIsPending] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [draftFullName, setDraftFullName] = useState(toDisplayName(fullName, email));
-  const [draftEmail, setDraftEmail] = useState(email);
-  const [draftPhoneNumber, setDraftPhoneNumber] = useState(phoneNumber ?? "");
-  const [draftSchool, setDraftSchool] = useState(
-    school === GRANTEE_PLACEHOLDER_SCHOOL ? "" : school
-  );
-  const [draftYearLevel, setDraftYearLevel] = useState(
-    yearLevel === GRANTEE_PLACEHOLDER_YEAR_LEVEL ? "" : yearLevel
-  );
+  const [formData, setFormData] = useState(() => ({
+    fullName: toDisplayName(fullName, email),
+    email,
+    phoneNumber: phoneNumber ?? "",
+    school: school === GRANTEE_PLACEHOLDER_SCHOOL ? "" : school,
+    yearLevel: yearLevel === GRANTEE_PLACEHOLDER_YEAR_LEVEL ? "" : yearLevel,
+  }));
 
   useEffect(() => {
     // Prefer server-stored avatar; fall back to local storage for older data
@@ -92,31 +101,31 @@ export function ProfileSettingsForm({
       } catch {}
     })();
 
-    localStorage.setItem("skonnect-profile-name", toDisplayName(initialProfile.current.fullName, initialProfile.current.email));
-    localStorage.setItem("skonnect-profile-email", initialProfile.current.email);
+    localStorage.setItem("skonnect-profile-name", toDisplayName(fullName, email));
+    localStorage.setItem("skonnect-profile-email", email);
 
-    if (initialProfile.current.phoneNumber) {
-      localStorage.setItem("skonnect-profile-phone", initialProfile.current.phoneNumber);
+    if (phoneNumber) {
+      localStorage.setItem("skonnect-profile-phone", phoneNumber);
     }
 
     window.dispatchEvent(new Event("skonnect-profile-updated"));
-  }, []);
+  }, [email, fullName, phoneNumber]);
 
   useEffect(() => {
     if (state?.message) {
-      localStorage.setItem("skonnect-profile-name", toDisplayName(draftFullName, draftEmail));
-      localStorage.setItem("skonnect-profile-email", draftEmail);
+      localStorage.setItem("skonnect-profile-name", toDisplayName(formData.fullName, formData.email));
+      localStorage.setItem("skonnect-profile-email", formData.email);
 
-      if (draftPhoneNumber.trim()) {
-        localStorage.setItem("skonnect-profile-phone", draftPhoneNumber.trim());
+      if (formData.phoneNumber.trim()) {
+        localStorage.setItem("skonnect-profile-phone", formData.phoneNumber.trim());
       } else {
         localStorage.removeItem("skonnect-profile-phone");
       }
 
-      dispatchProfileUpdate(draftFullName, draftEmail, draftPhoneNumber);
+      dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
       router.refresh();
     }
-  }, [state?.message, draftFullName, draftEmail, draftPhoneNumber, router]);
+  }, [state?.message, formData, router]);
 
   function handleAvatarUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -135,7 +144,7 @@ export function ProfileSettingsForm({
           setAvatarPreview(body.avatarUrl);
           // Keep a local copy for backward compatibility
           try { localStorage.setItem("skonnect-avatar", body.avatarUrl); } catch {}
-          dispatchProfileUpdate(draftFullName, draftEmail, draftPhoneNumber);
+          dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
         }
       })
       .catch(() => {});
@@ -146,40 +155,50 @@ export function ProfileSettingsForm({
       .then(() => {
         localStorage.removeItem("skonnect-avatar");
         setAvatarPreview(null);
-        dispatchProfileUpdate(draftFullName, draftEmail, draftPhoneNumber);
+        dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
       })
       .catch(() => {
         localStorage.removeItem("skonnect-avatar");
         setAvatarPreview(null);
-        dispatchProfileUpdate(draftFullName, draftEmail, draftPhoneNumber);
+        dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
       });
   }
 
   function handleEmailChange(value: string) {
-    setDraftEmail(value);
-    dispatchProfileUpdate(draftFullName, value);
+    setFormData((current) => ({ ...current, email: value }));
+    dispatchProfileUpdate(formData.fullName, value, formData.phoneNumber);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setState(null);
 
-    if (!isValidEmail(draftEmail)) {
+    const submittedForm = {
+      ...formData,
+      fullName: formData.fullName.trim(),
+      email: formData.email.trim().toLowerCase(),
+      phoneNumber: formData.phoneNumber.trim(),
+      school: formData.school.trim(),
+      yearLevel: formData.yearLevel.trim(),
+    };
+
+    if (!isValidEmail(submittedForm.email)) {
       setState({ error: "Please enter a valid email address." });
       return;
     }
 
     setIsPending(true);
     try {
+      console.log("Submitting new email:", submittedForm.email);
       const response = await fetch("/api/grantee/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fullName: draftFullName,
-          email: draftEmail,
-          phoneNumber: draftPhoneNumber,
-          school: draftSchool,
-          yearLevel: draftYearLevel,
+          fullName: submittedForm.fullName,
+          email: submittedForm.email,
+          phoneNumber: submittedForm.phoneNumber,
+          school: submittedForm.school,
+          yearLevel: submittedForm.yearLevel,
         }),
       });
       const result = (await response.json()) as { error?: string; message?: string };
@@ -205,8 +224,8 @@ export function ProfileSettingsForm({
           </div>
 
           <div>
-            <p className="text-xl font-bold text-[#0F3D5C]">{draftFullName}</p>
-            <p className="mt-1 text-sm text-slate-500">{draftEmail}</p>
+            <p className="text-xl font-bold text-[#0F3D5C]">{formData.fullName}</p>
+            <p className="mt-1 text-sm text-slate-500">{formData.email}</p>
             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{role}</p>
           </div>
 
@@ -232,6 +251,12 @@ export function ProfileSettingsForm({
         <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]">Personal details</p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+          {pendingEmail ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
+              An email change to {pendingEmail} is currently pending. Please check your inbox.
+            </div>
+          ) : null}
+
           {role === "GRANTEE" && needsGranteeProfile ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
               Complete your grantee profile to unlock document submissions.
@@ -245,12 +270,8 @@ export function ProfileSettingsForm({
             <input
               id="fullName"
               name="fullName"
-              value={draftFullName}
-              onChange={(event) => {
-                const value = event.target.value;
-                setDraftFullName(value);
-                dispatchProfileUpdate(value, draftEmail);
-              }}
+              value={formData.fullName}
+              onChange={(event) => setFormData((current) => ({ ...current, fullName: event.target.value }))}
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
             />
           </div>
@@ -262,13 +283,13 @@ export function ProfileSettingsForm({
                 id="email"
                 name="email"
                 type="email"
-                value={draftEmail}
+                value={formData.email}
                 onChange={(event) => handleEmailChange(event.target.value)}
                 autoComplete="email"
                 required
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
               />
-              {draftEmail.trim() && !isValidEmail(draftEmail) ? (
+              {formData.email.trim() && !isValidEmail(formData.email) ? (
                 <p className="mt-2 text-xs text-red-600" role="alert">Enter a valid email address.</p>
               ) : null}
             </div>
@@ -278,8 +299,8 @@ export function ProfileSettingsForm({
                 id="phoneNumber"
                 name="phoneNumber"
                 type="tel"
-                value={draftPhoneNumber}
-                onChange={(event) => setDraftPhoneNumber(event.target.value)}
+                value={formData.phoneNumber}
+                onChange={(event) => setFormData((current) => ({ ...current, phoneNumber: event.target.value }))}
                 placeholder="Enter your phone number"
                 required
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
@@ -294,8 +315,8 @@ export function ProfileSettingsForm({
                 <input
                   id="school"
                   name="school"
-                  value={draftSchool}
-                  onChange={(event) => setDraftSchool(event.target.value)}
+                  value={formData.school}
+                  onChange={(event) => setFormData((current) => ({ ...current, school: event.target.value }))}
                   placeholder="Enter your school"
                   required
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
@@ -306,8 +327,8 @@ export function ProfileSettingsForm({
                 <input
                   id="yearLevel"
                   name="yearLevel"
-                  value={draftYearLevel}
-                  onChange={(event) => setDraftYearLevel(event.target.value)}
+                  value={formData.yearLevel}
+                  onChange={(event) => setFormData((current) => ({ ...current, yearLevel: event.target.value }))}
                   placeholder="e.g. 1st Year"
                   required
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"

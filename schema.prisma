@@ -26,13 +26,6 @@ enum GranteeStatus {
   REMOVED
 }
 
-enum EventStatus {
-  UPCOMING
-  REGISTRATION_OPEN
-  REGISTRATION_CLOSED
-  COMPLETED
-}
-
 enum SubmissionStatus {
   PENDING
   APPROVED
@@ -78,12 +71,10 @@ model User {
   hasSeenOnboarding Boolean @default(false)
 
   grantee                 Grantee?
-  registrations           Registration[]
   profilingRegistrations ProfilingRegistration[]
   inquiries               Inquiry[]
   announcements           Announcement[]
   auditLogs               AuditLog[]       @relation("ActorAuditLogs")
-  eventsCreated           Event[]          @relation("EventCreator")
   chatMessages            ChatMessage[]
   skeapApplications       SkeapApplication[]
 
@@ -180,49 +171,6 @@ model Submission {
   @@map("submissions")
 }
 
-// ─────────────────────────────────────────────
-// EVENT MANAGEMENT
-// ─────────────────────────────────────────────
-
-model Event {
-  id              String      @id @default(uuid())
-  title           String
-  description     String
-  venue           String
-  eventDate       DateTime
-
-  maxSlots        Int
-  filledSlots     Int         @default(0)
-  imageUrl        String?
-  status          EventStatus @default(UPCOMING)
-
-  isKatipunan     Boolean     @default(false) // Katipunan ng Kabataan special event type
-  payoutSchedule  String?
-
-  createdById     String
-  createdBy       User        @relation("EventCreator", fields: [createdById], references: [id])
-
-  registrations   Registration[]
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@map("events")
-}
-
-model Registration {
-  id          String   @id @default(uuid())
-  eventId     String
-  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  registeredAt DateTime @default(now())
-
-  @@unique([eventId, userId]) // prevents double-registration
-  @@map("registrations")
-}
-
 model ProfilingRegistration {
   id                    String   @id @default(uuid())
   program               String   @default("KK")
@@ -230,6 +178,7 @@ model ProfilingRegistration {
   user                  User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   fullName              String
+  middleName            String   @default("")
   address               String
   sex                   String
   age                   Int

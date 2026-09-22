@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
-import { X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ExternalLink, FileImage, UploadCloud, X } from "lucide-react";
+import { OFFICIAL_SITIOS } from "@/lib/kk";
 
 type KKProfilingRegistrationData = {
   id: string;
@@ -39,12 +40,6 @@ type SelectedFiles = {
   single?: File | null;
 };
 
-type PreviewUrls = {
-  front?: string;
-  back?: string;
-  single?: string;
-};
-
 type Props = {
   isOpen: boolean;
   registration: KKProfilingRegistrationData;
@@ -76,10 +71,32 @@ function computeAgeFromBirthDate(value: string) {
   return age >= 0 ? String(age) : "";
 }
 
-export default function KKProfilingFormModal({ isOpen, registration, onClose, onSaved }: Props) {
-  const [form, setForm] = useState({
-    fullName: registration.fullName ?? "",
-    address: registration.address ?? "",
+function splitEditName(fullName: string) {
+  const parts = fullName.trim().replace(/\s+/g, " ").split(" ").filter(Boolean);
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.length > 1 ? parts[parts.length - 1] : "",
+    middleName: parts.length > 2 ? parts.slice(1, -1).join(" ") : "",
+  };
+}
+
+function splitEditAddress(address: string) {
+  const parts = address.split(",").map((part) => part.trim()).filter(Boolean);
+  const sitioIndex = parts.findIndex((part) => OFFICIAL_SITIOS.some((sitio) => sitio.toLowerCase() === part.toLowerCase()));
+  return {
+    sitio: sitioIndex >= 0 ? parts[sitioIndex] : parts[0] ?? "",
+    barangay: parts.find((part) => /pico/i.test(part)) ?? "Pico",
+    municipality: parts.find((part) => /la trinidad/i.test(part)) ?? "La Trinidad",
+    province: parts.find((part) => /benguet/i.test(part)) ?? "Benguet",
+  };
+}
+
+function getEditFormValues(registration: KKProfilingRegistrationData) {
+  const name = splitEditName(registration.fullName ?? "");
+  const address = splitEditAddress(registration.address ?? "");
+  return {
+    ...name,
+    ...address,
     sex: registration.sex ?? "",
     age: registration.age ? String(registration.age) : "",
     birthDate: registration.birthDate ? registration.birthDate.slice(0, 10) : "",
@@ -97,62 +114,20 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     attendedKKAssembly: registration.attendedKKAssembly ?? "",
     assemblyTimes: registration.assemblyTimes ?? "",
     noAssemblyReason: registration.noAssemblyReason ?? "",
-  });
+  };
+}
+
+export default function KKProfilingFormModal({ isOpen, registration, onClose, onSaved }: Props) {
+  const [form, setForm] = useState(() => getEditFormValues(registration));
   const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({ front: null, back: null, single: null });
-  const [previewUrls, setPreviewUrls] = useState<PreviewUrls>({});
-  const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null);
-  const [previewModalAlt, setPreviewModalAlt] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    setForm({
-      fullName: registration.fullName ?? "",
-      address: registration.address ?? "",
-      sex: registration.sex ?? "",
-      age: registration.age ? String(registration.age) : "",
-      birthDate: registration.birthDate ? registration.birthDate.slice(0, 10) : "",
-      email: registration.email ?? "",
-      facebook: registration.facebook ?? "",
-      contactNumber: registration.contactNumber ?? "",
-      civilStatus: registration.civilStatus ?? "",
-      youthClassification: registration.youthClassification ?? "",
-      youthAgeGroup: registration.youthAgeGroup ?? "",
-      workStatus: registration.workStatus ?? "",
-      educationalBackground: registration.educationalBackground ?? "",
-      registeredSKVoter: registration.registeredSKVoter ?? "",
-      votedLastSK: registration.votedLastSK ?? "",
-      registeredNationalVoter: registration.registeredNationalVoter ?? "",
-      attendedKKAssembly: registration.attendedKKAssembly ?? "",
-      assemblyTimes: registration.assemblyTimes ?? "",
-      noAssemblyReason: registration.noAssemblyReason ?? "",
-    });
+    setForm(getEditFormValues(registration));
     setSelectedFiles({ front: null, back: null, single: null });
     setMessage(null);
   }, [registration]);
-
-  useEffect(() => {
-    const urls: PreviewUrls = {};
-
-    if (selectedFiles.front) {
-      urls.front = URL.createObjectURL(selectedFiles.front);
-    }
-    if (selectedFiles.back) {
-      urls.back = URL.createObjectURL(selectedFiles.back);
-    }
-    if (selectedFiles.single) {
-      urls.single = URL.createObjectURL(selectedFiles.single);
-    }
-
-    setPreviewUrls(urls);
-    return () => {
-      Object.values(urls).forEach((url) => {
-        if (url) {
-          URL.revokeObjectURL(url);
-        }
-      });
-    };
-  }, [selectedFiles.front, selectedFiles.back, selectedFiles.single]);
 
   if (!isOpen) {
     return null;
@@ -177,86 +152,46 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     }));
   }
 
-  function removeFile(field: keyof SelectedFiles) {
-    setSelectedFiles((current) => ({
-      ...current,
-      [field]: null,
-    }));
-  }
-
-  function openPreviewModal(url: string, alt: string) {
-    setPreviewModalUrl(url);
-    setPreviewModalAlt(alt);
-  }
-
-  function closePreviewModal() {
-    setPreviewModalUrl(null);
-    setPreviewModalAlt("");
-  }
-
-  function fileLabel(field: keyof SelectedFiles) {
-    if (field === "front") return "Front of ID";
-    if (field === "back") return "Back of ID";
-    return "Certificate of Residency";
-  }
-
-  function renderPreview(field: keyof SelectedFiles, file: File | null) {
-    if (!file) {
-      return null;
-    }
-
-    const url = previewUrls[field];
-    const isImage = file.type.startsWith("image/");
-    const isTooLarge = file.size > 10 * 1024 * 1024;
+  function renderDropzone(field: keyof SelectedFiles, title: string, accept: string, helper: string) {
+    const file = selectedFiles[field];
+    const inputId = `replacement-${field}`;
 
     return (
-      <div className="mt-3 grid gap-3 text-sm text-slate-700">
-        {isImage && url ? (
-          <button
-            type="button"
-            onClick={() => openPreviewModal(url, `${fileLabel(field)} preview`)}
-            className="group inline-flex h-24 w-24 overflow-hidden rounded-2xl bg-slate-100 p-1 text-left transition hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-          >
-            <img src={url} alt={`${fileLabel(field)} preview`} className="h-full w-full rounded-2xl object-contain" />
-          </button>
+      <label
+        htmlFor={inputId}
+        className={`flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${
+          file ? "border-green-500 bg-green-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-slate-100"
+        }`}
+      >
+        {file ? (
+          <>
+            <span className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-green-700">{title}</span>
+            <FileImage className="mb-2 h-8 w-8 text-green-600" aria-hidden="true" />
+            <span className="max-w-full truncate text-sm font-semibold text-green-800">Selected: {file.name}</span>
+            <span className="mt-1 text-xs text-green-700">Click to replace</span>
+          </>
         ) : (
-          <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-slate-100 text-sm text-slate-600">
-            {file.name}
-          </div>
+          <>
+            <span className="mb-2 text-sm font-semibold text-slate-900">{title}</span>
+            <UploadCloud className="mb-2 h-8 w-8 text-slate-400" aria-hidden="true" />
+            <span className="text-sm"><span className="font-medium text-blue-600">Click to upload</span> <span className="text-slate-500">or drag and drop</span></span>
+            <span className="mt-2 text-xs text-slate-500">{helper}</span>
+          </>
         )}
-        <div className="grid gap-1 text-xs text-slate-500">
-          <div className="font-semibold text-slate-900">{fileLabel(field)}</div>
-          <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-            <span>{formatBytes(file.size)}</span>
-            <span>·</span>
-            <span>{file.type || "Unknown format"}</span>
-          </div>
-        </div>
-        {isTooLarge ? (
-          <p className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-700">
-            File exceeds the 10MB limit. Please select a smaller file.
-          </p>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => removeFile(field)}
-          className="inline-flex items-center justify-center rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
-        >
-          Remove
-        </button>
-      </div>
+        <input
+          id={inputId}
+          type="file"
+          accept={accept}
+          onChange={(event) => handleFileChange(field, event.target.files?.[0] ?? null)}
+          className="hidden"
+        />
+      </label>
     );
   }
 
-  function formatBytes(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  }
-
   function validate() {
-    if (!form.fullName.trim()) return "Full name is required.";
-    if (!form.address.trim()) return "Address is required.";
+    if (!form.lastName.trim() || !form.firstName.trim() || !form.middleName.trim()) return "First, middle, and last name are required.";
+    if (!form.sitio.trim() || !form.barangay.trim() || !form.municipality.trim() || !form.province.trim()) return "Complete address details are required.";
     if (!form.sex.trim()) return "Sex is required.";
     if (!form.birthDate.trim()) return "Birth date is required.";
     if (!form.email.trim()) return "Email is required.";
@@ -290,8 +225,17 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     setIsSaving(true);
     try {
       const formData = new FormData();
-      formData.append("fullName", form.fullName);
-      formData.append("address", form.address);
+      const fullName = [form.firstName, form.middleName, form.lastName].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+      const address = [form.sitio, form.barangay, form.municipality, form.province].filter(Boolean).join(", ");
+      formData.append("fullName", fullName);
+      formData.append("address", address);
+      formData.append("lastName", form.lastName);
+      formData.append("firstName", form.firstName);
+      formData.append("middleInitial", form.middleName);
+      formData.append("sitio", form.sitio);
+      formData.append("barangay", form.barangay);
+      formData.append("municipality", form.municipality);
+      formData.append("province", form.province);
       formData.append("sex", form.sex);
       formData.append("age", String(Number(form.age) || 0));
       formData.append("birthDate", form.birthDate);
@@ -346,8 +290,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
-      <div className="relative mx-auto w-full max-w-5xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+      <div className="relative mx-auto flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6 py-5 sm:px-8">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">KK Profiling Registration</h2>
             <p className="mt-1 text-sm text-slate-500">Review and edit your submitted registration details.</p>
@@ -361,30 +305,53 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="max-h-[80vh] overflow-y-auto p-6">
+        <div className="kk-profiling-edit-form min-h-0 flex-1 space-y-4 overflow-y-auto p-6 sm:p-8 [&_.grid]:gap-y-4 [&_label]:gap-1.5">
           {message ? (
             <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {message}
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Full name</span>
+          <div>
+            <h3 className="mb-4 text-lg font-semibold text-slate-950">PART I: Profile</h3>
+            <p className="mt-1 text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
+          </div>
+
+          <div className="grid gap-x-4 gap-y-4 sm:grid-cols-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-last-name" className="text-sm font-semibold">Last Name *</label>
               <input
-                value={form.fullName}
-                onChange={(e) => setField("fullName", e.target.value)}
+                id="edit-last-name"
+                value={form.lastName}
+                onChange={(e) => setField("lastName", e.target.value)}
                 className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
               />
-            </label>
-            <label className="flex flex-col sm:col-span-2">
-              <span className="text-sm font-semibold">Address</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-first-name" className="text-sm font-semibold">First Name *</label>
               <input
-                value={form.address}
-                onChange={(e) => setField("address", e.target.value)}
+                id="edit-first-name"
+                value={form.firstName}
+                onChange={(e) => setField("firstName", e.target.value)}
                 className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
               />
-            </label>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-middle-name" className="text-sm font-semibold">Middle Name *</label>
+              <input
+                id="edit-middle-name"
+                value={form.middleName}
+                onChange={(e) => setField("middleName", e.target.value)}
+                className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5"><label htmlFor="edit-sitio" className="text-sm font-semibold">Sitio *</label><select id="edit-sitio" value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"><option value="">Select sitio</option>{OFFICIAL_SITIOS.map((sitio) => <option key={sitio} value={sitio}>{sitio}</option>)}</select></div>
+            <div className="flex flex-col gap-1.5"><label htmlFor="edit-barangay" className="text-sm font-semibold">Barangay *</label><input id="edit-barangay" value={form.barangay} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
+            <div className="flex flex-col gap-1.5"><label htmlFor="edit-municipality" className="text-sm font-semibold">Municipality *</label><input id="edit-municipality" value={form.municipality} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
+            <div className="flex flex-col gap-1.5"><label htmlFor="edit-province" className="text-sm font-semibold">Province *</label><input id="edit-province" value={form.province} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
@@ -457,6 +424,10 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
             />
           </label>
+
+          <div>
+            <h3 className="mt-10 mb-6 text-lg font-semibold text-slate-950">PART II: Demographic Characteristics</h3>
+          </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col">
@@ -622,102 +593,46 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
             </label>
           ) : null}
 
-          <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-4">
-            <div className="space-y-4">
-              <div className="space-y-3 rounded-[1.5rem] border border-slate-300 bg-white p-4">
-                <div className="text-sm">
-                  <p className="font-semibold text-slate-900">Currently on file</p>
-                  <p className="mt-2 text-xs uppercase tracking-wide text-slate-500">Valid ID + Certificate of Residency</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {registration.idFrontFileUrl ? (
-                      <button
-                        type="button"
-                        onClick={() => openPreviewModal(registration.idFrontFileUrl ?? "", "Front of ID")}
-                        className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
-                      >
-                        <span>📄</span> View front
-                      </button>
-                    ) : (
-                      <span className="text-xs text-slate-500">No front file</span>
-                    )}
-                    {registration.idBackFileUrl ? (
-                      <button
-                        type="button"
-                        onClick={() => openPreviewModal(registration.idBackFileUrl ?? "", "Back of ID")}
-                        className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
-                      >
-                        <span>📄</span> View back
-                      </button>
-                    ) : (
-                      <span className="text-xs text-slate-500">No back file</span>
-                    )}
-                  </div>
-                  <div className="mt-3">
-                    {registration.idSingleFileUrl ? (
-                      <button
-                        type="button"
-                        onClick={() => openPreviewModal(registration.idSingleFileUrl ?? "", "Certificate of Residency")}
-                        className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
-                      >
-                        <span>📄</span> View residency document
-                      </button>
-                    ) : (
-                      <span className="text-xs text-slate-500">No residency document</span>
-                    )}
-                  </div>
-                </div>
+          <section className="space-y-5 border-y border-slate-200 py-5" aria-labelledby="document-management-heading">
+            <div>
+              <h3 id="document-management-heading" className="text-lg font-semibold text-slate-950">Document management</h3>
+              <p className="mt-1 text-sm text-slate-600">Review the documents currently on file or choose replacements below.</p>
+            </div>
 
-                <div className="border-t border-slate-200 pt-3">
-                  <p className="text-sm font-semibold text-slate-900">
-                    {selectedFiles.front || selectedFiles.back || selectedFiles.single ? "📸 Replacement files selected" : "Upload replacement"}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {selectedFiles.front || selectedFiles.back || selectedFiles.single
-                      ? "Your new files will replace the current ones on file."
-                      : "Select new files to update your identification documents."}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <label className="flex flex-col gap-3 rounded-[1.75rem] bg-white p-4 shadow-sm">
-                  <span className="font-semibold text-slate-900">Front of ID</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(event) => handleFileChange("front", event.target.files?.[0] ?? null)}
-                    className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
-                  />
-                  {renderPreview("front", selectedFiles.front ?? null)}
-                </label>
-                <label className="flex flex-col gap-3 rounded-[1.75rem] bg-white p-4 shadow-sm">
-                  <span className="font-semibold text-slate-900">Back of ID</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(event) => handleFileChange("back", event.target.files?.[0] ?? null)}
-                    className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
-                  />
-                  {renderPreview("back", selectedFiles.back ?? null)}
-                </label>
-                <label className="flex flex-col gap-3 rounded-[1.75rem] bg-white p-4 shadow-sm">
-                  <span className="font-semibold text-slate-900">Certificate of Residency</span>
-                  <p className="text-sm text-slate-600">
-                    Upload a residency certificate that explicitly states you have lived in the barangay for at least 8 months.
-                  </p>
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    onChange={(event) => handleFileChange("single", event.target.files?.[0] ?? null)}
-                    className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
-                  />
-                  {renderPreview("single", selectedFiles.single ?? null)}
-                </label>
+            <div>
+              <p className="mb-3 text-sm font-semibold text-slate-900">Currently on file</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {[
+                  ["Front of ID", registration.idFrontFileUrl],
+                  ["Back of ID", registration.idBackFileUrl],
+                  ["Certificate of Residency", registration.idSingleFileUrl],
+                ].map(([title, url]) => (
+                  <a
+                    key={title}
+                    href={url || undefined}
+                    target={url ? "_blank" : undefined}
+                    rel={url ? "noreferrer noopener" : undefined}
+                    className="group flex min-h-20 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-blue-400 hover:bg-slate-50"
+                  >
+                    <FileImage className="h-5 w-5 shrink-0 text-slate-400" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">{title}<span className="mt-1 block text-xs font-normal text-slate-500">{url ? "Available to view" : "Not uploaded"}</span></span>
+                    {url ? <ExternalLink className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:text-blue-600" aria-hidden="true" /> : null}
+                  </a>
+                ))}
               </div>
             </div>
-          </div>
+
+            <div>
+              <p className="mb-3 text-sm font-semibold text-slate-900">Upload replacement</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {renderDropzone("front", "Front of ID", "image/*", "PNG, JPG (max. 10MB)")}
+                {renderDropzone("back", "Back of ID", "image/*", "PNG, JPG (max. 10MB)")}
+                {renderDropzone("single", "Certificate of Residency", "image/*,application/pdf", "PNG, JPG, PDF (max. 10MB)")}
+              </div>
+            </div>
+          </section>
         </div>
-        <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:justify-between sm:items-center">
+        <div className="flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <p className="text-sm text-slate-600">Your current status: <strong>{registration.reviewStatus}</strong></p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <button
@@ -739,39 +654,6 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
         </div>
       </div>
 
-      {previewModalUrl ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
-          <div className="relative mx-auto max-w-2xl rounded-[2rem] bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
-              <h3 className="text-lg font-semibold text-slate-950">{previewModalAlt}</h3>
-              <button
-                type="button"
-                onClick={closePreviewModal}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200"
-                aria-label="Close preview"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="flex items-center justify-center bg-slate-50 p-6">
-              <img
-                src={previewModalUrl}
-                alt={previewModalAlt}
-                className="max-h-96 max-w-full rounded-2xl object-contain"
-              />
-            </div>
-            <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-6 py-4">
-              <button
-                type="button"
-                onClick={closePreviewModal}
-                className="inline-flex justify-center rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -147,6 +147,20 @@ export async function POST(request: Request) {
       const result = parseOcrWorkerOutput(stdout);
       const response = getFriendlyValidationResponse(documentType, result);
 
+      if (documentType === "front_id" && result.documentSide === "back") {
+        return NextResponse.json(
+          {
+            ...response,
+            success: false,
+            status: "error",
+            badgeText: "Wrong ID Side",
+            message: "This appears to be the back of the ID. Please upload the front of your valid ID.",
+            isValid: false,
+          },
+          { status: 400 },
+        );
+      }
+
       if (documentType === "front_id" && firstName && lastName && response.success && response.isValid) {
         const nameMatched = doesOcrTextMatchName(firstName, lastName, result.text, 0.8);
         if (!nameMatched) {

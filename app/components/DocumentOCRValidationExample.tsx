@@ -20,6 +20,7 @@ type DocumentOCRValidationExampleProps = {
   firstName?: string;
   middleInitial?: string;
   lastName?: string;
+  initialFiles?: Partial<Record<DocumentOCRKey, File | null>>;
   showDebug?: boolean;
   profileBirthDate?: string;
   onFileSelected?: (key: DocumentOCRKey, file: File | null) => void;
@@ -33,6 +34,7 @@ export default function DocumentOCRValidationExample({
   profileBirthDate,
   middleInitial,
   lastName,
+  initialFiles,
   onFileSelected,
   onValidationChange,
   onRemoveFile,
@@ -56,6 +58,7 @@ export default function DocumentOCRValidationExample({
     back: null,
     residency: null,
   });
+  const restoredInitialFiles = useRef(false);
 
   useEffect(() => {
     onValidationChange?.(docs);
@@ -169,6 +172,17 @@ export default function DocumentOCRValidationExample({
     if (!file) return;
     await processFile(file, key);
   }
+
+  useEffect(() => {
+    if (restoredInitialFiles.current || !initialFiles) return;
+
+    const filesToRestore = (Object.entries(initialFiles) as Array<[DocumentOCRKey, File | null]>)
+      .filter(([, file]) => Boolean(file));
+    if (filesToRestore.length === 0) return;
+
+    restoredInitialFiles.current = true;
+    void Promise.all(filesToRestore.map(([key, file]) => processFile(file, key)));
+  }, [initialFiles]);
 
   function handlePaste(e: React.ClipboardEvent<HTMLDivElement>, key: DocumentOCRKey) {
     const file = e.clipboardData.files?.[0] ?? null;

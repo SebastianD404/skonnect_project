@@ -1,38 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { DashboardHeaderActions } from "./DashboardHeaderActions";
-
-interface SessionUser {
-  fullName?: string;
-  email?: string;
-  avatarUrl?: string;
-  role?: "YOUTH" | "GRANTEE" | "SK_OFFICIAL" | "SUPER_ADMIN";
-}
-
-function getRoleHomePath(role?: SessionUser["role"]) {
-  switch (role) {
-    case "YOUTH":
-      return "/youth-dashboard";
-    case "GRANTEE":
-      return "/grantee-dashboard";
-    case "SK_OFFICIAL":
-      return "/admin";
-    case "SUPER_ADMIN":
-      return "/system-admin";
-    default:
-      return null;
-  }
-}
-
-function shouldRedirectSignedInFromPath(pathname: string) {
-  if (pathname === "/") return true;
-  if (pathname.startsWith("/about")) return true;
-  if (pathname.startsWith("/programs")) return true;
-  return false;
-}
+import { useAuth } from "./AuthProvider";
 
 function navLinkClass(activePath: string, href: string) {
   const base = "inline-flex items-center justify-center px-4 py-2 font-semibold rounded-lg transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C]/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
@@ -43,50 +15,42 @@ function navLinkClass(activePath: string, href: string) {
 
 export function PublicHeader() {
   const pathname = usePathname();
-  const router = useRouter();
-  const [authLoading, setAuthLoading] = useState(true);
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const { user: sessionUser, loading: authLoading } = useAuth();
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
-  const [isScrolledToProgramsSection, setIsScrolledToProgramsSection] = useState(false);
+  const [activeHash, setActiveHash] = useState("");
+  const [isProgramsSectionVisible, setIsProgramsSectionVisible] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
-
-  const handleProgramsClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (pathname === "/") {
-      event.preventDefault();
-      const programsSection = document.getElementById("programs");
-      if (programsSection) {
-        programsSection.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }
-  };
 
   const handleLogoClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (pathname === "/") {
       event.preventDefault();
       window.scrollTo({ top: 0, behavior: "smooth" });
+      window.history.replaceState(null, "", "/");
+      setActiveHash("");
     }
   };
 
-  // Detect when #programs section is in view
   useEffect(() => {
-    const handleScroll = () => {
-      const programsSection = document.getElementById("programs");
-      if (!programsSection) {
-        setIsScrolledToProgramsSection(false);
-        return;
-      }
-
-      const rect = programsSection.getBoundingClientRect();
-      // Consider the Programs nav active only while the Programs section is
-      // visible in the viewport. Once the user scrolls past the section, it
-      // should deactivate and allow Home to become active again.
-      const sectionInView = rect.top < window.innerHeight && rect.bottom > 0;
-      setIsScrolledToProgramsSection(sectionInView);
-    };
-
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    const syncHash = () => setActiveHash(window.location.hash);
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
   }, []);
+
+  useEffect(() => {
+    if (pathname !== "/") return;
+
+    const programsSection = document.getElementById("programs");
+    if (!programsSection) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsProgramsSectionVisible(entry.isIntersecting),
+      { threshold: 0.2 },
+    );
+    observer.observe(programsSection);
+
+    return () => observer.disconnect();
+  }, [pathname]);
 
   useEffect(() => {
     function closePanel(event: Event) {
@@ -105,64 +69,11 @@ export function PublicHeader() {
     }
   }, [openPanel]);
 
-  useEffect(() => {
-    async function fetchSession() {
-      try {
-        setAuthLoading(true);
-        const response = await fetch("/api/session", { cache: "no-store" });
-        if (!response.ok) {
-          setSessionUser(null);
-          return;
-        }
-
-        const data = await response.json();
-        const user = data?.user || null;
-        const destination = getRoleHomePath(user?.role);
-
-        const intentionallyOpenedPublicPage = window.location.search === "?from=dashboard" || window.location.search === "?from=youth-dashboard";
-        if (destination && shouldRedirectSignedInFromPath(pathname) && !intentionallyOpenedPublicPage) {
-          router.replace(destination);
-          return;
-        }
-
-        setSessionUser(user);
-      } catch (error) {
-        console.error("Failed to fetch session:", error);
-        setSessionUser(null);
-      } finally {
-        setAuthLoading(false);
-      }
-    }
-
-    fetchSession();
-  }, []);
-
-  useEffect(() => {
-    async function refreshProfile(event: Event) {
-      const detail = (event as CustomEvent<Partial<SessionUser>>).detail;
-      if (detail?.fullName !== undefined || detail?.email !== undefined || detail?.avatarUrl !== undefined) {
-        setSessionUser((current) => current ? { ...current, ...detail } : current);
-      }
-
-      try {
-        const response = await fetch("/api/session", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = await response.json();
-        if (data?.user) setSessionUser(data.user);
-      } catch {
-        // Keep the immediately updated client state when reconciliation is unavailable.
-      }
-    }
-
-    window.addEventListener("skonnect-profile-updated", refreshProfile);
-    return () => window.removeEventListener("skonnect-profile-updated", refreshProfile);
-  }, []);
-
   const activePath = pathname.startsWith("/programs")
     ? "/programs"
     : pathname.startsWith("/about")
     ? "/about"
-    : isScrolledToProgramsSection && pathname === "/"
+    : pathname === "/" && activeHash === "#programs" && isProgramsSectionVisible
     ? "/programs"
     : "/";
 
@@ -191,9 +102,8 @@ export function PublicHeader() {
           <Link href="/" onClick={handleLogoClick} className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
           <Link href="/about" className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 opacity-100`}>About</Link>
           <Link
-            href="/#programs"
-            onClick={handleProgramsClick}
-            className={`${navLinkClass(isScrolledToProgramsSection ? "/programs" : "", "/programs")} transition-opacity duration-200 opacity-100`}
+            href="/programs/kk-profiling/status"
+            className={`${navLinkClass(activePath, "/programs")} transition-opacity duration-200 opacity-100`}
           >
             Application
           </Link>

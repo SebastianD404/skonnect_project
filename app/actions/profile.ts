@@ -2,8 +2,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureProfile } from "@/lib/auth";
+import { headers } from "next/headers";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -58,10 +58,14 @@ export async function updateProfileName(
   }
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (!user) {
-    return { error: "You must be logged in to update your profile." };
+    return {
+      error: authError?.message
+        ? `Authentication failed: ${authError.message}`
+        : "You must be logged in to update your profile.",
+    };
   }
 
   const profile = await ensureProfile(user);
@@ -71,6 +75,8 @@ export async function updateProfileName(
   }
 
   const sessionEmail = normalizeEmail(user.email ?? profile.email);
+
+  let emailChangeRequested = false;
 
   if (sessionEmail !== email) {
     const emailOwner = await db.user.findFirst({
@@ -98,18 +104,22 @@ export async function updateProfileName(
   }
 
   if (sessionEmail !== email) {
-    const adminSupabase = createAdminClient();
-    const { error: authUpdateError } = await adminSupabase.auth.admin.updateUserById(user.id, {
-      email,
-      email_confirm: true,
-    });
+    const requestHeaders = await headers();
+    const origin = requestHeaders.get("origin") || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    console.log("Submitting new email:", email);
+    const { error: authUpdateError } = await supabase.auth.updateUser(
+      { email },
+      { emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/profile")}` }
+    );
 
     if (authUpdateError) {
       if (authUpdateError.message.toLowerCase().includes("already") || authUpdateError.message.toLowerCase().includes("exists")) {
         return { error: "This email is already in use." };
       }
-      return { error: "We could not update your login email. Please check the address and try again." };
+      return { error: `We could not update your login email: ${authUpdateError.message}` };
     }
+
+    emailChangeRequested = true;
   }
 
   if (newPassword) {
@@ -128,7 +138,7 @@ export async function updateProfileName(
       where: { id: profile.id },
       data: {
         fullName,
-        email,
+        email: emailChangeRequested ? profile.email : email,
         phoneNumber,
       },
     });
@@ -173,7 +183,9 @@ export async function updateProfileName(
   }
 
   return {
-    message: newPassword
+    message: emailChangeRequested
+      ? "Confirmation email sent. Confirm the new address to finish updating your login email."
+      : newPassword
       ? "Your profile and password have been successfully updated."
       : "Your profile was updated.",
   };

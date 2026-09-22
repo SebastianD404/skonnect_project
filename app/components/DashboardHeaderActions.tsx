@@ -31,7 +31,6 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
   const {
     readNotificationIds,
     unreadCount: liveUnreadCount,
-    syncNotifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,
   } = useNotificationState();
@@ -246,13 +245,6 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
   const notificationSignature = displayedNotifications.map((notification) => notification.id).join("|");
   const notificationCount = displayedNotifications.length;
   const inquiryReplyCount = supportThreads.filter((inquiry) => Boolean(inquiry.response) && !inquiry.isResolved).length;
-
-  useEffect(() => {
-    syncNotifications(displayedNotifications);
-  // The signature prevents the shared count update from retriggering on every render.
-  // The provider separately reacts when its read-ID set changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notificationSignature, readNotificationIds, syncNotifications]);
 
   useEffect(() => {
     const isOpen = openPanel === "notifications";

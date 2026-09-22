@@ -4,6 +4,7 @@ import "./globals.css";
 import { HeaderShell } from "./components/HeaderShell";
 import { ChatWidget } from "./components/chatbot/ChatWidget";
 import { NotificationProvider } from "./components/NotificationProvider";
+import { AuthProvider } from "./components/AuthProvider";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -32,11 +33,13 @@ export default function RootLayout({
       <body
         className={`${fraunces.variable} ${inter.variable} font-sans antialiased`}
       >
-        <NotificationProvider>
-          <HeaderShell />
-          {children}
-          <ChatWidget />
-        </NotificationProvider>
+        <AuthProvider>
+          <NotificationProvider>
+            <HeaderShell />
+            {children}
+            <ChatWidget />
+          </NotificationProvider>
+        </AuthProvider>
       </body>
     </html>
   );
