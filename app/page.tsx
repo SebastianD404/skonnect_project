@@ -3,52 +3,18 @@
 import Link from "next/link";
 import HeroCtaButton from "@/app/components/HeroCtaButton";
 import OrdinancesSection from "@/components/OrdinancesSection";
+import { useAuth } from "@/app/components/AuthProvider";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Mail } from "lucide-react";
+import { FolderOpen, Mail, UserPlus } from "lucide-react";
 
 export default function HomePage() {
   const pathname = usePathname();
+  const { user, loading: authLoading } = useAuth();
   const [activeLink, setActiveLink] = useState<string>(pathname);
-  const [kkProfileStatus, setKkProfileStatus] = useState<string | null>(null);
-  const [loadingKkProfile, setLoadingKkProfile] = useState(true);
   const [youthCount, setYouthCount] = useState<number | null>(null);
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadKkProfileStatus() {
-      setLoadingKkProfile(true);
-      try {
-        const sessionResponse = await fetch("/api/session", { cache: "no-store" });
-        if (!sessionResponse.ok) return;
-        const sessionData = await sessionResponse.json();
-        if (!sessionData.user) return;
-
-        const response = await fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" });
-        if (!mounted) return;
-        if (response.ok) {
-          const data = await response.json();
-          const status = data.registration?.reviewStatus || data.profile?.status;
-          setKkProfileStatus(status || null);
-        } else {
-          setKkProfileStatus(null);
-        }
-      } catch {
-        if (mounted) setKkProfileStatus(null);
-      } finally {
-        if (mounted) setLoadingKkProfile(false);
-      }
-    }
-
-    void loadKkProfileStatus();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -116,7 +82,7 @@ export default function HomePage() {
               <h1 className="text-4xl md:text-7xl font-black leading-[1.1] tracking-tight text-[#0F3D5C]">
                 A Legacy of{" "}
                 <span className="italic text-yellow-500">Service</span>{" "}
-                to Pico.
+                to Pico
               </h1>
               
               <p className="text-xl text-[#555555] leading-relaxed max-w-2xl">
@@ -125,27 +91,26 @@ export default function HomePage() {
               
               <div className="flex flex-col sm:flex-row flex-wrap items-start gap-3 pt-4">
                 <HeroCtaButton />
-                {loadingKkProfile ? (
-                  <a
-                    aria-disabled
-                    className="inline-flex items-center justify-center px-6 py-3 border-2 border-[#0F3D5C]/30 text-[#0F3D5C] font-bold rounded-2xl transition-all duration-300 min-w-[220px] opacity-80 pointer-events-none"
-                  >
+                {authLoading ? (
+                  <span className="inline-flex min-w-[220px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 px-6 py-3 font-bold text-[#0F3D5C] opacity-80">
                     Loading...
-                  </a>
-                ) : !kkProfileStatus || kkProfileStatus?.toLowerCase().includes("approved") ? (
-                  <a
-                    href="/#programs"
-                    className="inline-flex items-center justify-center px-6 py-3 border-2 border-[#0F3D5C]/30 text-[#0F3D5C] font-bold rounded-2xl hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 transition-all duration-300 min-w-[220px]"
-                  >
-                    See what we Offer
-                  </a>
-                ) : (
-                  <a
+                  </span>
+                ) : user ? (
+                  <Link
                     href="/programs/kk-profiling/status"
-                    className="inline-flex items-center justify-center px-6 py-3 border-2 border-[#0F3D5C]/30 text-[#0F3D5C] font-bold rounded-2xl hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 transition-all duration-300 min-w-[220px]"
+                    className="group inline-flex min-w-[220px] items-center justify-center gap-2 rounded-2xl border-2 border-[#0F3D5C]/30 px-6 py-3 font-bold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5"
                   >
-                    View KK Profiling Status
-                  </a>
+                    <FolderOpen className="h-4 w-4 text-slate-500 transition-colors group-hover:text-[#0F3D5C]" aria-hidden="true" />
+                    <span>My Applications</span>
+                  </Link>
+                ) : (
+                  <Link
+                    href="/signup"
+                    className="group inline-flex min-w-[220px] items-center justify-center gap-2 rounded-2xl border-2 border-[#0F3D5C]/30 px-6 py-3 font-bold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5"
+                  >
+                    <UserPlus className="h-4 w-4 text-slate-500 transition-colors group-hover:text-[#0F3D5C]" aria-hidden="true" />
+                    <span>Register now</span>
+                  </Link>
                 )}
               </div>
               {/* Stats row */}
@@ -363,6 +328,8 @@ export default function HomePage() {
           </p>
           <Link
             href="/programs/kk-profiling"
+            scroll={true}
+            onClick={() => window.scrollTo(0, 0)}
             className="inline-flex items-center gap-2 px-10 py-4 bg-white text-[#0F3D5C] font-bold rounded-xl shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-105 active:scale-95"
           >
             Get started

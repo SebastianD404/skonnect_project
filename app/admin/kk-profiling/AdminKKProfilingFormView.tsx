@@ -1,23 +1,74 @@
 "use client";
 
-import { Pencil, X } from "lucide-react";
+import { ExternalLink, Pencil, X } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { KKProfilingRegistration } from "./types";
+
+function ReadOnlyField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
+      <span className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-base font-medium text-slate-900">
+        {value || "N/A"}
+      </span>
+    </div>
+  );
+}
+
+function PrintableDocumentCard({
+  title,
+  subtitle,
+  url,
+  fullWidth = false,
+}: {
+  title: string;
+  subtitle: string;
+  url: string;
+  fullWidth?: boolean;
+}) {
+  return (
+    <div className={fullWidth ? "col-span-1 md:col-span-2" : "col-span-1"}>
+      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
+            <img src={url} alt={`${title} thumbnail`} className="h-full w-full object-cover" />
+          </div>
+          <div className="flex min-w-0 flex-col">
+            <span className="text-sm font-bold text-slate-900">{title}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{subtitle}</span>
+          </div>
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800"
+        >
+          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>View file</span>
+        </a>
+      </div>
+    </div>
+  );
+}
 
 export function AdminKKProfilingFormView({
   registration,
   onClose,
   onEdit,
   onReturn,
+  onStatusUpdate,
 }: {
   registration: KKProfilingRegistration;
   onClose: () => void;
   onEdit?: () => void;
   onReturn?: (updatedRegistration: KKProfilingRegistration) => void;
+  onStatusUpdate?: (status: "Approved" | "Returned") => void;
 }) {
-  const [reviewNotes, setReviewNotes] = useState(registration.reviewNotes ?? "");
+  const [correctionNotes, setCorrectionNotes] = useState("");
   const [isReturning, setIsReturning] = useState(false);
+  const [isCorrectionOpen, setIsCorrectionOpen] = useState(false);
   const [returnError, setReturnError] = useState<string | null>(null);
   const [returnSuccess, setReturnSuccess] = useState<string | null>(null);
   const [isApproving, setIsApproving] = useState(false);
@@ -26,8 +77,19 @@ export function AdminKKProfilingFormView({
   const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
 
   const isApproved = registration.reviewStatus === "Approved";
-  const canReturn = !isApproved;
-  const returnButtonLabel = registration.reviewStatus === "Pending" ? "Return for correction" : "Update return";
+  const isLocked = ["approved", "rejected"].includes((registration.reviewStatus || "").toLowerCase());
+  const canReturn = !isLocked;
+
+  const resetCorrectionFlow = () => {
+    setCorrectionNotes("");
+    setIsCorrectionOpen(false);
+    setReturnError(null);
+  };
+
+  const handleClose = () => {
+    resetCorrectionFlow();
+    onClose();
+  };
 
   const handleApprove = async () => {
     setApproveError(null);
@@ -55,6 +117,8 @@ export function AdminKKProfilingFormView({
       if (onReturn) {
         onReturn(data as KKProfilingRegistration);
       }
+      onClose();
+      onStatusUpdate?.("Approved");
       router.refresh();
     } catch (error) {
       setApproveError(error instanceof Error ? error.message : "Failed to approve registration.");
@@ -64,7 +128,7 @@ export function AdminKKProfilingFormView({
   };
 
   const handleReturn = async () => {
-    const notes = reviewNotes.trim();
+    const notes = correctionNotes.trim();
     setReturnError(null);
     setReturnSuccess(null);
 
@@ -96,6 +160,8 @@ export function AdminKKProfilingFormView({
       if (onReturn) {
         onReturn(data as KKProfilingRegistration);
       }
+      onClose();
+      onStatusUpdate?.("Returned");
       router.refresh();
     } catch (error) {
       setReturnError(error instanceof Error ? error.message : "Failed to return registration for correction.");
@@ -105,15 +171,31 @@ export function AdminKKProfilingFormView({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="relative max-h-[90vh] w-full max-w-3xl overflow-auto rounded-[1.75rem] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-6">
+      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-3 px-6 pt-6">
           <div>
-            <h3 className="text-xl font-semibold text-slate-950">Katipunan ng Kabataan (KK) Profiling — Submission</h3>
-            <p className="mt-1 text-sm text-slate-500">Submitted on {new Date(registration.submittedAt).toLocaleString()}</p>
+            <h3 className="text-xl font-semibold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Submission</h3>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500">
+              <span>Submitted on {new Date(registration.submittedAt).toLocaleString()}</span>
+              <span className="inline-flex items-center gap-2">
+                <span className="font-medium text-slate-600">Review status</span>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    isApproved
+                      ? "bg-emerald-100 text-emerald-800"
+                      : registration.reviewStatus === "Returned"
+                      ? "bg-rose-100 text-rose-800"
+                      : "bg-amber-100 text-amber-800"
+                  }`}
+                >
+                  {registration.reviewStatus || "Pending"}
+                </span>
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            {onEdit ? (
+            {onEdit && !isLocked ? (
               <button
                 type="button"
                 onClick={onEdit}
@@ -126,7 +208,7 @@ export function AdminKKProfilingFormView({
             ) : null}
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
               aria-label="Close details"
             >
@@ -134,162 +216,43 @@ export function AdminKKProfilingFormView({
             </button>
           </div>
         </div>
-        <div className="mt-6">
-          {/* Informed consent box */}
-          <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
-            <div className="min-w-0">
-              <strong>Informed Consent</strong>
-              <p className="mt-2">This registrant indicated consent when submitting the KK profiling form.</p>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-              <p className="font-semibold text-slate-900">Review status</p>
-              <p className="mt-2 text-slate-700">{registration.reviewStatus || "Pending"}</p>
-            </div>
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-              <p className="font-semibold text-slate-900">Admin review notes</p>
-              <p className="mt-2 text-slate-700">{registration.reviewNotes || "No notes have been added."}</p>
-            </div>
-          </div>
-
-          {canReturn ? (
-            <div className="mt-6 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-slate-900">
-              <div className="flex flex-col gap-3">
-                <div>
-                  <p className="text-base font-semibold text-emerald-950">Approve this registration</p>
-                  <p className="mt-2 text-sm text-emerald-900">
-                    This applicant has verified their identity and provided all required information. They will be able to apply for SKEAP and register for events after approval.
-                  </p>
-                </div>
-                {approveError ? (
-                  <div className="rounded-3xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {approveError}
-                  </div>
-                ) : null}
-                {approveSuccess ? (
-                  <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    {approveSuccess}
-                  </div>
-                ) : null}
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={handleApprove}
-                    disabled={isApproving}
-                    className="inline-flex justify-center rounded-full bg-emerald-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {isApproving ? "Approving..." : "Approve registration"}
-                  </button>
-                </div>
-              </div>
+        <div className="px-6 pt-4 text-sm text-slate-500">
+          <p>
+            <span className="font-medium text-slate-600">Informed consent:</span> This registrant indicated consent when submitting the KK profiling form.
+          </p>
+          {registration.reviewNotes ? (
+            <div className="mt-3">
+              <p className="font-medium text-slate-600">Admin review notes</p>
+              <p className="mt-1 whitespace-pre-wrap">{registration.reviewNotes}</p>
             </div>
           ) : null}
+        </div>
 
-          {canReturn ? (
-            <div className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-slate-900">
-              <div className="flex flex-col gap-3">
-                <div>
-                  <p className="text-base font-semibold text-slate-950">Return this registration for correction</p>
-                  <p className="mt-2 text-sm text-slate-700">
-                    Send this registration back to the applicant and require them to update their KK Profiling submission.
-                  </p>
-                </div>
-                <label className="block">
-                  <span className="text-sm font-semibold">Return notes</span>
-                  <textarea
-                    rows={4}
-                    value={reviewNotes}
-                    onChange={(event) => setReviewNotes(event.target.value)}
-                    className="mt-2 w-full resize-none rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-amber-200"
-                    placeholder="Explain what the applicant should correct or update."
-                  />
-                </label>
-                {returnError ? (
-                  <div className="rounded-3xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {returnError}
-                  </div>
-                ) : null}
-                {returnSuccess ? (
-                  <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    {returnSuccess}
-                  </div>
-                ) : null}
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={handleReturn}
-                    disabled={isReturning}
-                    className="inline-flex justify-center rounded-full bg-amber-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {isReturning ? "Returning..." : returnButtonLabel}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-6 rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-emerald-600 flex items-center justify-center">
-                  <span className="text-white font-semibold">✓</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-emerald-900">Approved</p>
-                  <p className="text-sm text-emerald-800">This registration has been approved. The applicant can now apply for SKEAP and register for events.</p>
-                </div>
-              </div>
-            </div>
-          )}
+        <hr className="mt-6 mb-4 border-t border-slate-200" />
 
+        <div className="max-h-[calc(90vh-10rem)] overflow-x-hidden overflow-y-auto px-6 pb-6 pt-0">
           {/* Form layout identical to youth form but read-only */}
-          <form className="grid gap-4 mt-4">
-            <h4 className="text-lg font-semibold">PART I: Profile</h4>
-            <p className="text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
-
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Complete Name (Family, First, Middle) *</span>
-              <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.fullName}</div>
-            </label>
-
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Complete Address *</span>
-              <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.address}</div>
-            </label>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Sex *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.sex}</div>
-              </label>
-
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Age *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.age}</div>
-              </label>
-
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Birth Date *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{new Date(registration.birthDate).toLocaleDateString()}</div>
-              </label>
+          <div className="grid gap-4">
+            <div className="mb-4 border-b border-slate-200 pb-3">
+              <h4 className="text-lg font-semibold text-slate-950">PART I: Profile</h4>
+              <p className="mt-1 text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Email Address *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.email}</div>
-              </label>
+            <ReadOnlyField label="Complete Name (Family, First, Middle)" value={registration.fullName} />
+            <ReadOnlyField label="Complete Address" value={registration.address} />
 
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Facebook Account (Name) *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.facebook}</div>
-              </label>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <ReadOnlyField label="Sex" value={registration.sex} />
+              <ReadOnlyField label="Age" value={registration.age} />
+              <ReadOnlyField label="Birth Date" value={new Date(registration.birthDate).toLocaleDateString()} />
             </div>
 
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Contact Number *</span>
-              <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.contactNumber}</div>
-            </label>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <ReadOnlyField label="Email Address" value={registration.email} />
+              <ReadOnlyField label="Facebook Account (Name)" value={registration.facebook} />
+            </div>
+
+            <ReadOnlyField label="Contact Number" value={registration.contactNumber} />
 
             <h4 className="text-lg font-semibold">PART II: Demographic Characteristics</h4>
 
@@ -354,51 +317,108 @@ export function AdminKKProfilingFormView({
               </label>
             )}
 
-            <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6">
+            <div className="space-y-4">
               <p className="text-sm font-semibold text-slate-900">Uploaded identification</p>
               <p className="mt-2 text-sm text-slate-600">{registration.idDocumentType || "Not uploaded"}</p>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 {registration.idFrontFileUrl ? (
-                  <a
-                    href={registration.idFrontFileUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                  >
-                    View front of ID
-                  </a>
+                  <PrintableDocumentCard title="Front of ID" subtitle="Identity Document" url={registration.idFrontFileUrl} />
                 ) : null}
                 {registration.idBackFileUrl ? (
-                  <a
-                    href={registration.idBackFileUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                  >
-                    View back of ID
-                  </a>
+                  <PrintableDocumentCard title="Back of ID" subtitle="Identity Document" url={registration.idBackFileUrl} />
                 ) : null}
                 {registration.idSingleFileUrl ? (
-                  <a
-                    href={registration.idSingleFileUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                  >
-                    View Certificate of Residency
-                  </a>
+                  <PrintableDocumentCard
+                    title="Certificate of Residency"
+                    subtitle="Verified proof of address - PDF"
+                    url={registration.idSingleFileUrl}
+                    fullWidth
+                  />
                 ) : null}
                 {!registration.idFrontFileUrl && !registration.idBackFileUrl && !registration.idSingleFileUrl ? (
-                  <p className="mt-4 text-sm text-slate-600">No uploaded ID documents were stored for this registration.</p>
+                  <p className="col-span-1 text-sm text-slate-600 md:col-span-2">No uploaded ID documents were stored for this registration.</p>
                 ) : null}
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end">
-              <button onClick={onClose} className="inline-flex justify-center rounded-lg bg-[#0F3D5C] px-6 py-3 text-sm font-semibold text-white hover:bg-[#0D2E47]">Close</button>
+          </div>
+        </div>
+
+        <div className="shrink-0 rounded-b-xl border-t border-slate-200 bg-white px-6 py-4">
+          {approveError || returnError ? (
+            <div className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{approveError || returnError}</div>
+          ) : null}
+          {approveSuccess || returnSuccess ? (
+            <div className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{approveSuccess || returnSuccess}</div>
+          ) : null}
+
+          {canReturn ? (
+            <div className={`overflow-hidden transition-all duration-200 ${isCorrectionOpen ? "mb-4 max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">Correction notes</span>
+                <textarea
+                  rows={3}
+                  value={correctionNotes}
+                  onChange={(event) => setCorrectionNotes(event.target.value)}
+                  className="mt-2 w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-900"
+                  placeholder="Explain what the applicant needs to fix in this new submission..."
+                />
+              </label>
             </div>
-          </form>
+          ) : null}
+
+          <div className="flex items-center justify-end gap-3">
+            {canReturn ? (
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              {isCorrectionOpen ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={resetCorrectionFlow}
+                    className="inline-flex justify-center rounded-md px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReturn}
+                    disabled={isReturning}
+                    className="inline-flex justify-center rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {isReturning ? "Returning..." : "Confirm Return"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsCorrectionOpen(true)}
+                    className="inline-flex justify-center rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Request Correction
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApprove}
+                    disabled={isApproving}
+                    className="inline-flex justify-center rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {isApproving ? "Approving..." : "Approve Registration"}
+                  </button>
+                </>
+              )}
+            </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleClose}
+              className="inline-flex items-center justify-center rounded-lg bg-[#0F3D5C] px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0D2E47]"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

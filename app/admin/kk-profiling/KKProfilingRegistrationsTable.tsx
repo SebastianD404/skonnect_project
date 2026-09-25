@@ -69,6 +69,10 @@ export function KKProfilingRegistrationsTable({
     );
   };
 
+  const handleStatusUpdate = (status: "Approved" | "Returned") => {
+    router.push(`/admin/kk-profiling?status=${status.toLowerCase()}`);
+  };
+
   return (
     <div className="space-y-4">
       {error && (
@@ -120,7 +124,12 @@ export function KKProfilingRegistrationsTable({
                     })}
                   </td>
                   <td className="px-4 py-4">
-                    <KKProfilingRowActions registration={registration} onDelete={handleDelete} onUpdate={handleUpdate} />
+                    <KKProfilingRowActions
+                      registration={registration}
+                      onDelete={handleDelete}
+                      onUpdate={handleUpdate}
+                      onStatusUpdate={handleStatusUpdate}
+                    />
                   </td>
                 </tr>
               ))

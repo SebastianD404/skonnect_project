@@ -9,9 +9,10 @@ interface RegistrationRowActionsProps {
   registration: KKProfilingRegistration;
   onDelete: (id: string) => Promise<void>;
   onUpdate: (registration: KKProfilingRegistration) => void;
+  onStatusUpdate: (status: "Approved" | "Returned") => void;
 }
 
-export function KKProfilingRowActions({ registration, onDelete, onUpdate }: RegistrationRowActionsProps) {
+export function KKProfilingRowActions({ registration, onDelete, onUpdate, onStatusUpdate }: RegistrationRowActionsProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -91,6 +92,7 @@ export function KKProfilingRowActions({ registration, onDelete, onUpdate }: Regi
           onReturn={(updatedRegistration) => {
             onUpdate(updatedRegistration);
           }}
+          onStatusUpdate={onStatusUpdate}
         />
       )}
 

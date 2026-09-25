@@ -1,6 +1,6 @@
 "use client";
 
-import { X, CheckCircle2 } from "lucide-react";
+import { ExternalLink, X, CheckCircle2 } from "lucide-react";
 
 type KKProfilingRegistrationData = {
   id: string;
@@ -52,8 +52,9 @@ export default function KKProfilingApprovedViewModal({ isOpen, registration, onC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="relative max-h-[90vh] w-full max-w-4xl overflow-auto rounded-[1.75rem] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-3">
+      <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-2xl">
+        <div className="shrink-0 border-b border-slate-100 bg-white px-6 py-4 sm:px-8">
+          <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-xl font-semibold text-slate-950">Katipunan ng Kabataan (KK) Profiling — Submission</h3>
             <p className="mt-1 text-sm text-slate-500">Submitted on {formattedSubmittedDate}</p>
@@ -66,9 +67,10 @@ export default function KKProfilingApprovedViewModal({ isOpen, registration, onC
               <X className="h-5 w-5" />
             </button>
           </div>
+          </div>
         </div>
 
-        <div className="mt-4">
+        <div className="flex-1 overflow-y-auto p-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-slate-100 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 sm:p-8">
           <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
             <div className="min-w-0">
               <strong>Informed Consent</strong>
@@ -198,53 +200,96 @@ export default function KKProfilingApprovedViewModal({ isOpen, registration, onC
               </label>
             )}
 
-            <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6">
+            <div className="space-y-4">
               <p className="text-sm font-semibold text-slate-900">Uploaded identification</p>
               <p className="mt-2 text-sm text-slate-600">{registration.idDocumentType || "Not uploaded"}</p>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {registration.idFrontFileUrl ? (
-                  <a
-                    href={registration.idFrontFileUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                  >
-                    View front of ID
-                  </a>
-                ) : null}
-                {registration.idBackFileUrl ? (
-                  <a
-                    href={registration.idBackFileUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                  >
-                    View back of ID
-                  </a>
-                ) : null}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {registration.idFrontFileUrl ? (
+                    <div className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                      <div className="flex min-w-0 items-center gap-4">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                          <img src={registration.idFrontFileUrl} alt="Front of ID thumbnail" className="h-full w-full object-cover" />
+                        </div>
+                        <div className="flex min-w-0 flex-col">
+                          <p className="text-sm font-semibold text-slate-900">Front of ID</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Identity document</p>
+                        </div>
+                      </div>
+                      <a
+                        href={registration.idFrontFileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                        View file
+                      </a>
+                    </div>
+                  ) : null}
+                  {registration.idBackFileUrl ? (
+                    <div className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                      <div className="flex min-w-0 items-center gap-4">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                          <img src={registration.idBackFileUrl} alt="Back of ID thumbnail" className="h-full w-full object-cover" />
+                        </div>
+                        <div className="flex min-w-0 flex-col">
+                          <p className="text-sm font-semibold text-slate-900">Back of ID</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Identity document</p>
+                        </div>
+                      </div>
+                      <a
+                        href={registration.idBackFileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                        View file
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+
                 {registration.idSingleFileUrl ? (
-                  <a
-                    href={registration.idSingleFileUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                  >
-                    View Certificate of Residency
-                  </a>
+                  <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                        <img src={registration.idSingleFileUrl} alt="Certificate of Residency thumbnail" className="h-full w-full object-cover" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">Certificate of Residency</p>
+                        <p className="text-xs text-slate-500">Verified proof of address · PDF</p>
+                      </div>
+                    </div>
+                    <a
+                      href={registration.idSingleFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-4 flex shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-800"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                      View file
+                    </a>
+                  </div>
                 ) : null}
+
                 {!registration.idFrontFileUrl && !registration.idBackFileUrl && !registration.idSingleFileUrl ? (
-                  <p className="mt-4 text-sm text-slate-600">No uploaded ID documents were stored for this registration.</p>
+                  <p className="text-sm text-slate-600">No uploaded ID documents were stored for this registration.</p>
                 ) : null}
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end">
-              <button onClick={onClose} className="inline-flex justify-center rounded-lg bg-[#0F3D5C] px-6 py-3 text-sm font-semibold text-white hover:bg-[#0D2E47]">Close</button>
-            </div>
           </form>
         </div>
+        <div className="flex shrink-0 justify-end border-t border-slate-100 bg-white px-6 py-4 sm:px-8">
+          <button type="button" onClick={onClose} className="rounded-lg bg-[#0F3D5C] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0D2E47]">
+            Close
+          </button>
+        </div>
       </div>
+
     </div>
   );
 }

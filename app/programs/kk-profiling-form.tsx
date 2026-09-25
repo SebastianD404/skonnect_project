@@ -6,7 +6,7 @@ import { createBrowserClient } from "@/lib/supabase/browser";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
 import DocumentOCRValidationExample, { type DocumentOCRKey, type DocumentOCRState } from "@/app/components/DocumentOCRValidationExample";
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
-import { Eye, EyeOff } from "lucide-react";
+import { ChevronDown, Eye, EyeOff } from "lucide-react";
 
 const initialForm = {
   lastName: "",
@@ -118,6 +118,24 @@ function computeAgeFromBirthDate(value: string) {
   }
 
   return age;
+}
+
+function SelectWithChevron({
+  children,
+  className = "",
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <div className="relative">
+      <select {...props} className={`w-full appearance-none ${className}`}>
+        {children}
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+        aria-hidden="true"
+      />
+    </div>
+  );
 }
 
 
@@ -614,84 +632,89 @@ export default function KKProfilingForm() {
         </div>
       ) : (
         <>
-        <form onSubmit={handleSubmit} className="grid gap-x-4 gap-y-6 [&_label]:gap-1.5">
+        <form onSubmit={handleSubmit} className="grid gap-x-4 gap-y-2 [&_label]:gap-1.5">
           <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
 
-      <div className="relative mb-8 rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
-        <div className="min-w-0 pr-24">
-          <strong>Informed Consent</strong>
-          <p className="mt-2">The Profiling aims to gather KK member information for the National Youth Commission. Data will be stored and used for database management by the NYC. Participation is voluntary. No monetary compensation will be provided.</p>
+      <div className="flex flex-col gap-6">
+        <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="min-w-0 pr-24">
+            <strong>Informed Consent</strong>
+            <p className="mt-2">The Profiling aims to gather KK member information for the National Youth Commission. Data will be stored and used for database management by the NYC. Participation is voluntary. No monetary compensation will be provided.</p>
+          </div>
+          <div className="absolute bottom-2 right-2">
+            <button type="button" onClick={() => setShowConsentModal(true)} className="text-sm underline text-slate-700 transition duration-200 hover:text-slate-900 hover:bg-slate-100 hover:no-underline rounded-md px-2 py-1">View full consent</button>
+          </div>
         </div>
-        <div className="absolute bottom-2 right-2">
-          <button type="button" onClick={() => setShowConsentModal(true)} className="text-sm underline text-slate-700 transition duration-200 hover:text-slate-900 hover:bg-slate-100 hover:no-underline rounded-md px-2 py-1">View full consent</button>
-        </div>
-      </div>
 
+        <div className="flex flex-col gap-5">
+          <div>
+            <h3 className="border-b border-slate-200 pb-2 text-lg font-bold text-slate-900">PART I: Profile</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.
+            </p>
+          </div>
 
-      <h4 className="mt-10 mb-6 text-lg font-semibold">PART I: Profile</h4>
-      <p className="text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <label className="flex flex-col">
+      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-3">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Last Name *</span>
-          <input value={form.lastName} onChange={(e) => setField("lastName", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2" />
+          <input value={form.lastName} onChange={(e) => setField("lastName", e.target.value)} required className="rounded-lg border px-3 py-2" />
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">First Name *</span>
-          <input value={form.firstName} onChange={(e) => setField("firstName", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2" />
+          <input value={form.firstName} onChange={(e) => setField("firstName", e.target.value)} required className="rounded-lg border px-3 py-2" />
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Middle Name *</span>
           <input
             value={form.middleInitial}
             onChange={(e) => setField("middleInitial", normalizedMiddleInitial(e.target.value))}
             maxLength={80}
             required
-            className="mt-1 rounded-lg border px-3 py-2"
+            className="rounded-lg border px-3 py-2"
           />
         </label>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <label className="flex flex-col">
+      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Sitio *</span>
-          <select value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select sitio</option>
             {OFFICIAL_SITIOS.map((sitio) => (
               <option key={sitio} value={sitio}>{sitio}</option>
             ))}
-          </select>
+          </SelectWithChevron>
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Barangay *</span>
-          <input value={form.barangay} readOnly className="mt-1 rounded-lg border bg-slate-100 px-3 py-2" />
+          <input value={form.barangay} readOnly className="rounded-lg border bg-slate-100 px-3 py-2" />
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Municipality *</span>
-          <input value={form.municipality} readOnly className="mt-1 rounded-lg border bg-slate-100 px-3 py-2" />
+          <input value={form.municipality} readOnly className="rounded-lg border bg-slate-100 px-3 py-2" />
         </label>
 
         <label className="flex flex-col">
           <span className="text-sm font-semibold">Province *</span>
-          <input value={form.province} readOnly className="mt-1 rounded-lg border bg-slate-100 px-3 py-2" />
+          <input value={form.province} readOnly className="rounded-lg border bg-slate-100 px-3 py-2" />
         </label>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <label className="flex flex-col">
+      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-3">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Sex *</span>
-          <select value={form.sex} onChange={(e) => setField("sex", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.sex} onChange={(e) => setField("sex", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Male</option>
             <option>Female</option>
-          </select>
+          </SelectWithChevron>
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Birth Date *</span>
           <input
             type="date"
@@ -707,11 +730,11 @@ export default function KKProfilingForm() {
               }
             }}
             required
-            className="mt-1 rounded-lg border px-3 py-2"
+            className="rounded-lg border px-3 py-2"
           />
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Age *</span>
           <input
             type="number"
@@ -719,33 +742,38 @@ export default function KKProfilingForm() {
             value={form.age}
             readOnly
             aria-readonly="true"
-            className="mt-1 rounded-lg border bg-slate-100 px-3 py-2 text-slate-700"
+            className="rounded-lg border bg-slate-100 px-3 py-2 text-slate-700"
           />
         </label>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <label className="flex flex-col">
+      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Email Address *</span>
-          <input type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2" />
+          <input type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} required className="rounded-lg border px-3 py-2" />
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Facebook Account (Name) *</span>
-          <input value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2" />
+          <input value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} required className="rounded-lg border px-3 py-2" />
         </label>
       </div>
 
-      <label className="flex flex-col">
+      <label className="flex flex-col gap-1.5">
         <span className="text-sm font-semibold">Contact Number *</span>
-        <input value={form.contactNumber} onChange={(e) => setField("contactNumber", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2" />
+        <input value={form.contactNumber} onChange={(e) => setField("contactNumber", e.target.value)} required className="rounded-lg border px-3 py-2" />
       </label>
 
-      <h4 className="mt-10 mb-6 text-lg font-semibold">PART II: Demographic Characteristics</h4>
+        </div>
 
-      <label className="flex flex-col">
+        <div className="flex flex-col gap-5">
+          <div>
+            <h3 className="border-b border-slate-200 pb-2 text-lg font-bold text-slate-900">PART II: Demographic Characteristics</h3>
+          </div>
+
+      <label className="flex flex-col gap-1.5">
         <span className="text-sm font-semibold">Civil Status *</span>
-        <select value={form.civilStatus} onChange={(e) => setField("civilStatus", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+        <SelectWithChevron value={form.civilStatus} onChange={(e) => setField("civilStatus", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
           <option>Single</option>
           <option>Married</option>
@@ -755,12 +783,12 @@ export default function KKProfilingForm() {
           <option>Annulled</option>
           <option>Unknown</option>
           <option>Live-in</option>
-        </select>
+        </SelectWithChevron>
       </label>
 
-      <label className="flex flex-col">
+      <label className="flex flex-col gap-1.5">
         <span className="text-sm font-semibold">Youth Classification *</span>
-        <select value={form.youthClassification} onChange={(e) => setField("youthClassification", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+        <SelectWithChevron value={form.youthClassification} onChange={(e) => setField("youthClassification", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
           <option>In school Youth</option>
           <option>Out of School Youth</option>
@@ -768,36 +796,36 @@ export default function KKProfilingForm() {
           <option>Person w/ Disability</option>
           <option>Children In Conflict with Law</option>
           <option>Indigenous People</option>
-        </select>
+        </SelectWithChevron>
       </label>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <label className="flex flex-col">
+      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Youth age Group *</span>
-          <select value={form.youthAgeGroup} onChange={(e) => setField("youthAgeGroup", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.youthAgeGroup} onChange={(e) => setField("youthAgeGroup", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Child Youth (15-17 yrs old)</option>
             <option>Core Youth (18-24 yrs old)</option>
             <option>Young Adult (15-30 yrs old)</option>
-          </select>
+          </SelectWithChevron>
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Work Status *</span>
-          <select value={form.workStatus} onChange={(e) => setField("workStatus", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.workStatus} onChange={(e) => setField("workStatus", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Employed</option>
             <option>Unemployed</option>
             <option>Self-Employed</option>
             <option>Currently looking for a Job</option>
             <option>Not Interested Looking for a Job</option>
-          </select>
+          </SelectWithChevron>
         </label>
       </div>
 
-      <label className="flex flex-col">
+      <label className="flex flex-col gap-1.5">
         <span className="text-sm font-semibold">Educational Background *</span>
-        <select value={form.educationalBackground} onChange={(e) => setField("educationalBackground", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+        <SelectWithChevron value={form.educationalBackground} onChange={(e) => setField("educationalBackground", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
           <option>Elementary Level</option>
           <option>Elementary Graduate</option>
@@ -810,76 +838,81 @@ export default function KKProfilingForm() {
           <option>Masters Graduate</option>
           <option>Doctorate Level</option>
           <option>Doctorate Graduate</option>
-        </select>
+        </SelectWithChevron>
       </label>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <label className="flex flex-col">
+      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-3">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Registered SK Voter? *</span>
-          <select value={form.registeredSKVoter} onChange={(e) => setField("registeredSKVoter", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.registeredSKVoter} onChange={(e) => setField("registeredSKVoter", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Yes</option>
             <option>No</option>
-          </select>
+          </SelectWithChevron>
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Did you vote last SK election? *</span>
-          <select value={form.votedLastSK} onChange={(e) => setField("votedLastSK", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.votedLastSK} onChange={(e) => setField("votedLastSK", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Yes</option>
             <option>No</option>
-          </select>
+          </SelectWithChevron>
         </label>
 
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Registered National Voter? *</span>
-          <select value={form.registeredNationalVoter} onChange={(e) => setField("registeredNationalVoter", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.registeredNationalVoter} onChange={(e) => setField("registeredNationalVoter", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Yes</option>
             <option>No</option>
-          </select>
+          </SelectWithChevron>
         </label>
       </div>
 
-      <label className="flex flex-col">
+      <label className="flex flex-col gap-1.5">
         <span className="text-sm font-semibold">Have you already attended a KK Assembly? *</span>
-        <select value={form.attendedKKAssembly} onChange={(e) => setField("attendedKKAssembly", e.target.value)} required className="mt-1 rounded-lg border px-3 py-2">
+        <SelectWithChevron value={form.attendedKKAssembly} onChange={(e) => setField("attendedKKAssembly", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
           <option>Yes</option>
           <option>No</option>
-        </select>
+        </SelectWithChevron>
       </label>
 
       {form.attendedKKAssembly === "Yes" && (
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">If Yes, How many times</span>
-          <select value={form.assemblyTimes} onChange={(e) => setField("assemblyTimes", e.target.value)} className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.assemblyTimes} onChange={(e) => setField("assemblyTimes", e.target.value)} className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>1-2 Times</option>
             <option>3-4 Times</option>
             <option>5 and above</option>
-          </select>
+          </SelectWithChevron>
         </label>
       )}
 
       {form.attendedKKAssembly === "No" && (
-        <label className="flex flex-col">
+        <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">If No, Why?</span>
-          <select value={form.noAssemblyReason} onChange={(e) => setField("noAssemblyReason", e.target.value)} className="mt-1 rounded-lg border px-3 py-2">
+          <SelectWithChevron value={form.noAssemblyReason} onChange={(e) => setField("noAssemblyReason", e.target.value)} className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>There were no KK Assembly Meetings</option>
             <option>Not interested to attend</option>
-          </select>
+          </SelectWithChevron>
         </label>
       )}
 
-      <hr className="my-6" />
+        </div>
 
-      <h4 className="text-lg font-semibold">PART III: Valid ID and Certificate of Residency</h4>
-      <p className="text-sm text-slate-600">Please upload both a valid ID and a Certificate of Residency. Your residency document must state that you have lived in Barangay Pico for at least 8 months.</p>
+        <div className="flex flex-col gap-5">
+          <div>
+            <h3 className="border-b border-slate-200 pb-2 text-lg font-bold text-slate-900">
+              PART III: Valid ID and Certificate of Residency
+            </h3>
+            <p className="mt-2 text-sm text-slate-500">Please upload both a valid ID and a Certificate of Residency. Your residency document must state that you have lived in Barangay Pico for at least 8 months.</p>
+          </div>
 
-      <div className="space-y-4">
+          <div className="space-y-4">
         <DocumentOCRValidationExample
           className="space-y-3"
           firstName={form.firstName}
@@ -897,12 +930,14 @@ export default function KKProfilingForm() {
           }}
           onValidationChange={setOcrValidationState}
         />
-      </div>
+          </div>
 
-      <label className="flex items-start gap-3 mt-6">
-        <input type="checkbox" checked={form.consent} onChange={(e) => setField("consent", e.target.checked)} className="mt-1" />
-        <span className="text-sm">I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling (required). <button type="button" onClick={() => setShowConsentModal(true)} className="ml-2 text-sm underline">(Read consent)</button></span>
-      </label>
+          <label className="flex items-start gap-3">
+            <input type="checkbox" checked={form.consent} onChange={(e) => setField("consent", e.target.checked)} className="mt-1" />
+            <span className="text-sm">I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling (required). <button type="button" onClick={() => setShowConsentModal(true)} className="ml-2 text-sm underline">(Read consent)</button></span>
+          </label>
+        </div>
+      </div>
 
       {showConsentModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40">

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ExternalLink, FileImage, UploadCloud, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { CheckCircle2, Eye, LoaderCircle, Upload, X } from "lucide-react";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
+import { scanDocument } from "@/lib/ocrValidation";
 
 type KKProfilingRegistrationData = {
   id: string;
@@ -46,6 +47,229 @@ type Props = {
   onClose: () => void;
   onSaved: (updated: KKProfilingRegistrationData) => void;
 };
+
+type UnifiedDocumentDropzoneProps = {
+  title: string;
+  documentType: "front_id" | "back_id" | "certificate";
+  existingUrl?: string | null;
+  selectedFile?: File | null;
+  accept: string;
+  helper: string;
+  firstName?: string;
+  lastName?: string;
+  middleInitial?: string;
+  profileBirthDate?: string;
+  onFileChange: (file: File | null) => void;
+};
+
+type DocumentValidationStatus = "idle" | "scanning" | "success" | "error";
+
+function UnifiedDocumentDropzone({
+  title,
+  documentType,
+  existingUrl,
+  selectedFile,
+  accept,
+  helper,
+  firstName,
+  lastName,
+  middleInitial,
+  profileBirthDate,
+  onFileChange,
+}: UnifiedDocumentDropzoneProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [validationStatus, setValidationStatus] = useState<DocumentValidationStatus>(existingUrl ? "success" : "idle");
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const hasExistingFile = Boolean(existingUrl);
+  const hasSelectedFile = Boolean(selectedFile);
+  const selectedFileUrl = useMemo(() => {
+    if (!selectedFile || !selectedFile.type.startsWith("image/")) {
+      return null;
+    }
+
+    return URL.createObjectURL(selectedFile);
+  }, [selectedFile]);
+  const previewUrl = selectedFileUrl ?? existingUrl;
+
+  useEffect(() => {
+    return () => {
+      if (selectedFileUrl) {
+        URL.revokeObjectURL(selectedFileUrl);
+      }
+    };
+  }, [selectedFileUrl]);
+
+  const openFilePicker = () => inputRef.current?.click();
+
+  const scanSelectedFile = async (file: File | null) => {
+    onFileChange(file);
+    setValidationMessage(null);
+
+    if (!file) {
+      setValidationStatus(existingUrl ? "success" : "idle");
+      return;
+    }
+
+    setValidationStatus("scanning");
+
+    try {
+      const result = await scanDocument(file, documentType, {
+        firstName: documentType === "front_id" || documentType === "certificate" ? firstName : undefined,
+        lastName: documentType === "front_id" || documentType === "certificate" ? lastName : undefined,
+        middleInitial: documentType === "front_id" ? middleInitial : undefined,
+        profileBirthDate: documentType === "back_id" ? profileBirthDate : undefined,
+      });
+
+      setValidationStatus(result.status === "success" && result.isValid ? "success" : "error");
+      setValidationMessage(result.message || result.badgeText || null);
+    } catch (error) {
+      setValidationStatus("error");
+      setValidationMessage(error instanceof Error ? error.message : "Unable to scan this document.");
+    }
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    void scanSelectedFile(event.dataTransfer.files?.[0] ?? null);
+  };
+
+  const statusBadge = validationStatus === "success"
+    ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-emerald-700">VERIFIED</span>
+    : validationStatus === "error"
+    ? <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-rose-700">REVIEW REQUIRED</span>
+    : <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-amber-700">PENDING SCAN</span>;
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openFilePicker}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openFilePicker();
+        }
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={handleDrop}
+      className={`flex h-full min-h-64 cursor-pointer flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 text-center shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+        hasSelectedFile
+          ? "border-blue-500 bg-blue-50"
+          : hasExistingFile
+          ? "border-slate-200 bg-slate-50"
+          : "border-2 border-dashed border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-slate-100"
+      }`}
+    >
+      <div className="mb-3 flex min-h-[3rem] items-start justify-between">
+        <span className="font-semibold text-slate-900">{title}</span>
+        {statusBadge}
+      </div>
+
+      {hasSelectedFile || hasExistingFile ? (
+        <>
+          <div className="group relative mb-3 flex h-36 w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+            {previewUrl ? (
+              <img src={previewUrl} alt="Document preview" className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-xs font-semibold uppercase tracking-widest text-slate-400/80">SCAN PREVIEW</span>
+            )}
+            {validationStatus === "scanning" ? (
+              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-900/55 text-sm font-medium text-white">
+                <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
+                Scanning document with OCR...
+              </div>
+            ) : null}
+            {previewUrl ? (
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                onClick={(event) => event.stopPropagation()}
+                className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-900/40 opacity-0 backdrop-blur-[1px] transition-opacity group-hover:opacity-100 focus:opacity-100"
+              >
+                <span className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-lg transition-colors hover:bg-slate-50">
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                  View Full Size
+                </span>
+              </a>
+            ) : null}
+          </div>
+          <div className="mb-3 flex h-6 items-center justify-between text-xs text-slate-500" title={validationMessage ?? undefined}>
+            {hasSelectedFile && validationStatus === "error" ? (
+              <span className="font-medium text-rose-700">Review required</span>
+            ) : hasSelectedFile ? (
+              <span className="inline-flex min-w-0 items-center font-medium text-emerald-600">
+                <CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{selectedFile ? `Selected: ${selectedFile.name}` : "New file ready to save"}</span>
+              </span>
+            ) : (
+              <span>Existing document on file</span>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="flex h-36 flex-col items-center justify-center rounded-lg border border-slate-200 bg-slate-100 py-6">
+          <>
+            <span className="text-xs font-semibold uppercase tracking-widest text-slate-400/80">SCAN PREVIEW</span>
+            <p className="mt-2 text-xs text-slate-500">{helper}</p>
+          </>
+        </div>
+      )}
+
+      {hasSelectedFile ? (
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (inputRef.current) {
+                inputRef.current.value = "";
+              }
+              void scanSelectedFile(null);
+            }}
+            className="inline-flex items-center justify-center gap-2 self-end rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-sm font-semibold text-blue-800 transition hover:bg-blue-100"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              inputRef.current?.click();
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" />
+            Replace file
+          </button>
+        </div>
+      ) : hasExistingFile ? (
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              inputRef.current?.click();
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" />
+            Replace file
+          </button>
+        </div>
+      ) : null}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        onChange={(event) => void scanSelectedFile(event.target.files?.[0] ?? null)}
+        className="hidden"
+      />
+    </div>
+  );
+}
 
 function computeAgeFromBirthDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -152,43 +376,6 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     }));
   }
 
-  function renderDropzone(field: keyof SelectedFiles, title: string, accept: string, helper: string) {
-    const file = selectedFiles[field];
-    const inputId = `replacement-${field}`;
-
-    return (
-      <label
-        htmlFor={inputId}
-        className={`flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${
-          file ? "border-green-500 bg-green-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-slate-100"
-        }`}
-      >
-        {file ? (
-          <>
-            <span className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-green-700">{title}</span>
-            <FileImage className="mb-2 h-8 w-8 text-green-600" aria-hidden="true" />
-            <span className="max-w-full truncate text-sm font-semibold text-green-800">Selected: {file.name}</span>
-            <span className="mt-1 text-xs text-green-700">Click to replace</span>
-          </>
-        ) : (
-          <>
-            <span className="mb-2 text-sm font-semibold text-slate-900">{title}</span>
-            <UploadCloud className="mb-2 h-8 w-8 text-slate-400" aria-hidden="true" />
-            <span className="text-sm"><span className="font-medium text-blue-600">Click to upload</span> <span className="text-slate-500">or drag and drop</span></span>
-            <span className="mt-2 text-xs text-slate-500">{helper}</span>
-          </>
-        )}
-        <input
-          id={inputId}
-          type="file"
-          accept={accept}
-          onChange={(event) => handleFileChange(field, event.target.files?.[0] ?? null)}
-          className="hidden"
-        />
-      </label>
-    );
-  }
-
   function validate() {
     if (!form.lastName.trim() || !form.firstName.trim() || !form.middleName.trim()) return "First, middle, and last name are required.";
     if (!form.sitio.trim() || !form.barangay.trim() || !form.municipality.trim() || !form.province.trim()) return "Complete address details are required.";
@@ -290,11 +477,10 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
-      <div className="relative mx-auto flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-2xl">
+      <div className="relative mx-auto flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6 py-5 sm:px-8">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">KK Profiling Registration</h2>
-            <p className="mt-1 text-sm text-slate-500">Review and edit your submitted registration details.</p>
           </div>
           <button
             type="button"
@@ -599,36 +785,40 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               <p className="mt-1 text-sm text-slate-600">Review the documents currently on file or choose replacements below.</p>
             </div>
 
-            <div>
-              <p className="mb-3 text-sm font-semibold text-slate-900">Currently on file</p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {[
-                  ["Front of ID", registration.idFrontFileUrl],
-                  ["Back of ID", registration.idBackFileUrl],
-                  ["Certificate of Residency", registration.idSingleFileUrl],
-                ].map(([title, url]) => (
-                  <a
-                    key={title}
-                    href={url || undefined}
-                    target={url ? "_blank" : undefined}
-                    rel={url ? "noreferrer noopener" : undefined}
-                    className="group flex min-h-20 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-blue-400 hover:bg-slate-50"
-                  >
-                    <FileImage className="h-5 w-5 shrink-0 text-slate-400" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">{title}<span className="mt-1 block text-xs font-normal text-slate-500">{url ? "Available to view" : "Not uploaded"}</span></span>
-                    {url ? <ExternalLink className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:text-blue-600" aria-hidden="true" /> : null}
-                  </a>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-3 text-sm font-semibold text-slate-900">Upload replacement</p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {renderDropzone("front", "Front of ID", "image/*", "PNG, JPG (max. 10MB)")}
-                {renderDropzone("back", "Back of ID", "image/*", "PNG, JPG (max. 10MB)")}
-                {renderDropzone("single", "Certificate of Residency", "image/*,application/pdf", "PNG, JPG, PDF (max. 10MB)")}
-              </div>
+            <div className="grid grid-cols-1 items-stretch gap-5 md:grid-cols-3">
+              <UnifiedDocumentDropzone
+                title="Front of ID"
+                documentType="front_id"
+                existingUrl={registration.idFrontFileUrl}
+                selectedFile={selectedFiles.front}
+                accept="image/*"
+                helper="PNG, JPG (max. 10MB)"
+                firstName={form.firstName}
+                lastName={form.lastName}
+                middleInitial={form.middleName}
+                onFileChange={(file) => handleFileChange("front", file)}
+              />
+              <UnifiedDocumentDropzone
+                title="Back of ID"
+                documentType="back_id"
+                existingUrl={registration.idBackFileUrl}
+                selectedFile={selectedFiles.back}
+                accept="image/*"
+                helper="PNG, JPG (max. 10MB)"
+                profileBirthDate={form.birthDate}
+                onFileChange={(file) => handleFileChange("back", file)}
+              />
+              <UnifiedDocumentDropzone
+                title="Certificate of Residency"
+                documentType="certificate"
+                existingUrl={registration.idSingleFileUrl}
+                selectedFile={selectedFiles.single}
+                accept="image/*,application/pdf"
+                helper="PNG, JPG, PDF (max. 10MB)"
+                firstName={form.firstName}
+                lastName={form.lastName}
+                onFileChange={(file) => handleFileChange("single", file)}
+              />
             </div>
           </section>
         </div>
