@@ -300,11 +300,11 @@ export default function KKProfilingStatusPage() {
         <main className="mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:px-8">
           <div className="mb-8 space-y-4">
             <Link
-              href="/programs/kk-profiling"
-              className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 shadow-sm transition-colors hover:text-slate-900"
+              href="/applications"
+              className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
             >
               <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Back to Dashboards</span>
+              <span>Back to Applications</span>
             </Link>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">KK Profiling Status</h1>

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { DashboardHeaderActions } from "@/app/components/DashboardHeaderActions";
 
 function navClass(pathname: string, href: string) {
-  const isActive = pathname === href;
+  const isActive = pathname === href || pathname.startsWith(`${href}/`);
   return (
     "px-4 py-2 font-semibold rounded-lg transition-colors duration-200 " +
     (isActive
@@ -30,7 +30,7 @@ export default function GranteeDashboardHeader({ requiredRole = "GRANTEE" }: { r
         <nav className="hidden items-center gap-1 text-sm md:flex">
           <Link href="/?from=dashboard" className={navClass(pathname, "/")}>Home</Link>
           <Link href="/about?from=dashboard" className={navClass(pathname, "/about")}>About</Link>
-          <Link href="/programs/kk-profiling/status" className={navClass(pathname, "/programs")}>Application</Link>
+          <Link href="/applications" className={navClass(pathname, "/applications")}>Applications</Link>
         </nav>
 
         <DashboardHeaderActions requiredRole={requiredRole ?? undefined} />

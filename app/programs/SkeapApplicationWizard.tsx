@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
+import { FileText, UploadCloud } from "lucide-react";
 import {
   CORE_UPLOAD_KEYS,
   SKEAP_UPLOAD_KEY,
@@ -9,27 +10,8 @@ import {
   normalizeUploadRequirement,
   type SkeapUploadKey,
 } from "@/lib/skeap-upload";
-import { Eye } from "lucide-react";
-
-type KKProfile = {
-  fullName: string;
-  email: string;
-  contactNumber: string;
-  purok: string;
-  addressLine: string;
-  barangay: string;
-  birthDate: string;
-  age: number;
-  civilStatus?: string;
-  sex?: string;
-  registeredNationalVoter?: string;
-  registration?: {
-    sex?: string;
-    civilStatus?: string;
-    registeredNationalVoter?: string;
-    registeredSKVoter?: string;
-  };
-};
+import SmartPortraitDropzone from "@/components/SmartPortraitDropzone";
+import type { KKProfile } from "@/lib/kk-profile-client";
 
 type UploadedFile = {
   id: string;
@@ -127,6 +109,30 @@ function formatPermanentAddress(parts: Array<string | undefined | null>) {
     .join(", ");
 }
 
+function parseProfileName(fullName: string) {
+  const normalizedName = fullName.trim();
+  if (normalizedName.includes(",")) {
+    const [lastName, rest] = normalizedName.split(",", 2).map((part) => part.trim());
+    const nameParts = rest.split(/\s+/).filter(Boolean);
+    const firstName = nameParts.shift() || "";
+    const middleInitial = nameParts.join(" ");
+    return { lastName, firstName, middleInitial };
+  }
+
+  const nameParts = normalizedName.split(/\s+/).filter(Boolean);
+  if (nameParts.length === 1) {
+    return { lastName: "", firstName: nameParts[0], middleInitial: "" };
+  }
+  if (nameParts.length === 2) {
+    return { lastName: nameParts[1], firstName: nameParts[0], middleInitial: "" };
+  }
+  return {
+    lastName: nameParts[nameParts.length - 1] || "",
+    firstName: nameParts[0] || "",
+    middleInitial: nameParts.slice(1, -1).join(" "),
+  };
+}
+
 function isUploadCompleteForKey(files: UploadedFile[], key: SkeapUploadKey) {
   return files.some((file) => {
     if (file.status !== "done" || !file.url) return false;
@@ -138,12 +144,46 @@ function isUploadCompleteForKey(files: UploadedFile[], key: SkeapUploadKey) {
 }
 
 const STEPS = ["Profile", "School", "Educational Background", "Uploads"] as const;
+const YEAR_LEVELS = [
+  "Incoming Freshman",
+  "1st Year",
+  "2nd Year",
+  "3rd Year",
+  "4th Year",
+  "5th Year",
+  "6th Year",
+];
+const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
+  lastName: ["Last name and first name are required."],
+  firstName: ["Last name and first name are required."],
+  permanentAddress: ["Permanent address is required."],
+  schoolName: ["School / Institution is required."],
+  dateOfBirth: ["Date of birth is required."],
+  placeOfBirth: ["Place of birth is required."],
+  age: ["Age is required.", "Please enter a valid age."],
+  civilStatus: ["Civil status is required."],
+  gender: ["Gender is required."],
+  contactNumber: ["Contact number is required."],
+  emailAddress: ["Email address is required."],
+  photo: ["Please upload a 2x2 photo (ID)."],
+  photoFile: ["Please upload a valid 2x2 photo.", "Please upload a 2x2 photo (ID)."],
+  registeredVoter: ["Please indicate Registered Voter (Yes/No)."],
+  course: ["Course is required."],
+  yearLevel: ["Year level is required."],
+  fathersName: ["Father's name is required."],
+  fathersContact: ["Father's contact is required."],
+  mothersMaidenName: ["Mother's maiden name is required."],
+  mothersOccupation: ["Mother's occupation is required."],
+  mothersContact: ["Mother's contact is required."],
+  totalFamilyMonthlyIncome: ["Total family monthly income is required."],
+};
 
-export default function SkeapApplicationWizard({ onClose, requirements }: { onClose: () => void; requirements?: string[] }) {
+export default function SkeapApplicationWizard({ onSubmitted, requirements, footerActionsTarget, userProfile }: { onSubmitted: (reference: string) => void; requirements?: string[]; footerActionsTarget?: HTMLElement | null; userProfile: KKProfile }) {
   const [step, setStep] = useState(0);
-  const [loadingProfile, setLoadingProfile] = useState(true);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<KKProfile | null>(null);
+  const parsedProfileName = parseProfileName(userProfile.fullName || "");
+  const profileBirthDate = userProfile.birthDate ? String(userProfile.birthDate).slice(0, 10) : "";
+  const profileAge = profileBirthDate ? computeAgeFromDateValue(profileBirthDate) : undefined;
+  const profileVoterStatus = userProfile.registration?.registeredNationalVoter || userProfile.registeredNationalVoter;
 
   const [course, setCourse] = useState("");
   const [yearLevel, setYearLevel] = useState("");
@@ -152,27 +192,39 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   
 
   // Full SKEAP form fields (mirror DOCX)
-  const [lastName, setLastName] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [middleInitial, setMiddleInitial] = useState("");
+  const lastName = parsedProfileName.lastName;
+  const firstName = parsedProfileName.firstName;
+  const middleInitial = parsedProfileName.middleInitial;
   const [schoolName, setSchoolName] = useState("");
-  const [applicantName, setApplicantName] = useState("");
-  const [permanentAddress, setPermanentAddress] = useState("");
+  const applicantName = `${lastName}${firstName ? `, ${firstName}` : ""}${middleInitial ? ` ${middleInitial}` : ""}`;
+  const permanentAddress = formatPermanentAddress([userProfile.purok, userProfile.barangay, userProfile.addressLine]);
   const [placeOfBirth, setPlaceOfBirth] = useState("");
-  const [dateOfBirth, setDateOfBirth] = useState("");
-  const [age, setAge] = useState("");
-  const [civilStatus, setCivilStatus] = useState("");
-  const [gender, setGender] = useState("");
+  const dateOfBirth = profileBirthDate;
+  const age = profileAge !== undefined ? String(profileAge) : String(userProfile.age ?? "");
+  const civilStatus = userProfile.registration?.civilStatus || userProfile.civilStatus || "";
+  const gender = userProfile.registration?.sex || userProfile.sex || "";
   const [fathersName, setFathersName] = useState("");
   const [fathersOccupation, setFathersOccupation] = useState("");
   const [fathersContact, setFathersContact] = useState("");
   const [mothersMaidenName, setMothersMaidenName] = useState("");
   const [mothersOccupation, setMothersOccupation] = useState("");
   const [mothersContact, setMothersContact] = useState("");
-  const [contactNumber, setContactNumber] = useState("");
-  const [emailAddress, setEmailAddress] = useState("");
-  const [registeredVoter, setRegisteredVoter] = useState<boolean | null>(null);
+  const [contactNumber, setContactNumber] = useState(userProfile.contactNumber || "");
+  const emailAddress = userProfile.email || "";
+  const [registeredVoter, setRegisteredVoter] = useState<boolean | null>(
+    typeof profileVoterStatus === "string"
+      ? profileVoterStatus.toLowerCase() === "yes" || profileVoterStatus.toLowerCase() === "true"
+      : null
+  );
   const [totalFamilyMonthlyIncome, setTotalFamilyMonthlyIncome] = useState("");
+  const isIncomingFreshman = yearLevel === "Incoming Freshman";
+
+  function getUploadLabel(key: SkeapUploadKey) {
+    if (key === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT && isIncomingFreshman) {
+      return "Notice of Admission / SHS Report Card";
+    }
+    return SKEAP_UPLOAD_LABELS[key];
+  }
 
   // Educational background
   const [elementarySchool, setElementarySchool] = useState("");
@@ -188,112 +240,14 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
   const [invalidFields, setInvalidFields] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [submittedId, setSubmittedId] = useState<string | null>(null);
-  const [submittedInquiryId, setSubmittedInquiryId] = useState<string | null>(null);
-  const [submittedApplicationId, setSubmittedApplicationId] = useState<string | null>(null);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    let mounted = true;
+    if (!message) return;
 
-    fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" })
-      .then(async (res) => {
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(body?.error || "Unable to load KK profile");
-        }
-        return body.profile as KKProfile;
-      })
-      .then((data) => {
-        if (!mounted) return;
-        setProfile(data);
-        setProfileError(null);
-        // auto-fill matching SKEAP fields from KK profile
-        try {
-          if (data) {
-            const fullName = data.fullName?.trim() || "";
-            let parsedLast = "";
-            let parsedFirst = "";
-            let parsedMiddle = "";
-            if (fullName.includes(",")) {
-              const [last, rest] = fullName.split(",", 2).map((part) => part.trim());
-              parsedLast = last;
-              const tokens = rest.split(/\s+/).filter(Boolean);
-              parsedFirst = tokens.shift() || "";
-              parsedMiddle = tokens.join(" ");
-            } else {
-              const tokens = fullName.split(/\s+/).filter(Boolean);
-              if (tokens.length === 1) {
-                parsedFirst = tokens[0];
-              } else if (tokens.length === 2) {
-                parsedFirst = tokens[0];
-                parsedLast = tokens[1];
-              } else {
-                parsedFirst = tokens[0];
-                parsedMiddle = tokens.slice(1, -1).join(" ");
-                parsedLast = tokens[tokens.length - 1];
-              }
-            }
-            setLastName(parsedLast);
-            setFirstName(parsedFirst);
-            setMiddleInitial(parsedMiddle);
-            setApplicantName(`${parsedLast}${parsedFirst ? `, ${parsedFirst}` : ""}${parsedMiddle ? ` ${parsedMiddle}` : ""}`);
-            setPermanentAddress(
-              formatPermanentAddress([
-                data.purok,
-                data.barangay,
-                data.addressLine,
-              ])
-            );
-            setSchoolName("");
-            const dateOfBirthValue = data.birthDate ? String(data.birthDate).slice(0, 10) : "";
-            setDateOfBirth(dateOfBirthValue);
-            const computedAge = dateOfBirthValue ? computeAgeFromDateValue(dateOfBirthValue) : undefined;
-            setAge(
-              computedAge !== undefined
-                ? String(computedAge)
-                : data.age !== undefined
-                ? String(data.age)
-                : ""
-            );
-            // Auto-fill from registration object first, then fall back to top-level fields
-            const regData = data.registration;
-            setCivilStatus(regData?.civilStatus || data.civilStatus || "");
-            setGender(regData?.sex || data.sex || "");
-            setPlaceOfBirth("");
-            setFathersName("");
-            setFathersOccupation("");
-            setFathersContact("");
-            setMothersMaidenName("");
-            setMothersOccupation("");
-            setMothersContact("");
-            // Auto-fill registered voter: map "Yes"/"No" strings to boolean
-            const voterStatus = regData?.registeredNationalVoter || data.registeredNationalVoter;
-            if (voterStatus && typeof voterStatus === "string") {
-              setRegisteredVoter(voterStatus.toLowerCase() === "yes" || voterStatus.toLowerCase() === "true");
-            } else {
-              setRegisteredVoter(null);
-            }
-            setGwa("");
-            setContactNumber(data.contactNumber || "");
-            setEmailAddress(data.email || "");
-          }
-        } catch (e) {
-          // ignore
-        }
-      })
-      .catch((err) => {
-        if (!mounted) return;
-        setProfileError(err instanceof Error ? err.message : "Unable to load KK profile");
-      })
-      .finally(() => {
-        if (mounted) setLoadingProfile(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    const timer = window.setTimeout(() => setMessage(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   const enrollmentFileUrl = useMemo(() => {
     const byRequirement = files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT);
@@ -367,6 +321,15 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       const copy = new Set(prev);
       copy.delete(name);
       return copy;
+    });
+
+    const matchingMessages = FIELD_VALIDATION_MESSAGES[name] ?? [];
+    const isUploadKey = Object.values(SKEAP_UPLOAD_KEY).includes(name as SkeapUploadKey);
+    setMessage((current) => {
+      if (!current) return current;
+      if (matchingMessages.includes(current)) return null;
+      if (isUploadKey && current.startsWith("Please upload the required file:")) return null;
+      return current;
     });
   }
 
@@ -470,11 +433,11 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
     setStep((s) => Math.max(0, s - 1));
   }
 
-  async function onChooseFiles(list: FileList | null, requirement?: string) {
+  async function onChooseFiles(list: FileList | File[] | null, requirement?: string): Promise<string | null> {
     let id = "";
     try {
       const filesArray = Array.from(list || []);
-      if (filesArray.length === 0) return;
+      if (filesArray.length === 0) return null;
 
       const file = filesArray[0];
       id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -496,7 +459,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
           ...prev.filter((f) => f.requirement !== normalizedKey),
           { ...newUpload, status: "error", error: errorText },
         ]);
-        return;
+        return errorText;
       }
 
       setFiles((prev) => [
@@ -513,12 +476,14 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       if (normalizedKey) {
         markFieldValid(normalizedKey);
       }
+      return null;
     } catch (err) {
       const text = err instanceof Error ? err.message : "Upload failed";
       console.error("SKEAP upload failed", { requirement, error: text, rawError: err });
       if (id) {
         setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "error", error: text } : f)));
       }
+      return text;
     }
   }
 
@@ -549,7 +514,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       if (missingUploadKeys.length > 0) {
         setMessage(
           `Please upload required document${missingUploadKeys.length > 1 ? "s" : ""}: ${missingUploadKeys
-            .map((key) => SKEAP_UPLOAD_LABELS[key] || key)
+            .map((key) => getUploadLabel(key) || key)
             .join(", ")}`
         );
         setSubmitting(false);
@@ -574,7 +539,11 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)?.url || null;
 
       if (!enrollmentFileUrl || !reportCardFileUrl) {
-        setMessage("Please upload the required enrollment and grade report files before submitting.");
+        setMessage(
+          isIncomingFreshman
+            ? "Please upload your Notice of Admission / SHS Report Card and latest grade report before submitting."
+            : "Please upload the required enrollment and grade report files before submitting."
+        );
         setSubmitting(false);
         return;
       }
@@ -629,51 +598,13 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         return;
       }
 
-      setSubmittedApplicationId(String(body.applicationId || ""));
-      setSubmittedInquiryId(String(body.inquiryId || body.applicationId || ""));
-      setSubmittedId(String(body.inquiryId || body.applicationId || ""));
-      setMessage("Application submitted successfully.");
+      const reference = String(body.inquiryId || body.applicationId || "");
+      onSubmitted(reference);
     } catch {
       setMessage("Network error while submitting application.");
     } finally {
       setSubmitting(false);
     }
-  }
-
-  if (loadingProfile) {
-    return <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Loading KK profile...</div>;
-  }
-
-  if (profileError) {
-    return (
-      <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
-        {profileError}. Complete KK profiling first before applying.
-      </div>
-    );
-  }
-
-  if (submittedId) {
-    return (
-      <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6">
-        <p className="text-sm uppercase tracking-[0.2em] text-emerald-700">SKEAP</p>
-        <h4 className="mt-2 text-xl font-semibold text-emerald-900">Application Submitted</h4>
-        <p className="mt-2 text-sm text-emerald-800">Your application reference is {submittedId}.</p>
-        <p className="mt-2 text-sm text-emerald-700">
-          You can monitor your SKEAP application status on the application page.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <Link
-            href={`/applications/${submittedId}`}
-            className="rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
-          >
-            View application status
-          </Link>
-          <button onClick={onClose} className="rounded-full border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-800">
-            Close
-          </button>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -690,7 +621,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         {STEPS.map((label, idx) => (
           <div
             key={label}
@@ -709,142 +640,70 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
 
 
       {step === 0 ? (
-        <div className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-6 rounded-2xl border border-slate-200 bg-white p-6">
           <h4 className="text-sm font-semibold">Personal Information</h4>
-          <div className="grid gap-4 sm:grid-cols-[1.3fr_1.3fr_0.8fr]">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <label className="flex flex-col min-w-0">
               <span className="text-sm font-semibold">Last Name</span>
               <input
+                readOnly
                 value={lastName}
                 data-required="profile"
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setLastName(value);
-                  setApplicantName(`${value}${firstName ? `, ${firstName}` : ""}${middleInitial ? ` ${middleInitial}` : ""}`);
-                  markFieldValid("lastName");
-                }}
-                className={`mt-1 min-w-0 rounded-xl border px-3 py-2 ${invalidFields.has("lastName") ? "border-rose-600" : "border-slate-300"}`}
+                className={`mt-1 w-full min-w-0 cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-slate-500 focus:outline-none ${invalidFields.has("lastName") ? "border-rose-600" : "border-slate-200"}`}
               />
             </label>
             <label className="flex flex-col min-w-0">
               <span className="text-sm font-semibold">First Name</span>
               <input
+                readOnly
                 value={firstName}
                 data-required="profile"
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setFirstName(value);
-                  setApplicantName(`${lastName}${value ? `, ${value}` : ""}${middleInitial ? ` ${middleInitial}` : ""}`);
-                  markFieldValid("firstName");
-                }}
-                className={`mt-1 min-w-0 rounded-xl border px-3 py-2 ${invalidFields.has("firstName") ? "border-rose-600" : "border-slate-300"}`}
+                className={`mt-1 w-full min-w-0 cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-slate-500 focus:outline-none ${invalidFields.has("firstName") ? "border-rose-600" : "border-slate-200"}`}
               />
             </label>
             <label className="flex flex-col min-w-0">
               <span className="text-sm font-semibold">M.I.</span>
               <input
+                readOnly
                 value={middleInitial}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setMiddleInitial(value);
-                  setApplicantName(`${lastName}${firstName ? `, ${firstName}` : ""}${value ? ` ${value}` : ""}`);
-                }}
-                className="mt-1 min-w-0 rounded-xl border px-3 py-2"
+                className="mt-1 w-full min-w-0 cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-500 focus:outline-none"
                 placeholder="Optional"
               />
             </label>
           </div>
 
-          <div className="grid sm:grid-cols-[1.5fr_minmax(220px,0.85fr)] gap-4">
-            <div className="grid gap-4 min-w-0">
-              <label className="min-w-0 flex flex-col">
-                  <span className="text-sm font-semibold">Permanent Address</span>
-                  <input
-                    data-required="profile"
-                    value={permanentAddress}
-                    onChange={(e) => {
-                      setPermanentAddress(e.target.value);
-                      markFieldValid("permanentAddress");
-                    }}
-                    className={`mt-1 min-w-0 rounded-xl border px-3 py-2 ${invalidFields.has("permanentAddress") ? "border-rose-600" : "border-slate-300"}`}
-                  />
-              </label>
-              <label className="min-w-0 flex flex-col">
-                  <span className="text-sm font-semibold">School / Institution</span>
-                  <select
-                    data-required="profile"
-                    value={schoolName}
-                    onChange={(e) => {
-                      setSchoolName(e.target.value);
-                      markFieldValid("schoolName");
-                    }}
-                    className={`mt-1 min-w-0 rounded-xl border px-3 py-2 text-slate-700 ${invalidFields.has("schoolName") ? "border-rose-600" : "border-slate-300 bg-white"}`}
-                  >
-                  <option value="">Select your school</option>
-                  <option value="Benguet State University (BSU)">Benguet State University (BSU)</option>
-                  <option value="King's College of the Philippines (KCP)">King's College of the Philippines (KCP)</option>
-                  <option value="Cordillera Career Development College (CCDC)">Cordillera Career Development College (CCDC)</option>
-                  <option value="Star Colleges">Star Colleges</option>
-                  <option value="BVS Colleges">BVS Colleges</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="relative row-span-2 h-full min-w-0 flex flex-col justify-between rounded-[1.25rem] border border-slate-200 bg-slate-50 p-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">2x2 Photo (ID)</p>
-                <p className="mt-1 text-xs text-slate-500">Upload a 2x2 ID photo for the application.</p>
-              </div>
-
-              <div className="mt-3">
-                <label className={`relative block w-full rounded-xl border px-3 py-2 text-sm text-slate-700 ${invalidFields.has("photoFile") ? "border-rose-600 bg-white" : "border-slate-300 bg-white"}`}>
-                  <span className="sr-only">Upload 2x2 photo</span>
-                  <input
-                    data-required="profile"
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => onChooseFiles(e.target.files, "2x2 Photo")}
-                    className="absolute inset-0 h-full w-full opacity-0 pointer-events-none"
-                  />
-                  <div className="relative z-10 flex items-center justify-between gap-3">
-                    <span className="min-w-0 truncate text-slate-500">{photoFileRecord?.name ?? "Choose file"}</span>
-                    <div className="flex items-center gap-2">
-                      {photoFileUrl ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPreviewPhotoUrl(photoFileUrl);
-                          }}
-                          className="relative z-20 inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-slate-200"
-                          aria-label="Preview uploaded 2x2 photo"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                      ) : null}
-                      {photoFileUrl ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setFiles((prev) => prev.filter((file) => file.url !== photoFileUrl));
-                          }}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-100"
-                          aria-label="Remove 2x2 photo"
-                        >
-                          ×
-                        </button>
-                      ) : (
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">Browse</span>
-                      )}
-                    </div>
-                  </div>
-                </label>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 gap-4">
+            <label className="flex min-w-0 flex-col">
+              <span className="text-sm font-semibold">Permanent Address</span>
+              <input
+                readOnly
+                data-required="profile"
+                value={permanentAddress}
+                className={`mt-1 w-full min-w-0 cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-slate-500 focus:outline-none ${invalidFields.has("permanentAddress") ? "border-rose-600" : "border-slate-200"}`}
+              />
+            </label>
+            <label className="flex min-w-0 flex-col">
+              <span className="text-sm font-semibold">School / Institution</span>
+              <select
+                data-required="profile"
+                value={schoolName}
+                onChange={(e) => {
+                  setSchoolName(e.target.value);
+                  markFieldValid("schoolName");
+                }}
+                className={`mt-1 w-full rounded-lg border bg-white px-3 py-2 text-slate-900 shadow-sm transition-colors focus:ring-2 ${invalidFields.has("schoolName") ? "border-rose-600 focus:border-rose-600 focus:ring-rose-200" : "border-slate-300 focus:border-slate-900 focus:ring-slate-900"}`}
+              >
+                <option value="">Select your school</option>
+                <option value="Benguet State University (BSU)">Benguet State University (BSU)</option>
+                <option value="King's College of the Philippines (KCP)">King's College of the Philippines (KCP)</option>
+                <option value="Cordillera Career Development College (CCDC)">Cordillera Career Development College (CCDC)</option>
+                <option value="Star Colleges">Star Colleges</option>
+                <option value="BVS Colleges">BVS Colleges</option>
+              </select>
+            </label>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 items-start gap-x-6 gap-y-4 md:grid-cols-2">
             <label className="flex flex-col">
               <span className="text-sm font-semibold">Date of Birth</span>
               <input
@@ -853,19 +712,8 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                 min="1995-01-01"
                 max={`${new Date().getFullYear() - 1}-12-31`}
                 value={dateOfBirth}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  if (value >= "1995-01-01" && value <= `${new Date().getFullYear() - 1}-12-31`) {
-                    setDateOfBirth(value);
-                    const computedAge = computeAgeFromDateValue(value);
-                    if (computedAge !== undefined) {
-                      setAge(String(computedAge));
-                    }
-                    markFieldValid("dateOfBirth");
-                    markFieldValid("age");
-                  }
-                }}
-                className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("dateOfBirth") ? "border-rose-600" : "border-slate-300"}`}
+                readOnly
+                className={`mt-1 w-full cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-slate-500 focus:outline-none ${invalidFields.has("dateOfBirth") ? "border-rose-600" : "border-slate-200"}`}
               />
             </label>
             <label className="flex flex-col">
@@ -877,12 +725,9 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                   setPlaceOfBirth(e.target.value);
                   markFieldValid("placeOfBirth");
                 }}
-                className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("placeOfBirth") ? "border-rose-600" : "border-slate-300"}`}
+                className={`mt-1 w-full rounded-lg border bg-white px-3 py-2 text-slate-900 shadow-sm transition-colors focus:ring-2 ${invalidFields.has("placeOfBirth") ? "border-rose-600 focus:border-rose-600 focus:ring-rose-200" : "border-slate-300 focus:border-slate-900 focus:ring-slate-900"}`}
               />
             </label>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4">
             <label className="flex flex-col">
               <span className="text-sm font-semibold">Age</span>
               <input
@@ -890,23 +735,17 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                 type="number"
                 min="0"
                 value={age}
-                onChange={(e) => {
-                  setAge(e.target.value);
-                  markFieldValid("age");
-                }}
-                className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("age") ? "border-rose-600" : "border-slate-300"}`}
+                readOnly
+                className={`mt-1 w-full cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-slate-500 focus:outline-none ${invalidFields.has("age") ? "border-rose-600" : "border-slate-200"}`}
               />
             </label>
             <label className="flex flex-col">
               <span className="text-sm font-semibold">Civil Status</span>
               <select
+                disabled
                 data-required="profile"
                 value={civilStatus}
-                onChange={(e) => {
-                  setCivilStatus(e.target.value);
-                  markFieldValid("civilStatus");
-                }}
-                className={`mt-1 rounded-xl border px-3 py-2 text-slate-700 ${invalidFields.has("civilStatus") ? "border-rose-600" : "border-slate-300"}`}
+                className={`mt-1 w-full cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-slate-500 ${invalidFields.has("civilStatus") ? "border-rose-600" : "border-slate-200"}`}
               >
                 <option value="">Select status</option>
                 <option value="Single">Single</option>
@@ -919,13 +758,10 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
             <label className="flex flex-col">
               <span className="text-sm font-semibold">Gender</span>
               <select
+                disabled
                 data-required="profile"
                 value={gender}
-                onChange={(e) => {
-                  setGender(e.target.value);
-                  markFieldValid("gender");
-                }}
-                className={`mt-1 rounded-xl border px-3 py-2 text-slate-700 ${invalidFields.has("gender") ? "border-rose-600" : "border-slate-300"}`}
+                className={`mt-1 w-full cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-slate-500 ${invalidFields.has("gender") ? "border-rose-600" : "border-slate-200"}`}
               >
                 <option value="">Select gender</option>
                 <option value="Male">Male</option>
@@ -933,9 +769,6 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                 <option value="Prefer not to say">Prefer not to say</option>
               </select>
             </label>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4">
             <label className="flex flex-col">
               <span className="text-sm font-semibold">Contact Number</span>
               <input
@@ -945,27 +778,39 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                   setContactNumber(e.target.value);
                   markFieldValid("contactNumber");
                 }}
-                className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("contactNumber") ? "border-rose-600" : "border-slate-300"}`}
+                className={`mt-1 w-full rounded-lg border bg-white px-3 py-2 text-slate-900 shadow-sm transition-colors focus:ring-2 ${invalidFields.has("contactNumber") ? "border-rose-600 focus:border-rose-600 focus:ring-rose-200" : "border-slate-300 focus:border-slate-900 focus:ring-slate-900"}`}
               />
             </label>
-            <label className="flex flex-col">
+            <label className="flex flex-col md:col-span-2">
               <span className="text-sm font-semibold">Email Address</span>
               <input
+                readOnly
                 data-required="profile"
                 value={emailAddress}
-                onChange={(e) => {
-                  setEmailAddress(e.target.value);
-                  markFieldValid("emailAddress");
-                }}
-                className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("emailAddress") ? "border-rose-600" : "border-slate-300"}`}
+                className={`mt-1 w-full cursor-not-allowed rounded-lg border bg-slate-50 px-3 py-2 text-slate-500 focus:outline-none ${invalidFields.has("emailAddress") ? "border-rose-600" : "border-slate-200"}`}
               />
             </label>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4 items-start">
-            <div>
-              <span className="text-sm font-semibold">Registered Voter</span>
-              <div className="mt-2 flex items-center gap-4">
+            <div className="mt-2 md:col-span-2">
+              <p className="mb-2 block text-sm font-semibold text-slate-900">2x2 Photo (ID) *</p>
+              <p className="mb-4 text-sm text-slate-500">Upload a clear portrait photo. We will crop it to 2x2 for you.</p>
+              <SmartPortraitDropzone
+                uploadedUrl={photoFileUrl}
+                uploadedName={photoFileRecord?.name}
+                onFileSelected={async (file) => {
+                  markFieldValid("photoFile");
+                  const uploadError = await onChooseFiles([file], "2x2 Photo");
+                  if (uploadError) throw new Error(uploadError);
+                }}
+                onPreview={(previewUrl) => setPreviewPhotoUrl(previewUrl)}
+                onRemove={() => setFiles((prev) => prev.filter((file) => file.requirement !== SKEAP_UPLOAD_KEY.PHOTO))}
+              />
+              {invalidFields.has("photoFile") ? (
+                <p className="mt-2 text-sm text-red-700">Please upload a valid 2x2 photo.</p>
+              ) : null}
+            </div>
+            <div className="mt-2 flex flex-col gap-2 md:col-span-2">
+              <span className="text-sm font-semibold text-slate-900">Registered Voter</span>
+              <div className="flex items-center gap-4">
                 <label className="inline-flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -991,12 +836,9 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                   <span className="text-sm">No</span>
                 </label>
               </div>
-              <p className="mt-2 text-xs text-slate-500">*(If yes, please present voter’s certificate and attach a photocopy of voter’s certificate for 18 years old and above only)</p>
-            </div>
-            <div>
-              {/* voter certificate upload shown only when registered and age >= 18 */}
-                  {registeredVoter === true && Number(age) >= 18 ? (
-                <div>
+              <p className="text-xs text-slate-500">*(If yes, please present voter’s certificate and attach a photocopy of voter’s certificate for 18 years old and above only)</p>
+              {registeredVoter === true && Number(age) >= 18 ? (
+                <div className="mt-2">
                   <label className="text-sm font-semibold">Voter's certificate (photocopy)</label>
                   <div className="mt-2">
                     <input
@@ -1025,7 +867,7 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
       {step === 1 ? (
         <div className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-5">
           <div className="grid sm:grid-cols-2 gap-4">
-            <EditableField label="Current course" value={course} onChange={setCourse} placeholder="e.g., BS Information Technology" />
+            <EditableField label="Current / Intended Course" value={course} onChange={setCourse} placeholder="e.g., BS Information Technology" />
             <label className="flex flex-col">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Year level</span>
               <select
@@ -1034,12 +876,9 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
                 className="mt-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
               >
                 <option value="">Select year level</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-                <option value="6">6</option>
+                {YEAR_LEVELS.map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
               </select>
             </label>
           </div>
@@ -1199,80 +1038,92 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
 
           <div className="mt-3 grid gap-3">
             {getRequiredUploadKeys(requirements).map((key) => {
-              const label = SKEAP_UPLOAD_LABELS[key];
+              const label = getUploadLabel(key);
               const inputId = `file-input-${key}`;
               const matchingFile = findUploadFileForKey(files, key);
+              const isReady = matchingFile?.status === "done" && Boolean(matchingFile.url);
+              const statusLabel = matchingFile?.status === "done"
+                ? "Ready"
+                : matchingFile?.status === "uploading"
+                ? `Uploading ${matchingFile.progress}%`
+                : matchingFile?.status === "queued"
+                ? "Queued"
+                : matchingFile?.status === "error"
+                ? "Failed"
+                : "Pending";
+              const statusBadgeClass = matchingFile?.status === "done"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : matchingFile?.status === "error"
+                ? "border-rose-200 bg-rose-50 text-rose-700"
+                : matchingFile?.status === "uploading"
+                ? "border-sky-200 bg-sky-50 text-sky-700"
+                : "border-slate-200 bg-slate-100 text-slate-500";
               return (
                 <div
                   key={key}
                   id={`upload-${key}`}
                   tabIndex={-1}
-                  className={`rounded-xl border px-3 py-3 ${invalidFields.has(key) ? "border-rose-600 bg-rose-50" : "border-slate-200 bg-white"}`}
+                  className={`flex flex-col rounded-2xl border p-5 ${invalidFields.has(key) ? "border-rose-600 bg-rose-50" : "border-slate-200 bg-white"}`}
                 >
                   <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">{label}</p>
-                      <p className="text-xs text-slate-500">Upload one file for this requirement</p>
-                    </div>
-                    <div className={matchingFile ? matchingFile.status === "done" ? "text-emerald-700" : matchingFile.status === "error" ? "text-rose-700" : "text-slate-500" : "text-slate-500"}>
-                      {matchingFile
-                        ? matchingFile.status === "done"
-                          ? "Ready"
-                          : matchingFile.status === "uploading"
-                          ? `Uploading ${matchingFile.progress}%`
-                          : matchingFile.status === "error"
-                          ? "Failed"
-                          : "Queued"
-                        : "Not uploaded"}
-                    </div>
+                    <p className="min-w-0 truncate text-sm font-semibold text-slate-800">{label}</p>
+                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${statusBadgeClass}`}>
+                      {statusLabel}
+                    </span>
                   </div>
 
-                  <div className="mt-3">
-                    <label htmlFor={inputId} className="block text-xs font-medium text-slate-600 mb-2">
-                      Choose file for {label}
-                    </label>
-                    <div className={`relative block w-full rounded-xl border px-3 py-2 text-sm text-slate-700 ${invalidFields.has(key) ? "border-rose-600 bg-white" : "border-slate-300 bg-white"}`}>
-                      <label htmlFor={inputId} className="flex items-center justify-between gap-3 cursor-pointer">
-                        <span className="min-w-0 truncate text-slate-500">
-                          {matchingFile?.name ?? `Choose file for ${label}`}
-                        </span>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">
-                          {matchingFile ? "Change" : "Choose"}
-                        </span>
-                      </label>
-                      <input
-                        id={inputId}
-                        name={key}
-                        type="file"
-                        accept="image/*,application/pdf"
-                        data-requirement={key}
-                        onChange={(e) => {
-                          onChooseFiles(e.target.files, key);
-                          e.currentTarget.value = "";
-                        }}
-                        className="hidden"
-                        aria-label={`Upload file for ${label}`}
-                      />
-                    </div>
-                    {matchingFile ? (
-                      <div className="mt-2 text-xs space-y-1">
-                        <div className="text-slate-700 truncate">{matchingFile.name}</div>
-                        {matchingFile.status === "uploading" ? (
-                          <div className="text-slate-700">Uploading {matchingFile.progress}%</div>
-                        ) : matchingFile.status === "error" ? (
-                          <div className="text-rose-700">Upload failed</div>
-                        ) : null}
-                        {matchingFile.status === "done" && matchingFile.url ? (
-                          <div>
-                            <a href={matchingFile.url} target="_blank" rel="noreferrer" className="underline text-sky-600 hover:text-sky-700">
-                              View file
-                            </a>
-                          </div>
-                        ) : null}
-                        {matchingFile.error ? <div className="text-rose-700">{matchingFile.error}</div> : null}
+                  <input
+                    id={inputId}
+                    name={key}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    data-requirement={key}
+                    onChange={(e) => {
+                      onChooseFiles(e.target.files, key);
+                      e.currentTarget.value = "";
+                    }}
+                    className="sr-only"
+                    aria-label={`${isReady ? "Replace" : "Upload"} ${label}`}
+                  />
+
+                  {isReady && matchingFile ? (
+                    <div className="mt-3 flex min-w-0 items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-3 pl-4 shadow-sm">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <FileText className="h-5 w-5 shrink-0 text-emerald-500" aria-hidden="true" />
+                        <span className="min-w-0 truncate text-sm font-medium text-slate-900">{matchingFile.name}</span>
                       </div>
-                    ) : null}
-                  </div>
+                      <div className="ml-4 flex shrink-0 items-center gap-2">
+                        <a
+                          href={matchingFile.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          View
+                        </a>
+                        <label
+                          htmlFor={inputId}
+                          className="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                        >
+                          Replace
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor={inputId}
+                      className="mt-3 flex cursor-pointer items-center justify-between rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 transition-colors hover:bg-slate-100"
+                    >
+                      <span className="flex items-center gap-3">
+                        <UploadCloud className="h-5 w-5 text-slate-400" aria-hidden="true" />
+                        <span className="text-sm font-medium text-slate-600">Click to upload document</span>
+                      </span>
+                      <span className="rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold shadow-sm hover:bg-slate-50">
+                        Browse
+                      </span>
+                    </label>
+                  )}
+                  {matchingFile?.error ? <p className="mt-2 text-xs text-rose-700">{matchingFile.error}</p> : null}
                 </div>
               );
             })}
@@ -1323,36 +1174,38 @@ export default function SkeapApplicationWizard({ onClose, requirements }: { onCl
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={goBack}
-          disabled={step === 0 || submitting}
-          className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition duration-200 ease-in-out hover:border-slate-400 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50"
-        >
-          Back
-        </button>
-
-        {step < STEPS.length - 1 ? (
+      {footerActionsTarget ? createPortal(
+        <div className="flex w-full items-center justify-between gap-3">
           <button
             type="button"
-            onClick={goNext}
-            disabled={submitting}
-            className="rounded-full bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            onClick={goBack}
+            disabled={step === 0 || submitting}
+            className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Next
+            Back
           </button>
-        ) : (
-          <button
-            type="button"
-            onClick={submitApplication}
-            disabled={submitting}
-            className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition duration-200 ease-in-out hover:bg-emerald-700 active:scale-[0.98] shadow-sm hover:shadow-md disabled:opacity-70 disabled:hover:bg-emerald-600"
-          >
-            {submitting ? "Submitting..." : "Submit application"}
-          </button>
-        )}
-      </div>
+          {step < STEPS.length - 1 ? (
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={submitting}
+              className="rounded-lg bg-[#0F3D5C] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2f47] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={submitApplication}
+              disabled={submitting}
+              className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {submitting ? "Submitting..." : "Submit application"}
+            </button>
+          )}
+        </div>,
+        footerActionsTarget
+      ) : null}
     </div>
   );
 }

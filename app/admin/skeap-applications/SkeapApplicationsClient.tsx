@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle2, ClipboardList, Send, FileText, FolderOpen, X, Download } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle, CheckCircle2, ClipboardList, Clock, CornerUpLeft, RefreshCcw, Send, FileText, FolderOpen, X, Download, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { CORE_UPLOAD_KEYS, SKEAP_UPLOAD_KEY, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
@@ -76,6 +76,41 @@ interface ApplicationRecord {
     photoFileUrl?: string;
   };
   messages: ApplicationMessage[];
+}
+
+interface ApplicationMetricCardProps {
+  label: string;
+  value: number;
+  subtitle: string;
+  icon: LucideIcon;
+  active: boolean;
+  onClick: () => void;
+}
+
+function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onClick }: ApplicationMetricCardProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col w-full text-left transition hover:border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${active ? "ring-2 ring-slate-900" : ""}`}
+    >
+      <div className="flex justify-between items-start mb-4">
+        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-600 border border-slate-100">
+          <Icon className="w-5 h-5" />
+        </div>
+      </div>
+      <span className="text-[10px] font-bold text-slate-500 tracking-widest uppercase mb-1">
+        {label}
+      </span>
+      <div className="flex items-baseline gap-2">
+        <span className="text-4xl font-black text-slate-900 leading-none tracking-tight">
+          {value}
+        </span>
+        <span className="text-xs text-slate-500">{subtitle}</span>
+      </div>
+    </button>
+  );
 }
 
 function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMessage[]) {
@@ -727,7 +762,7 @@ export default function SkeapApplicationsClient({
       <div className="mx-auto flex min-h-screen max-w-[1480px] gap-6 px-6 py-8">
         <main className="flex-1 space-y-6">
           <header className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
               <div>
                 <p className="text-xs uppercase tracking-[0.35em] text-slate-500">SKEAP Applications</p>
                 <h1 className="mt-3 text-4xl font-black text-slate-950">Application review workspace</h1>
@@ -735,62 +770,43 @@ export default function SkeapApplicationsClient({
                   Select an application to inspect uploaded files, leave reviewer notes, and approve or return applicants.
                 </p>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setViewFilter("review")}
-                  aria-pressed={viewFilter === "review"}
-                  className={`rounded-[1.5rem] border px-5 py-4 text-sm shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
-                    viewFilter === "review"
-                      ? "border-slate-900 bg-slate-100 text-slate-950 shadow-sm"
-                      : "bg-slate-50/60 border border-slate-200 text-slate-700 p-4 rounded-xl flex flex-col items-center justify-center text-center transition-all hover:border-slate-300 hover:bg-slate-100"
-                  }`}
-                >
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Pending</span>
-                  <p className="mt-3 text-2xl font-bold text-slate-950">{stats.pending}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewFilter("review")}
-                  aria-pressed={viewFilter === "review"}
-                  className={`rounded-[1.5rem] border px-5 py-4 text-sm shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                    viewFilter === "review"
-                      ? "border-blue-400 bg-blue-100 text-blue-900 shadow-sm"
-                      : "bg-blue-50/40 border border-blue-200 text-blue-700 p-4 rounded-xl flex flex-col items-center justify-center text-center transition-all hover:border-blue-300 hover:bg-blue-100"
-                  }`}
-                >
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Resubmitted</span>
-                  <p className="mt-3 text-2xl font-bold text-slate-950">{stats.resubmitted}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewFilter("returned")}
-                  aria-pressed={viewFilter === "returned"}
-                  className={`rounded-[1.5rem] border px-5 py-4 text-sm shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
-                    viewFilter === "returned"
-                      ? "border-amber-700 bg-amber-100 text-amber-900"
-                      : "border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-300 hover:bg-amber-100"
-                  }`}
-                >
-                  <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">Returned</span>
-                  <p className="mt-3 text-2xl font-black text-slate-950">{stats.returned}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewFilter("approved")}
-                  aria-pressed={viewFilter === "approved"}
-                  className={`rounded-[1.5rem] border px-5 py-4 text-sm shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
-                    viewFilter === "approved"
-                      ? "border-emerald-700 bg-emerald-100 text-emerald-900"
-                      : "border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-300 hover:bg-emerald-100"
-                  }`}
-                >
-                  <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">Approved</span>
-                  <p className="mt-3 text-2xl font-black text-slate-950">{stats.approved}</p>
-                </button>
-              </div>
             </div>
           </header>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <ApplicationMetricCard
+              label="Pending Review"
+              value={stats.pending}
+              subtitle="in queue"
+              icon={Clock}
+              active={viewFilter === "review"}
+              onClick={() => setViewFilter("review")}
+            />
+            <ApplicationMetricCard
+              label="Resubmitted"
+              value={stats.resubmitted}
+              subtitle="updated apps"
+              icon={RefreshCcw}
+              active={viewFilter === "review"}
+              onClick={() => setViewFilter("review")}
+            />
+            <ApplicationMetricCard
+              label="Returned"
+              value={stats.returned}
+              subtitle="needs action"
+              icon={CornerUpLeft}
+              active={viewFilter === "returned"}
+              onClick={() => setViewFilter("returned")}
+            />
+            <ApplicationMetricCard
+              label="Approved"
+              value={stats.approved}
+              subtitle="processed"
+              icon={CheckCircle}
+              active={viewFilter === "approved"}
+              onClick={() => setViewFilter("approved")}
+            />
+          </div>
 
           <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] items-stretch">
             <div className="flex min-h-0 flex-col rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">

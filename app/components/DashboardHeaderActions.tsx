@@ -421,7 +421,7 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
               }, profileId);
             }
           }}
-          className={`relative rounded-2xl border p-3 shadow-sm transition ${openPanel === "notifications" ? "border-slate-200 bg-white/95" : "border-slate-200 bg-white/95"}`}
+          className="relative rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/40 hover:bg-[#0F3D5C]/5 hover:text-[#0F3D5C]"
           aria-expanded={openPanel === "notifications"}
         >
           <span className="sr-only">Notifications</span>
@@ -519,7 +519,7 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
 
       <Link
         href={supportInboxPath}
-        className="relative inline-flex rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/20 hover:text-[#0F3D5C]"
+        className="relative inline-flex rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/40 hover:bg-[#0F3D5C]/5 hover:text-[#0F3D5C]"
         aria-label={inquiryReplyCount > 0 ? `Support Inbox, ${inquiryReplyCount} replies` : "Support Inbox"}
         title="Support Inbox"
       >

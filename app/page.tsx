@@ -6,11 +6,11 @@ import OrdinancesSection from "@/components/OrdinancesSection";
 import { useAuth } from "@/app/components/AuthProvider";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { FolderOpen, Mail, UserPlus } from "lucide-react";
+import { Mail } from "lucide-react";
 
 export default function HomePage() {
   const pathname = usePathname();
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const [activeLink, setActiveLink] = useState<string>(pathname);
   const [youthCount, setYouthCount] = useState<number | null>(null);
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
@@ -89,29 +89,14 @@ export default function HomePage() {
                 Empowering Barangay Pico youth scholars with scholarship tracking, and accessible multilingual support in one unified portal.
               </p>
               
-              <div className="flex flex-col sm:flex-row flex-wrap items-start gap-3 pt-4">
+              <div className="flex flex-wrap items-center gap-4 pt-4">
                 <HeroCtaButton />
-                {authLoading ? (
-                  <span className="inline-flex min-w-[220px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 px-6 py-3 font-bold text-[#0F3D5C] opacity-80">
-                    Loading...
-                  </span>
-                ) : user ? (
-                  <Link
-                    href="/programs/kk-profiling/status"
-                    className="group inline-flex min-w-[220px] items-center justify-center gap-2 rounded-2xl border-2 border-[#0F3D5C]/30 px-6 py-3 font-bold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5"
-                  >
-                    <FolderOpen className="h-4 w-4 text-slate-500 transition-colors group-hover:text-[#0F3D5C]" aria-hidden="true" />
-                    <span>My Applications</span>
-                  </Link>
-                ) : (
-                  <Link
-                    href="/signup"
-                    className="group inline-flex min-w-[220px] items-center justify-center gap-2 rounded-2xl border-2 border-[#0F3D5C]/30 px-6 py-3 font-bold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5"
-                  >
-                    <UserPlus className="h-4 w-4 text-slate-500 transition-colors group-hover:text-[#0F3D5C]" aria-hidden="true" />
-                    <span>Register now</span>
-                  </Link>
-                )}
+                <Link
+                  href={user?.role === "YOUTH" ? "/youth-dashboard/inquiries" : "/grantee-dashboard/inquiries"}
+                  className="inline-flex min-h-12 min-w-[220px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 bg-transparent px-6 py-3 font-semibold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+                >
+                  Contact Helpdesk
+                </Link>
               </div>
               {/* Stats row */}
               <div className="mt-8 grid grid-cols-3 gap-6 max-w-md text-sm">

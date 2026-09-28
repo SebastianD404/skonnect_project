@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { X } from "lucide-react";
+import { CheckCircle2, X } from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
+import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-profile-client";
 
 type Props = {
   slug: string;
@@ -14,42 +15,81 @@ type ProgramStatus = {
   badge?: string;
   label?: string;
   summary?: string;
+  granteeCount?: number;
 };
+
+const PROGRAM_STATUS_CACHE_TTL = 5 * 60 * 1000;
+const programStatusCache = new Map<string, { data: ProgramStatus; expiresAt: number }>();
+const programStatusRequests = new Map<string, Promise<ProgramStatus | null>>();
+
+function getCachedProgramStatus(slug: string) {
+  const cached = programStatusCache.get(slug);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    programStatusCache.delete(slug);
+    return null;
+  }
+  return cached.data;
+}
+
+function fetchProgramStatus(slug: string): Promise<ProgramStatus | null> {
+  const cached = getCachedProgramStatus(slug);
+  if (cached) return Promise.resolve(cached);
+
+  const existingRequest = programStatusRequests.get(slug);
+  if (existingRequest) return existingRequest;
+
+  const request = fetch(`/api/programs/${slug}/status`, { cache: "no-store" })
+    .then(async (response) => {
+      if (!response.ok) return null;
+      const data = (await response.json()) as ProgramStatus;
+      programStatusCache.set(slug, { data, expiresAt: Date.now() + PROGRAM_STATUS_CACHE_TTL });
+      return data;
+    })
+    .finally(() => {
+      programStatusRequests.delete(slug);
+    });
+
+  programStatusRequests.set(slug, request);
+  return request;
+}
+
+function prefetchProgramStatus(slug: string) {
+  void fetchProgramStatus(slug).catch(() => undefined);
+}
 
 export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   const [open, setOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState<KKProfile | null>(null);
   const [checkingKkProfile, setCheckingKkProfile] = useState(false);
   const [kkCheckError, setKkCheckError] = useState<string | null>(null);
   const [showKkRequiredModal, setShowKkRequiredModal] = useState(false);
   const [status, setStatus] = useState<ProgramStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const [footerActionsTarget, setFooterActionsTarget] = useState<HTMLDivElement | null>(null);
+  const [submittedReference, setSubmittedReference] = useState<string | null>(null);
+
+  function openApplicationModal(profile: KKProfile) {
+    setUserProfile(profile);
+    setStatus(getCachedProgramStatus(slug));
+    setOpen(true);
+  }
 
   async function openApplyFlow(skipKkCheck = false) {
-    if (skipKkCheck) {
-      setOpen(true);
-      return;
-    }
-
     setCheckingKkProfile(true);
     setKkCheckError(null);
 
     try {
-      const response = await fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" });
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Check if registration is approved - check both registration.reviewStatus and top-level status
-        const isApproved = 
-          data.registration?.reviewStatus === "Approved" || 
-          data.profile?.status === "Approved";
-        
-        if (isApproved) {
-          setOpen(true);
-        } else {
-          setKkCheckError("Your KK profiling registration must be approved before you can apply for SKEAP.");
-          setShowKkRequiredModal(true);
-        }
+      const data = await fetchKKProfile();
+      const isApproved =
+        data.registration?.reviewStatus === "Approved" ||
+        data.profile.registration?.reviewStatus === "Approved" ||
+        data.profile.status === "Approved";
+
+      if (skipKkCheck || isApproved) {
+        openApplicationModal(data.profile);
       } else {
+        setKkCheckError("Your KK profiling registration must be approved before you can apply for SKEAP.");
         setShowKkRequiredModal(true);
       }
     } catch {
@@ -58,6 +98,11 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
       setCheckingKkProfile(false);
     }
   }
+
+  useEffect(() => {
+    prefetchProgramStatus(slug);
+    prefetchKKProfile();
+  }, [slug]);
 
   useEffect(() => {
     try {
@@ -79,9 +124,17 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
     if (!open) return;
     let mounted = true;
 
+    const cachedStatus = getCachedProgramStatus(slug);
+    if (cachedStatus) {
+      setStatus(cachedStatus);
+      setLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
     setLoading(true);
-    fetch(`/api/programs/${slug}/status`, { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
+    fetchProgramStatus(slug)
       .then((json) => {
         if (!mounted) return;
         setStatus(json);
@@ -102,10 +155,13 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   const isOpen =
     (status?.label || "").toLowerCase().includes("open") ||
     (status?.badge || "").toLowerCase().includes("open");
-
   return (
     <>
       <button
+        onMouseEnter={() => {
+          prefetchProgramStatus(slug);
+          prefetchKKProfile();
+        }}
         onClick={() => {
           void openApplyFlow();
         }}
@@ -192,56 +248,103 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
 
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="relative flex h-full max-h-[84vh] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
-              <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-slate-500">SKEAP Application</p>
-                <h3 className="mt-2 text-2xl font-semibold text-[#0F3D5C]">Application</h3>
-                <p className="mt-1 text-sm text-slate-600">
+          <div className="relative flex h-[85vh] min-h-[600px] max-h-[900px] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="z-10 flex shrink-0 items-start justify-between rounded-t-2xl bg-[linear-gradient(120deg,#0f3d5c_0%,#145b72_58%,#e7f4f1_160%)] px-8 py-6">
+              <div className="flex flex-col gap-1 pr-8">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">SKEAP Application</p>
+                <h3 className="text-2xl font-black text-white">Application</h3>
+                <p className="mt-1 text-sm text-white/80">
                   This is the official SKEAP application. Your KK profile details are auto-filled and locked; complete each section and upload the required documents to submit.
                 </p>
               </div>
               <button
+                type="button"
                 aria-label="Close"
                 onClick={() => setOpen(false)}
-                className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100"
+                className="rounded-full bg-white/10 p-2 text-white/70 backdrop-blur-sm transition-colors hover:bg-white/20 hover:text-white"
               >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="grid h-full flex-1 gap-4 overflow-hidden px-6 py-6 lg:grid-cols-[0.56fr_1.44fr] xl:grid-cols-[0.52fr_1.48fr]">
-              <aside className="min-w-0 flex min-h-0 flex-col overflow-hidden rounded-[2rem] bg-white p-4 shadow-sm">
-                <div className="flex-1 overflow-y-auto space-y-4 pb-4">
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            {submittedReference ? (
+              <div className="my-auto flex flex-1 flex-col items-center justify-center p-12 text-center">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 shadow-sm">
+                  <CheckCircle2 className="h-10 w-10 animate-in zoom-in duration-300 text-emerald-600" />
+                </div>
+                <span className="mb-1 text-xs font-bold uppercase tracking-widest text-emerald-600">
+                  Success Confirmation
+                </span>
+                <h2 className="mb-2 text-2xl font-black text-slate-900">Application Submitted Successfully</h2>
+                <p className="mb-8 max-w-md text-sm leading-relaxed text-slate-500">
+                  Your SKEAP application has been securely logged. You can now monitor your review status and track document verification on your dashboard.
+                </p>
+                <div className="mb-8 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5">
+                  <span className="text-xs font-medium text-slate-500">Reference ID:</span>
+                  <span className="select-all font-mono text-xs font-bold text-slate-900">{submittedReference}</span>
+                </div>
+                <div className="flex w-full max-w-sm items-center justify-center gap-4">
+                  <Link
+                    href={`/applications/${encodeURIComponent(submittedReference)}`}
+                    onClick={() => setOpen(false)}
+                    className="flex-1 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700"
+                  >
+                    View application status
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <div className="relative flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto overflow-x-hidden p-8 lg:flex-row">
+              <aside className="sticky top-8 z-10 mt-2 flex w-full shrink-0 self-start flex-col gap-4 lg:w-80">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Program window</p>
                   <p className="mt-2 text-sm font-semibold text-slate-900">
                     {!loading && status ? (isOpen ? "Applications are open" : "Applications are closed") : "Checking application status"}
                   </p>
-                  <p className="mt-2 text-sm text-slate-600">
-                    {loading && "Loading program status..."}
-                    {!loading && !status && "Unable to load status. You can retry in a moment."}
-                    {!loading && status && status.summary}
-                  </p>
+                  <div className="mt-2 text-sm text-slate-500">
+                    {loading ? (
+                      <div className="mt-1 flex items-center gap-2" aria-label="Loading registered scholar count">
+                        <span>There are currently</span>
+                        <span className="inline-block h-4 w-6 animate-pulse rounded bg-slate-200" aria-hidden="true" />
+                        <span>registered SKEAP scholars.</span>
+                      </div>
+                    ) : typeof status?.granteeCount === "number" ? (
+                      <p>
+                        There {status.granteeCount === 1 ? "is" : "are"} currently{" "}
+                        <strong className="font-bold text-slate-900">{status.granteeCount}</strong>{" "}
+                        registered SKEAP scholar{status.granteeCount === 1 ? "" : "s"}.
+                      </p>
+                    ) : (
+                      <p>Unable to load the registered scholar count.</p>
+                    )}
+                  </div>
                 </div>
 
                 {!loading && status && isOpen ? (
-                  <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                     <p className="text-sm font-semibold text-slate-900">Checklist before submit</p>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-700 list-disc list-inside leading-6">
+                    <ul className="mt-4 flex flex-col space-y-4">
                       {requirements.map((item, index) => (
-                        <li key={`${item}-${index}`}>{item}</li>
+                        <li key={`${item}-${index}`} className="flex items-start gap-3">
+                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden="true" />
+                          <span className="text-sm leading-relaxed text-slate-600">{item}</span>
+                        </li>
                       ))}
                     </ul>
                   </div>
                 ) : null}
 
                 {!loading && status && !isOpen ? (
-                  <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm leading-relaxed text-amber-800">
                     This cycle is currently closed. Watch announcements for the next application window.
                     <div className="mt-3">
                       <Link href="/announcements" className="font-semibold text-amber-900 underline">
@@ -250,19 +353,31 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                     </div>
                   </div>
                 ) : null}
-              </div>
             </aside>
 
-            <section className="min-w-0 min-h-0 overflow-y-auto pr-0">
+            <section className="min-w-0 w-full flex-1">
                 {!loading && status && !isOpen ? (
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-700">
                     SKEAP applications are currently closed for this cycle.
                   </div>
                 ) : (
-                  <SkeapApplicationWizard onClose={() => setOpen(false)} requirements={requirements} />
+                  <SkeapApplicationWizard
+                    requirements={requirements}
+                    footerActionsTarget={footerActionsTarget}
+                    userProfile={userProfile!}
+                    onSubmitted={setSubmittedReference}
+                  />
                 )}
               </section>
             </div>
+            )}
+
+            {!submittedReference ? (
+              <div
+                ref={setFooterActionsTarget}
+                className="z-20 mt-auto flex min-h-[80px] w-full shrink-0 items-center justify-between border-t border-slate-200 bg-slate-50 px-8 py-5"
+              />
+            ) : null}
           </div>
         </div>
       ) : null}

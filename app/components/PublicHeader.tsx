@@ -69,7 +69,9 @@ export function PublicHeader() {
     }
   }, [openPanel]);
 
-  const activePath = pathname.startsWith("/programs")
+  const activePath = pathname.startsWith("/applications")
+    ? "/applications"
+    : pathname.startsWith("/programs")
     ? "/programs"
     : pathname.startsWith("/about")
     ? "/about"
@@ -102,10 +104,10 @@ export function PublicHeader() {
           <Link href="/" onClick={handleLogoClick} className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
           <Link href="/about" className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 opacity-100`}>About</Link>
           <Link
-            href="/programs/kk-profiling/status"
-            className={`${navLinkClass(activePath, "/programs")} transition-opacity duration-200 opacity-100`}
+            href="/applications"
+            className={`${navLinkClass(activePath, "/applications")} transition-opacity duration-200 opacity-100`}
           >
-            Application
+            Applications
           </Link>
         </nav>
 
