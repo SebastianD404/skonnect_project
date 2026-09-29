@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
+import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { ClipboardList, FileText, User } from "lucide-react";
+import GraduationAction from "./GraduationAction";
 import SkeapApplicationReviewClient, {
   SerializableSkeapApplicationFormPayload,
 } from "./SkeapApplicationReviewClient";
@@ -21,10 +23,20 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
     notFound();
   }
 
+  const hasRetentionColumn = await hasGranteeRetentionColumn();
   const grantee = await prisma.grantee.findUnique({
     where: { id: granteeId },
-    include: {
-      user: true,
+    select: {
+      id: true,
+      userId: true,
+      status: true,
+      school: true,
+      yearLevel: true,
+      generalAverage: true,
+      dateEnrolled: true,
+      graduatedAt: true,
+      ...(hasRetentionColumn ? { retentionExpiresAt: true } : {}),
+      user: { select: { fullName: true, email: true } },
       submissions: {
         orderBy: { submittedAt: "desc" },
         take: 5,
@@ -35,6 +47,9 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
   if (!grantee) {
     notFound();
   }
+
+  const isGraduated = grantee.status === "GRADUATED";
+  const retentionExpiryDate = getRetentionExpiryDate(grantee);
 
   const applicationInquiry = await prisma.inquiry.findFirst({
     where: {
@@ -93,13 +108,30 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
             <p className="text-xs uppercase tracking-[0.3em] text-[#0F3D5C]">Grantee details</p>
             <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">{grantee.user.fullName}</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-500">View the grantee’s profile data, enrollment status, and recent submission history.</p>
+            {isGraduated ? (
+              <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <p className="text-sm font-semibold text-emerald-900">
+                  Archived Record: This scholar successfully completed their term on {grantee.graduatedAt?.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) ?? "a date not recorded"}. This record is locked for 5-year statutory audit compliance.
+                </p>
+                {retentionExpiryDate ? (
+                  <p className="mt-1 text-xs text-emerald-800">
+                    Retention period ends {retentionExpiryDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-          <Link
-            href="/admin/grantees"
-            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            Back to grantees
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY" ? (
+              <GraduationAction granteeId={grantee.id} granteeName={grantee.user.fullName} />
+            ) : null}
+            <Link
+              href="/admin/grantees"
+              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              Back to grantees
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -128,6 +160,11 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
             <div className="rounded-3xl bg-slate-50 p-5">
               <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Status</p>
               <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.status}</p>
+              {grantee.graduatedAt ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Graduated {new Date(grantee.graduatedAt).toLocaleDateString()}
+                </p>
+              ) : null}
             </div>
             <div className="rounded-3xl bg-slate-50 p-5">
               <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Enrollment date</p>

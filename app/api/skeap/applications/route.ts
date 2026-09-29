@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeUploadedFiles, SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
-import { getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 
 function buildSkeapInquiryMessage(data: {
   applicantName?: string;
@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
     const maxSlots = await getSkeapMaxSlots();
     const created = await prisma.$transaction(async (tx) => {
       const activeCount = await tx.skeapApplication.count({
-        where: { status: "APPROVED" },
+        where: ACTIVE_SKEAP_APPLICATION_WHERE,
       });
       const isWaitlisted = activeCount >= maxSlots;
       const waitlistPosition = isWaitlisted

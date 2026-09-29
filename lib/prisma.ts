@@ -70,6 +70,27 @@ export async function hasProfilingRegistrationColumn(columnName: string) {
   }
 }
 
+export async function hasGranteeRetentionColumn() {
+  if (!(await hasTable("grantees"))) {
+    return false;
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(
+      `SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'grantees'
+          AND column_name = 'retentionExpiresAt'
+      ) AS exists`
+    );
+    return rows[0]?.exists ?? false;
+  } catch {
+    return false;
+  }
+}
+
 function isMissingTableError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /does not exist|relation .* does not exist|table .* does not exist|TableDoesNotExist/i.test(message);

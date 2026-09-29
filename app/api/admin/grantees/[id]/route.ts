@@ -48,32 +48,61 @@ export async function PATCH(
 
     const body = await req.json().catch(() => ({}));
     const nextStatus = typeof body?.status === "string" ? body.status.trim().toUpperCase() : undefined;
-    const allowedStatuses = ["ACTIVE", "GRADUATED", "REMOVED"];
+    if (nextStatus === "GRADUATED") {
+      return NextResponse.json(
+        { error: "Use the graduation endpoint to timestamp graduation and reclaim the scholarship slot." },
+        { status: 409 }
+      );
+    }
+    const allowedStatuses = ["ACTIVE", "REMOVED"];
 
     if (!nextStatus || !allowedStatuses.includes(nextStatus)) {
       return NextResponse.json({ error: "Invalid grantee status" }, { status: 400 });
     }
 
-    const grantee = await prisma.grantee.findUnique({ where: { id } });
+    const grantee = await prisma.grantee.findUnique({
+      where: { id },
+      select: { id: true, userId: true, status: true },
+    });
     if (!grantee) {
       return NextResponse.json({ error: "Grantee not found" }, { status: 404 });
     }
+    if (grantee.status === "GRADUATED") {
+      return NextResponse.json({ error: "Graduated grantee records are locked for statutory retention." }, { status: 409 });
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const saved = await (tx as any).grantee.update({
+      const current = await tx.grantee.findUnique({
         where: { id },
-        data: { status: nextStatus as "ACTIVE" | "GRADUATED" | "REMOVED" },
+        select: { id: true, userId: true, status: true },
       });
+      if (!current) throw new Error("GRANTEE_NOT_FOUND");
+      if (current.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
+
+      const updateResult = await tx.grantee.updateMany({
+        where: { id, status: { not: "GRADUATED" } },
+        data: {
+          status: nextStatus as "ACTIVE" | "REMOVED",
+          ...(nextStatus === "ACTIVE" ? { graduatedAt: null } : {}),
+        },
+      });
+      if (updateResult.count !== 1) throw new Error("GRANTEE_ARCHIVED");
+
+      const saved = await tx.grantee.findUnique({
+        where: { id },
+        select: { id: true, userId: true, status: true, graduatedAt: true },
+      });
+      if (!saved) throw new Error("GRANTEE_NOT_FOUND");
 
       await writeAuditLog(tx as any, {
         action: "MUTATE_GRANTEE_STATUS",
         actorId: auth.user.id,
         targetTable: "grantees",
         targetId: id,
-        beforeData: { status: grantee.status },
+        beforeData: { status: current.status },
         afterData: { status: saved.status },
         metadata: {
-          target: grantee.userId,
+          target: current.userId,
           targetId: id,
           status: saved.status,
         },
@@ -85,6 +114,9 @@ export async function PATCH(
     return NextResponse.json({ success: true, grantee: updated });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage === "GRANTEE_ARCHIVED") {
+      return NextResponse.json({ error: "Graduated grantee records are locked for statutory retention." }, { status: 409 });
+    }
     console.error("Failed to update grantee status:", errorMessage, error);
     return NextResponse.json(
       { error: "Failed to update grantee status", details: errorMessage },
@@ -108,12 +140,20 @@ export async function DELETE(
       return auth.error;
     }
 
-    const grantee = await prisma.grantee.findUnique({ where: { id } });
+    const grantee = await prisma.grantee.findUnique({ where: { id }, select: { status: true } });
     if (!grantee) {
       return NextResponse.json({ error: "Grantee not found" }, { status: 404 });
     }
+    if (grantee.status === "GRADUATED") {
+      return NextResponse.json({ error: "Graduated grantee records cannot be deleted during statutory retention." }, { status: 409 });
+    }
 
-    await prisma.grantee.delete({ where: { id } });
+    const deleteResult = await prisma.grantee.deleteMany({
+      where: { id, status: { not: "GRADUATED" } },
+    });
+    if (deleteResult.count !== 1) {
+      return NextResponse.json({ error: "Graduated grantee records cannot be deleted during statutory retention." }, { status: 409 });
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

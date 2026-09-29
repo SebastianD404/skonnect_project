@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Eye, Search, Trash2 } from "lucide-react";
+import { Download, Eye, Search, Trash2 } from "lucide-react";
+import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import type { SerializableSkeapApplicationFormPayload } from "./[id]/SkeapApplicationReviewClient";
 
 export interface GranteeTableRow {
@@ -14,6 +16,8 @@ export interface GranteeTableRow {
   status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED";
   generalAverage: number | null;
   dateEnrolled: string;
+  graduatedAt?: string | null;
+  retentionExpiresAt?: string | null;
   updatedAt: string;
   detailsHref?: string;
   application?: SerializableSkeapApplicationFormPayload | null;
@@ -55,7 +59,11 @@ export function GranteeStatusTable({
   onDelete?: (grantee: GranteeTableRow) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | GranteeTableRow["status"]>("ALL");
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedStatus = searchParams.get("status")?.toUpperCase();
+  const statusFilter = FILTERS.find((filter) => filter.value === requestedStatus)?.value ?? "ALL";
   const effectiveQuery = externalSearchQuery !== undefined ? externalSearchQuery : query;
 
   const handleQueryChange = (value: string) => {
@@ -63,9 +71,25 @@ export function GranteeStatusTable({
     onSearchQueryChange?.(value);
   };
 
+  const handleStatusFilterChange = (value: (typeof FILTERS)[number]["value"]) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === "ALL") {
+      params.delete("status");
+    } else {
+      params.set("status", value.toLowerCase());
+    }
+
+    const queryString = params.toString();
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  };
+
   const filteredGrantees = useMemo(() => {
     return grantees.filter((grantee) => {
-      const matchesStatus = statusFilter === "ALL" || grantee.status === statusFilter;
+      const matchesStatus = statusFilter === "ALL" || (
+        statusFilter === "ACTIVE"
+          ? grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
+          : grantee.status === statusFilter
+      );
       const lowerQuery = effectiveQuery.toLowerCase();
       const matchesQuery =
         grantee.fullName.toLowerCase().includes(lowerQuery) ||
@@ -75,6 +99,46 @@ export function GranteeStatusTable({
       return matchesStatus && matchesQuery;
     });
   }, [grantees, effectiveQuery, statusFilter]);
+
+  const handleExportAuditLog = () => {
+    const escapeCsvCell = (value: string | number | null | undefined) => {
+      const cell = String(value ?? "");
+      const safeCell = /^[\t\r\n ]*[=+\-@]/.test(cell) ? `'${cell}` : cell;
+      return `"${safeCell.replace(/"/g, '""')}"`;
+    };
+    const headers = [
+      "Scholar",
+      "Email",
+      "School",
+      "Year Level",
+      "Status",
+      "General Average",
+      "Enrolled At",
+      "Graduated At",
+      "Retention Expires At",
+    ];
+    const rows = filteredGrantees.map((grantee) => [
+      grantee.fullName,
+      grantee.email,
+      grantee.school,
+      grantee.yearLevel,
+      STATUS_LABELS[grantee.status],
+      grantee.generalAverage,
+      grantee.dateEnrolled,
+      grantee.graduatedAt,
+      getRetentionExpiryDate(grantee)?.toISOString() ?? null,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escapeCsvCell).join(","))
+      .join("\r\n");
+    const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+    const objectUrl = URL.createObjectURL(blob);
+    const downloadLink = document.createElement("a");
+    downloadLink.href = objectUrl;
+    downloadLink.download = `grantee-alumni-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
+    downloadLink.click();
+    URL.revokeObjectURL(objectUrl);
+  };
 
   return (
     <div className="space-y-5">
@@ -90,12 +154,13 @@ export function GranteeStatusTable({
           />
         </label>
 
-        <div className="flex shrink-0 flex-nowrap gap-2 md:justify-end">
+        <div className="flex flex-wrap items-center gap-2 md:justify-end">
           {FILTERS.map((filter) => (
             <button
               key={filter.value}
               type="button"
-              onClick={() => setStatusFilter(filter.value)}
+              onClick={() => handleStatusFilterChange(filter.value)}
+              aria-pressed={statusFilter === filter.value}
               className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                 statusFilter === filter.value
                   ? "bg-[#0F3D5C] text-white shadow-sm"
@@ -105,6 +170,17 @@ export function GranteeStatusTable({
               {filter.label}
             </button>
           ))}
+          {statusFilter === "GRADUATED" ? (
+            <button
+              type="button"
+              onClick={handleExportAuditLog}
+              disabled={filteredGrantees.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download className="h-4 w-4 text-slate-500" />
+              <span>Export Audit Ledger (CSV)</span>
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -174,7 +250,16 @@ export function GranteeStatusTable({
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="inline-flex items-center justify-center gap-2">
-                        {grantee.application ? (
+                        {grantee.status === "GRADUATED" && grantee.detailsHref ? (
+                          <Link
+                            href={grantee.detailsHref}
+                            title="View archived grantee record"
+                            aria-label="View archived grantee record"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Link>
+                        ) : grantee.application ? (
                           <button
                             type="button"
                             onClick={() => onViewApplication?.(grantee)}
@@ -204,15 +289,17 @@ export function GranteeStatusTable({
                             <Eye className="h-4 w-4" />
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => onDelete?.(grantee)}
-                          title="Delete grantee"
-                          aria-label="Delete grantee"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-rose-50 text-rose-700 transition hover:bg-rose-100"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {grantee.status !== "GRADUATED" ? (
+                          <button
+                            type="button"
+                            onClick={() => onDelete?.(grantee)}
+                            title="Delete grantee"
+                            aria-label="Delete grantee"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-rose-50 text-rose-700 transition hover:bg-rose-100"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

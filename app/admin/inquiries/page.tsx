@@ -13,6 +13,34 @@ type StatItem = {
   iconName: "Users" | "CalendarDays" | "Inbox" | "Check";
 };
 
+type InquiryThreadMessage = {
+  id: string;
+  role: "admin" | "applicant";
+  createdAt: string;
+  text: string;
+};
+
+function normalizeReviewThread(value: Prisma.JsonValue): InquiryThreadMessage[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+
+    const message = entry as Prisma.JsonObject;
+    const { id, role, createdAt, text } = message;
+    if (
+      typeof id !== "string" ||
+      (role !== "admin" && role !== "applicant") ||
+      typeof createdAt !== "string" ||
+      typeof text !== "string"
+    ) {
+      return [];
+    }
+
+    return [{ id, role, createdAt, text }];
+  });
+}
+
 function formatDelta(current: number, previous: number) {
   if (previous === 0) {
     return {
@@ -343,10 +371,11 @@ export default async function AdminInquiriesPage() {
       openInquiryCount={openInquiryCount}
       pendingSubmissionCount={pendingSubmissionCount}
       statsByPeriod={statsByPeriod}
-      inquiries={inquiries.map((inquiry: any) => ({
+      inquiries={inquiries.map((inquiry) => ({
         ...inquiry,
         createdAt: inquiry.createdAt.toISOString(),
         respondedAt: inquiry.respondedAt?.toISOString() ?? null,
+        reviewThread: normalizeReviewThread(inquiry.reviewThread),
       }))}
     />
   );

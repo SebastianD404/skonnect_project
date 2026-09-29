@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
 const ALLOWED_TYPES = new Set([
@@ -20,6 +21,17 @@ export async function POST(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const appUser = await prisma.user.findFirst({
+      where: { OR: [{ authId: user.id }, { email: user.email ?? "" }] },
+      select: { role: true, grantee: { select: { status: true } } },
+    });
+    if (!appUser || appUser.role !== "GRANTEE" || !appUser.grantee) {
+      return NextResponse.json({ error: "Only grantee accounts can upload submission documents." }, { status: 403 });
+    }
+    if (appUser.grantee.status === "GRADUATED") {
+      return NextResponse.json({ error: "Graduated scholar records are locked for statutory retention." }, { status: 409 });
     }
 
     const formData = await request.formData();

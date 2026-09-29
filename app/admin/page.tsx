@@ -5,11 +5,6 @@ import AdminDashboardPageClient from "./AdminDashboardPageClient";
 import { ensureProfile } from "@/lib/auth";
 
 export default async function SKOfficialDashboardPage() {
-  const now = new Date();
-  const last30Days = new Date(now);
-  last30Days.setDate(now.getDate() - 30);
-  const prev30Days = new Date(now);
-  prev30Days.setDate(now.getDate() - 60);
   const supportInquiryFilter = {
     NOT: {
       subject: {
@@ -20,42 +15,15 @@ export default async function SKOfficialDashboardPage() {
   };
 
   const [
-    grantees,
+    totalGranteesCount,
     openInquiryCount,
     pendingSubmissionCount,
     skeapApplicationCount,
     profilingRegistrationCount,
     profilingMonthlyRows,
     recentInquiries,
-    newGranteesLast30Days,
-    newGranteesPrev30Days,
-    newOpenInquiriesLast30Days,
-    newOpenInquiriesPrev30Days,
-    newPendingSubmissionsLast30Days,
-    newPendingSubmissionsPrev30Days,
   ] = await Promise.all([
-    prisma.grantee.findMany({
-      take: 6,
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        status: true,
-        yearLevel: true,
-        school: true,
-        generalAverage: true,
-        createdAt: true,
-        updatedAt: true,
-        user: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            avatarUrl: true,
-            role: true,
-          },
-        },
-      },
-    }),
+    prisma.grantee.count({ where: { status: { in: ["ACTIVE", "PROBATIONARY"] } } }),
     prisma.inquiry.count({
       where: { ...supportInquiryFilter, isResolved: false },
     }),
@@ -101,12 +69,6 @@ export default async function SKOfficialDashboardPage() {
         },
       },
     }),
-    prisma.grantee.count({ where: { createdAt: { gte: last30Days } } }),
-    prisma.grantee.count({ where: { createdAt: { gte: prev30Days, lt: last30Days } } }),
-    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: last30Days } } }),
-    prisma.inquiry.count({ where: { ...supportInquiryFilter, createdAt: { gte: prev30Days, lt: last30Days } } }),
-    prisma.submission.count({ where: { submittedAt: { gte: last30Days }, status: "PENDING" } }),
-    prisma.submission.count({ where: { submittedAt: { gte: prev30Days, lt: last30Days }, status: "PENDING" } }),
   ]);
 
   // Build a contiguous last-N-months series (labels + counts)
@@ -148,24 +110,6 @@ export default async function SKOfficialDashboardPage() {
     profilingSeries.push(found ? Number(found.count) : 0);
   }
 
-  const formatDelta = (current: number, previous: number) => {
-    if (previous === 0) {
-      return {
-        delta: current === 0 ? "0%" : `+${current}`,
-        up: current >= 0,
-      };
-    }
-
-    const value = Math.round(((current - previous) / previous) * 100);
-    return {
-      delta: `${value >= 0 ? "+" : ""}${value}%`,
-      up: value >= 0,
-    };
-  };
-
-  const granteeDelta = formatDelta(newGranteesLast30Days, newGranteesPrev30Days);
-  const inquiryDelta = formatDelta(newOpenInquiriesLast30Days, newOpenInquiriesPrev30Days);
-  const submissionDelta = formatDelta(newPendingSubmissionsLast30Days, newPendingSubmissionsPrev30Days);
   const dateLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -174,36 +118,36 @@ export default async function SKOfficialDashboardPage() {
 
   const stats = [
     {
-      label: "Active Grantees",
-      value: `${grantees.length}`,
-      sub: "new this month",
-      delta: granteeDelta.delta,
-      up: granteeDelta.up,
+      label: "Total Grantees",
+      value: `${totalGranteesCount}`,
+      sub: "currently active",
+      href: "/admin/grantees",
+      accent: "cyan" as const,
       iconName: "Users" as const,
     },
     {
-      label: "SKEAP Applications",
+      label: "Pending Applications",
       value: `${skeapApplicationCount}`,
-      sub: "pending review",
-      delta: inquiryDelta.delta,
-      up: inquiryDelta.up,
-      iconName: "CalendarDays" as const,
+      sub: "awaiting review",
+      href: "/admin/skeap-applications",
+      accent: "amber" as const,
+      iconName: "FileText" as const,
     },
     {
       label: "Open Inquiries",
       value: `${openInquiryCount}`,
-      sub: "new last 30 days",
-      delta: inquiryDelta.delta,
-      up: inquiryDelta.up,
+      sub: "unresolved",
+      href: "/admin/inquiries",
+      accent: "amber" as const,
       iconName: "Inbox" as const,
     },
     {
-      label: "Pending Document Reviews",
+      label: "Document Reviews",
       value: `${pendingSubmissionCount}`,
-      sub: "new last 30 days",
-      delta: submissionDelta.delta,
-      up: submissionDelta.up,
-      iconName: "Check" as const,
+      sub: "needs action",
+      href: "/admin/submissions",
+      accent: "amber" as const,
+      iconName: "CheckSquare" as const,
     },
   ];
 

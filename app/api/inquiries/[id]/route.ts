@@ -93,11 +93,11 @@ export async function PATCH(
       return NextResponse.json({ error: "Missing inquiry id" }, { status: 400 });
     }
 
-    if (action !== "message" && action !== "approve") {
+    if (action !== "message" && action !== "reply" && action !== "resolve" && action !== "reopen" && action !== "approve") {
       return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
     }
 
-    if (action === "message" && !text && attachments.length === 0) {
+    if ((action === "message" || action === "reply") && !text && attachments.length === 0) {
       return NextResponse.json({ error: "Message text or attachments are required" }, { status: 400 });
     }
 
@@ -126,7 +126,8 @@ export async function PATCH(
       attachments: attachments.length > 0 ? attachments : undefined,
     };
 
-    const updatedThread = [message, ...existingThread] as unknown as Prisma.InputJsonArray;
+    const isStatusOnlyAction = action === "resolve" || action === "reopen";
+    const updatedThread = (isStatusOnlyAction ? existingThread : [message, ...existingThread]) as unknown as Prisma.InputJsonArray;
 
     const updateData: {
       reviewThread: Prisma.InputJsonValue;
@@ -154,6 +155,22 @@ export async function PATCH(
       }
     }
 
+    if (action === "reply") {
+      updateData.response = message.text;
+      updateData.respondedAt = new Date();
+      updateData.lastUpdatedBy = "admin";
+    }
+
+    if (action === "resolve") {
+      updateData.isResolved = true;
+      updateData.lastUpdatedBy = "admin";
+    }
+
+    if (action === "reopen") {
+      updateData.isResolved = false;
+      updateData.lastUpdatedBy = "admin";
+    }
+
     if (action === "approve") {
       updateData.reviewStatus = "Approved";
       updateData.response = message.text;
@@ -168,10 +185,14 @@ export async function PATCH(
         select: {
           reviewThread: true,
           userId: true,
+          user: { select: { grantee: { select: { status: true } } } },
           application: { select: { id: true, status: true, school: true, currentCourse: true, yearLevel: true, applicantName: true } },
         },
       });
 
+      if (action === "approve" && currentInquiry?.user?.grantee?.status === "GRADUATED") {
+        throw new Error("GRANTEE_ARCHIVED");
+      }
       if (action === "approve" && currentInquiry?.application?.status === "WAITLISTED") {
         throw new Error("Waitlisted applications must be promoted from the waitlist before approval.");
       }
@@ -180,7 +201,9 @@ export async function PATCH(
         ? currentInquiry!.reviewThread
         : []) as unknown as ReviewMessage[];
 
-      const updatedThreadFromTx = [message, ...existingThreadFromTx] as unknown as Prisma.InputJsonArray;
+      const updatedThreadFromTx = (
+        isStatusOnlyAction ? existingThreadFromTx : [message, ...existingThreadFromTx]
+      ) as unknown as Prisma.InputJsonArray;
 
       const updated = await (tx as any).inquiry.update({
         where: { id },
@@ -259,6 +282,7 @@ export async function PATCH(
 
     revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin");
+    revalidatePath("/admin/inquiries");
     revalidatePath(`/applications/${id}`);
 
     return NextResponse.json({
@@ -267,10 +291,14 @@ export async function PATCH(
       reviewStatus: updatedInquiry.reviewStatus ?? undefined,
       response: updatedInquiry.response ?? null,
       respondedAt: updatedInquiry.respondedAt?.toISOString() ?? null,
+      isResolved: updatedInquiry.isResolved,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update inquiry";
     console.error("Inquiry update failed:", error);
+    if (message === "GRANTEE_ARCHIVED") {
+      return NextResponse.json({ error: "Graduated Grantee records cannot be changed by application approval." }, { status: 409 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

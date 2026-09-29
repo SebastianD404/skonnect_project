@@ -73,25 +73,39 @@ export default function AdminSidebar({
 
   useEffect(() => {
     let mounted = true;
+    let profileRequest: AbortController | null = null;
 
     async function fetchSessionProfile() {
+      const controller = new AbortController();
+      profileRequest = controller;
+
       try {
-        const response = await fetch("/api/session", { cache: "no-store" });
+        const response = await fetch("/api/session", { cache: "no-store", signal: controller.signal });
         if (!response.ok) return;
 
         const data = await response.json();
-        if (!mounted) return;
+        if (!mounted || controller.signal.aborted) return;
 
         setSessionUser(data?.user ?? null);
       } catch {
-        if (mounted) setSessionUser(null);
+        if (mounted && !controller.signal.aborted) setSessionUser(null);
       }
     }
 
+    function handleProfileUpdated(event: Event) {
+      const updatedUser = (event as CustomEvent<SessionUser>).detail;
+      if (!mounted || !updatedUser) return;
+      profileRequest?.abort();
+      setSessionUser((current) => ({ ...current, ...updatedUser }));
+    }
+
+    window.addEventListener("admin-profile-updated", handleProfileUpdated);
     fetchSessionProfile();
 
     return () => {
       mounted = false;
+      profileRequest?.abort();
+      window.removeEventListener("admin-profile-updated", handleProfileUpdated);
     };
   }, []);
 

@@ -14,17 +14,20 @@ import {
   Phone,
   TrendingUp,
   TrendingDown,
+  ArrowUpRight,
   type LucideIcon,
 } from "lucide-react";
 
-type IconName = "Users" | "CalendarDays" | "Inbox" | "Check";
+type IconName = "Users" | "CalendarDays" | "Inbox" | "Check" | "FileText" | "CheckSquare" | "GraduationCap";
 
 interface Stat {
   label: string;
   value: string;
   sub: string;
-  delta: string;
-  up: boolean;
+  delta?: string;
+  up?: boolean;
+  href?: string;
+  accent?: "cyan" | "amber" | "emerald";
   iconName: IconName;
   icon?: LucideIcon;
 }
@@ -39,6 +42,7 @@ interface DashboardHeaderProps {
   onTimePeriodChange: (period: TimePeriod) => void;
   onSearch: (query: string) => void;
   stats?: Stat[];
+  operationalSnapshot?: boolean;
   compact?: boolean;
   showNotificationBell?: boolean;
 }
@@ -51,6 +55,7 @@ export default function DashboardHeader({
   onTimePeriodChange,
   onSearch,
   stats = [],
+  operationalSnapshot = false,
   compact = false,
   showNotificationBell = true,
 }: DashboardHeaderProps) {
@@ -186,21 +191,23 @@ export default function DashboardHeader({
               </h1>
             </div>
 
-            <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm w-fit">
-              {(["Today", "Week", "Month", "Quarter"] as TimePeriod[]).map((period) => (
-                <button
-                  key={period}
-                  onClick={() => onTimePeriodChange(period)}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition whitespace-nowrap ${
-                    timePeriod === period
-                      ? "bg-[#0F3D5C] text-white shadow-sm"
-                      : "text-slate-600 hover:text-slate-950 hover:bg-slate-50"
-                  }`}
-                >
-                  {period}
-                </button>
-              ))}
-            </div>
+            {!operationalSnapshot && (
+              <div className="inline-flex w-fit items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+                {(["Today", "Week", "Month", "Quarter"] as TimePeriod[]).map((period) => (
+                  <button
+                    key={period}
+                    onClick={() => onTimePeriodChange(period)}
+                    className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition ${
+                      timePeriod === period
+                        ? "bg-[#0F3D5C] text-white shadow-sm"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                    }`}
+                  >
+                    {period}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -208,26 +215,89 @@ export default function DashboardHeader({
       {/* Stats Grid */}
       {stats && stats.length > 0 && (
         <div className="px-8 py-2">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={`grid gap-4 ${operationalSnapshot ? `mt-8 grid-cols-1 md:grid-cols-2 ${stats.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}` : "sm:grid-cols-2 lg:grid-cols-4"}`}>
             {stats.map((stat) => {
               const Icon = stat.icon;
+              if (operationalSnapshot) {
+                const isActionQueue = stat.accent === "amber";
+                const hasItems = Number(stat.value) > 0;
+                const accent = stat.accent === "cyan"
+                  ? {
+                      icon: "bg-cyan-50 text-cyan-600 group-hover:bg-cyan-100",
+                      arrow: "group-hover:text-cyan-600",
+                      pill: "border-cyan-100/50 bg-cyan-50/80 text-cyan-700",
+                    }
+                  : isActionQueue && hasItems
+                  ? {
+                      icon: "bg-amber-50 text-amber-600 group-hover:bg-amber-100",
+                      arrow: "group-hover:text-amber-600",
+                      pill: "border-amber-200 bg-amber-50/80 text-amber-700",
+                    }
+                  : {
+                      icon: "bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100",
+                      arrow: "group-hover:text-emerald-600",
+                      pill: "border-emerald-100 bg-emerald-50/80 text-emerald-700",
+                    };
+                const cardContent = (
+                  <>
+                    <div className="mb-4 flex items-start justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-all group-hover:scale-105 ${accent.icon}`}>
+                          {Icon && <Icon className="h-5 w-5" />}
+                        </div>
+                        <span className="mt-0.5 text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                          {stat.label}
+                        </span>
+                      </div>
+                      <ArrowUpRight
+                        aria-hidden="true"
+                        className={`h-4 w-4 shrink-0 text-slate-300 transition-colors ${accent.arrow}`}
+                      />
+                    </div>
+                    <div className="mt-auto flex flex-wrap items-baseline gap-2.5">
+                      <span className="text-4xl font-black tracking-tight text-slate-900">
+                        {stat.value}
+                      </span>
+                      <span className={`rounded-md border px-2 py-1 text-[11px] font-bold ${accent.pill}`}>
+                        {isActionQueue && !hasItems ? "all caught up" : stat.sub}
+                      </span>
+                    </div>
+                  </>
+                );
+                const cardClassName = "group flex min-h-[140px] w-full flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md";
+
+                return stat.href ? (
+                  <button
+                    key={stat.label}
+                    type="button"
+                    onClick={() => router.push(stat.href!)}
+                    className={`${cardClassName} cursor-pointer`}
+                  >
+                    {cardContent}
+                  </button>
+                ) : (
+                  <div key={stat.label} className={cardClassName}>
+                    {cardContent}
+                  </div>
+                );
+              }
+
               return (
-                <div 
-                  key={stat.label} 
-                  className="group rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:shadow-md hover:border-slate-300"
-                >
+                <div key={stat.label} className="group rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md">
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0F3D5C]/10 to-[#0F3D5C]/5 text-[#0F3D5C] group-hover:from-[#0F3D5C]/15 group-hover:to-[#0F3D5C]/10 transition">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0F3D5C]/10 to-[#0F3D5C]/5 text-[#0F3D5C] transition group-hover:from-[#0F3D5C]/15 group-hover:to-[#0F3D5C]/10">
                       {Icon && <Icon className="h-5 w-5" />}
                     </div>
-                    <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      stat.up 
-                        ? 'bg-emerald-50 text-emerald-700' 
-                        : 'bg-rose-50 text-rose-700'
-                    }`}>
-                      {stat.up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                      {stat.delta}
-                    </div>
+                    {stat.delta !== undefined && (
+                      <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        stat.up
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-rose-50 text-rose-700"
+                      }`}>
+                        {stat.up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                        {stat.delta}
+                      </div>
+                    )}
                   </div>
                   <div className="mt-6">
                     <p className={`text-xs font-semibold uppercase tracking-[0.25em] text-slate-500 ${stat.label === "Pending Document Reviews" ? "text-[0.65rem]" : ""}`}>{stat.label}</p>

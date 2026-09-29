@@ -5,15 +5,14 @@ import { GranteeStatusTable, type GranteeTableRow } from "./grantees/GranteeStat
 import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 import { SerializableSkeapApplicationFormPayload } from "./grantees/[id]/SkeapApplicationReviewClient";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
-import { Check, Clock, Users } from "lucide-react";
 
 interface StatItem {
   label: string;
   value: string;
   sub: string;
-  delta: string;
-  up: boolean;
-  iconName: "Users" | "CalendarDays" | "Inbox" | "Check";
+  href?: string;
+  accent?: "cyan" | "amber" | "emerald";
+  iconName: "Users" | "Inbox" | "FileText" | "CheckSquare" | "GraduationCap";
 }
 
 interface AdminGranteesPageClientProps {
@@ -21,7 +20,6 @@ interface AdminGranteesPageClientProps {
   openInquiryCount: number;
   pendingSubmissionCount: number;
   stats: StatItem[];
-  statsByPeriod?: Record<"Today" | "Week" | "Month" | "Quarter", StatItem[]>;
   grantees: GranteeTableRow[];
 }
 
@@ -35,7 +33,6 @@ export default function AdminGranteesPageClient({
   openInquiryCount,
   pendingSubmissionCount,
   stats,
-  statsByPeriod,
   grantees,
 }: AdminGranteesPageClientProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -94,7 +91,7 @@ export default function AdminGranteesPageClient({
         openInquiryCount={openInquiryCount}
         pendingSubmissionCount={pendingSubmissionCount}
         stats={stats}
-        statsByPeriod={statsByPeriod}
+        operationalSnapshot
         onSearch={setSearchQuery}
       />
 

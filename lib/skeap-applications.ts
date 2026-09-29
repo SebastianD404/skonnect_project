@@ -1,10 +1,5 @@
-﻿import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
-import { Prisma, Role } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { getUploadGroups } from "@/lib/skeap-upload";
-import { SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
-import { getAcademicYearDateRange, getAcademicYears, getCurrentAcademicYear } from "@/lib/semester";
-import SkeapApplicationsClient from "./SkeapApplicationsClient";
 
 interface ApplicationMessage {
   id: string;
@@ -23,6 +18,56 @@ interface ApplicationMessage {
 const IMAGE_REGEX = /\.(jpe?g|png|gif|webp|avif|svg)(\?|$)/i;
 const PDF_REGEX = /\.pdfm?(\?|$)/i;
 const DOC_REGEX = /\.(docx?|xlsx?|pptx?|txt|rtf)(\?|$)/i;
+
+export const SKEAP_APPLICATION_SELECT = {
+  id: true,
+  message: true,
+  createdAt: true,
+  response: true,
+  respondedAt: true,
+  isResolved: true,
+  reviewStatus: true,
+  reviewThread: true,
+  user: {
+    select: {
+      fullName: true,
+      email: true,
+      grantee: {
+        select: {
+          yearLevel: true,
+          school: true,
+        },
+      },
+    },
+  },
+  application: {
+    select: {
+      school: true,
+      currentCourse: true,
+      yearLevel: true,
+      gwa: true,
+      applicantName: true,
+      permanentAddress: true,
+      dateOfBirth: true,
+      placeOfBirth: true,
+      age: true,
+      civilStatus: true,
+      gender: true,
+      fathersName: true,
+      fathersOccupation: true,
+      fathersContact: true,
+      mothersMaidenName: true,
+      mothersOccupation: true,
+      mothersContact: true,
+      contactNumber: true,
+      emailAddress: true,
+      photoFileUrl: true,
+      uploadedFiles: true,
+    },
+  },
+} satisfies Prisma.InquirySelect;
+
+type SkeapInquiry = Prisma.InquiryGetPayload<{ select: typeof SKEAP_APPLICATION_SELECT }>;
 
 function isImageUrl(url: string) {
   return IMAGE_REGEX.test(url);
@@ -106,53 +151,11 @@ function isValidReviewThreadItem(item: unknown): item is ApplicationMessage {
   );
 }
 
-function mapInquiryToApplication(inquiry: {
-  id: string;
-  message: string;
-  createdAt: Date;
-  response: string | null;
-  respondedAt: Date | null;
-  reviewStatus?: string | null;
-  isResolved: boolean;
-  reviewThread: Prisma.JsonValue | null;
-  user: {
-    fullName: string | null;
-    email: string;
-    grantee: {
-      yearLevel: string | null;
-      school: string | null;
-    } | null;
-  };
-  application?: {
-    school?: string | null;
-    currentCourse: string;
-    yearLevel: string;
-    gwa?: number | null;
-    applicantName?: string | null;
-    permanentAddress?: string | null;
-    dateOfBirth?: Date | null;
-    placeOfBirth?: string | null;
-    age?: number | null;
-    civilStatus?: string | null;
-    gender?: string | null;
-    fathersName?: string | null;
-    fathersOccupation?: string | null;
-    fathersContact?: string | null;
-    mothersMaidenName?: string | null;
-    mothersOccupation?: string | null;
-    mothersContact?: string | null;
-    contactNumber?: string | null;
-    emailAddress?: string | null;
-    photoFileUrl?: string | null;
-    uploadedFiles?: Prisma.JsonValue | null;
-  } | null;
-}) {
+export function mapInquiryToApplication(inquiry: SkeapInquiry) {
   const urls = getUniqueUrls(inquiry.message || "");
-
   const persistedMessages = (Array.isArray(inquiry.reviewThread)
     ? inquiry.reviewThread.filter(isValidReviewThreadItem)
     : []) as unknown as ApplicationMessage[];
-
   const persistedAttachments = persistedMessages.flatMap((message) => message.attachments ?? []);
 
   const documents = urls.map((url, index) => {
@@ -177,46 +180,25 @@ function mapInquiryToApplication(inquiry: {
   });
 
   const uploadGroups = getUploadGroups(inquiry.application?.uploadedFiles);
-
   const responseText = inquiry.response?.trim();
   const status = (() => {
     const resubmittedMatcher = /resubm|resubmit|resubmitted/i;
     const returnedMatcher = /returned|correction|required|revise|revision/i;
 
     if (inquiry.reviewStatus) {
-      if (resubmittedMatcher.test(inquiry.reviewStatus)) {
-        return "Resubmitted";
-      }
-      if (returnedMatcher.test(inquiry.reviewStatus)) {
-        return "Returned";
-      }
-      if (/approve|approved/i.test(inquiry.reviewStatus)) {
-        return "Approved";
-      }
-      if (/rejected/i.test(inquiry.reviewStatus)) {
-        return "Rejected";
-      }
-      if (/ineligible/i.test(inquiry.reviewStatus)) {
-        return "Ineligible";
-      }
+      if (resubmittedMatcher.test(inquiry.reviewStatus)) return "Resubmitted";
+      if (returnedMatcher.test(inquiry.reviewStatus)) return "Returned";
+      if (/approve|approved/i.test(inquiry.reviewStatus)) return "Approved";
+      if (/rejected/i.test(inquiry.reviewStatus)) return "Rejected";
+      if (/ineligible/i.test(inquiry.reviewStatus)) return "Ineligible";
       return inquiry.reviewStatus;
     }
     if (responseText) {
-      if (resubmittedMatcher.test(responseText)) {
-        return "Resubmitted";
-      }
-      if (returnedMatcher.test(responseText)) {
-        return "Returned";
-      }
-      if (/approve|approved/i.test(responseText)) {
-        return "Approved";
-      }
-      if (/rejected/i.test(responseText)) {
-        return "Rejected";
-      }
-      if (/ineligible/i.test(responseText)) {
-        return "Ineligible";
-      }
+      if (resubmittedMatcher.test(responseText)) return "Resubmitted";
+      if (returnedMatcher.test(responseText)) return "Returned";
+      if (/approve|approved/i.test(responseText)) return "Approved";
+      if (/rejected/i.test(responseText)) return "Rejected";
+      if (/ineligible/i.test(responseText)) return "Ineligible";
       return inquiry.isResolved ? "Responded" : "Pending Review";
     }
     return inquiry.isResolved ? "Responded" : "Pending Review";
@@ -228,7 +210,7 @@ function mapInquiryToApplication(inquiry: {
   ) {
     persistedMessages.push({
       id: `${inquiry.id}-admin`,
-      role: "admin" as const,
+      role: "admin",
       createdAt: (inquiry.respondedAt || inquiry.createdAt).toISOString(),
       text: responseText,
     });
@@ -237,7 +219,7 @@ function mapInquiryToApplication(inquiry: {
   const messages: ApplicationMessage[] = [
     {
       id: `${inquiry.id}-applicant`,
-      role: "applicant" as const,
+      role: "applicant",
       createdAt: inquiry.createdAt.toISOString(),
       text: inquiry.message,
     },
@@ -280,111 +262,4 @@ function mapInquiryToApplication(inquiry: {
       : undefined,
     messages,
   };
-}
-
-export const dynamic = "force-dynamic";
-
-export default async function SkeapApplicationsPage() {
-  await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
-
-  const now = new Date();
-  const initialAcademicYear = getCurrentAcademicYear(now);
-  const academicYearRange = getAcademicYearDateRange(initialAcademicYear);
-  if (!academicYearRange) throw new Error("Unable to determine the current academic year.");
-
-  // Shared base filter pieces (subject match + exclude cancelled/approved-like responses)
-  const subjectWhere = { subject: { contains: "SKEAP application", mode: Prisma.QueryMode.insensitive } };
-  const oldestInquiry = await prisma.inquiry.findFirst({
-    where: subjectWhere,
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { createdAt: true },
-  });
-  const academicYears = getAcademicYears(oldestInquiry?.createdAt ?? null, now);
-  const excludeCancelled = { reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive } };
-  const excludeApproved = { reviewStatus: { contains: "approve", mode: Prisma.QueryMode.insensitive } };
-
-  const baseWhere = {
-    ...subjectWhere,
-    NOT: [excludeCancelled],
-  };
-
-  const statusFields = ["reviewStatus", "response"] as const;
-
-  function statusOrWhere(patterns: string[], fields: ReadonlyArray<"reviewStatus" | "response"> = ["reviewStatus"]) {
-    const or: Array<Prisma.InquiryWhereInput> = patterns.flatMap((p) =>
-      fields.map((field) => ({
-        [field]: { contains: p, mode: Prisma.QueryMode.insensitive },
-      } as Prisma.InquiryWhereInput))
-    );
-    return { OR: or };
-  }
-
-  const queueBaseWhere = {
-    ...baseWhere,
-    NOT: [excludeCancelled, excludeApproved],
-  };
-
-  const pendingCount = await prisma.inquiry.count({
-    where: {
-      ...queueBaseWhere,
-      AND: [statusOrWhere(["pending"], statusFields)],
-    },
-  });
-  const returnedCount = await prisma.inquiry.count({
-    where: {
-      ...queueBaseWhere,
-      AND: [statusOrWhere(["returned", "return", "correction", "revise", "revision"], statusFields)],
-    },
-  });
-  const resubmittedCount = await prisma.inquiry.count({
-    where: {
-      ...queueBaseWhere,
-      AND: [statusOrWhere(["resubm", "resubmit", "resubmitted"], statusFields)],
-    },
-  });
-  const approvedCount = await prisma.inquiry.count({
-    where: {
-      ...baseWhere,
-      AND: [statusOrWhere(["approve", "approved"], statusFields)],
-    },
-  });
-
-  // Fetch rows for queue using the same base filter but matching any visible statuses
-  const visibleStatusPatterns = ["pending", "return", "resubm", "respond", "approve"];
-  const inquiries = await prisma.inquiry.findMany({
-    where: {
-      ...baseWhere,
-      AND: [
-        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        statusOrWhere(visibleStatusPatterns, statusFields),
-      ],
-    },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: 16,
-    select: SKEAP_APPLICATION_SELECT,
-  });
-
-  const applications = inquiries.slice(0, 15).map(mapInquiryToApplication);
-  const hasNextPage = inquiries.length > 15;
-  const lastApplication = applications[applications.length - 1];
-
-  return (
-    <SkeapApplicationsClient
-      applications={applications}
-      hasNextPage={hasNextPage}
-      initialAcademicYear={initialAcademicYear}
-      academicYears={academicYears}
-      initialCursor={
-        hasNextPage && lastApplication
-          ? { id: lastApplication.id, createdAt: lastApplication.submittedAt }
-          : null
-      }
-      counts={{
-        pending: pendingCount,
-        returned: returnedCount,
-        resubmitted: resubmittedCount,
-        approved: approvedCount,
-      }}
-    />
-  );
 }

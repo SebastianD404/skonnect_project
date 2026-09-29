@@ -75,6 +75,8 @@ model Grantee {
   generalAverage Float?
   dateEnrolled   DateTime      @default(now())
   dateRemoved    DateTime?
+  graduatedAt    DateTime?
+  retentionExpiresAt DateTime?
   remarks        String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -258,6 +260,16 @@ model Notification {
   @@unique([userId, sourceKey])
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+model AdminNotification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  type      String
+  createdAt DateTime @default(now())
+
+  @@map("admin_notifications")
 }
 
 model GranteeMessage {

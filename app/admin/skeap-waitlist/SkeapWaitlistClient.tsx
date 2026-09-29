@@ -1,19 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
-
-type WaitlistApplication = {
-  id: string;
-  waitlistPosition: number | null;
-  submittedAt: string;
-  applicantName: string;
-  emailAddress: string;
-  contactNumber: string | null;
-  school: string;
-  currentCourse: string;
-  yearLevel: string;
-};
+import { useState } from "react";
+import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 
 type CapacityState = {
   activeCount: number;
@@ -40,33 +29,41 @@ async function readJsonResponse(response: Response) {
   }
 }
 
-export default function SkeapWaitlistClient() {
-  const [applications, setApplications] = useState<WaitlistApplication[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function SkeapWaitlistClient({ initialData }: { initialData: SkeapWaitlistSnapshot }) {
+  const [applications, setApplications] = useState<SkeapWaitlistApplication[]>(initialData.applications);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
+  const [selectedApplicant, setSelectedApplicant] = useState<SkeapWaitlistApplication | null>(null);
+  const [capacityWarning, setCapacityWarning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [capacity, setCapacity] = useState<CapacityState>({ activeCount: 0, maxSlots: 55 });
+  const [capacity, setCapacity] = useState<CapacityState>({
+    activeCount: initialData.activeCount,
+    maxSlots: initialData.maxSlots,
+  });
   const [editingCapacity, setEditingCapacity] = useState(false);
-  const [slotLimitDraft, setSlotLimitDraft] = useState("55");
+  const [slotLimitDraft, setSlotLimitDraft] = useState(String(initialData.maxSlots));
   const [savingCapacity, setSavingCapacity] = useState(false);
+  const isCapacityExceeded = capacityWarning || capacity.activeCount >= capacity.maxSlots;
 
   async function loadWaitlist() {
-    setLoading(true);
+    setIsRefreshing(true);
     setError(null);
     try {
       const response = await fetch("/api/admin/skeap-applications/waitlist", { cache: "no-store" });
       const body = await readJsonResponse(response);
       if (!response.ok) throw new Error(String(body.error || "Unable to load the waitlist."));
-      setApplications(Array.isArray(body.applications) ? body.applications as unknown as WaitlistApplication[] : []);
+      setApplications(Array.isArray(body.applications) ? body.applications as unknown as SkeapWaitlistApplication[] : []);
       const activeCount = typeof body.activeCount === "number" ? body.activeCount : 0;
       const maxSlots = typeof body.maxSlots === "number" ? body.maxSlots : 55;
       setCapacity({ activeCount, maxSlots });
+      setCapacityWarning(false);
       setSlotLimitDraft(String(maxSlots));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load the waitlist.");
     } finally {
-      setLoading(false);
+      setIsRefreshing(false);
     }
   }
 
@@ -84,6 +81,7 @@ export default function SkeapWaitlistClient() {
       if (!response.ok) throw new Error(String(body.error || "Unable to update the slot limit."));
       const maxSlots = Number(body.value);
       setCapacity((current) => ({ ...current, maxSlots }));
+      setCapacityWarning(false);
       setSlotLimitDraft(String(maxSlots));
       setEditingCapacity(false);
       setToastMessage("SKEAP slot limit updated successfully.");
@@ -95,28 +93,47 @@ export default function SkeapWaitlistClient() {
     }
   }
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadWaitlist();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  async function promoteApplication(application: WaitlistApplication) {
+  async function promoteApplication(application: SkeapWaitlistApplication) {
     setPromotingId(application.id);
     setToastMessage(null);
     setError(null);
     try {
       const response = await fetch(`/api/admin/applications/${application.id}/promote`, { method: "POST" });
       const body = await readJsonResponse(response);
-      if (!response.ok) throw new Error(String(body.error || "Unable to promote applicant."));
+      if (!response.ok) {
+        const message = String(body.error || "Unable to promote applicant.");
+        if (response.status === 409 && message.toLowerCase().includes("slots are currently filled")) {
+          setCapacityWarning(true);
+          await loadWaitlist();
+          return;
+        }
+        throw new Error(message);
+      }
+      setIsPromoteModalOpen(false);
+      setSelectedApplicant(null);
       setToastMessage(`${application.applicantName} was promoted to an active grantee.`);
       await loadWaitlist();
     } catch (promoteError) {
+      setIsPromoteModalOpen(false);
+      setSelectedApplicant(null);
       setError(promoteError instanceof Error ? promoteError.message : "Unable to promote applicant.");
     } finally {
       setPromotingId(null);
     }
+  }
+
+  function openPromotionModal(application: SkeapWaitlistApplication) {
+    setSelectedApplicant(application);
+    setIsPromoteModalOpen(true);
+  }
+
+  async function handleConfirmPromotion() {
+    if (!selectedApplicant) return;
+    if (capacity.activeCount >= capacity.maxSlots || capacityWarning) {
+      setCapacityWarning(true);
+      return;
+    }
+    await promoteApplication(selectedApplicant);
   }
 
   return (
@@ -129,13 +146,13 @@ export default function SkeapWaitlistClient() {
             Applicants are ordered by the time they joined the queue. Promote the next applicant when an active scholarship slot becomes available.
           </p>
         </div>
-        <div className="flex w-full min-w-0 max-w-full flex-shrink items-center justify-start gap-2 lg:w-full lg:max-w-[440px] lg:justify-end">
-          <div className="flex items-center gap-2 whitespace-nowrap">
+          <div className="flex w-full min-w-0 max-w-full flex-shrink items-center justify-start gap-2 lg:w-full lg:max-w-[440px] lg:justify-end">
+          <div className="flex shrink-0 items-center gap-3 whitespace-nowrap sm:gap-6">
             <span className="text-2xl font-extrabold text-[#0F3D5C]">{capacity.activeCount} / {capacity.maxSlots}</span>
             {!editingCapacity ? <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Active Slots</span> : null}
           </div>
           {!editingCapacity ? (
-            <button type="button" onClick={() => setEditingCapacity(true)} className="h-10 whitespace-nowrap rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+            <button type="button" onClick={() => setEditingCapacity(true)} className="h-10 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
               Edit Slot Limit
             </button>
           ) : (
@@ -175,14 +192,19 @@ export default function SkeapWaitlistClient() {
             <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Queue</p>
             <h2 className="mt-1 text-xl font-bold text-slate-950">{applications.length} waitlisted applicant{applications.length === 1 ? "" : "s"}</h2>
           </div>
-          <button type="button" onClick={() => void loadWaitlist()} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-            Refresh
+          <button
+            type="button"
+            onClick={() => void loadWaitlist()}
+            disabled={isRefreshing}
+            aria-label="Refresh waitlist"
+            title="Refresh waitlist"
+            className="group inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-700 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden="true" />
           </button>
         </div>
 
-        {loading ? (
-          <div className="px-6 py-12 text-center text-sm text-slate-500">Loading waitlist...</div>
-        ) : applications.length === 0 ? (
+        {applications.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-slate-500">No applicants are currently waitlisted.</div>
         ) : (
           <div className="overflow-x-auto">
@@ -198,26 +220,31 @@ export default function SkeapWaitlistClient() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {applications.map((application) => (
-                  <tr key={application.id} className="align-top">
-                    <td className="whitespace-nowrap px-6 py-5 text-lg font-black text-slate-900">#{application.waitlistPosition ?? "-"}</td>
-                    <td className="px-6 py-5">
-                      <p className="font-semibold text-slate-900">{application.applicantName}</p>
-                      <p className="mt-1 text-slate-500">{application.emailAddress}</p>
-                      {application.contactNumber ? <p className="mt-1 text-slate-500">{application.contactNumber}</p> : null}
+                  <tr key={application.id} className="group align-top transition-colors hover:bg-slate-50/50">
+                    <td className="whitespace-nowrap px-6 py-3 text-lg font-black text-slate-900">#{application.waitlistPosition ?? "-"}</td>
+                    <td className="px-6 py-3">
+                      <div className="flex flex-col gap-0.5">
+                        <p className="font-semibold text-slate-900">{application.applicantName}</p>
+                        <p className="text-slate-500">{application.emailAddress}</p>
+                        {application.contactNumber ? <p className="text-slate-500">{application.contactNumber}</p> : null}
+                      </div>
                     </td>
-                    <td className="px-6 py-5 text-slate-600">
-                      <p>{application.school}</p>
-                      <p className="mt-1">{application.currentCourse} · {application.yearLevel}</p>
+                    <td className="px-6 py-3 text-slate-600">
+                      <div className="flex flex-col gap-0.5">
+                        <p>{application.school}</p>
+                        <p>{application.currentCourse} · {application.yearLevel}</p>
+                      </div>
                     </td>
-                    <td className="whitespace-nowrap px-6 py-5 text-slate-600">{formatDate(application.submittedAt)}</td>
-                    <td className="whitespace-nowrap px-6 py-5 text-right">
+                    <td className="whitespace-nowrap px-6 py-3 text-slate-600">{formatDate(application.submittedAt)}</td>
+                    <td className="whitespace-nowrap px-6 py-3 text-right">
                       <button
                         type="button"
-                        onClick={() => void promoteApplication(application)}
-                        disabled={promotingId !== null}
-                        className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => openPromotionModal(application)}
+                        disabled={isCapacityExceeded || promotingId !== null}
+                        title={isCapacityExceeded ? "Capacity full. Increase slot limit to promote." : "Promote applicant"}
+                        className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {promotingId === application.id ? "Promoting..." : "Promote to Grantee"}
+                        Promote to Grantee
                       </button>
                     </td>
                   </tr>
@@ -227,6 +254,99 @@ export default function SkeapWaitlistClient() {
           </div>
         )}
       </section>
+
+      {isPromoteModalOpen && selectedApplicant ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
+            aria-hidden="true"
+            onClick={() => {
+              setIsPromoteModalOpen(false);
+              setSelectedApplicant(null);
+            }}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="promote-modal-title"
+            className={`relative flex w-full max-w-sm flex-col items-center gap-3 overflow-hidden rounded-2xl border border-t-4 border-slate-200 bg-white p-5 text-center shadow-xl ring-1 ring-slate-900/5 animate-in zoom-in-95 fade-in duration-200 ${isCapacityExceeded ? "border-t-amber-500" : "border-t-emerald-500"}`}
+          >
+            {isCapacityExceeded ? (
+              <>
+                <div className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-amber-50 ring-4 ring-amber-50/50">
+                  <AlertTriangle className="h-6 w-6 text-amber-600" aria-hidden="true" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <h3 id="promote-modal-title" className="text-[17px] font-black leading-none text-slate-900">
+                    Capacity limit reached
+                  </h3>
+                  <p className="px-2 text-[13px] leading-snug text-slate-500">
+                    You currently have <span className="font-bold text-slate-900">{capacity.activeCount} / {capacity.maxSlots} active slots</span> filled. Increase the slot limit before promoting new grantees.
+                  </p>
+                </div>
+                <div className="grid w-full grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPromoteModalOpen(false);
+                      setSelectedApplicant(null);
+                    }}
+                    className="w-full rounded-xl border border-slate-300 bg-white py-2 text-[13px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPromoteModalOpen(false);
+                      setSelectedApplicant(null);
+                      setSlotLimitDraft(String(capacity.maxSlots));
+                      setEditingCapacity(true);
+                    }}
+                    className="w-full rounded-xl border border-slate-900 bg-slate-900 py-2 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-1"
+                  >
+                    Edit Slots
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 ring-4 ring-emerald-50/50">
+                  <CheckCircle2 className="h-6 w-6 text-emerald-600" aria-hidden="true" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <h3 id="promote-modal-title" className="text-[17px] font-black leading-none text-slate-900">
+                    Promote to grantee?
+                  </h3>
+                  <p className="px-2 text-[13px] leading-snug text-slate-500">
+                    You&apos;re promoting <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span>. This uses <span className="font-bold text-slate-900">1 slot</span> and sends an automated email.
+                  </p>
+                </div>
+                <div className="grid w-full grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPromoteModalOpen(false);
+                      setSelectedApplicant(null);
+                    }}
+                    className="w-full rounded-xl border border-slate-300 bg-white py-2 text-[13px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmPromotion()}
+                    disabled={promotingId !== null}
+                    className="w-full rounded-xl border border-emerald-600 bg-emerald-600 py-2 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {promotingId === selectedApplicant.id ? "Promoting..." : "Confirm"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

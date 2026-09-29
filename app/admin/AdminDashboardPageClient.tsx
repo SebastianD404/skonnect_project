@@ -20,9 +20,11 @@ interface StatItem {
   label: string;
   value: string;
   sub: string;
-  delta: string;
-  up: boolean;
-  iconName: "Users" | "CalendarDays" | "Inbox" | "Check";
+  iconName: "Users" | "CalendarDays" | "Inbox" | "Check" | "FileText" | "CheckSquare" | "GraduationCap";
+  delta?: string;
+  up?: boolean;
+  href?: string;
+  accent?: "cyan" | "amber" | "emerald";
 }
 
 interface AdminDashboardPageClientProps {
@@ -69,6 +71,7 @@ export default function AdminDashboardPageClient({
         openInquiryCount={openInquiryCount}
         pendingSubmissionCount={pendingSubmissionCount}
         stats={stats}
+        operationalSnapshot
         onSearch={setSearchQuery}
       />
 

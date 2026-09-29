@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, useMemo, useEffect } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { SubmissionStatus } from "@prisma/client";
 import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Search } from "lucide-react";
 
@@ -10,6 +10,7 @@ interface SubmissionRow {
   gradeFileUrl: string;
   coeFileUrl: string;
   generalAverage: number | null;
+  gradeRows?: Array<{ subject: string; grade: number }> | null;
   status: SubmissionStatus;
   reviewNotes: string | null;
   flaggedFields?: string[];
@@ -25,23 +26,16 @@ interface SubmissionRow {
   };
 }
 
-function formatAverage(value: number | string | null | undefined) {
-  const parsed = typeof value === "string" ? Number(value) : value;
-  if (parsed === null || parsed === undefined || Number.isNaN(parsed)) {
-    return "—";
-  }
-  return parsed.toFixed(2);
-}
+type TabType = "pending-coe" | "active-scholars" | "pending-grades" | "completed";
 
-interface SubmissionsPhase {
-  pendingCoe: SubmissionRow[];
-  activeScholars: SubmissionRow[];
-  pendingGrades: SubmissionRow[];
-  completed: SubmissionRow[];
-}
-
-interface SubmissionReviewTableProps {
-  submissions: SubmissionsPhase;
+interface SubmissionsResponse {
+  rows: SubmissionRow[];
+  counts: Record<TabType, number>;
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  semesters: string[];
 }
 
 type DocumentReview = {
@@ -59,19 +53,54 @@ const EMPTY_REVIEW_DRAFT: ReviewDraft = {
   grades: { status: "PENDING", notes: "" },
 };
 
-type TabType = "pending-coe" | "active-scholars" | "pending-grades" | "completed";
+function TableSkeletonRow() {
+  return (
+    <tr className="animate-pulse border-b border-slate-100">
+      <td className="px-6 py-4">
+        <div className="flex flex-col gap-1.5">
+          <div className="h-3.5 w-32 rounded-md bg-slate-200" />
+          <div className="h-3 w-44 rounded-md bg-slate-100" />
+        </div>
+      </td>
+      <td className="px-6 py-4"><div className="h-3.5 w-36 rounded-md bg-slate-200" /></td>
+      <td className="px-6 py-4">
+        <div className="flex flex-col gap-1.5">
+          <div className="h-3.5 w-48 rounded-md bg-slate-200" />
+          <div className="h-3 w-16 rounded-md bg-slate-100" />
+        </div>
+      </td>
+      <td className="px-6 py-4"><div className="h-3.5 w-12 rounded-md bg-slate-200" /></td>
+      <td className="px-6 py-4"><div className="h-3.5 w-20 rounded-md bg-slate-200" /></td>
+      <td className="px-6 py-4 text-right"><div className="ml-auto h-7 w-16 rounded-lg bg-slate-200" /></td>
+    </tr>
+  );
+}
 
 interface TabDef {
   id: TabType;
   label: string;
   description: string;
-  rows: SubmissionRow[];
   badgeColor: string;
 }
 
-export default function SubmissionReviewTable({ submissions }: SubmissionReviewTableProps) {
+const EMPTY_RESPONSE: SubmissionsResponse = {
+  rows: [],
+  counts: { "pending-coe": 0, "active-scholars": 0, "pending-grades": 0, completed: 0 },
+  totalCount: 0,
+  page: 1,
+  pageSize: 10,
+  totalPages: 1,
+  semesters: [],
+};
+
+export default function SubmissionReviewTable() {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<TabType>("pending-coe");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [responseData, setResponseData] = useState<SubmissionsResponse>(EMPTY_RESPONSE);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedSubmission, setExpandedSubmission] = useState<string | null>(null);
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft>>({});
   const [savingSubmissionId, setSavingSubmissionId] = useState<string | null>(null);
@@ -79,72 +108,80 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [completedSemesterFilter, setCompletedSemesterFilter] = useState<string>("all");
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      const params = new URLSearchParams({
+        status: activeTab,
+        page: String(page),
+        limit: String(pageSize),
+        search: query.trim(),
+      });
+      if (activeTab === "completed") params.set("semester", completedSemesterFilter);
+
+      try {
+        const result = await fetch(`/api/admin/submissions?${params}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const body = await result.json().catch(() => ({}));
+        if (!result.ok) throw new Error(body?.error || "Unable to load submissions.");
+        setResponseData(body as SubmissionsResponse);
+        setLoadError(null);
+        setPage(body.page ?? page);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setLoadError(error instanceof Error ? error.message : "Unable to load submissions.");
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
+      }
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [activeTab, page, pageSize, query, completedSemesterFilter]);
+
   const tabs: TabDef[] = [
     {
       id: "pending-coe",
       label: "Pending COE Review",
       description: "Phase 1: Awaiting enrollment verification",
-      rows: submissions.pendingCoe,
       badgeColor: "bg-blue-100 text-blue-700",
     },
     {
       id: "active-scholars",
       label: "Awaiting Grades",
       description: "Phase 2: Awaiting end-of-semester submission",
-      rows: submissions.activeScholars,
       badgeColor: "bg-emerald-100 text-emerald-700",
     },
     {
       id: "pending-grades",
       label: "Pending Grades Review",
       description: "Phase 2: Awaiting grade verification",
-      rows: submissions.pendingGrades,
       badgeColor: "bg-amber-100 text-amber-700",
     },
     {
       id: "completed",
       label: "Fully Cleared",
       description: "Both phases completed",
-      rows: submissions.completed,
       badgeColor: "bg-slate-100 text-slate-700",
     },
   ];
 
-  const currentTab = tabs.find((t) => t.id === activeTab)!;
-  // Compute semester options dynamically from the completed (Fully Cleared) dataset
-  const completedSemesterOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of submissions.completed) {
-      if (s.semester) set.add(s.semester);
-    }
-    const arr = Array.from(set);
-    arr.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
-    return ["all", ...arr];
-  }, [submissions.completed]);
+  const rows = responseData.rows;
+  const completedSemesterOptions = ["all", ...responseData.semesters];
+  const pageRangeStart = responseData.totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const pageRangeEnd = Math.min(page * pageSize, responseData.totalCount);
 
-  // Reset the semester filter when switching tabs or when completed rows change
-  useEffect(() => {
+  function changeTab(tab: TabType) {
+    setActiveTab(tab);
+    setPage(1);
     setCompletedSemesterFilter("all");
-  }, [activeTab, submissions.completed]);
-
-  const filtered = currentTab.rows.filter((submission) => {
-    const search = query.toLowerCase();
-    if (
-      !(submission.semester.toLowerCase().includes(search) ||
-      submission.grantee.user.fullName.toLowerCase().includes(search) ||
-      submission.grantee.school.toLowerCase().includes(search) ||
-      submission.grantee.yearLevel.toLowerCase().includes(search))
-    ) {
-      return false;
-    }
-
-    // If we're on the completed (Fully Cleared) tab, apply the semester filter
-    if (activeTab === "completed" && completedSemesterFilter !== "all") {
-      return submission.semester === completedSemesterFilter;
-    }
-
-    return true;
-  });
+    setExpandedSubmission(null);
+    setIsLoading(true);
+  }
 
   const getDraft = (submissionId: string): ReviewDraft => {
     return reviewDrafts[submissionId] ?? EMPTY_REVIEW_DRAFT;
@@ -213,7 +250,8 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
   }
 
   return (
-    <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="mb-8 flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-slate-100 p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.3em] text-[#0F3D5C]">Submissions Pipeline</p>
@@ -226,21 +264,22 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
             type="search"
             placeholder="Search by grantee, school or semester"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+              setIsLoading(true);
+            }}
             className="w-full rounded-full border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm text-slate-700 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
           />
         </label>
       </div>
 
       {/* Tab Navigation */}
-      <div className="mt-6 flex flex-wrap gap-2 border-b border-slate-200 pb-4">
+      <div className="flex flex-wrap gap-2 pt-1">
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => {
-              setActiveTab(tab.id);
-              setQuery("");
-            }}
+            onClick={() => changeTab(tab.id)}
             className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
               activeTab === tab.id
                 ? "border-b-2 border-[#0F3D5C] text-[#0F3D5C] bg-slate-50"
@@ -249,30 +288,38 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
           >
             {tab.label}
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${tab.badgeColor}`}>
-              {tab.rows.length}
+              {responseData.counts[tab.id]}
             </span>
           </button>
         ))}
       </div>
 
-      {activeTab === 'completed' && submissions.completed.length > 0 && (
-        <div className="mt-4 mb-3 flex items-center gap-3">
+      {activeTab === "completed" && responseData.semesters.length > 0 && (
+        <div className="flex items-center gap-3">
           <label htmlFor="completed-semester" className="sr-only">Filter Fully Cleared by semester</label>
           <select
             id="completed-semester"
             value={completedSemesterFilter}
-            onChange={(e) => setCompletedSemesterFilter(e.target.value)}
+            onChange={(event) => {
+              setCompletedSemesterFilter(event.target.value);
+              setPage(1);
+              setIsLoading(true);
+            }}
             className="min-w-[240px] rounded-lg border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
           >
             {completedSemesterOptions.map((opt) => (
               <option key={opt} value={opt}>{opt === 'all' ? 'All Semesters' : opt}</option>
             ))}
           </select>
-          <div className="text-sm text-slate-500">{submissions.completed.filter(r => completedSemesterFilter === 'all' || r.semester === completedSemesterFilter).length} fully cleared</div>
+          <div className="text-sm text-slate-500">{responseData.totalCount} fully cleared</div>
         </div>
       )}
+      </div>
 
-      <div className="mt-6 overflow-x-auto">
+      <div className="w-full overflow-x-auto" aria-busy={isLoading}>
+        {loadError ? (
+          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div>
+        ) : null}
         {actionError ? (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</div>
         ) : null}
@@ -282,43 +329,51 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
-              <th className="whitespace-nowrap px-4 py-4 text-left font-semibold">Grantee</th>
-              <th className="whitespace-nowrap px-4 py-4 text-left font-semibold">Semester</th>
-              <th className="whitespace-nowrap px-4 py-4 text-left font-semibold">School / Level</th>
-              <th className="whitespace-nowrap px-4 py-4 text-left font-semibold">Average</th>
-              <th className="whitespace-nowrap px-4 py-4 text-left font-semibold">Submitted</th>
-              <th className="px-4 py-4 text-right font-semibold">Action</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Grantee</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Semester</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">School / Level</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Average</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Submitted</th>
+              <th className="px-6 py-4 text-right font-semibold">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
-            {filtered.length === 0 ? (
+            {isLoading ? Array.from({ length: Math.min(pageSize, 3) }, (_, rowIndex) => (
+              <TableSkeletonRow key={`submission-skeleton-${rowIndex}`} />
+            )) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-16 text-center text-sm text-slate-500">
-                  No pending submissions match that filter.
+                <td colSpan={6} className="py-12 text-center">
+                  <div className="flex flex-col items-center justify-center">
+                    <div className="mb-2.5 flex h-10 w-10 items-center justify-center rounded-full border border-slate-100 bg-slate-50 text-slate-400">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <p className="text-xs font-semibold text-slate-700">No submissions match the selected filters.</p>
+                    <p className="mt-0.5 text-[11px] text-slate-400">Try switching tabs or resetting your search criteria.</p>
+                  </div>
                 </td>
               </tr>
             ) : (
-              filtered.map((submission) => {
+              rows.map((submission) => {
                 const isExpanded = expandedSubmission === submission.id;
                 const draft = reviewDrafts[submission.id] ?? EMPTY_REVIEW_DRAFT;
                 const isSaving = savingSubmissionId === submission.id;
                 return (
                   <Fragment key={submission.id}>
                     <tr className="hover:bg-slate-50 transition">
-                      <td className="px-4 py-4">
+                      <td className="px-6 py-4">
                         <div className="min-w-0">
                           <div className="truncate font-semibold text-slate-900">{submission.grantee.user.fullName}</div>
                           <div className="truncate text-xs text-slate-500">{submission.grantee.user.email}</div>
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-slate-700">{submission.semester}</td>
-                      <td className="px-4 py-4 text-slate-700">
+                      <td className="px-6 py-4 text-slate-700">{submission.semester}</td>
+                      <td className="px-6 py-4 text-slate-700">
                         <div>{submission.grantee.school}</div>
                         <div className="text-xs text-slate-500">{submission.grantee.yearLevel}</div>
                       </td>
-                      <td className="px-4 py-4 text-slate-700">{(submission.generalAverage ?? submission.grantee.generalAverage)?.toFixed(2) ?? "—"}</td>
-                      <td className="px-4 py-4 text-slate-700">{new Date(submission.submittedAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-4 text-right">
+                      <td className="px-6 py-4 text-slate-700">{(submission.generalAverage ?? submission.grantee.generalAverage)?.toFixed(2) ?? "—"}</td>
+                      <td className="px-6 py-4 text-slate-700">{new Date(submission.submittedAt).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-right">
                         <button
                           type="button"
                           onClick={() => setExpandedSubmission(isExpanded ? null : submission.id)}
@@ -331,7 +386,7 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
                     </tr>
                     {isExpanded ? (
                       <tr className="bg-slate-50">
-                        <td colSpan={6} className="px-4 py-6">
+                        <td colSpan={6} className="px-6 py-6">
                           <div className="space-y-6">
                             {/* CERTIFICATE OF ENROLLMENT REVIEW */}
                             {(() => {
@@ -526,6 +581,66 @@ export default function SubmissionReviewTable({ submissions }: SubmissionReviewT
             )}
           </tbody>
         </table>
+        <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="text-xs font-medium text-slate-500">
+              {responseData.totalCount === 0 ? (
+                <span>No submissions found</span>
+              ) : responseData.totalCount <= pageSize || responseData.totalPages <= 1 ? (
+                <span><span className="font-bold text-slate-700">{responseData.totalCount}</span> total submissions</span>
+              ) : (
+                <span>
+                  Showing <span className="font-bold text-slate-700">{pageRangeStart}–{pageRangeEnd}</span> of{" "}
+                  <span className="font-bold text-slate-700">{responseData.totalCount}</span>
+                </span>
+              )}
+            </span>
+            <label className="flex items-center gap-1.5 border-l border-slate-200 pl-3 text-[11px] font-medium text-slate-400">
+              <span>Show</span>
+              <select
+                aria-label="Rows per page"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                  setIsLoading(true);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
+              >
+                <option value={10}>10 rows</option>
+                <option value={20}>20 rows</option>
+                <option value={50}>50 rows</option>
+              </select>
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={isLoading || page <= 1}
+              onClick={() => {
+                setPage((currentPage) => Math.max(1, currentPage - 1));
+                setIsLoading(true);
+              }}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="min-w-24 text-center text-xs font-semibold text-slate-600">
+              Page {responseData.totalCount === 0 ? 0 : page} of {responseData.totalCount === 0 ? 0 : responseData.totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={isLoading || page >= responseData.totalPages || responseData.totalCount === 0}
+              onClick={() => {
+                setPage((currentPage) => Math.min(responseData.totalPages, currentPage + 1));
+                setIsLoading(true);
+              }}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

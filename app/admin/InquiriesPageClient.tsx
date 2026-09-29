@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Search } from "lucide-react";
+import { ArrowRight, CheckCircle2, RotateCcw, Search, Send } from "lucide-react";
 import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 import type { TimePeriod } from "./DashboardHeaderWrapper";
 
@@ -14,6 +14,13 @@ function isImageUrl(url: string) {
   return /(\.jpg|\.jpeg|\.png|\.gif|\.webp|\.avif|\.svg)(\?|$)/i.test(url);
 }
 
+interface InquiryThreadMessage {
+  id: string;
+  role: "admin" | "applicant";
+  createdAt: string;
+  text: string;
+}
+
 interface InquiryRow {
   id: string;
   subject: string;
@@ -22,11 +29,44 @@ interface InquiryRow {
   isResolved: boolean;
   response: string | null;
   respondedAt: string | null;
+  reviewThread: InquiryThreadMessage[];
   createdAt: string;
   user: {
     fullName: string;
     email: string;
   };
+}
+
+function getConversationMessages(inquiry: InquiryRow) {
+  const messages = Array.isArray(inquiry.reviewThread)
+    ? inquiry.reviewThread.filter(
+        (message) =>
+          message &&
+          (message.role === "admin" || message.role === "applicant") &&
+          typeof message.text === "string" &&
+          typeof message.createdAt === "string"
+      )
+    : [];
+
+  if (!messages.some((message) => message.role === "applicant" && message.text === inquiry.message)) {
+    messages.push({
+      id: `original-${inquiry.id}`,
+      role: "applicant",
+      createdAt: inquiry.createdAt,
+      text: inquiry.message,
+    });
+  }
+
+  if (inquiry.response && !messages.some((message) => message.role === "admin" && message.text === inquiry.response)) {
+    messages.push({
+      id: `response-${inquiry.id}`,
+      role: "admin",
+      createdAt: inquiry.respondedAt ?? inquiry.createdAt,
+      text: inquiry.response,
+    });
+  }
+
+  return messages.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
 }
 
 interface StatItem {
@@ -65,8 +105,9 @@ export default function InquiriesPageClient({
   const [localInquiries, setLocalInquiries] = useState(inquiries);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
+  const [resolvingInquiryId, setResolvingInquiryId] = useState<string | null>(null);
+  const [reopeningInquiryId, setReopeningInquiryId] = useState<string | null>(null);
   const [replyError, setReplyError] = useState<Record<string, string>>({});
-  const [replySuccess, setReplySuccess] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setLocalInquiries(inquiries);
@@ -93,10 +134,7 @@ export default function InquiriesPageClient({
     });
   }, [localInquiries, searchQuery, statusFilter]);
 
-  const openCount = localInquiries.filter((inquiry) => !inquiry.isResolved).length;
-  const resolvedCount = localInquiries.filter((inquiry) => inquiry.isResolved).length;
-
-  async function handleReply(inquiryId: string) {
+  async function handleSendReply(inquiryId: string) {
     const text = (replyText[inquiryId] ?? "").trim();
     if (!text) {
       setReplyError((prev) => ({ ...prev, [inquiryId]: "Reply cannot be empty." }));
@@ -110,7 +148,7 @@ export default function InquiriesPageClient({
       const response = await fetch(`/api/inquiries/${inquiryId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "message", text }),
+        body: JSON.stringify({ action: "reply", text }),
       });
       const payload = await response.json();
 
@@ -118,19 +156,31 @@ export default function InquiriesPageClient({
         throw new Error(payload.error ?? "Unable to send reply.");
       }
 
+      const respondedAt = payload.respondedAt ?? new Date().toISOString();
       setLocalInquiries((prev) =>
         prev.map((inquiry) =>
           inquiry.id === inquiryId
             ? {
                 ...inquiry,
-                response: payload.response ?? inquiry.response,
-                respondedAt: payload.respondedAt ?? inquiry.respondedAt,
+                isResolved: payload.isResolved ?? inquiry.isResolved,
+                response: payload.response ?? text,
+                respondedAt,
+                reviewThread: Array.isArray(payload.reviewThread)
+                  ? payload.reviewThread
+                  : [
+                      {
+                        id: `admin-${Date.now()}`,
+                        role: "admin" as const,
+                        createdAt: respondedAt,
+                        text,
+                      },
+                      ...inquiry.reviewThread,
+                    ],
               }
             : inquiry
         )
       );
       setReplyText((prev) => ({ ...prev, [inquiryId]: "" }));
-      setReplySuccess((prev) => ({ ...prev, [inquiryId]: "Reply sent." }));
     } catch (err) {
       setReplyError((prev) => ({
         ...prev,
@@ -138,6 +188,90 @@ export default function InquiriesPageClient({
       }));
     } finally {
       setSendingReplyId(null);
+    }
+  }
+
+  async function handleResolve(inquiryId: string) {
+    setReplyError((prev) => ({ ...prev, [inquiryId]: "" }));
+    const wasResolved = localInquiries.find((inquiry) => inquiry.id === inquiryId)?.isResolved ?? false;
+    setLocalInquiries((prev) =>
+      prev.map((inquiry) => (inquiry.id === inquiryId ? { ...inquiry, isResolved: true } : inquiry))
+    );
+    setResolvingInquiryId(inquiryId);
+
+    try {
+      const response = await fetch(`/api/inquiries/${inquiryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resolve" }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to resolve inquiry.");
+      }
+
+      setLocalInquiries((prev) =>
+        prev.map((inquiry) =>
+          inquiry.id === inquiryId
+            ? {
+                ...inquiry,
+                isResolved: true,
+                reviewThread: Array.isArray(payload.reviewThread) ? payload.reviewThread : inquiry.reviewThread,
+              }
+            : inquiry
+        )
+      );
+    } catch (err) {
+      setLocalInquiries((prev) =>
+        prev.map((inquiry) => (inquiry.id === inquiryId ? { ...inquiry, isResolved: wasResolved } : inquiry))
+      );
+      setReplyError((prev) => ({
+        ...prev,
+        [inquiryId]: err instanceof Error ? err.message : "Unable to resolve inquiry.",
+      }));
+    } finally {
+      setResolvingInquiryId(null);
+    }
+  }
+
+  async function handleReopen(inquiryId: string) {
+    setReplyError((prev) => ({ ...prev, [inquiryId]: "" }));
+    const wasResolved = localInquiries.find((inquiry) => inquiry.id === inquiryId)?.isResolved ?? true;
+    setLocalInquiries((prev) =>
+      prev.map((inquiry) => (inquiry.id === inquiryId ? { ...inquiry, isResolved: false } : inquiry))
+    );
+    setReopeningInquiryId(inquiryId);
+
+    try {
+      const response = await fetch(`/api/inquiries/${inquiryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reopen" }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to reopen inquiry.");
+      }
+
+      setLocalInquiries((prev) =>
+        prev.map((inquiry) =>
+          inquiry.id === inquiryId
+            ? { ...inquiry, isResolved: payload.isResolved ?? false }
+            : inquiry
+        )
+      );
+    } catch (err) {
+      setLocalInquiries((prev) =>
+        prev.map((inquiry) => (inquiry.id === inquiryId ? { ...inquiry, isResolved: wasResolved } : inquiry))
+      );
+      setReplyError((prev) => ({
+        ...prev,
+        [inquiryId]: err instanceof Error ? err.message : "Unable to reopen inquiry.",
+      }));
+    } finally {
+      setReopeningInquiryId(null);
     }
   }
 
@@ -193,9 +327,9 @@ export default function InquiriesPageClient({
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+            <div className="relative max-h-[600px] overflow-auto custom-scroll">
+              <table className="w-full min-w-[900px] divide-y divide-slate-200 text-sm">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-500 shadow-sm">
                   <tr>
                     <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Subject</th>
                     <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">User</th>
@@ -215,16 +349,25 @@ export default function InquiriesPageClient({
                   ) : (
                     filteredInquiries.map((inquiry) => {
                       const isExpanded = expandedId === inquiry.id;
+                      const conversationMessages = getConversationMessages(inquiry);
                       return (
                         <Fragment key={inquiry.id}>
                           <tr className="transition hover:bg-slate-50">
-                            <td className="px-6 py-4">
-                              <div className="font-semibold text-slate-900">{inquiry.subject}</div>
-                              <div className="text-xs text-slate-500 line-clamp-1">{inquiry.message}</div>
+                            <td className="w-[250px] max-w-[250px] px-6 py-4">
+                              <div className="truncate font-semibold text-slate-900" title={inquiry.subject}>
+                                {inquiry.subject}
+                              </div>
+                              <div className="mt-0.5 truncate text-xs text-slate-500" title={inquiry.message}>
+                                {inquiry.message}
+                              </div>
                             </td>
-                            <td className="px-6 py-4">
-                              <div className="font-medium text-slate-900">{inquiry.user.fullName}</div>
-                              <div className="text-xs text-slate-500">{inquiry.user.email}</div>
+                            <td className="max-w-[200px] px-6 py-4">
+                              <div className="truncate font-medium text-slate-900" title={inquiry.user.fullName}>
+                                {inquiry.user.fullName}
+                              </div>
+                              <div className="truncate text-xs text-slate-500" title={inquiry.user.email}>
+                                {inquiry.user.email}
+                              </div>
                             </td>
                             <td className="px-6 py-4">
                               <span
@@ -265,70 +408,153 @@ export default function InquiriesPageClient({
                             </td>
                           </tr>
                           {isExpanded ? (
-                            <tr className="bg-slate-50">
-                              <td colSpan={6} className="px-6 py-5">
-                                <div className="grid gap-5 lg:grid-cols-[1.35fr_0.9fr]">
-                                  <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                                    <p className="text-xs uppercase tracking-[0.28em] text-[#0F3D5C]">Message</p>
-                                    <div className="mt-3 text-sm leading-relaxed text-slate-700 space-y-4">
-                                      <p>{inquiry.message}</p>
-                                      {extractUrls(inquiry.message).filter(isImageUrl).length > 0 ? (
-                                        <div className="grid gap-4 sm:grid-cols-2">
-                                          {extractUrls(inquiry.message)
-                                            .filter(isImageUrl)
-                                            .map((url) => (
-                                              <div key={url} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 shadow-sm">
-                                                <img src={url} alt="Uploaded document" className="h-48 w-full object-cover" />
+                            <tr className="bg-slate-50/50">
+                              <td colSpan={6} className="border-b border-slate-200 bg-slate-50/50 p-0 shadow-inner">
+                                <div className="grid grid-cols-1 gap-8 p-6 md:p-8 lg:grid-cols-12 lg:gap-10">
+                                  <div className="flex min-w-0 flex-col lg:col-span-5">
+                                    <h4 className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                      Conversation
+                                    </h4>
+                                    <div className="max-h-[360px] space-y-4 overflow-y-auto custom-scroll rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+                                      {conversationMessages.map((message) => {
+                                        const messageImages = extractUrls(message.text).filter(isImageUrl);
+                                        return (
+                                          <div
+                                            key={message.id}
+                                            className={`flex ${message.role === "admin" ? "justify-end" : "justify-start"}`}
+                                          >
+                                            <article
+                                              className={`min-w-0 max-w-[92%] rounded-xl px-4 py-3 ${
+                                                message.role === "admin"
+                                                  ? "bg-[#0F3D5C] text-white"
+                                                  : "border border-slate-200 bg-slate-50 text-slate-700"
+                                              }`}
+                                            >
+                                              <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                                                <span className={`text-[10px] font-bold uppercase tracking-wider ${message.role === "admin" ? "text-white/70" : "text-slate-400"}`}>
+                                                  {message.role === "admin" ? "Admin response" : "User message"}
+                                                </span>
+                                                <time className={`text-[10px] ${message.role === "admin" ? "text-white/70" : "text-slate-400"}`}>
+                                                  {new Date(message.createdAt).toLocaleString("en-US", {
+                                                    month: "short",
+                                                    day: "numeric",
+                                                    year: "numeric",
+                                                    hour: "numeric",
+                                                    minute: "2-digit",
+                                                  })}
+                                                </time>
                                               </div>
-                                            ))}
+                                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
+                                                {message.text}
+                                              </p>
+                                              {messageImages.length > 0 ? (
+                                                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                                  {messageImages.map((url) => (
+                                                    <div key={url} className="overflow-hidden rounded-lg border border-white/20 bg-white/10">
+                                                      <img src={url} alt="Uploaded document" className="h-40 w-full object-cover" />
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              ) : null}
+                                            </article>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  {inquiry.isResolved ? (
+                                    <div className="flex min-w-0 flex-col lg:col-span-7">
+                                      <div className="mb-3 flex items-center justify-between gap-3">
+                                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                          Resolution
+                                        </h4>
+                                        <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleReopen(inquiry.id)}
+                                            disabled={reopeningInquiryId === inquiry.id || resolvingInquiryId === inquiry.id}
+                                            title="Reopen this inquiry"
+                                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                          >
+                                            <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                                            {reopeningInquiryId === inquiry.id ? "Reopening..." : "Reopen inquiry"}
+                                          </button>
+                                          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
+                                            Resolved
+                                          </span>
                                         </div>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                  <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                                    <p className="text-xs uppercase tracking-[0.28em] text-[#0F3D5C]">Response</p>
-                                    <p className="mt-3 text-sm leading-relaxed text-slate-700">
-                                      {inquiry.response ?? "No response yet."}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                                    <div className="flex items-center justify-between gap-4">
-                                      <div>
-                                        <p className="text-xs uppercase tracking-[0.28em] text-[#0F3D5C]">Reply</p>
-                                        <p className="mt-1 text-sm text-slate-500">Send a response to the grantee from this inquiry.</p>
                                       </div>
-                                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                                        {inquiry.isResolved ? "Resolved" : "Open"}
-                                      </span>
+                                      <div className="border-l-2 border-emerald-500 bg-white px-5 py-4 shadow-sm">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <p className="text-xs font-semibold text-slate-900">Official response</p>
+                                          {inquiry.respondedAt ? (
+                                            <time className="text-xs text-slate-500">
+                                              {new Date(inquiry.respondedAt).toLocaleDateString("en-US", {
+                                                month: "short",
+                                                day: "numeric",
+                                                year: "numeric",
+                                              })}
+                                            </time>
+                                          ) : null}
+                                        </div>
+                                        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700 [overflow-wrap:anywhere]">
+                                          {inquiry.response || "This inquiry was resolved without a recorded response."}
+                                        </p>
+                                      </div>
                                     </div>
-                                    <textarea
-                                      value={replyText[inquiry.id] ?? ""}
-                                      onChange={(event) =>
-                                        setReplyText((prev) => ({
-                                          ...prev,
-                                          [inquiry.id]: event.target.value,
-                                        }))
-                                      }
-                                      rows={4}
-                                      className="mt-4 w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
-                                      placeholder="Type your reply here..."
-                                    />
-                                    {replyError[inquiry.id] ? (
-                                      <p className="mt-2 text-sm text-rose-700">{replyError[inquiry.id]}</p>
-                                    ) : replySuccess[inquiry.id] ? (
-                                      <p className="mt-2 text-sm text-emerald-700">{replySuccess[inquiry.id]}</p>
-                                    ) : null}
-                                    <div className="mt-4 flex justify-end">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleReply(inquiry.id)}
-                                        disabled={sendingReplyId === inquiry.id}
-                                        className="inline-flex items-center justify-center rounded-2xl bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0D2E47] disabled:cursor-not-allowed disabled:bg-slate-400"
-                                      >
-                                        {sendingReplyId === inquiry.id ? "Sending…" : "Send reply"}
-                                      </button>
+                                  ) : (
+                                    <div className="flex min-w-0 flex-col lg:col-span-7">
+                                      <div className="mb-3 flex items-center justify-between gap-3">
+                                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                          Resolution &amp; reply
+                                        </h4>
+                                        <div className="flex items-center gap-3">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleResolve(inquiry.id)}
+                                            disabled={resolvingInquiryId === inquiry.id || sendingReplyId === inquiry.id}
+                                            title="Close this inquiry"
+                                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                                          >
+                                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                                            {resolvingInquiryId === inquiry.id ? "Resolving..." : "Mark as Resolved"}
+                                          </button>
+                                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-700">
+                                            Open
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-all focus-within:border-cyan-600 focus-within:ring-2 focus-within:ring-cyan-600/20">
+                                        <textarea
+                                          value={replyText[inquiry.id] ?? ""}
+                                          onChange={(event) =>
+                                            setReplyText((prev) => ({
+                                              ...prev,
+                                              [inquiry.id]: event.target.value,
+                                            }))
+                                          }
+                                          rows={5}
+                                          className="min-h-[140px] w-full resize-y bg-transparent p-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                                          placeholder="Type your official response to the grantee here..."
+                                        />
+                                        {replyError[inquiry.id] ? (
+                                          <p role="alert" className="px-4 pb-3 text-sm text-rose-700">{replyError[inquiry.id]}</p>
+                                        ) : null}
+                                        <div className="mt-auto flex justify-end border-t border-slate-100 bg-slate-50 px-4 py-3">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSendReply(inquiry.id)}
+                                            disabled={sendingReplyId === inquiry.id || resolvingInquiryId === inquiry.id || !(replyText[inquiry.id] ?? "").trim()}
+                                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                          >
+                                            <Send className="h-4 w-4" aria-hidden="true" />
+                                            {sendingReplyId === inquiry.id ? "Sending..." : "Send reply"}
+                                          </button>
+                                        </div>
+                                      </div>
                                     </div>
-                                  </div>
+                                  )}
                                 </div>
                               </td>
                             </tr>

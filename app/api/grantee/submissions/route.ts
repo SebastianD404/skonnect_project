@@ -61,6 +61,9 @@ export async function POST(request: NextRequest) {
     if (!appUser || appUser.role !== "GRANTEE" || !appUser.grantee) {
       return NextResponse.json({ error: "Only grantee accounts can submit documents" }, { status: 403 });
     }
+    if (appUser.grantee.status === "GRADUATED") {
+      return NextResponse.json({ error: "Graduated scholar records are locked for statutory retention." }, { status: 409 });
+    }
 
     if (!isGranteeProfileComplete(appUser.grantee)) {
       return NextResponse.json(

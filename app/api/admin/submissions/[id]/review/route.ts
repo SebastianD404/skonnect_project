@@ -87,6 +87,7 @@ export async function POST(
         generalAverage: true,
         grantee: {
           select: {
+            status: true,
             generalAverage: true,
           },
         },
@@ -95,6 +96,9 @@ export async function POST(
 
     if (!existing) {
       return NextResponse.json({ error: "Submission not found" }, { status: 404 });
+    }
+    if (existing.grantee?.status === "GRADUATED") {
+      return NextResponse.json({ error: "Graduated scholar submissions are locked for statutory retention." }, { status: 409 });
     }
 
     let flaggedFields: string[] = Array.isArray(existing.flaggedFields)
@@ -168,6 +172,12 @@ export async function POST(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      const current = await tx.submission.findUnique({
+        where: { id },
+        select: { grantee: { select: { status: true } } },
+      });
+      if (current?.grantee.status === "GRADUATED") throw new Error("GRADUATED_SUBMISSION_ARCHIVED");
+
       const saved = await (tx as any).submission.update({
         where: { id },
         data: updateData,
@@ -209,6 +219,9 @@ export async function POST(
     return NextResponse.json({ success: true, submission: updated });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to review submission";
+    if (message === "GRADUATED_SUBMISSION_ARCHIVED") {
+      return NextResponse.json({ error: "Graduated scholar submissions are locked for statutory retention." }, { status: 409 });
+    }
     if (/flaggedFields|does not exist/i.test(message)) {
       return NextResponse.json(
         {

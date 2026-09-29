@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
-import { DEFAULT_SKEAP_MAX_SLOTS, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { ACTIVE_SKEAP_APPLICATION_WHERE, DEFAULT_SKEAP_MAX_SLOTS, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -50,7 +50,13 @@ export async function POST(
       if (!application) throw new Error("NOT_FOUND");
       if (application.status !== "WAITLISTED") throw new Error("NOT_WAITLISTED");
 
-      const activeCount = await tx.skeapApplication.count({ where: { status: "APPROVED" } });
+      const existingGrantee = await tx.grantee.findUnique({
+        where: { userId: application.userId },
+        select: { status: true },
+      });
+      if (existingGrantee?.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
+
+      const activeCount = await tx.skeapApplication.count({ where: ACTIVE_SKEAP_APPLICATION_WHERE });
       if (activeCount >= maxSlots) throw new Error("CAPACITY_FULL");
 
       await tx.skeapApplication.update({
@@ -112,6 +118,7 @@ export async function POST(
     const message = error instanceof Error ? error.message : "Unable to promote application.";
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });
     if (message === "NOT_WAITLISTED") return NextResponse.json({ error: "Application is not currently waitlisted." }, { status: 409 });
+    if (message === "GRANTEE_ARCHIVED") return NextResponse.json({ error: "Graduated Grantee records cannot be changed by SKEAP promotion." }, { status: 409 });
     if (message === "CAPACITY_FULL") return NextResponse.json({ error: `All ${maxSlots} SKEAP slots are currently filled.` }, { status: 409 });
     return NextResponse.json({ error: message }, { status: 500 });
   }

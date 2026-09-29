@@ -2,8 +2,7 @@ import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -23,37 +22,7 @@ export async function GET() {
     const auth = await authorizeAdmin();
     if ("error" in auth) return auth.error;
 
-  const applications = await prisma.skeapApplication.findMany({
-    where: { status: "WAITLISTED" },
-    orderBy: [{ waitlistPosition: "asc" }, { submittedAt: "asc" }],
-    select: {
-      id: true,
-      waitlistPosition: true,
-      submittedAt: true,
-      applicantName: true,
-      emailAddress: true,
-      contactNumber: true,
-      school: true,
-      currentCourse: true,
-      yearLevel: true,
-      user: { select: { fullName: true, email: true } },
-    },
-  });
-    const [activeCount, maxSlots] = await Promise.all([
-      prisma.skeapApplication.count({ where: { status: "APPROVED" } }),
-      getSkeapMaxSlots(),
-    ]);
-
-    return NextResponse.json({
-      activeCount,
-      maxSlots,
-      applications: applications.map((application) => ({
-        ...application,
-        applicantName: application.applicantName || application.user.fullName || application.user.email,
-        emailAddress: application.emailAddress || application.user.email,
-        submittedAt: application.submittedAt.toISOString(),
-      })),
-    });
+    return NextResponse.json(await getSkeapWaitlistSnapshot());
   } catch (error) {
     console.error("Failed to load SKEAP waitlist:", error);
     return NextResponse.json(

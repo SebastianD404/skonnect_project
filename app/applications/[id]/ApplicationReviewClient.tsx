@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Download, FileText, Inbox, Info, MessageCircle, Trash2, Upload, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inbox, Info, MessageCircle, Trash2, Upload, X } from "lucide-react";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { getCoreUploadGroups, getPhotoUploadGroup, CORE_UPLOAD_KEYS, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
 
@@ -534,9 +534,9 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   return (
     <div className="space-y-6 pb-32">
       <header className="mb-8 w-full rounded-2xl border border-cyan-950/20 bg-[linear-gradient(120deg,#0f3d5c_0%,#145b72_58%,#e7f4f1_160%)] p-6 shadow-sm md:p-8">
-        <Link href="/#programs" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-white/75 transition-colors hover:text-white">
+        <Link href="/applications" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-white/75 transition-colors hover:text-white">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Return to programs
+          Return to applications
         </Link>
 
         <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
@@ -753,10 +753,6 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                   </div>
                 ) : (
                   <div className="mb-5 rounded-r-lg border-l-4 border-cyan-500 bg-cyan-50 p-4">
-                    <p className="mb-1.5 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-900">
-                      <Info className="h-4 w-4 text-cyan-600" aria-hidden="true" />
-                      Next step
-                    </p>
                     <p className="text-sm leading-relaxed text-slate-700">
                       {pendingReplacements > 0
                         ? `${pendingReplacements} replacement file${pendingReplacements > 1 ? "s" : ""} staged and ready to send.`
@@ -877,10 +873,10 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                           target="_blank"
                           rel="noreferrer noopener"
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"
-                          aria-label={`Download ${displayName}`}
-                          title={`Download ${displayName}`}
+                          aria-label={`View file ${displayName}`}
+                          title={`View file ${displayName}`}
                         >
-                          <Download className="h-4 w-4" aria-hidden="true" />
+                          <Eye className="h-4 w-4" aria-hidden="true" />
                         </a>
                       ) : null}
                       <input

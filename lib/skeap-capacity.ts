@@ -1,7 +1,15 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 export const SKEAP_MAX_SLOTS_KEY = "SKEAP_MAX_SLOTS";
 export const DEFAULT_SKEAP_MAX_SLOTS = 55;
+export const ACTIVE_SKEAP_APPLICATION_WHERE = {
+  status: "APPROVED",
+  OR: [
+    { user: { grantee: { is: null } } },
+    { user: { grantee: { is: { status: { in: ["ACTIVE", "PROBATIONARY"] } } } } },
+  ],
+} satisfies Prisma.SkeapApplicationWhereInput;
 
 export async function getSkeapMaxSlots(client: typeof prisma = prisma) {
   const systemSetting = (client as typeof prisma & {

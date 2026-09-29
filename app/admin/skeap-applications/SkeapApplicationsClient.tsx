@@ -1,7 +1,9 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle, CheckCircle2, ClipboardList, Clock, CornerUpLeft, RefreshCcw, Send, FileText, FolderOpen, X, Download, type LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CornerUpLeft, Eye, FileText, FolderOpen, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { CORE_UPLOAD_KEYS, SKEAP_UPLOAD_KEY, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
@@ -134,26 +136,6 @@ function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMes
   if (flaggedAttachment) return "Returned";
   if (doc.verified) return "Verified";
   return "Pending";
-}
-
-function buildDownloadHref(url: string) {
-  if (!url) return "";
-  try {
-    new URL(url);
-    return `/api/download?url=${encodeURIComponent(url)}`;
-  } catch {
-    return url;
-  }
-}
-
-function getFilenameFromUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    return decodeURIComponent(parsed.pathname.split("/").pop() || "file");
-  } catch {
-    const parts = url.split("/");
-    return decodeURIComponent(parts.pop() || "file");
-  }
 }
 
 function normalizeApplicationStatus(status: string) {
@@ -350,13 +332,32 @@ function getDocumentInlineRemark(doc: DocumentItem, reviewThread: ApplicationMes
 export default function SkeapApplicationsClient({
   applications: initialApplications,
   counts,
+  hasNextPage: initialHasNextPage,
+  initialCursor,
+  initialAcademicYear,
+  academicYears,
 }: {
   applications: ApplicationRecord[];
   counts?: { pending: number; returned: number; resubmitted?: number; approved: number };
+  hasNextPage: boolean;
+  initialCursor: { id: string; createdAt: string } | null;
+  initialAcademicYear: string;
+  academicYears: string[];
 }) {
+  const router = useRouter();
   const [applications, setApplications] = useState<ApplicationRecord[]>(initialApplications);
   const [selectedAppId, setSelectedAppId] = useState<string>(initialApplications[0]?.id ?? "");
-  const [viewFilter, setViewFilter] = useState<"review" | "returned" | "approved">("review");
+  const [viewFilter, setViewFilter] = useState<"pending" | "resubmitted" | "returned" | "approved">("pending");
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState(initialAcademicYear);
+  const itemsPerPage = 10;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [activeTab, setActiveTab] = useState<"overview" | "documents" | "activity">("overview");
+  const [cursor, setCursor] = useState(initialCursor);
+  const [hasNextPage, setHasNextPage] = useState(initialHasNextPage);
+  const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const isFetchingNextPageRef = useRef(false);
+  const isRefreshingRef = useRef(false);
   const [messageDraft, setMessageDraft] = useState("");
   const [attachedFileNotes, setAttachedFileNotes] = useState<AttachedFileNote[]>([]);
   const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -372,7 +373,8 @@ export default function SkeapApplicationsClient({
   const displayedApplications = useMemo(
     () => applications.filter((app) => {
       const status = normalizeApplicationStatus(app.status);
-      if (viewFilter === "review") return status === "Pending Review" || status === "Resubmitted";
+      if (viewFilter === "pending") return status === "Pending Review";
+      if (viewFilter === "resubmitted") return status === "Resubmitted";
       if (viewFilter === "returned") return status === "Returned";
       if (viewFilter === "approved") return status === "Approved";
       return true;
@@ -380,17 +382,44 @@ export default function SkeapApplicationsClient({
     [applications, viewFilter]
   );
 
+  const totalPages = Math.ceil(displayedApplications.length / itemsPerPage);
+  const visiblePage = Math.min(currentPage, Math.max(totalPages, 1));
+  const paginatedApplications = useMemo(
+    () => displayedApplications.slice(
+      (visiblePage - 1) * itemsPerPage,
+      visiblePage * itemsPerPage
+    ),
+    [displayedApplications, visiblePage, itemsPerPage]
+  );
+
   const selectedApplication =
-    displayedApplications.find((app) => app.id === selectedAppId) ?? displayedApplications[0] ?? null;
+    paginatedApplications.find((app) => app.id === selectedAppId) ?? paginatedApplications[0] ?? null;
 
   const selectedStatus = normalizeApplicationStatus(selectedApplication?.status ?? "");
   const isApproved = selectedStatus === "Approved";
+
   const queueTitle =
-    viewFilter === "review"
-      ? "Open applications"
+    viewFilter === "pending"
+      ? "Pending Review"
+      : viewFilter === "resubmitted"
+      ? "Resubmitted Applications"
       : viewFilter === "approved"
       ? "Approved Archive"
       : "Returned / Correction Queue";
+  const activeFilterName =
+    viewFilter === "pending"
+      ? "Pending Review"
+      : viewFilter === "resubmitted"
+      ? "Resubmitted Applications"
+      : viewFilter === "returned"
+      ? "Returned Queue"
+      : "Approved Archive";
+  const isQueueEmpty = displayedApplications.length === 0 && !hasNextPage && !isRefreshing;
+
+  function changeViewFilter(filter: typeof viewFilter) {
+    setViewFilter(filter);
+    setCurrentPage(1);
+  }
 
   const initialStatusMap = useMemo(
     () => new Map(initialApplications.map((app) => [app.id, normalizeApplicationStatus(app.status)])),
@@ -534,15 +563,96 @@ export default function SkeapApplicationsClient({
     [selectedApplication, activeReviewFile]
   );
 
-  const activeReviewPreviewUrl = activeReviewDocument?.previewUrl ?? activeReviewGroup?.url ?? "";
-  const activeReviewLabel = activeReviewDocument?.label ?? activeReviewGroup?.label ?? "Document preview";
+  const unresolvedPreviewUrl = activeReviewFile?.startsWith("url-") ? activeReviewFile.slice(4) : "";
+  const activeReviewPreviewUrl = activeReviewDocument?.previewUrl || activeReviewGroup?.url || unresolvedPreviewUrl;
+  const activeReviewLabel = activeReviewDocument?.label || activeReviewGroup?.label || (unresolvedPreviewUrl ? extractFileNameFromUrl(unresolvedPreviewUrl) : "Document preview");
 
   const activeReviewVerified = activeReviewDocument?.verified ?? activeReviewGroup?.verified ?? false;
 
   const resolvedSelectedAppId = useMemo(
-    () => (displayedApplications.some((app) => app.id === selectedAppId) ? selectedAppId : displayedApplications[0]?.id ?? ""),
-    [displayedApplications, selectedAppId]
+    () => (paginatedApplications.some((app) => app.id === selectedAppId) ? selectedAppId : paginatedApplications[0]?.id ?? ""),
+    [paginatedApplications, selectedAppId]
   );
+
+  const handleRefresh = useCallback(async (academicYear = selectedAcademicYear) => {
+    if (isRefreshingRef.current || isFetchingNextPageRef.current) return;
+
+    isRefreshingRef.current = true;
+    setIsRefreshing(true);
+    try {
+      const params = new URLSearchParams({ academicYear });
+      const response = await fetch(`/api/admin/skeap-applications?${params}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to refresh applications.");
+
+      const page = await response.json() as {
+        applications: ApplicationRecord[];
+        hasNextPage: boolean;
+        nextCursor: { id: string; createdAt: string } | null;
+      };
+
+      setApplications(page.applications);
+      setCurrentPage(1);
+      setSelectedAppId((currentId) =>
+        page.applications.some((application) => application.id === currentId)
+          ? currentId
+          : page.applications[0]?.id ?? ""
+      );
+      setCursor(page.nextCursor);
+      setHasNextPage(page.hasNextPage);
+      if (academicYear === initialAcademicYear) router.refresh();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      isRefreshingRef.current = false;
+      setIsRefreshing(false);
+    }
+  }, [initialAcademicYear, router, selectedAcademicYear]);
+
+  function handleAcademicYearChange(academicYear: string) {
+    if (academicYear === selectedAcademicYear) return;
+
+    setSelectedAcademicYear(academicYear);
+    setApplications([]);
+    setSelectedAppId("");
+    setCursor(null);
+    setHasNextPage(false);
+    setCurrentPage(1);
+    void handleRefresh(academicYear);
+  }
+
+  const fetchNextPage = useCallback(async () => {
+    if (!hasNextPage || isFetchingNextPageRef.current || isRefreshingRef.current || !cursor) return;
+
+    isFetchingNextPageRef.current = true;
+    setIsFetchingNextPage(true);
+    try {
+      const params = new URLSearchParams({
+        academicYear: selectedAcademicYear,
+        cursorId: cursor.id,
+        cursorDate: cursor.createdAt,
+      });
+      const response = await fetch(`/api/admin/skeap-applications?${params}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load more applications.");
+
+      const page = await response.json() as {
+        applications: ApplicationRecord[];
+        hasNextPage: boolean;
+        nextCursor: { id: string; createdAt: string } | null;
+      };
+
+      setApplications((current) => {
+        const existingIds = new Set(current.map((application) => application.id));
+        return [...current, ...page.applications.filter((application) => !existingIds.has(application.id))];
+      });
+      setCursor(page.nextCursor);
+      setHasNextPage(page.hasNextPage);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      isFetchingNextPageRef.current = false;
+      setIsFetchingNextPage(false);
+    }
+  }, [cursor, hasNextPage, selectedAcademicYear]);
 
   useEffect(() => {
     if (resolvedSelectedAppId !== selectedAppId) {
@@ -561,7 +671,7 @@ export default function SkeapApplicationsClient({
   }
 
   function toggleDocumentVerified(documentId: string) {
-    if (!selectedApplication) return;
+    if (!selectedApplication || isApproved) return;
     const matchedDocument = findDocumentByReviewKey(selectedApplication, documentId);
     if (!matchedDocument) return;
 
@@ -626,6 +736,7 @@ export default function SkeapApplicationsClient({
   }
 
   async function handleSendMessage() {
+    if (isApproved) return;
     if (!messageDraft.trim() && attachedFileNotes.length === 0) return;
     if (!selectedApplication) return;
 
@@ -676,7 +787,7 @@ export default function SkeapApplicationsClient({
   }
 
   async function handleConfirmReject() {
-    if (!selectedApplication || !rejectionReason.trim()) return;
+    if (!selectedApplication || isApproved || !rejectionReason.trim()) return;
 
     setIsRejecting(true);
     setRejectError(null);
@@ -719,10 +830,10 @@ export default function SkeapApplicationsClient({
   }
 
   async function handleApprove() {
-    if (!selectedApplication) return;
+    if (!selectedApplication || isApproved) return;
 
     try {
-      const approvalText = "Application approved. The applicant will be upgraded to Grantee access automatically.";
+      const approvalText = "Application approved. The applicant has been routed to the scholarship waitlist for promotion and capacity management.";
       const result = await saveReviewUpdate("approve", approvalText, []);
       const reviewThread = result?.reviewThread;
       if (reviewThread) {
@@ -779,16 +890,16 @@ export default function SkeapApplicationsClient({
               value={stats.pending}
               subtitle="in queue"
               icon={Clock}
-              active={viewFilter === "review"}
-              onClick={() => setViewFilter("review")}
+              active={viewFilter === "pending"}
+              onClick={() => changeViewFilter("pending")}
             />
             <ApplicationMetricCard
               label="Resubmitted"
               value={stats.resubmitted}
               subtitle="updated apps"
               icon={RefreshCcw}
-              active={viewFilter === "review"}
-              onClick={() => setViewFilter("review")}
+              active={viewFilter === "resubmitted"}
+              onClick={() => changeViewFilter("resubmitted")}
             />
             <ApplicationMetricCard
               label="Returned"
@@ -796,7 +907,7 @@ export default function SkeapApplicationsClient({
               subtitle="needs action"
               icon={CornerUpLeft}
               active={viewFilter === "returned"}
-              onClick={() => setViewFilter("returned")}
+              onClick={() => changeViewFilter("returned")}
             />
             <ApplicationMetricCard
               label="Approved"
@@ -804,501 +915,589 @@ export default function SkeapApplicationsClient({
               subtitle="processed"
               icon={CheckCircle}
               active={viewFilter === "approved"}
-              onClick={() => setViewFilter("approved")}
+              onClick={() => changeViewFilter("approved")}
             />
           </div>
 
-          <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] items-stretch">
-            <div className="flex min-h-0 flex-col rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-center justify-between gap-4">
+          {isQueueEmpty ? (
+            <section className="mt-6 flex min-h-[500px] w-full flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+              <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 shadow-sm">
+                <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+              </div>
+              <h2 className="mb-2 text-2xl font-black text-slate-900">No applications found</h2>
+              <p className="mb-8 max-w-md text-sm leading-relaxed text-slate-500">
+                There are no applications in the <span className="font-semibold text-slate-700">{activeFilterName}</span> queue.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleRefresh()}
+                disabled={isRefreshing || isFetchingNextPage}
+                className="group inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`} />
+                <span>{isRefreshing ? "Checking..." : "Check for new submissions"}</span>
+              </button>
+            </section>
+          ) : (
+          <section className="mt-6 flex h-[calc(100vh-280px)] min-h-[600px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+            <aside className="flex h-full min-h-0 w-80 shrink-0 flex-col border-r border-slate-200 bg-slate-50 lg:w-96">
+              <div className="sticky top-0 z-10 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-slate-50/90 p-5 backdrop-blur-sm">
                 <div>
                   <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Applicant queue</p>
                   <h2 className="mt-3 text-2xl font-semibold text-slate-950">{queueTitle}</h2>
                 </div>
-                <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200">
-                  <ClipboardList className="h-4 w-4" />
-                  Refresh list
-                </button>
+                <div className="flex items-center gap-2">
+                  <select
+                    aria-label="Filter applications by academic year"
+                    value={selectedAcademicYear}
+                    onChange={(event) => handleAcademicYearChange(event.target.value)}
+                    disabled={isRefreshing || isFetchingNextPage}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {academicYears.map((academicYear) => (
+                      <option key={academicYear} value={academicYear}>
+                        A.Y. {academicYear}{academicYear === initialAcademicYear ? " (Current)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefresh()}
+                    disabled={isRefreshing || isFetchingNextPage}
+                    title="Refresh list"
+                    aria-label="Refresh list"
+                    className="group shrink-0 rounded-lg border border-slate-200 bg-white p-2 text-slate-400 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
               </div>
 
-              <div className="mt-6 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent hover:scrollbar-thumb-slate-300">
-                {displayedApplications.length === 0 ? (
-                  <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12">
-                    <FolderOpen className="mb-3 h-12 w-12 stroke-[1.5] text-slate-300" />
-                    <p className="text-sm font-semibold text-slate-700">No applications found</p>
-                    <div className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
-                      <AlertCircle className="h-3.5 w-3.5" />
-                      <span>
-                        {viewFilter === "review"
-                          ? "There are no pending or resubmitted applications in the review queue."
-                          : viewFilter === "returned"
-                          ? "There are no returned applications available right now."
-                          : "There are no approved applications in the archive."}
-                      </span>
+              <div className="custom-scroll min-h-0 flex-1 overflow-y-auto">
+                <div className="flex flex-col gap-3 p-4">
+                  {paginatedApplications.length === 0 && (hasNextPage || isRefreshing) && (
+                    <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                      {isFetchingNextPage || isRefreshing ? (
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+                      ) : null}
+                      <p className="text-sm font-semibold text-slate-500">
+                        {isRefreshing
+                          ? `Loading A.Y. ${selectedAcademicYear}...`
+                          : isFetchingNextPage
+                          ? `Loading ${activeFilterName.toLowerCase()}...`
+                          : "No matching applications in the loaded results."}
+                      </p>
                     </div>
-                  </div>
-                ) : (
-                  displayedApplications.map((application) => (
+                  )}
+
+                  {paginatedApplications.map((application) => (
                     <button
                       key={application.id}
                       type="button"
                       onClick={() => setSelectedAppId(application.id)}
-                      className={`w-full rounded-[1.75rem] border px-5 py-4 text-left transition ${
+                      aria-pressed={application.id === selectedAppId}
+                      className={`group relative w-full overflow-hidden rounded-xl border px-5 py-4 text-left transition-all ${
                         application.id === selectedAppId
-                          ? "border-slate-900 bg-slate-950 text-white shadow-sm"
-                          : "border-slate-200 bg-slate-50 text-slate-900 hover:border-slate-300 hover:bg-slate-100"
+                          ? "border-slate-200 bg-white text-slate-900 shadow-md"
+                          : "border-transparent bg-transparent text-slate-900 hover:bg-slate-100"
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold">{application.applicantName}</p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {application.school || "No school provided"}
-                            {application.school && application.yearLevel ? " • " : ""}
-                            {application.yearLevel || ""}
-                          </p>
+                      {application.id === selectedAppId && (
+                        <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1.5 bg-cyan-700" />
+                      )}
+                      <div className="pl-2">
+                        <div className="mb-4 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-slate-900">{application.applicantName}</p>
+                            <p className="mt-1 truncate text-xs text-slate-500">
+                              {application.school || "No school provided"}
+                              {application.school && application.yearLevel ? " • " : ""}
+                              {application.yearLevel || ""}
+                            </p>
+                          </div>
+                          <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${
+                            normalizeApplicationStatus(application.status) === "Approved"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : normalizeApplicationStatus(application.status) === "Returned"
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : normalizeApplicationStatus(application.status) === "Resubmitted"
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : "border-slate-200 bg-slate-100 text-slate-600"
+                          }`}>
+                            {normalizeApplicationStatus(application.status) === "Returned"
+                              ? "Returned"
+                              : normalizeApplicationStatus(application.status) === "Resubmitted"
+                              ? "Resubmitted"
+                              : application.status}
+                          </span>
                         </div>
-                        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.35em] ${
-                          normalizeApplicationStatus(application.status) === "Returned"
-                            ? "bg-amber-50 text-amber-700 border border-amber-200"
-                            : normalizeApplicationStatus(application.status) === "Resubmitted"
-                            ? "bg-blue-50 text-blue-700 border border-blue-200"
-                            : "bg-slate-100 text-slate-600"
-                        }`}>
-                          {normalizeApplicationStatus(application.status) === "Returned"
-                            ? "Returned"
-                            : normalizeApplicationStatus(application.status) === "Resubmitted"
-                            ? "Resubmitted"
-                            : application.status}
-                        </span>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-500">
-                        <span>{formatDate(application.submittedAt)}</span>
-                        <span>{application.documents.length} docs</span>
+                        <div className="flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
+                          <span>{formatDate(application.submittedAt)}</span>
+                          <span>{application.documents.length} docs</span>
+                        </div>
                       </div>
                     </button>
-                  ))
+                  ))}
+
+                </div>
+              </div>
+              <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(Math.max(1, visiblePage - 1))}
+                    disabled={visiblePage === 1}
+                    aria-label="Previous applicant page"
+                    className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <span className="text-xs font-semibold text-slate-600">
+                    Page {totalPages === 0 ? 0 : visiblePage} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(Math.min(totalPages, visiblePage + 1))}
+                    disabled={visiblePage >= totalPages}
+                    aria-label="Next applicant page"
+                    className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
+                </div>
+                {hasNextPage && (
+                  <button
+                    type="button"
+                    onClick={() => void fetchNextPage()}
+                    disabled={isFetchingNextPage || isRefreshing}
+                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isFetchingNextPage ? "Loading more applicants..." : "Load more applicants"}
+                  </button>
                 )}
               </div>
-            </div>
+            </aside>
 
-            <div className="space-y-6">
+            <div className="custom-scroll relative flex flex-1 flex-col items-stretch justify-start overflow-y-auto bg-slate-50/50">
               {selectedApplication ? (
-                <>
-                  <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-1 flex-col">
+                  <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 pt-4 backdrop-blur-sm">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Application details</p>
-                        <h2 className="mt-3 text-2xl font-semibold text-slate-950">{selectedApplication.applicantName}</h2>
-                        <p className="mt-2 text-sm text-slate-600">{selectedApplication.applicantEmail}</p>
+                        <h2 className="mt-2 text-2xl font-semibold text-slate-950">{selectedApplication.applicantName}</h2>
+                        <p className="mt-1 text-sm text-slate-600">{selectedApplication.applicantEmail}</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowApplicationForm(true)}
+                        title="View compiled application form"
+                        aria-label="View compiled application form"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-cyan-700 bg-cyan-700 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:border-cyan-800 hover:bg-cyan-800"
+                      >
+                        <span>View Form</span>
+                      </button>
+                    </div>
+                    <div className="mt-3 flex items-center gap-6 overflow-x-auto" role="tablist" aria-label="Application details sections">
+                      {([
+                        { id: "overview", label: "Overview" },
+                        { id: "documents", label: "Documents & Files" },
+                        { id: "activity", label: "Activity Log" },
+                      ] as const).map((tab) => (
                         <button
+                          key={tab.id}
+                          id={`application-tab-${tab.id}`}
                           type="button"
-                          onClick={() => setShowApplicationForm(true)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                        >
-                          <Download className="h-4 w-4" />
-                          View compiled form
-                        </button>
-                        <a
-                          href={`/api/applications/${selectedApplication?.id}/download`}
-                          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                        >
-                          <Download className="h-4 w-4" />
-                          Download DOCX
-                        </a>
-                      </div>
-                    </div>
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[0.86fr_0.98fr] min-w-0">
-                    <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">STATUS</span>
-                        <span className={`inline-flex w-fit max-w-full truncate whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          selectedStatus === "Returned"
-                            ? "bg-amber-50 text-amber-700 border border-amber-200"
-                            : selectedStatus === "Resubmitted"
-                            ? "bg-blue-50 text-blue-700 border border-blue-200"
-                            : selectedStatus === "Approved"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                            : selectedStatus === "Rejected"
-                            ? "bg-rose-50 text-rose-700 border border-rose-200"
-                            : selectedStatus === "Ineligible"
-                            ? "bg-rose-50 text-rose-700 border border-rose-200"
-                            : "bg-slate-100 text-slate-700 border border-slate-200"
-                        }`}>
-                          {selectedStatus === "Returned"
-                            ? "Correction Required"
-                            : selectedStatus === "Resubmitted"
-                            ? "Resubmitted"
-                            : selectedStatus}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">SUBMITTED</span>
-                      <p className="mt-2 font-semibold text-slate-950 truncate">{formatDate(selectedApplication?.submittedAt ?? "")}</p>
-                    </div>
-                    <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 block truncate whitespace-nowrap">VERIFIED DOCS</span>
-                      <p className="mt-2 font-semibold text-slate-950 truncate">
-                        {verifiedCount}/{verifyDocumentCount}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {applicationDetails ? (
-                  <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {applicationDetails.currentCourse ? (
-                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Course</p>
-                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.currentCourse}</p>
-                      </div>
-                    ) : null}
-                    {applicationDetails.yearLevel ? (
-                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Year level</p>
-                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.yearLevel}</p>
-                      </div>
-                    ) : null}
-                    {applicationDetails.age != null ? (
-                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Age</p>
-                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.age}</p>
-                      </div>
-                    ) : null}
-                    {applicationDetails.dateOfBirth ? (
-                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Date of birth</p>
-                        <p className="mt-2 font-semibold text-slate-950 truncate">{formatDate(applicationDetails.dateOfBirth)}</p>
-                      </div>
-                    ) : null}
-                    {applicationDetails.contactNumber ? (
-                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Phone</p>
-                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.contactNumber}</p>
-                      </div>
-                    ) : null}
-                    {applicationDetails.emailAddress ? (
-                      <div className="rounded-[1.5rem] bg-slate-50 px-4 py-4 text-sm text-slate-700 shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Email</p>
-                        <p className="mt-2 font-semibold text-slate-950 truncate">{applicationDetails.emailAddress}</p>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {isApproved ? (
-                  <div className="w-full space-y-3">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-normal text-slate-600">
-                      <div className="mb-2 flex items-center gap-2 font-semibold text-slate-700">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                        <span>Application Approved:</span>
-                      </div>
-                      All {verifiedCount}/{verifyDocumentCount} mandatory documents have been cross-verified. To finalize onboarding, this user's account permissions must be provisioned.
-                    </div>
-                    <a
-                      href={`/admin/grantees?search=${encodeURIComponent(selectedApplication?.applicantEmail ?? "")}`}
-                      className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-2xs hover:bg-indigo-700"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      Promote Account to Grantee Role
-                    </a>
-                  </div>
-                ) : (
-                  <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={handleApproveClick}
-                      className="flex w-full items-center justify-center gap-2 rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      Approve Application
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRejectError(null);
-                        setShowRejectModal(true);
-                      }}
-                      className="flex w-full items-center justify-center rounded-lg border border-rose-200 bg-white px-4 py-2.5 text-xs font-bold text-rose-600 transition-all hover:bg-rose-50"
-                    >
-                      Reject Application
-                    </button>
-                  </div>
-                )}
-
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Files</p>
-                    <h2 className="mt-3 text-2xl font-semibold text-slate-950">Documents to verify</h2>
-                  </div>
-                  <div className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
-                    {verifiedCount}/{verifyDocumentCount}
-                  </div>
-                </div>
-
-                <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-slate-200">
-                  <div className="divide-y divide-slate-200 bg-white">
-                    {visibleVerifyDocuments.map((doc) => {
-                      const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
-                      const isResubmittedDoc = selectedStatus === "Resubmitted" && docStatus === "Returned";
-                      const badgeClass = isResubmittedDoc
-                        ? "bg-sky-50 text-sky-700 border border-sky-200"
-                        : docStatus === "Returned"
-                        ? "bg-red-50 text-red-600 border border-red-100"
-                        : doc.verified
-                        ? "bg-emerald-100 text-emerald-700 border border-emerald-100"
-                        : "bg-slate-100 text-slate-600 border border-slate-200";
-                      const statusText = isResubmittedDoc ? "Resubmitted" : docStatus;
-
-                      return (
-                        <div key={doc.id} className="w-full">
-                          <div className={`flex items-center gap-4 px-6 py-4 transition ${isApproved ? "" : "hover:bg-slate-50"}`}>
-                            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
-                              {doc.isImage ? (
-                                <img
-                                  src={doc.previewUrl}
-                                  alt={doc.label}
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
-                                  <FileText className="h-5 w-5" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="truncate text-sm font-semibold text-slate-900">{doc.label}</p>
-                              <p className="truncate text-xs text-slate-500">{doc.type}</p>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <a
-                                href={buildDownloadHref(doc.previewUrl)}
-                                download={getFilenameFromUrl(doc.previewUrl)}
-                                className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200"
-                              >
-                                <Download className="h-4 w-4" />
-                              </a>
-                              {!isApproved && (
-                                <button
-                                  type="button"
-                                  onClick={() => setActiveReviewFile(doc.id)}
-                                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-700 transition hover:bg-slate-200"
-                                >
-                                  Review
-                                </button>
-                              )}
-                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
-                                {statusText}
-                              </span>
-                            </div>
-                          </div>
-                          {!isResubmittedDoc && docStatus === "Returned" ? (
-                            <div className="ml-20 rounded-r-lg border-l-2 border-red-400 bg-slate-50/70 p-2.5 text-xs text-slate-600">
-                              <div className="flex items-center gap-2 font-semibold text-red-600">
-                                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
-                                Reviewer Note:
-                              </div>
-                              <p className="mt-1 leading-5">{getDocumentInlineRemark(doc, selectedApplication?.messages ?? [])}</p>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Conversation</p>
-                    <h2 className="mt-3 text-2xl font-semibold text-slate-950">Return notes & messages</h2>
-                  </div>
-                  <span className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
-                    {selectedApplication?.messages?.length ?? 0} messages
-                  </span>
-                </div>
-
-                <div className="mt-6 space-y-4">
-                  {(selectedApplication?.messages || [])
-                    .filter((message) => !isUploadedFilesSystemMessage(message.text) && !isSubmissionSystemMessage(message.text))
-                    .map((message) => {
-                      const urls = extractUrls(message.text);
-                      const textWithoutUrls = urls.reduce((text, url) => text.replace(url, ""), message.text).trim();
-                      return (
-                        <div
-                          key={message.id}
-                          className={`rounded-[1.5rem] border p-4 ${
-                            message.role === "admin"
-                              ? "border-emerald-100 bg-emerald-50 text-slate-900"
-                              : "border-slate-200 bg-slate-50 text-slate-900"
+                          role="tab"
+                          aria-selected={activeTab === tab.id}
+                          aria-controls={`application-panel-${tab.id}`}
+                          onClick={() => setActiveTab(tab.id)}
+                          className={`shrink-0 border-b-2 pb-2 text-sm font-bold transition-colors ${
+                            activeTab === tab.id
+                              ? "border-cyan-700 text-cyan-800"
+                              : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
                           }`}
                         >
-                          <div className="flex items-center justify-end gap-3 text-xs uppercase tracking-[0.35em] text-slate-500">
-                            <span>{formatDate(message.createdAt)}</span>
-                          </div>
-                          {textWithoutUrls && <p className="mt-3 leading-7 text-sm">{textWithoutUrls}</p>}
-                          {urls.length > 0 && (
-                            <div className="mt-4 flex flex-wrap gap-3">
-                              {urls.map((url, urlIndex) => {
-                                const fileType = getFileTypeFromUrl(url);
-                                const fileName = extractFileNameFromUrl(url);
-                                return (
-                                  <div key={`${message.id}-url-${urlIndex}`}>
-                                    {fileType === "image" ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => setActiveReviewFile(`url-${message.id}-${urlIndex}`)}
-                                        className="overflow-hidden rounded-lg border border-slate-200 hover:shadow-md transition"
-                                      >
-                                        <img src={url} alt={fileName} className="h-16 w-16 object-cover" />
-                                      </button>
-                                    ) : (
-                                      <a
-                                        href={url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                                      >
-                                        <FileText className="h-4 w-4" />
-                                        <span className="max-w-[120px] truncate">{fileName}</span>
-                                      </a>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {message.attachments && message.attachments.length > 0 && (
-                            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                              {message.attachments.map((attachment, attachmentIndex) => (
-                                <div
-                                  key={`${message.id}-${attachment.fileId}-${attachmentIndex}`}
-                                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                                >
-                                  <div className="flex items-start gap-3">
-                                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                                      {attachment.fileType.toLowerCase().includes("image") ? (
-                                        <img
-                                          src={attachment.fileUrl}
-                                          alt={attachment.fileName}
-                                          className="h-full w-full object-cover"
-                                        />
-                                      ) : (
-                                        <FileText className="h-5 w-5 text-slate-500" />
-                                      )}
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="truncate text-sm font-semibold text-slate-900">{attachment.fileName}</p>
-                                      <p className="mt-1 text-xs text-slate-500">{attachment.adminRemark}</p>
-                                    </div>
-                                  </div>
-                                  <div className="mt-4 flex items-center justify-between gap-2">
-                                    <a
-                                      href={buildDownloadHref(attachment.fileUrl)}
-                                      download={getFilenameFromUrl(attachment.fileUrl)}
-                                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-                                    >
-                                      <Download className="h-4 w-4" />
-                                      Download
-                                    </a>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
-
-                {attachedFileNotes.length > 0 && (
-                  <div className="mt-6 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-500">Attached file notes</p>
-                    <div className="space-y-2">
-                      {attachedFileNotes.map((attachment, index) => (
-                        <div
-                          key={`${attachment.fileId}-${attachment.fileUrl ?? index}-${index}`}
-                          className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:bg-slate-100"
-                        >
-                          <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100">
-                            {attachment.fileType?.toLowerCase().includes("image") || attachment.fileUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                              <img
-                                src={attachment.fileUrl}
-                                alt={attachment.fileName}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
-                                <FileText className="h-4 w-4" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-slate-900">{attachment.fileName}</p>
-                            <p className="truncate text-xs text-slate-600">{attachment.adminRemark}</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAttachedFileNotes((prev) => prev.filter((_, i) => i !== index));
-                            }}
-                            className="shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </div>
+                          {tab.label}
+                        </button>
                       ))}
                     </div>
                   </div>
-                )}
 
-                {isApproved ? (
-                  <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                    Thread locked — application finalized.
+                  <div className={`mx-auto flex min-h-0 w-full max-w-4xl flex-col px-4 md:px-6 ${
+                    activeTab === "overview"
+                      ? "flex-1 justify-center py-3"
+                      : activeTab === "documents"
+                      ? "pt-5 pb-3"
+                      : "flex-1 gap-4 pb-10 pt-4"
+                  }`}>
+                    {activeTab === "overview" && (
+                      <div id="application-panel-overview" role="tabpanel" aria-labelledby="application-tab-overview" className="flex flex-col gap-4">
+                    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-100 px-5 py-4">
+                        <h3 className="text-sm font-semibold text-slate-900">Applicant profile</h3>
+                      </div>
+                      <div className="grid grid-cols-2 gap-px bg-slate-100 md:grid-cols-4">
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Status</span>
+                          <span className={`w-fit max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                            selectedStatus === "Returned"
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : selectedStatus === "Resubmitted"
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : selectedStatus === "Approved"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : selectedStatus === "Rejected" || selectedStatus === "Ineligible"
+                              ? "border-rose-200 bg-rose-50 text-rose-700"
+                              : "border-slate-200 bg-slate-100 text-slate-700"
+                          }`}>
+                            {selectedStatus === "Returned" ? "Correction Required" : selectedStatus}
+                          </span>
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Submitted</span>
+                          <span className="text-sm font-semibold text-slate-900">{formatDate(selectedApplication.submittedAt)}</span>
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Verified docs</span>
+                          <span className="text-sm font-semibold text-slate-900">{isApproved ? "5/5" : `${verifiedCount}/${verifyDocumentCount}`}</span>
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Course / Year</span>
+                          <span className="break-words text-sm font-semibold text-slate-900">
+                            {[applicationDetails?.currentCourse, applicationDetails?.yearLevel || selectedApplication.yearLevel]
+                              .filter(Boolean)
+                              .join(" • ") || "Not provided"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-px border-t border-slate-100 bg-slate-100 md:grid-cols-6">
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-2 md:p-5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Age</span>
+                          <span className="text-sm font-semibold text-slate-900">
+                            {applicationDetails?.age != null ? `${applicationDetails.age} yrs` : "Not provided"}
+                          </span>
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-4 md:p-5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">School / Institution</span>
+                          <span className="text-sm font-semibold leading-snug text-slate-900 break-words">{selectedApplication.school || "Not provided"}</span>
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-2 md:p-5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Phone</span>
+                          <span className="text-sm font-semibold text-slate-900 break-words">{applicationDetails?.contactNumber || "Not provided"}</span>
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-4 md:p-5">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email</span>
+                          <span
+                            className="text-sm font-semibold text-slate-900 break-all"
+                            title={applicationDetails?.emailAddress || selectedApplication.applicantEmail}
+                          >
+                            {applicationDetails?.emailAddress || selectedApplication.applicantEmail}
+                          </span>
+                        </div>
+                      </div>
+                    </section>
+
+                    {isApproved ? (
+                      <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 shrink-0">
+                            <CheckCircle className="h-5 w-5 text-emerald-600" />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <h4 className="text-sm font-bold text-slate-900">
+                              Application Approved &amp; Onboarded
+                            </h4>
+                            <p className="text-sm leading-relaxed text-slate-600">
+                              All mandatory documents have been verified. This applicant&apos;s review cycle is complete and they have been successfully provisioned as an active Grantee.
+                            </p>
+                            <div className="mt-2">
+                              <Link
+                                href="/admin/grantees"
+                                className="group inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 transition-colors hover:text-emerald-900"
+                              >
+                                <span>View in Grantee Directory</span>
+                                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={handleApproveClick}
+                          className="flex w-full items-center justify-center gap-2 rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          Approve Application
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRejectError(null);
+                            setShowRejectModal(true);
+                          }}
+                          className="flex w-full items-center justify-center rounded-lg border border-rose-200 bg-white px-4 py-2.5 text-xs font-bold text-rose-600 transition-all hover:bg-rose-50"
+                        >
+                          Reject Application
+                        </button>
+                      </div>
+                    )}
+                      </div>
+                    )}
+
+                    {activeTab === "documents" && (
+                      <div id="application-panel-documents" role="tabpanel" aria-labelledby="application-tab-documents">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Files</p>
+                          <h2 className="mt-1 text-xl font-semibold text-slate-950">Documents to verify</h2>
+                        </div>
+                        <div className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
+                          {verifiedCount}/{verifyDocumentCount}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+                        <div className="divide-y divide-slate-200 bg-white">
+                          {visibleVerifyDocuments.map((doc) => {
+                            const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
+                            const isResubmittedDoc = selectedStatus === "Resubmitted" && docStatus === "Returned";
+                            const badgeClass = isApproved
+                              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : isResubmittedDoc
+                              ? "bg-sky-50 text-sky-700 border border-sky-200"
+                              : docStatus === "Returned"
+                              ? "bg-red-50 text-red-600 border border-red-100"
+                              : doc.verified
+                              ? "bg-emerald-100 text-emerald-700 border border-emerald-100"
+                              : "bg-slate-100 text-slate-600 border border-slate-200";
+                            const statusText = isApproved ? "Verified" : isResubmittedDoc ? "Resubmitted" : docStatus;
+
+                            return (
+                              <div key={doc.id} className="w-full">
+                                <div className={`flex items-center gap-3 px-4 py-3 transition ${isApproved ? "" : "hover:bg-slate-50"}`}>
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                                    {doc.isImage ? (
+                                      <img
+                                        src={doc.previewUrl}
+                                        alt={doc.label}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
+                                        <FileText className="h-4 w-4" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-semibold text-slate-900">{doc.label}</p>
+                                    <p className="truncate text-xs text-slate-500">{doc.type}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveReviewFile(doc.id)}
+                                      title="View document"
+                                      aria-label={`View ${doc.label}`}
+                                      className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-100 p-1.5 text-slate-600 transition hover:bg-slate-200"
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </button>
+                                    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                                      {statusText}
+                                    </span>
+                                  </div>
+                                </div>
+                                {!isResubmittedDoc && docStatus === "Returned" ? (
+                                  <div className="ml-20 rounded-r-lg border-l-2 border-red-400 bg-slate-50/70 p-2.5 text-xs text-slate-600">
+                                    <div className="flex items-center gap-2 font-semibold text-red-600">
+                                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
+                                      Reviewer Note:
+                                    </div>
+                                    <p className="mt-1 leading-5">{getDocumentInlineRemark(doc, selectedApplication?.messages ?? [])}</p>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                      </div>
+                    )}
+
+                    {activeTab === "activity" && (
+                      <div id="application-panel-activity" role="tabpanel" aria-labelledby="application-tab-activity" className="flex flex-col gap-4">
+                    <div className={`rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm ${isApproved ? "pb-4" : ""}`}>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Conversation</p>
+                          <h2 className="mt-3 text-2xl font-semibold text-slate-950">Return notes & messages</h2>
+                        </div>
+                        <span className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
+                          {selectedApplication?.messages?.length ?? 0} messages
+                        </span>
+                      </div>
+
+                      <div className="relative mt-4 space-y-8 border-l-2 border-slate-100 pl-6">
+                        {(selectedApplication?.messages || []).map((message) => {
+                          const urls = extractUrls(message.text);
+                          const textWithoutUrls = urls.reduce((text, url) => text.replace(url, ""), message.text).trim();
+                          const isUploadEvent = isUploadedFilesSystemMessage(message.text);
+                          const isSubmissionEvent = isSubmissionSystemMessage(message.text);
+                          const eventLabel = message.role === "admin"
+                            ? "Reviewer Note"
+                            : isUploadEvent
+                            ? "Applicant Resubmission"
+                            : isSubmissionEvent
+                            ? "Application Submitted"
+                            : "Applicant Message";
+
+                          return (
+                            <article key={message.id} className="relative min-w-0">
+                              <span
+                                aria-hidden="true"
+                                className={`absolute -left-[31px] top-1 h-3 w-3 rounded-full ring-4 ring-white ${message.role === "admin" ? "bg-cyan-600" : "bg-slate-300"}`}
+                              />
+                              <div className="mb-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                                <span className="text-xs font-bold text-slate-900">{eventLabel}</span>
+                                <time className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                                  {formatDate(message.createdAt)}
+                                </time>
+                              </div>
+                              {(textWithoutUrls && !isUploadEvent && !isSubmissionEvent) && (
+                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                                  {textWithoutUrls}
+                                </div>
+                              )}
+                              {(urls.length > 0 || (message.attachments?.length ?? 0) > 0) && (
+                                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                  {urls.map((url, urlIndex) => {
+                                    const fileName = extractFileNameFromUrl(url);
+                                    return (
+                                      <button
+                                        key={`${message.id}-url-${urlIndex}`}
+                                        type="button"
+                                        onClick={() => setActiveReviewFile(`url-${url}`)}
+                                        title={`Preview ${fileName}`}
+                                        aria-label={`Preview ${fileName}`}
+                                        className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                                      >
+                                        <Eye className="h-4 w-4 shrink-0 text-slate-400" />
+                                        <span className="truncate">{fileName}</span>
+                                      </button>
+                                    );
+                                  })}
+                                  {message.attachments?.map((attachment, attachmentIndex) => (
+                                    <button
+                                      key={`${message.id}-${attachment.fileId}-${attachmentIndex}`}
+                                      type="button"
+                                      onClick={() => setActiveReviewFile(`url-${attachment.fileUrl}`)}
+                                      title={`Preview ${attachment.fileName}`}
+                                      aria-label={`Preview ${attachment.fileName}`}
+                                      className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                                    >
+                                      <Eye className="h-4 w-4 shrink-0 text-slate-400" />
+                                      <span className="truncate">{attachment.fileName}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </article>
+                          );
+                        })}
+                      </div>
+
+                      {!isApproved && attachedFileNotes.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-500">Attached file notes</p>
+                          <div className="space-y-2">
+                            {attachedFileNotes.map((attachment, index) => (
+                              <div
+                                key={`${attachment.fileId}-${attachment.fileUrl ?? index}-${index}`}
+                                className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:bg-slate-100"
+                              >
+                                <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100">
+                                  {attachment.fileType?.toLowerCase().includes("image") || attachment.fileUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                                    <img
+                                      src={attachment.fileUrl}
+                                      alt={attachment.fileName}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
+                                      <FileText className="h-4 w-4" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold text-slate-900">{attachment.fileName}</p>
+                                  <p className="truncate text-xs text-slate-600">{attachment.adminRemark}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAttachedFileNotes((prev) => prev.filter((_, i) => i !== index));
+                                  }}
+                                  className="shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {!isApproved && (
+                        <div className="mt-4">
+                          <label className="block text-sm font-semibold text-slate-900">Write a note to the applicant</label>
+                          <textarea
+                            ref={noteTextareaRef}
+                            value={messageDraft}
+                            onChange={(event) => setMessageDraft(event.target.value)}
+                            rows={4}
+                            placeholder="Explain what is missing or how to improve the upload."
+                            className="mt-3 w-full rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSendMessage}
+                            disabled={!messageDraft.trim() && attachedFileNotes.length === 0}
+                            className="mt-4 inline-flex items-center gap-2 rounded-3xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Send className="h-4 w-4" />
+                            Send message
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="mt-6">
-                    <label className="block text-sm font-semibold text-slate-900">Write a note to the applicant</label>
-                    <textarea
-                      ref={noteTextareaRef}
-                      value={messageDraft}
-                      onChange={(event) => setMessageDraft(event.target.value)}
-                      rows={4}
-                      placeholder="Explain what is missing or how to improve the upload."
-                      className="mt-3 w-full rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSendMessage}
-                      disabled={!messageDraft.trim() && attachedFileNotes.length === 0}
-                      className="mt-4 inline-flex items-center gap-2 rounded-3xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Send className="h-4 w-4" />
-                      Send message
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="min-h-[400px] flex flex-col items-center justify-center rounded-[2rem] border border-dashed border-slate-200 bg-white p-12 text-center">
-              <FolderOpen className="mb-3 h-12 w-12 stroke-[1.5] text-slate-300" />
-              <h3 className="mt-4 text-xl font-semibold text-slate-900">All caught up!</h3>
-              <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                {viewFilter === "review"
-                  ? "All open applications have been processed. Select a row on the left to view details, or choose Returned / Approved above to browse archives."
-                  : "Select a profile row from the archive list on the left to review its locked data history."
-                }
-              </p>
+                </div>
+              ) : (
+                <div className="flex min-h-[400px] flex-col items-center justify-center rounded-[2rem] border border-dashed border-slate-200 bg-white p-12 text-center">
+                  <FolderOpen className="mb-3 h-12 w-12 stroke-[1.5] text-slate-300" />
+                  <h3 className="mt-4 text-xl font-semibold text-slate-900">All caught up!</h3>
+                  <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                    {viewFilter === "pending"
+                      ? "All pending applications have been processed. Select a row on the left or browse another queue above."
+                      : viewFilter === "resubmitted"
+                      ? "There are no resubmitted applications awaiting review. Select another queue above to continue."
+                      : viewFilter === "returned"
+                      ? "There are no returned applications available. Select another queue above to continue."
+                      : "Select a profile row from the archive list on the left to review its locked data history."}
+                  </p>
+                </div>
+              )}
             </div>
-          )}
-              </div>
           </section>
+          )}
         </main>
       </div>
 
@@ -1310,8 +1509,8 @@ export default function SkeapApplicationsClient({
       />
 
       {activeReviewFile ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          {activeReviewFile.startsWith("url-") ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          {activeReviewFile.startsWith("url-") && isImageUrl(activeReviewPreviewUrl) ? (
             <div className="w-full max-w-2xl rounded-[2rem] bg-white shadow-2xl">
               <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-6 py-4">
                 <p className="text-sm font-semibold text-slate-900">Image preview</p>
@@ -1328,11 +1527,13 @@ export default function SkeapApplicationsClient({
               </div>
             </div>
           ) : (
-            <div className="w-full max-w-4xl rounded-[2rem] bg-white shadow-2xl max-h-[90vh] overflow-y-auto">
-              <div className="sticky top-0 flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
+            <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+              <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Document review</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-950">{activeReviewLabel}</h2>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-cyan-700">
+                    {isApproved ? "Archived Document Preview" : "Document Review"}
+                  </p>
+                  <h2 className="mt-1 text-lg font-black text-slate-900">{activeReviewLabel}</h2>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1341,26 +1542,28 @@ export default function SkeapApplicationsClient({
                       setActiveReviewFile(null);
                       setReviewModalNote("");
                     }}
-                    className="rounded-full border border-slate-200 bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200"
+                    title="Close preview"
+                    aria-label="Close document preview"
+                    className="ml-1 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
 
-              <div className="p-6 space-y-6">
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 overflow-hidden">
-                  {activeReviewGroup?.isImage || activeReviewDocument?.isImage ? (
+              <div className={`custom-scroll flex min-h-0 flex-1 flex-col ${isApproved ? "overflow-hidden" : "gap-5 overflow-y-auto p-5"}`}>
+                <div className={`relative overflow-hidden ${isApproved ? "min-h-0 flex-1 bg-slate-100" : "h-[55vh] shrink-0 rounded-xl border border-slate-200 bg-slate-50"}`}>
+                  {activeReviewGroup?.isImage || activeReviewDocument?.isImage || isImageUrl(activeReviewPreviewUrl) ? (
                     <img
                       src={activeReviewPreviewUrl}
                       alt="Document preview"
-                      className="w-full h-auto max-h-96 object-contain"
+                      className={`w-full object-contain ${isApproved ? "h-full p-4" : "h-auto max-h-96"}`}
                     />
                   ) : isPdfUrl(activeReviewPreviewUrl) && isValidPreviewUrl(activeReviewPreviewUrl) ? (
                     <iframe
                       src={activeReviewPreviewUrl}
                       title="PDF preview"
-                      className="h-[560px] w-full bg-white"
+                      className={`w-full border-0 bg-white ${isApproved ? "h-full" : "h-[55vh]"}`}
                     />
                   ) : activeReviewPreviewUrl && isValidPreviewUrl(activeReviewPreviewUrl) ? (
                     <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center text-slate-700">
@@ -1398,44 +1601,34 @@ export default function SkeapApplicationsClient({
                   )}
                 </div>
 
-                <div className="space-y-3">
-                  <label className="block text-sm font-semibold text-slate-900">Admin remarks</label>
-                  <textarea
-                    value={reviewModalNote}
-                    onChange={(e) => setReviewModalNote(e.target.value)}
-                    placeholder="Add notes about this document..."
-                    rows={4}
-                    className="w-full rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
-                  />
-                </div>
+                {!isApproved && (
+                  <div className="space-y-3">
+                    <label className="block text-sm font-semibold text-slate-900">Admin remarks</label>
+                    <textarea
+                      value={reviewModalNote}
+                      onChange={(e) => setReviewModalNote(e.target.value)}
+                      placeholder="Add notes about this document..."
+                      rows={4}
+                      className="w-full rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+                    />
+                  </div>
+                )}
 
-                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (activeReviewFile) {
-                        toggleDocumentVerified(activeReviewFile);
-                      }
-                    }}
-                    className={`inline-flex items-center justify-center gap-2 rounded-3xl px-4 py-3 text-sm font-semibold transition ${
-                      activeReviewVerified
-                        ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                        : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    {activeReviewVerified ? "Mark as unverified" : "Mark verified"}
-                  </button>
-                  <div className="flex flex-col gap-2 sm:flex-row">
+                {!isApproved && (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
                     <button
                       type="button"
                       onClick={() => {
-                        setActiveReviewFile(null);
-                        setReviewModalNote("");
+                        if (activeReviewFile) toggleDocumentVerified(activeReviewFile);
                       }}
-                      className="inline-flex items-center justify-center rounded-3xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                        activeReviewVerified
+                          ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
                     >
-                      Close
+                      <CheckCircle2 className="h-4 w-4" />
+                      {activeReviewVerified ? "Mark as unverified" : "Mark verified"}
                     </button>
                     <button
                       type="button"
@@ -1468,20 +1661,20 @@ export default function SkeapApplicationsClient({
                         setReviewModalNote("");
                       }}
                       disabled={!reviewModalNote.trim()}
-                      className="inline-flex items-center justify-center gap-2 rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <CheckCircle2 className="h-4 w-4" />
                       Save Note & Close
                     </button>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           )}
         </div>
       ) : null}
 
-      {showRejectModal ? (
+      {showRejectModal && !isApproved ? (
         <RejectApplicationModal
           applicantName={selectedApplication?.applicantName ?? "Applicant"}
           rejectionReason={rejectionReason}
@@ -1497,7 +1690,7 @@ export default function SkeapApplicationsClient({
         />
       ) : null}
 
-      {showApprovalWarning ? (
+      {showApprovalWarning && !isApproved ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.14)]">
             <div className="px-6 py-5">
@@ -1519,7 +1712,7 @@ export default function SkeapApplicationsClient({
                 type="button"
                 onClick={() => {
                   setShowApprovalWarning(false);
-                  setViewFilter("review");
+                  changeViewFilter(selectedStatus === "Resubmitted" ? "resubmitted" : "pending");
                 }}
                 className="inline-flex items-center justify-center rounded-full bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
               >
@@ -1537,7 +1730,7 @@ export default function SkeapApplicationsClient({
         </div>
       ) : null}
 
-      {showApprovePreview ? (
+      {showApprovePreview && !isApproved ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           <div className="w-full max-w-2xl rounded-[2rem] bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between gap-4">
@@ -1560,7 +1753,7 @@ export default function SkeapApplicationsClient({
                 Acceptance message preview
               </div>
               <p className="mt-4 leading-7">
-                Dear {selectedApplication.applicantName}, your SKEAP application has been approved. We will notify you with onboarding details and next steps for grantee enrollment.
+                Dear {selectedApplication.applicantName}, your SKEAP application has been approved and routed to the scholarship waitlist. Promotion and capacity management will be handled there.
               </p>
             </div>
 

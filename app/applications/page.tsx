@@ -109,13 +109,11 @@ export default function ApplicationsPage() {
         </header>
 
         <section aria-label="Your applications" className="grid gap-5 md:grid-cols-2">
-          <article className="flex min-h-72 flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Youth registration</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">KK Profiling</h2>
-              </div>
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0F3D5C] text-sm font-bold text-white" aria-hidden="true">KK</span>
+          <article className="group relative flex min-h-72 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 ease-in-out hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl sm:p-8">
+            <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-slate-900 via-cyan-700 to-cyan-600 opacity-90 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
+            <div className="pt-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Youth registration</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">KK Profiling</h2>
             </div>
             <p className="mt-4 flex-1 text-sm leading-6 text-slate-600">
               Track your youth registration review, submitted documents, and any next steps.
@@ -126,21 +124,19 @@ export default function ApplicationsPage() {
               </div>
               <Link
                 href="/programs/kk-profiling/status"
-                className="inline-flex items-center gap-2 rounded-lg bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+                className="inline-flex items-center gap-2 rounded-lg bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition-colors duration-300 hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 group-hover:bg-[#0D2E47]"
               >
-                View Status
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                <span>View Status</span>
+                <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" aria-hidden="true" />
               </Link>
             </div>
           </article>
 
-          <article className="flex min-h-72 flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-800">Scholarship program</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">SKEAP</h2>
-              </div>
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-800 text-sm font-bold text-white" aria-hidden="true">SK</span>
+          <article className="group relative flex min-h-72 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 ease-in-out hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl sm:p-8">
+            <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-slate-900 via-cyan-700 to-cyan-600 opacity-90 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
+            <div className="pt-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-800">Scholarship program</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">SKEAP</h2>
             </div>
             <p className="mt-4 flex-1 text-sm leading-6 text-slate-600">
               Apply for scholarship support or follow up on an application you have already submitted.
@@ -151,10 +147,10 @@ export default function ApplicationsPage() {
               </div>
               <Link
                 href={skeapApplication ? `/applications/${skeapApplication.id}` : "/programs/skeap-scholarship"}
-                className="inline-flex items-center gap-2 rounded-lg bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+                className="inline-flex items-center gap-2 rounded-lg bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition-colors duration-300 hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 group-hover:bg-[#0D2E47]"
               >
-                {skeapApplication ? "View Application" : "Apply Now"}
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                <span>{skeapApplication ? "View Application" : "Apply Now"}</span>
+                <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" aria-hidden="true" />
               </Link>
             </div>
           </article>
