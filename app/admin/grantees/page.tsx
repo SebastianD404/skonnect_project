@@ -10,23 +10,77 @@ import {
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
 } from "@/lib/grantee-profile";
 
-export default async function AdminGranteesPage() {
-  const hasRetentionColumn = await hasGranteeRetentionColumn();
-  const supportInquiryFilter = {
-    NOT: {
-      subject: {
-        contains: "SKEAP application",
-        mode: "insensitive" as const,
-      },
-    },
-  };
+const PAGE_SIZES = [10, 20, 50] as const;
 
-  const [
-    grantees,
-    openInquiryCount,
-    pendingSubmissionCount,
-  ] = await Promise.all([
-    prisma.grantee.findMany({
+export default async function AdminGranteesPage({ searchParams }: {
+  searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; status?: string | string[]; q?: string | string[] }>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const rawPage = Array.isArray(resolvedSearchParams.page) ? resolvedSearchParams.page[0] : resolvedSearchParams.page;
+  const rawPageSize = Array.isArray(resolvedSearchParams.pageSize) ? resolvedSearchParams.pageSize[0] : resolvedSearchParams.pageSize;
+  const rawStatus = Array.isArray(resolvedSearchParams.status) ? resolvedSearchParams.status[0] : resolvedSearchParams.status;
+  const rawQuery = Array.isArray(resolvedSearchParams.q) ? resolvedSearchParams.q[0] : resolvedSearchParams.q;
+  const query = String(rawQuery || "").trim();
+  const requestedPage = Number(rawPage || 1);
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+  const requestedPageSize = Number(rawPageSize);
+  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
+    ? requestedPageSize
+    : 10;
+  const requestedStatus = String(rawStatus || "").toUpperCase();
+  const statusFilter = ["ACTIVE", "GRADUATED", "REMOVED"].includes(requestedStatus)
+    ? requestedStatus
+    : "ALL";
+  const skip = (page - 1) * pageSize;
+  const hasRetentionColumn = await hasGranteeRetentionColumn();
+  const profileStatusSql = statusFilter === "ALL"
+    ? ""
+    : statusFilter === "ACTIVE"
+    ? `AND g."status"::text IN ('ACTIVE', 'PROBATIONARY')`
+    : `AND g."status"::text = '${statusFilter}'`;
+  const fallbackStatusSql = statusFilter === "ALL" || statusFilter === "ACTIVE" ? "" : "AND FALSE";
+  const pageKeys = await prisma.$queryRawUnsafe<Array<{
+    source: "profile" | "fallback";
+    recordId: string;
+    userId: string;
+  }>>(
+    `SELECT 'profile'::text AS "source", g."id"::text AS "recordId", g."userId"::text AS "userId", g."updatedAt" AS "updatedAt"
+     FROM "grantees" g
+     JOIN "users" profile_user ON profile_user."id" = g."userId"
+     WHERE TRUE ${profileStatusSql}
+       AND ($3 = '' OR concat_ws(' ', profile_user."fullName", profile_user."email", g."school", g."yearLevel") ILIKE '%' || $3 || '%')
+     UNION ALL
+     SELECT 'fallback'::text AS "source", ('user-' || u."id")::text AS "recordId", u."id"::text AS "userId", u."updatedAt" AS "updatedAt"
+     FROM "users" u
+     WHERE u."role"::text = 'GRANTEE'
+       AND NOT EXISTS (SELECT 1 FROM "grantees" g WHERE g."userId" = u."id")
+       ${fallbackStatusSql}
+       AND ($3 = '' OR concat_ws(' ', u."fullName", u."email") ILIKE '%' || $3 || '%')
+     ORDER BY "updatedAt" DESC, "recordId" ASC
+     LIMIT $1 OFFSET $2`,
+    pageSize,
+    skip,
+    query
+  );
+  const totalCountRows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+    `SELECT COUNT(*)::bigint AS "count" FROM (
+       SELECT g."id"
+       FROM "grantees" g
+       JOIN "users" profile_user ON profile_user."id" = g."userId"
+       WHERE TRUE ${profileStatusSql}
+         AND ($1 = '' OR concat_ws(' ', profile_user."fullName", profile_user."email", g."school", g."yearLevel") ILIKE '%' || $1 || '%')
+       UNION ALL
+       SELECT u."id"
+       FROM "users" u
+       WHERE u."role"::text = 'GRANTEE'
+         AND NOT EXISTS (SELECT 1 FROM "grantees" g WHERE g."userId" = u."id")
+         ${fallbackStatusSql}
+         AND ($1 = '' OR concat_ws(' ', u."fullName", u."email") ILIKE '%' || $1 || '%')
+     ) matching_grantees`,
+    query
+  );
+  const grantees = await prisma.grantee.findMany({
+      where: { id: { in: pageKeys.filter((item) => item.source === "profile").map((item) => item.recordId) } },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
@@ -88,10 +142,7 @@ export default async function AdminGranteesPage() {
           },
         },
       },
-    }),
-    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false } }),
-    prisma.submission.count({ where: { status: "PENDING" } }),
-  ]);
+    });
 
   const supabase = await createClient();
   const {
@@ -108,14 +159,9 @@ export default async function AdminGranteesPage() {
     redirect("/login");
   }
 
-  const dateLabel = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-
   const granteeUsersWithoutProfile = await prisma.user.findMany({
     where: {
+      id: { in: pageKeys.filter((item) => item.source === "fallback").map((item) => item.userId) },
       role: "GRANTEE",
       grantee: {
         is: null,
@@ -133,7 +179,7 @@ export default async function AdminGranteesPage() {
     },
   });
 
-  const granteeRows: GranteeTableRow[] = grantees.map((grantee: any) => {
+  const granteeRows: GranteeTableRow[] = grantees.map((grantee) => {
     const latestInquiry = grantee.user.inquiries?.[0] ?? null;
     const latestSubmission = grantee.submissions?.[0] ?? null;
     const application = latestInquiry?.application
@@ -180,7 +226,7 @@ export default async function AdminGranteesPage() {
     };
   });
 
-  const fallbackRows: GranteeTableRow[] = granteeUsersWithoutProfile.map((user: any) => ({
+  const fallbackRows: GranteeTableRow[] = granteeUsersWithoutProfile.map((user) => ({
     id: `user-${user.id}`,
     fullName: user.fullName,
     email: user.email,
@@ -194,62 +240,21 @@ export default async function AdminGranteesPage() {
     updatedAt: user.updatedAt.toISOString(),
   }));
 
-  const allGranteeRows = [...granteeRows, ...fallbackRows].sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  );
-  const activeGranteeCount = allGranteeRows.filter(
-    (grantee) => grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
-  ).length;
-  const graduatedCount = allGranteeRows.filter((grantee) => grantee.status === "GRADUATED").length;
-  const stats = [
-    {
-      label: "Active Grantees",
-      value: `${activeGranteeCount}`,
-      sub: "currently enrolled",
-      href: "/admin/grantees?status=active",
-      accent: "cyan" as const,
-      iconName: "Users" as const,
-    },
-    {
-      label: "Pending Submissions",
-      value: `${pendingSubmissionCount}`,
-      sub: "awaiting review",
-      href: "/admin/submissions",
-      accent: "amber" as const,
-      iconName: "CheckSquare" as const,
-    },
-    {
-      label: "Open Inquiries",
-      value: `${openInquiryCount}`,
-      sub: "unresolved",
-      href: "/admin/inquiries",
-      accent: "amber" as const,
-      iconName: "Inbox" as const,
-    },
-    {
-      label: "Graduated Scholars",
-      value: `${graduatedCount}`,
-      sub: "completed term",
-      href: "/admin/grantees?status=graduated",
-      accent: "emerald" as const,
-      iconName: "GraduationCap" as const,
-    },
-  ];
-
-  const initials = appUser.fullName
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part: any) => part[0]?.toUpperCase())
-    .join("") || "?";
-
+  const granteeRowsById = new Map(granteeRows.map((grantee) => [grantee.id, grantee]));
+  const fallbackRowsById = new Map(fallbackRows.map((grantee) => [grantee.id, grantee]));
+  const paginatedGranteeRows = pageKeys.flatMap((item) => {
+    const grantee = item.source === "profile"
+      ? granteeRowsById.get(item.recordId)
+      : fallbackRowsById.get(item.recordId);
+    return grantee ? [grantee] : [];
+  });
+  const totalCount = Number(totalCountRows[0]?.count ?? 0);
   return (
     <AdminGranteesPageClient
-      dateLabel={dateLabel}
-      openInquiryCount={openInquiryCount}
-      pendingSubmissionCount={pendingSubmissionCount}
-      stats={stats}
-      grantees={allGranteeRows}
+      grantees={paginatedGranteeRows}
+      page={page}
+      pageSize={pageSize}
+      totalCount={totalCount}
     />
   );
 }

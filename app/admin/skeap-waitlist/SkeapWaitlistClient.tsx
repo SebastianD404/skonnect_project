@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, Search } from "lucide-react";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 
 type CapacityState = {
   activeCount: number;
   maxSlots: number;
 };
+
+const PAGE_SIZES = [10, 20, 50] as const;
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString("en-US", {
@@ -46,6 +48,20 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const [slotLimitDraft, setSlotLimitDraft] = useState(String(initialData.maxSlots));
   const [savingCapacity, setSavingCapacity] = useState(false);
   const isCapacityExceeded = capacityWarning || capacity.activeCount >= capacity.maxSlots;
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredApplications = applications.filter((application) =>
+    [application.applicantName, application.emailAddress]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedSearchQuery)
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredApplications.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const firstVisibleIndex = (currentPage - 1) * pageSize;
+  const visibleApplications = filteredApplications.slice(firstVisibleIndex, firstVisibleIndex + pageSize);
 
   async function loadWaitlist() {
     setIsRefreshing(true);
@@ -137,22 +153,25 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   }
 
   return (
-    <main className="min-h-full space-y-6 p-6 lg:p-10">
-      <header className="flex flex-col items-center justify-between gap-8 overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm lg:flex-row lg:items-center lg:p-8">
-        <div className="w-full max-w-lg flex-shrink-0 lg:w-[32rem]">
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">SKEAP capacity management</p>
-          <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">Scholarship waitlist</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-600">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 pb-12">
+      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div className="max-w-2xl">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">SKEAP Capacity Management</span>
+          <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Scholarship waitlist</h1>
+          <p className="text-sm leading-relaxed text-slate-500">
             Applicants are ordered by the time they joined the queue. Promote the next applicant when an active scholarship slot becomes available.
           </p>
         </div>
-          <div className="flex w-full min-w-0 max-w-full flex-shrink items-center justify-start gap-2 lg:w-full lg:max-w-[440px] lg:justify-end">
-          <div className="flex shrink-0 items-center gap-3 whitespace-nowrap sm:gap-6">
-            <span className="text-2xl font-extrabold text-[#0F3D5C]">{capacity.activeCount} / {capacity.maxSlots}</span>
-            {!editingCapacity ? <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Active Slots</span> : null}
+        <div className="flex shrink-0 flex-wrap items-center gap-4 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-sm">
+          <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+            <span className="text-xl font-black leading-none text-cyan-700">{capacity.activeCount}</span>
+            <span className="text-xl font-black leading-none text-slate-300">/</span>
+            <span className="text-xl font-black leading-none text-slate-900">{capacity.maxSlots}</span>
+            <span className="ml-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Active Slots</span>
           </div>
+          <div className="mx-1 h-6 w-px bg-slate-200" />
           {!editingCapacity ? (
-            <button type="button" onClick={() => setEditingCapacity(true)} className="h-10 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
+            <button type="button" onClick={() => setEditingCapacity(true)} className="whitespace-nowrap text-xs font-semibold text-slate-600 transition-colors hover:text-slate-900">
               Edit Slot Limit
             </button>
           ) : (
@@ -163,13 +182,13 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                 max={100000}
                 value={slotLimitDraft}
                 onChange={(event) => setSlotLimitDraft(event.target.value)}
-                className="h-9 w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="h-9 w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-900 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
                 aria-label="Maximum SKEAP slots"
               />
-              <button type="button" onClick={() => void saveCapacity()} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="button" onClick={() => void saveCapacity()} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
                 {savingCapacity ? "Saving..." : "Save Changes"}
               </button>
-              <button type="button" onClick={() => { setEditingCapacity(false); setSlotLimitDraft(String(capacity.maxSlots)); }} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50">
+              <button type="button" onClick={() => { setEditingCapacity(false); setSlotLimitDraft(String(capacity.maxSlots)); }} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
                 Cancel
               </button>
             </div>
@@ -186,57 +205,70 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Queue</p>
-            <h2 className="mt-1 text-xl font-bold text-slate-950">{applications.length} waitlisted applicant{applications.length === 1 ? "" : "s"}</h2>
+      <section className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-col items-center justify-between gap-4 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row">
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Filter waitlist by name or email..."
+              aria-label="Filter waitlist by name or email"
+              className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-cyan-500"
+            />
           </div>
           <button
             type="button"
             onClick={() => void loadWaitlist()}
             disabled={isRefreshing}
-            aria-label="Refresh waitlist"
-            title="Refresh waitlist"
-            className="group inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-700 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60 sm:w-auto"
           >
-            <RefreshCw className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden="true" />
+            <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden="true" />
+            <span>Refresh Queue</span>
           </button>
         </div>
 
         {applications.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-slate-500">No applicants are currently waitlisted.</div>
+          <div className="flex flex-1 items-center justify-center px-6 py-12 text-center text-sm text-slate-500">No applicants are currently waitlisted.</div>
+        ) : filteredApplications.length === 0 ? (
+          <div className="flex items-center justify-center px-6 py-12 text-center text-sm text-slate-500">No applicants match your search.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-                <tr>
+          <div className="w-full overflow-x-auto">
+            <table className="w-full border-collapse whitespace-nowrap text-left text-sm">
+              <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
+                <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
                   <th className="px-6 py-4">Position</th>
                   <th className="px-6 py-4">Applicant</th>
-                  <th className="px-6 py-4">Program details</th>
+                  <th className="px-6 py-4">Program Details</th>
                   <th className="px-6 py-4">Submitted</th>
                   <th className="px-6 py-4 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {applications.map((application) => (
+              <tbody className="divide-y divide-slate-100 bg-white text-sm">
+                {visibleApplications.map((application) => (
                   <tr key={application.id} className="group align-top transition-colors hover:bg-slate-50/50">
-                    <td className="whitespace-nowrap px-6 py-3 text-lg font-black text-slate-900">#{application.waitlistPosition ?? "-"}</td>
-                    <td className="px-6 py-3">
+                    <td className="px-6 py-4">
+                      <span className="text-lg font-black text-slate-900">#{application.waitlistPosition ?? "-"}</span>
+                    </td>
+                    <td className="px-6 py-4">
                       <div className="flex flex-col gap-0.5">
                         <p className="font-semibold text-slate-900">{application.applicantName}</p>
-                        <p className="text-slate-500">{application.emailAddress}</p>
-                        {application.contactNumber ? <p className="text-slate-500">{application.contactNumber}</p> : null}
+                        <p className="text-xs text-slate-500">{application.emailAddress}</p>
+                        {application.contactNumber ? <p className="text-xs text-slate-400">{application.contactNumber}</p> : null}
                       </div>
                     </td>
-                    <td className="px-6 py-3 text-slate-600">
+                    <td className="px-6 py-4 text-slate-700">
                       <div className="flex flex-col gap-0.5">
                         <p>{application.school}</p>
-                        <p>{application.currentCourse} · {application.yearLevel}</p>
+                        <p className="text-xs font-medium text-slate-500">{application.currentCourse} · {application.yearLevel}</p>
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-6 py-3 text-slate-600">{formatDate(application.submittedAt)}</td>
-                    <td className="whitespace-nowrap px-6 py-3 text-right">
+                    <td className="px-6 py-4 text-slate-600">{formatDate(application.submittedAt)}</td>
+                    <td className="px-6 py-4 text-right">
                       <button
                         type="button"
                         onClick={() => openPromotionModal(application)}
@@ -253,6 +285,54 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
             </table>
           </div>
         )}
+        <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5 sm:flex-row">
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="text-xs font-medium text-slate-500">
+              {filteredApplications.length === 0 ? (
+                <span>No records found</span>
+              ) : (
+                <span className="font-bold text-slate-700">
+                  {filteredApplications.length} result{filteredApplications.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </span>
+            <label className="flex items-center gap-1.5 border-l border-slate-200 pl-4">
+              <span className="text-[11px] font-medium text-slate-400">Show</span>
+              <select
+                aria-label="Rows per page"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
+              >
+                {PAGE_SIZES.map((size) => <option key={size} value={size}>{size} rows</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={currentPage <= 1 || filteredApplications.length === 0}
+              onClick={() => setPage(currentPage - 1)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="px-1 text-xs font-medium text-slate-500">
+              Page <span className="font-bold text-slate-700">{currentPage}</span> of <span className="font-bold text-slate-700">{totalPages}</span>
+            </span>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages || filteredApplications.length === 0}
+              onClick={() => setPage(currentPage + 1)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </section>
 
       {isPromoteModalOpen && selectedApplicant ? (

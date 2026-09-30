@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Wallet, Search, Download } from "lucide-react";
 import { getRecentSemesters } from "@/lib/semester";
+import { formatDate } from "@/lib/utils";
 // If you have shadcn/ui components installed, replace the native select below
 // with shadcn's `Select` imports, e.g.:
 // import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -250,7 +251,7 @@ export default function AdminAccountingPage() {
         g.semester,
         g.submissionState ?? 'Not submitted',
         g.status === 'Claimed' ? 'Received' : 'Pending',
-        g.claimedAt ? new Date(g.claimedAt).toLocaleString() : '-',
+        formatDate(g.claimedAt),
       ]);
     });
 
@@ -561,7 +562,7 @@ export default function AdminAccountingPage() {
                           )}
                         </td>
                         <td className="py-4 align-top text-sm text-slate-700 text-right pr-6 whitespace-nowrap">
-                          {g.claimedAt ? new Date(g.claimedAt).toLocaleString() : "-"}
+                          {formatDate(g.claimedAt)}
                         </td>
                       </tr>
                     ))}

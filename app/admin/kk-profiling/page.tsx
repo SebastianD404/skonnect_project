@@ -1,21 +1,29 @@
 import { getProfilingRegistrationCount, getProfilingRegistrationCountByStatus, hasProfilingRegistrationColumn, listProfilingRegistrations } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Role } from "@prisma/client";
-import { KKProfilingPagination } from "./KKProfilingPagination";
+import { Download } from "lucide-react";
+import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 import { KKProfilingRegistrationsTable } from "@/app/admin/kk-profiling/KKProfilingRegistrationsTable";
+import { KKProfilingTableSearchField, KKProfilingTableSearchProvider } from "./KKProfilingTableSearch";
 import KKProfilingStatusTabs from "./KKProfilingStatusTabs";
 
-const PAGE_SIZE = 7;
+const PAGE_SIZES = [10, 20, 50] as const;
 
-export default async function AdminKKProfilingPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; status?: string | string[] }> }) {
+export default async function AdminKKProfilingPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; status?: string | string[] }> }) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
   const resolvedSearchParams = await searchParams;
   const rawPage = Array.isArray(resolvedSearchParams.page) ? resolvedSearchParams.page[0] : resolvedSearchParams.page;
+  const rawPageSize = Array.isArray(resolvedSearchParams.pageSize) ? resolvedSearchParams.pageSize[0] : resolvedSearchParams.pageSize;
   const rawStatus = Array.isArray(resolvedSearchParams.status) ? resolvedSearchParams.status[0] : resolvedSearchParams.status;
-  const pageNumber = Math.max(1, Number(rawPage || 1));
-  const statusParam = String(rawStatus || "").toLowerCase();
-  const skip = (pageNumber - 1) * PAGE_SIZE;
+  const requestedPage = Number(rawPage || 1);
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+  const requestedPageSize = Number(rawPageSize);
+  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
+    ? requestedPageSize
+    : 10;
+  const statusParam = String(rawStatus || "pending").toLowerCase();
+  const skip = (page - 1) * pageSize;
 
   const hasReviewStatusColumn = await hasProfilingRegistrationColumn("reviewStatus");
   const whereFilter =
@@ -29,14 +37,15 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
       ? { reviewStatus: "Resubmitted" }
       : undefined;
 
+  const selectedStatus = whereFilter?.reviewStatus;
   const [totalCount, registrations] = await Promise.all([
-    hasReviewStatusColumn
-      ? getProfilingRegistrationCountByStatus("Approved")
+    hasReviewStatusColumn && selectedStatus
+      ? getProfilingRegistrationCountByStatus(selectedStatus)
       : getProfilingRegistrationCount(),
     listProfilingRegistrations({
       where: whereFilter,
       orderBy: { submittedAt: "desc" },
-      take: PAGE_SIZE,
+      take: pageSize,
       skip,
       include: {
         user: {
@@ -50,69 +59,71 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
   ]);
 
   const latestRegistrations = registrations;
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const statusLabel = statusParam === "approved"
+    ? "Approved"
+    : statusParam === "returned"
+    ? "Returned"
+    : statusParam === "resubmitted"
+    ? "Resubmitted"
+    : "Pending";
 
   return (
-    <div className="min-h-screen bg-[#F8FBFF] text-slate-950">
-      <div className="px-8 py-10">
-        <div className="mx-auto max-w-7xl space-y-6">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-10 shadow-sm">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-[#0F3D5C]">KK Profiling</p>
-                <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">
-                  Registered youth profiling data
-                </h1>
-                <p className="mt-4 text-sm leading-7 text-slate-600">
-                  Review Katipunan ng Kabataan profiling registrations submitted by SK officials and youth participants. Use this page to monitor demographic coverage, confirm SK voter status, and identify youth who still need follow-up.
-                </p>
-              </div>
-            </div>
+    <KKProfilingTableSearchProvider>
+      <div className="mx-auto flex w-full max-w-7xl flex-col pb-12 text-slate-950">
+        <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">KK Profiling</span>
+            <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">
+              Registered youth profiling data
+            </h1>
+            <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
+              Review Katipunan ng Kabataan profiling registrations.
+            </p>
           </div>
 
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm uppercase tracking-[0.35em] text-[#0F3D5C]">Latest entries</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">Recent KK profiling submissions</h2>
-              </div>
-              <div className="flex items-center gap-3">
-                {/* Export CSV removed — not needed by clients */}
-                <div className="relative">
-                  <KKProfilingStatusTabs
-                    currentStatus={
-                      statusParam === "approved"
-                        ? "approved"
-                        : statusParam === "returned"
-                        ? "returned"
-                        : statusParam === "resubmitted"
-                        ? "resubmitted"
-                        : "pending"
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 overflow-x-auto">
-              <KKProfilingRegistrationsTable
-                registrations={latestRegistrations}
-                statusLabel={
-                  statusParam === "approved"
-                    ? "Approved"
-                    : statusParam === "returned"
-                    ? "Returned"
-                    : statusParam === "resubmitted"
-                    ? "Resubmitted"
-                    : "Pending"
-                }
-              />
-            </div>
-
-            {totalPages > 1 && <KKProfilingPagination pageNumber={pageNumber} totalPages={totalPages} />}
+          <div className="flex shrink-0 items-center gap-2.5">
+            <a
+              href={`/api/admin/kk-profiling/export?status=${encodeURIComponent(statusParam)}`}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
+            >
+              <Download className="h-4 w-4 text-slate-400" />
+              <span>Export Records</span>
+            </a>
           </div>
         </div>
+
+        <div className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="flex flex-col justify-between gap-3 border-b border-slate-100 bg-slate-50/50 px-5 py-4 sm:flex-row sm:items-center">
+            <KKProfilingTableSearchField />
+            <KKProfilingStatusTabs
+              currentStatus={
+                statusParam === "approved"
+                  ? "approved"
+                  : statusParam === "returned"
+                  ? "returned"
+                  : statusParam === "resubmitted"
+                  ? "resubmitted"
+                  : "pending"
+              }
+            />
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <KKProfilingRegistrationsTable
+              registrations={latestRegistrations}
+              statusLabel={statusLabel}
+              flat
+            />
+          </div>
+
+          <AdminTablePaginationFooter
+            totalCount={totalCount}
+            page={page}
+            pageSize={pageSize}
+            basePath="/admin/kk-profiling"
+          />
+        </div>
       </div>
-    </div>
+    </KKProfilingTableSearchProvider>
   );
 }

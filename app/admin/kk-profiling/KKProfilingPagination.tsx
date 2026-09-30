@@ -1,20 +1,20 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { startTransition, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useTransition } from "react";
 
 interface KKProfilingPaginationProps {
   pageNumber: number;
   totalPages: number;
   // Optional base path for the pagination links, e.g. '/admin/kk-profiling' or '/admin/members'
   basePath?: string;
+  compact?: boolean;
 }
 
-export function KKProfilingPagination({ pageNumber, totalPages, basePath = "/admin/kk-profiling" }: KKProfilingPaginationProps) {
+export function KKProfilingPagination({ pageNumber, totalPages, basePath = "/admin/kk-profiling", compact = false }: KKProfilingPaginationProps) {
   const router = useRouter();
   const [isPending, startTransitionState] = useTransition();
 
-  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const goToPage = (targetPage: number) => {
@@ -34,7 +34,7 @@ export function KKProfilingPagination({ pageNumber, totalPages, basePath = "/adm
 
   return (
     <div
-      className={`mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-all duration-200 ${
+      className={`${compact ? "" : "mt-6"} flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-all duration-200 ${
         isPending ? "opacity-70" : "opacity-100"
       }`}
       aria-busy={isPending}

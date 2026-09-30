@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { startTransition, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useTransition } from "react";
 
 interface KKProfilingStatusTabsProps {
   currentStatus: string;
@@ -9,6 +9,7 @@ interface KKProfilingStatusTabsProps {
 
 export default function KKProfilingStatusTabs({ currentStatus }: KKProfilingStatusTabsProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isPending, startTransitionState] = useTransition();
   const statuses = ["pending", "returned", "resubmitted", "approved"] as const;
 
@@ -16,7 +17,10 @@ export default function KKProfilingStatusTabs({ currentStatus }: KKProfilingStat
     if (newStatus === currentStatus) return;
 
     startTransitionState(() => {
-      router.push(`/admin/kk-profiling?status=${newStatus}`);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("status", newStatus);
+      params.set("page", "1");
+      router.push(`/admin/kk-profiling?${params.toString()}`, { scroll: false });
     });
   };
 

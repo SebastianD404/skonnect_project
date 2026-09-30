@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import type { SubmissionStatus } from "@prisma/client";
 import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Search } from "lucide-react";
+import { formatDate } from "@/lib/utils";
 
 interface SubmissionRow {
   id: string;
@@ -80,7 +81,6 @@ interface TabDef {
   id: TabType;
   label: string;
   description: string;
-  badgeColor: string;
 }
 
 const EMPTY_RESPONSE: SubmissionsResponse = {
@@ -148,25 +148,21 @@ export default function SubmissionReviewTable() {
       id: "pending-coe",
       label: "Pending COE Review",
       description: "Phase 1: Awaiting enrollment verification",
-      badgeColor: "bg-blue-100 text-blue-700",
     },
     {
       id: "active-scholars",
       label: "Awaiting Grades",
       description: "Phase 2: Awaiting end-of-semester submission",
-      badgeColor: "bg-emerald-100 text-emerald-700",
     },
     {
       id: "pending-grades",
       label: "Pending Grades Review",
       description: "Phase 2: Awaiting grade verification",
-      badgeColor: "bg-amber-100 text-amber-700",
     },
     {
       id: "completed",
       label: "Fully Cleared",
       description: "Both phases completed",
-      badgeColor: "bg-slate-100 text-slate-700",
     },
   ];
 
@@ -250,71 +246,67 @@ export default function SubmissionReviewTable() {
   }
 
   return (
-    <div className="mb-8 flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-      <div className="flex flex-col gap-4 border-b border-slate-100 p-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-[#0F3D5C]">Submissions Pipeline</p>
-          <h2 className="mt-2 text-2xl font-black text-slate-950">Confirm academic documents</h2>
-        </div>
-
-        <label className="relative block w-full max-w-sm">
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+    <div className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="flex flex-col justify-between gap-4 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5 xl:flex-row xl:items-center">
+        <label className="relative block w-full xl:w-80">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="search"
-            placeholder="Search by grantee, school or semester"
+            placeholder="Search by grantee, school or semester..."
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
               setPage(1);
               setIsLoading(true);
             }}
-            className="w-full rounded-full border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm text-slate-700 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+            className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-cyan-500"
           />
         </label>
-      </div>
 
-      {/* Tab Navigation */}
-      <div className="flex flex-wrap gap-2 pt-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => changeTab(tab.id)}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-              activeTab === tab.id
-                ? "border-b-2 border-[#0F3D5C] text-[#0F3D5C] bg-slate-50"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            {tab.label}
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${tab.badgeColor}`}>
-              {responseData.counts[tab.id]}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "completed" && responseData.semesters.length > 0 && (
-        <div className="flex items-center gap-3">
-          <label htmlFor="completed-semester" className="sr-only">Filter Fully Cleared by semester</label>
-          <select
-            id="completed-semester"
-            value={completedSemesterFilter}
-            onChange={(event) => {
-              setCompletedSemesterFilter(event.target.value);
-              setPage(1);
-              setIsLoading(true);
-            }}
-            className="min-w-[240px] rounded-lg border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-          >
-            {completedSemesterOptions.map((opt) => (
-              <option key={opt} value={opt}>{opt === 'all' ? 'All Semesters' : opt}</option>
+        <div className="flex w-full shrink-0 items-center justify-start gap-1.5 overflow-x-auto pb-1 xl:w-auto xl:justify-end xl:pb-0">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => changeTab(tab.id)}
+                className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  activeTab === tab.id
+                    ? "border border-slate-200 bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${activeTab === tab.id ? "bg-cyan-600 text-white" : "bg-slate-100 text-slate-600"}`}>
+                  {responseData.counts[tab.id]}
+                </span>
+              </button>
             ))}
-          </select>
-          <div className="text-sm text-slate-500">{responseData.totalCount} fully cleared</div>
+        </div>
+      </div>
+
+      {activeTab === "completed" && (
+        <div className="flex animate-fadeIn items-center justify-between border-b border-slate-100 bg-slate-50/80 px-5 py-2.5">
+          <span className="text-xs font-medium text-slate-500">
+            Showing <span className="font-bold text-slate-700">{responseData.totalCount}</span> fully cleared records
+          </span>
+          <div className="flex items-center gap-2">
+            <label htmlFor="completed-semester" className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Filter Semester:</label>
+            <select
+              id="completed-semester"
+              value={completedSemesterFilter}
+              onChange={(event) => {
+                setCompletedSemesterFilter(event.target.value);
+                setPage(1);
+                setIsLoading(true);
+              }}
+              className="cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-cyan-500"
+            >
+              {completedSemesterOptions.map((opt) => (
+                <option key={opt} value={opt}>{opt === "all" ? "All Semesters" : opt}</option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
-      </div>
 
       <div className="w-full overflow-x-auto" aria-busy={isLoading}>
         {loadError ? (
@@ -327,14 +319,14 @@ export default function SubmissionReviewTable() {
           <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{actionSuccess}</div>
         ) : null}
         <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-slate-500">
-            <tr>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Grantee</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Semester</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">School / Level</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Average</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Submitted</th>
-              <th className="px-6 py-4 text-right font-semibold">Action</th>
+          <thead className="bg-gradient-to-r from-slate-900 to-cyan-900 text-cyan-50 text-[11px] font-bold tracking-widest uppercase">
+            <tr className="border-b border-slate-800">
+              <th className="whitespace-nowrap px-6 py-4 text-left">Grantee</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left">Semester</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left">School / Level</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left">Average</th>
+              <th className="whitespace-nowrap px-6 py-4 text-left">Submitted</th>
+              <th className="px-6 py-4 text-right">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
@@ -372,7 +364,7 @@ export default function SubmissionReviewTable() {
                         <div className="text-xs text-slate-500">{submission.grantee.yearLevel}</div>
                       </td>
                       <td className="px-6 py-4 text-slate-700">{(submission.generalAverage ?? submission.grantee.generalAverage)?.toFixed(2) ?? "—"}</td>
-                      <td className="px-6 py-4 text-slate-700">{new Date(submission.submittedAt).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-slate-700">{formatDate(submission.submittedAt)}</td>
                       <td className="px-6 py-4 text-right">
                         <button
                           type="button"

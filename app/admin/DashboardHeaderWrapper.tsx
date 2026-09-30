@@ -27,7 +27,6 @@ interface DashboardHeaderWrapperProps {
   statsByPeriod?: Record<TimePeriod, StatItem[]>;
   operationalSnapshot?: boolean;
   compact?: boolean;
-  onSearch?: (query: string) => void;
   showNotificationBell?: boolean;
 }
 
@@ -49,11 +48,9 @@ export default function DashboardHeaderWrapper({
   statsByPeriod,
   operationalSnapshot = false,
   compact = false,
-  onSearch,
   showNotificationBell = true,
 }: DashboardHeaderWrapperProps) {
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("Month");
-  const [searchQuery, setSearchQuery] = useState("");
 
   const activeStats = statsByPeriod?.[timePeriod] ?? stats ?? [];
 
@@ -62,11 +59,6 @@ export default function DashboardHeaderWrapper({
     ...stat,
     icon: ICON_MAP[stat.iconName],
   }));
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    onSearch?.(query);
-  };
 
   const handleTimePeriodChange = (period: TimePeriod) => {
     setTimePeriod(period);
@@ -79,11 +71,11 @@ export default function DashboardHeaderWrapper({
       pendingSubmissionCount={pendingSubmissionCount}
       timePeriod={timePeriod}
       onTimePeriodChange={handleTimePeriodChange}
-      onSearch={handleSearch}
       stats={statsWithIcons}
       operationalSnapshot={operationalSnapshot}
       compact={compact}
       showNotificationBell={showNotificationBell}
+      showToolbar={false}
     />
   );
 }

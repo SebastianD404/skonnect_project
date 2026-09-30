@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { ArrowRight, CheckCircle2, RotateCcw, Search, Send } from "lucide-react";
+import { useAdminSearch } from "./AdminSearchContext";
 import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 import type { TimePeriod } from "./DashboardHeaderWrapper";
 
@@ -99,7 +100,7 @@ export default function InquiriesPageClient({
   statsByPeriod,
   inquiries,
 }: InquiriesPageClientProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const { searchQuery, setSearchQuery } = useAdminSearch();
   const [statusFilter, setStatusFilter] = useState<"ALL" | "OPEN" | "RESOLVED">("ALL");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [localInquiries, setLocalInquiries] = useState(inquiries);
@@ -283,7 +284,6 @@ export default function InquiriesPageClient({
         pendingSubmissionCount={pendingSubmissionCount}
         statsByPeriod={statsByPeriod}
         compact
-        onSearch={setSearchQuery}
         showNotificationBell={false}
       />
 

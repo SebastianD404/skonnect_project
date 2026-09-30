@@ -1,25 +1,32 @@
 import { Role } from "@prisma/client";
+import { BookOpen, BriefcaseBusiness, GraduationCap, Users } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { prisma, listProfilingRegistrations, getProfilingRegistrationCountByStatus } from "@/lib/prisma";
 import { KKProfilingRegistrationsTable } from "../kk-profiling/KKProfilingRegistrationsTable";
-import { KKProfilingPagination } from "../kk-profiling/KKProfilingPagination";
+import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 
-const PAGE_SIZE = 7;
+const PAGE_SIZES = [10, 20, 50] as const;
 
-export default async function AdminMembersPage({ searchParams }: { searchParams: Promise<{ page?: string | string[] }> }) {
+export default async function AdminMembersPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[] }> }) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
   const resolved = await searchParams;
   const rawPage = Array.isArray(resolved.page) ? resolved.page[0] : resolved.page;
-  const pageNumber = Math.max(1, Number(rawPage || 1));
-  const skip = (pageNumber - 1) * PAGE_SIZE;
+  const rawPageSize = Array.isArray(resolved.pageSize) ? resolved.pageSize[0] : resolved.pageSize;
+  const requestedPage = Number(rawPage || 1);
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+  const requestedPageSize = Number(rawPageSize);
+  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
+    ? requestedPageSize
+    : 10;
+  const skip = (page - 1) * pageSize;
 
   const [totalCount, approvedMembers, classificationGroups] = await Promise.all([
     getProfilingRegistrationCountByStatus("Approved"),
     listProfilingRegistrations({
       where: { reviewStatus: "Approved" },
       orderBy: { submittedAt: "desc" },
-      take: PAGE_SIZE,
+      take: pageSize,
       skip,
       include: {
         user: { select: { fullName: true, email: true } },
@@ -39,57 +46,63 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
   const outOfSchoolYouthCount = approvedClassificationCounts.get("Out of School Youth") ?? 0;
   const workingYouthCount = approvedClassificationCounts.get("Working Youth") ?? 0;
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const memberCategoryStats = [
+    { label: "In-School", value: inSchoolYouthCount, icon: BookOpen, description: "Enrolled youths", isHero: false },
+    { label: "Out-of-School", value: outOfSchoolYouthCount, icon: GraduationCap, description: "Unenrolled youths", isHero: false },
+    { label: "Working", value: workingYouthCount, icon: BriefcaseBusiness, description: "Employed youths", isHero: false },
+    { label: "Total Active", value: totalCount, icon: Users, description: "Total approved profiles", isHero: true },
+  ];
 
   return (
-    <div className="min-h-screen bg-[#F8FBFF] text-slate-950 py-12">
-      <div className="mx-auto max-w-7xl space-y-8 px-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-8">
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Members</p>
-          <h1 className="mt-1 mb-3 text-3xl font-black text-slate-900">SK youth members</h1>
-          <p className="max-w-3xl text-sm text-slate-500">
-            KK profiling applicants who have been approved are counted here as SK youth members in Barangay Pico. Review the list below to monitor registration coverage and membership status.
+    <div className="flex w-full flex-col gap-6 text-slate-950">
+        <header>
+          <h1 className="mb-1.5 text-2xl font-bold tracking-tight text-slate-900">SK Youth Members</h1>
+          <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
+            KK profiling applicants who have completed approval are counted here as official SK youth members in Barangay Pico. Monitor registration coverage and membership status below.
           </p>
-        </div>
+        </header>
 
-        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <span className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">In-school youth</span>
-            <span className="mb-2 text-4xl font-black leading-none tracking-tight text-slate-900">{inSchoolYouthCount}</span>
-            <span className="text-xs leading-snug text-slate-500">Approved profiles classified as in-school youth.</span>
-          </div>
-          <div className="flex flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <span className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Out-of-school youth</span>
-            <span className="mb-2 text-4xl font-black leading-none tracking-tight text-slate-900">{outOfSchoolYouthCount}</span>
-            <span className="text-xs leading-snug text-slate-500">Approved profiles classified as out-of-school youth.</span>
-          </div>
-          <div className="flex flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <span className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Working youth</span>
-            <span className="mb-2 text-4xl font-black leading-none tracking-tight text-slate-900">{workingYouthCount}</span>
-            <span className="text-xs leading-snug text-slate-500">Approved profiles classified as working youth.</span>
-          </div>
-          <div className="flex flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <span className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Total active members</span>
-            <span className="mb-2 text-4xl font-black leading-none tracking-tight text-slate-900">{totalCount}</span>
-            <span className="text-xs leading-snug text-slate-500">Fully approved SK youth members.</span>
-          </div>
-        </div>
-
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold text-slate-950">SK youth members</h2>
-              <p className="mt-2 text-sm text-slate-500">This page shows all youth profiles from the KK registration process that have completed approval.</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {memberCategoryStats.map(({ label, value, icon: Icon, description, isHero }) => (
+            <div
+              key={label}
+              className={`relative bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm flex flex-col gap-4 overflow-hidden group transition-all duration-300 ${isHero ? "hover:shadow-md hover:border-cyan-300" : "hover:shadow-md hover:border-cyan-200"}`}
+            >
+              <div
+                aria-hidden="true"
+                className={`absolute rounded-full blur-2xl transition-colors duration-500 ${isHero ? "-top-12 -right-12 w-40 h-40 bg-cyan-100/40 group-hover:bg-cyan-200/50" : "-top-10 -right-10 w-32 h-32 bg-cyan-50/50 group-hover:bg-cyan-100/50"}`}
+              />
+              <div className="relative z-10 flex items-center justify-between">
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${isHero ? "text-cyan-600" : "text-slate-400"}`}>{label}</span>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-300 ${isHero ? "bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-md" : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"}`}>
+                  <Icon className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="relative z-10">
+                <h2 className="text-3xl font-black tracking-tight text-slate-900 leading-none">{value}</h2>
+                <p className="text-[11px] font-medium text-slate-400 mt-1.5">{description}</p>
+              </div>
             </div>
-          </div>
-
-          <div className="mt-6 overflow-x-auto">
-            <KKProfilingRegistrationsTable registrations={approvedMembers} statusLabel="Approved" />
-          </div>
-
-          {totalPages > 1 && <KKProfilingPagination pageNumber={pageNumber} totalPages={totalPages} basePath="/admin/members" />}
+          ))}
         </div>
-      </div>
+
+        <section className="mt-4 flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="w-full overflow-x-auto">
+            <KKProfilingRegistrationsTable
+              registrations={approvedMembers}
+              statusLabel="Approved"
+              flat
+              exportHref="/api/admin/members/export"
+            />
+          </div>
+
+          <AdminTablePaginationFooter
+            totalCount={totalCount}
+            page={page}
+            pageSize={pageSize}
+            basePath="/admin/members"
+          />
+        </section>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatDate } from "@/lib/utils";
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -323,7 +324,7 @@ export function DashboardSubmissionTable({ submissions, totalCount }: Props) {
                     <td className="px-4 py-4 align-top">
                       <GpaBadge value={formatAverage(row.generalAverage ?? row.grantee.generalAverage)} />
                     </td>
-                <td className="px-4 py-4 align-top text-sm text-slate-700">{new Date(row.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
+                <td className="px-4 py-4 align-top text-sm text-slate-700">{formatDate(row.submittedAt)}</td>
                 <td className="px-4 py-4 align-top">
                   <ReviewerPill reviewer={row.reviewer} />
                 </td>

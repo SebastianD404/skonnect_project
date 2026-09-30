@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Download, Eye, Search, Trash2 } from "lucide-react";
-import { getRetentionExpiryDate } from "@/lib/grantee-retention";
+import { Eye, Search, Trash2 } from "lucide-react";
+import { formatDate } from "@/lib/utils";
 import type { SerializableSkeapApplicationFormPayload } from "./[id]/SkeapApplicationReviewClient";
+import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 
 export interface GranteeTableRow {
   id: string;
@@ -47,14 +48,16 @@ const FILTERS: Array<{ label: string; value: "ALL" | GranteeTableRow["status"] }
 
 export function GranteeStatusTable({
   grantees,
-  searchQuery: externalSearchQuery,
-  onSearchQueryChange,
+  page,
+  pageSize,
+  totalCount,
   onViewApplication,
   onDelete,
 }: {
   grantees: GranteeTableRow[];
-  searchQuery?: string;
-  onSearchQueryChange?: (value: string) => void;
+  page: number;
+  pageSize: number;
+  totalCount: number;
   onViewApplication?: (grantee: GranteeTableRow) => void;
   onDelete?: (grantee: GranteeTableRow) => void;
 }) {
@@ -64,11 +67,8 @@ export function GranteeStatusTable({
   const searchParams = useSearchParams();
   const requestedStatus = searchParams.get("status")?.toUpperCase();
   const statusFilter = FILTERS.find((filter) => filter.value === requestedStatus)?.value ?? "ALL";
-  const effectiveQuery = externalSearchQuery !== undefined ? externalSearchQuery : query;
-
   const handleQueryChange = (value: string) => {
     setQuery(value);
-    onSearchQueryChange?.(value);
   };
 
   const handleStatusFilterChange = (value: (typeof FILTERS)[number]["value"]) => {
@@ -78,6 +78,7 @@ export function GranteeStatusTable({
     } else {
       params.set("status", value.toLowerCase());
     }
+    params.set("page", "1");
 
     const queryString = params.toString();
     router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
@@ -90,7 +91,7 @@ export function GranteeStatusTable({
           ? grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
           : grantee.status === statusFilter
       );
-      const lowerQuery = effectiveQuery.toLowerCase();
+      const lowerQuery = query.trim().toLowerCase();
       const matchesQuery =
         grantee.fullName.toLowerCase().includes(lowerQuery) ||
         grantee.email.toLowerCase().includes(lowerQuery) ||
@@ -98,63 +99,25 @@ export function GranteeStatusTable({
         grantee.yearLevel.toLowerCase().includes(lowerQuery);
       return matchesStatus && matchesQuery;
     });
-  }, [grantees, effectiveQuery, statusFilter]);
-
-  const handleExportAuditLog = () => {
-    const escapeCsvCell = (value: string | number | null | undefined) => {
-      const cell = String(value ?? "");
-      const safeCell = /^[\t\r\n ]*[=+\-@]/.test(cell) ? `'${cell}` : cell;
-      return `"${safeCell.replace(/"/g, '""')}"`;
-    };
-    const headers = [
-      "Scholar",
-      "Email",
-      "School",
-      "Year Level",
-      "Status",
-      "General Average",
-      "Enrolled At",
-      "Graduated At",
-      "Retention Expires At",
-    ];
-    const rows = filteredGrantees.map((grantee) => [
-      grantee.fullName,
-      grantee.email,
-      grantee.school,
-      grantee.yearLevel,
-      STATUS_LABELS[grantee.status],
-      grantee.generalAverage,
-      grantee.dateEnrolled,
-      grantee.graduatedAt,
-      getRetentionExpiryDate(grantee)?.toISOString() ?? null,
-    ]);
-    const csv = [headers, ...rows]
-      .map((row) => row.map(escapeCsvCell).join(","))
-      .join("\r\n");
-    const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
-    const objectUrl = URL.createObjectURL(blob);
-    const downloadLink = document.createElement("a");
-    downloadLink.href = objectUrl;
-    downloadLink.download = `grantee-alumni-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
-    downloadLink.click();
-    URL.revokeObjectURL(objectUrl);
-  };
+  }, [grantees, query, statusFilter]);
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
-        <label className="relative block w-full md:min-w-0 md:flex-1">
+    <div className="mt-4 flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/50 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <label className="relative block w-full sm:w-80">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="search"
-            placeholder="Search grantees, school, email..."
-            value={effectiveQuery}
+            aria-label="Filter the current grantee table"
+            title="Filters rows in the current Grantees view"
+            placeholder="Filter by name, email, or school..."
+            value={query}
             onChange={(event) => handleQueryChange(event.target.value)}
-            className="w-full rounded-full border border-slate-200 bg-white py-3 pl-12 pr-4 text-sm text-slate-700 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+            className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
           />
         </label>
 
-        <div className="flex flex-wrap items-center gap-2 md:justify-end">
+        <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-200/60 p-1 sm:justify-end">
           {FILTERS.map((filter) => (
             <button
               key={filter.value}
@@ -163,51 +126,33 @@ export function GranteeStatusTable({
               aria-pressed={statusFilter === filter.value}
               className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                 statusFilter === filter.value
-                  ? "bg-[#0F3D5C] text-white shadow-sm"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "bg-transparent text-slate-600 hover:text-slate-900"
               }`}
             >
               {filter.label}
             </button>
           ))}
-          {statusFilter === "GRADUATED" ? (
-            <button
-              type="button"
-              onClick={handleExportAuditLog}
-              disabled={filteredGrantees.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Download className="h-4 w-4 text-slate-500" />
-              <span>Export Audit Ledger (CSV)</span>
-            </button>
-          ) : null}
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">Scholar</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">School / Year</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">Status</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">Average</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left font-semibold text-slate-500">Enrolled</th>
-              <th className="px-6 py-4 text-center font-semibold text-slate-500">Action</th>
+      <div className="w-full overflow-x-auto">
+        <table className="w-full border-collapse whitespace-nowrap text-left text-sm">
+          <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
+            <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
+              <th className="px-6 py-4">Scholar</th>
+              <th className="px-6 py-4">School / Year</th>
+              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4">Average</th>
+              <th className="px-6 py-4">Enrolled</th>
+              <th className="px-6 py-4 text-center">Action</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
-            {filteredGrantees.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-16 text-center text-sm text-slate-500">
-                  No grantees match that search or filter.
-                </td>
-              </tr>
-            ) : (
-              filteredGrantees.map((grantee) => {
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {filteredGrantees.map((grantee) => {
                 const isBelowGwa = grantee.generalAverage !== null && grantee.generalAverage < 80;
                 return (
-                  <tr key={grantee.id} className="transition hover:bg-slate-50">
+                  <tr key={grantee.id} className="transition-colors hover:bg-slate-50/50">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
@@ -242,11 +187,7 @@ export function GranteeStatusTable({
                       ) : null}
                     </td>
                     <td className="px-6 py-4 text-slate-500">
-                      {new Date(grantee.dateEnrolled).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
+                      {formatDate(grantee.dateEnrolled)}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="inline-flex items-center justify-center gap-2">
@@ -304,11 +245,21 @@ export function GranteeStatusTable({
                     </td>
                   </tr>
                 );
-              })
-            )}
+            })}
           </tbody>
         </table>
       </div>
+      {filteredGrantees.length === 0 ? (
+        <div className="px-6 py-12 text-center text-sm text-slate-500">
+          No grantees match that search or filter.
+        </div>
+      ) : null}
+      <AdminTablePaginationFooter
+        totalCount={totalCount}
+        page={page}
+        pageSize={pageSize}
+        basePath="/admin/grantees"
+      />
     </div>
   );
 }

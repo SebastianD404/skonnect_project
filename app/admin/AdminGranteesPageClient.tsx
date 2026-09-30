@@ -1,26 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { useEffect } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Download } from "lucide-react";
+import { useAdminSearch } from "./AdminSearchContext";
 import { GranteeStatusTable, type GranteeTableRow } from "./grantees/GranteeStatusTable";
-import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 import { SerializableSkeapApplicationFormPayload } from "./grantees/[id]/SkeapApplicationReviewClient";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 
-interface StatItem {
-  label: string;
-  value: string;
-  sub: string;
-  href?: string;
-  accent?: "cyan" | "amber" | "emerald";
-  iconName: "Users" | "Inbox" | "FileText" | "CheckSquare" | "GraduationCap";
-}
-
 interface AdminGranteesPageClientProps {
-  dateLabel: string;
-  openInquiryCount: number;
-  pendingSubmissionCount: number;
-  stats: StatItem[];
   grantees: GranteeTableRow[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
 }
 
 interface SelectedApplicationState {
@@ -29,13 +22,35 @@ interface SelectedApplicationState {
 }
 
 export default function AdminGranteesPageClient({
-  dateLabel,
-  openInquiryCount,
-  pendingSubmissionCount,
-  stats,
   grantees,
+  page,
+  pageSize,
+  totalCount,
 }: AdminGranteesPageClientProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const { searchQuery } = useAdminSearch();
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const nextQuery = searchQuery.trim();
+    if ((searchParams.get("q") ?? "") === nextQuery) return;
+
+    const timeout = window.setTimeout(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (nextQuery) params.set("q", nextQuery);
+      else params.delete("q");
+      params.set("page", "1");
+      const queryString = params.toString();
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [pathname, router, searchParams, searchQuery]);
+  const exportParams = new URLSearchParams();
+  const status = searchParams.get("status");
+  if (status) exportParams.set("status", status);
+  if (searchQuery.trim()) exportParams.set("q", searchQuery.trim());
+  const exportHref = `/api/admin/grantees/export${exportParams.size ? `?${exportParams.toString()}` : ""}`;
   const [selectedApplication, setSelectedApplication] = useState<SelectedApplicationState | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<GranteeTableRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -86,37 +101,32 @@ export default function AdminGranteesPageClient({
 
   return (
     <>
-      <DashboardHeaderWrapper
-        dateLabel={dateLabel}
-        openInquiryCount={openInquiryCount}
-        pendingSubmissionCount={pendingSubmissionCount}
-        stats={stats}
-        operationalSnapshot
-        onSearch={setSearchQuery}
-      />
-
-      <div className="flex-1 py-8">
-        <div className="px-8 space-y-6">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="flex flex-col gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-[#0F3D5C]">Grantee status</p>
-                <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">Track scholar progress</h1>
-                <p className="mt-2 max-w-2xl text-sm text-slate-500">
-                  See the latest status, academic average, and enrollment details for every approved grantee.
-                </p>
-              </div>
-            </div>
+      <div className="flex w-full flex-col gap-6 pb-12">
+        <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Grantee Status</span>
+            <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Track scholar progress</h1>
+            <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
+              See the latest status, academic average, and enrollment details for every approved grantee.
+            </p>
           </div>
+          <a
+            href={exportHref}
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
+          >
+            <Download className="h-4 w-4 text-slate-400" />
+            <span>Export Records</span>
+          </a>
+        </header>
 
-          <GranteeStatusTable
-            grantees={grantees}
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
-            onViewApplication={handleViewApplication}
-            onDelete={handleDeleteRequest}
-          />
-        </div>
+        <GranteeStatusTable
+          grantees={grantees}
+          page={page}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          onViewApplication={handleViewApplication}
+          onDelete={handleDeleteRequest}
+        />
       </div>
       <SkeapApplicationFormModal
         isOpen={Boolean(selectedApplication?.application)}

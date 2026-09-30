@@ -2,6 +2,8 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { prisma, getProfilingRegistrationCount, getProfilingRegistrationCountByStatus, getProfilingRegistrationCountByStatusSince } from "@/lib/prisma";
 import AdminSidebar from "./AdminSidebar";
+import AdminGlobalTopBar from "./AdminGlobalTopBar";
+import { AdminSearchProvider } from "./AdminSearchContext";
 
 export default async function AdminLayout({
   children,
@@ -72,18 +74,26 @@ export default async function AdminLayout({
     prisma.profilingRegistration.count({ where: { submittedAt: { gte: startOfToday } } }),
   ]);
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#F8FBFF] text-slate-950">
-      <div className="mx-auto flex h-full max-w-[1480px]">
-        <AdminSidebar
-          openInquiryCount={openInquiryCountToday}
-          skeapApplicationCount={skeapApplicationCountToday}
-          pendingDocumentCount={pendingDocumentCountToday}
-          profilingRegistrationCount={profilingRegistrationCountToday}
-          newGranteesToday={newGranteesToday}
-          approvedMemberCount={approvedMemberCountToday}
-        />
-        <main className="flex-1 h-full overflow-y-auto p-8">{children}</main>
+    <AdminSearchProvider>
+      <div className="h-screen w-screen overflow-hidden bg-[#F8FBFF] text-slate-950">
+        <div className="mx-auto flex h-full max-w-[1480px]">
+          <AdminSidebar
+            openInquiryCount={openInquiryCountToday}
+            skeapApplicationCount={skeapApplicationCountToday}
+            pendingDocumentCount={pendingDocumentCountToday}
+            profilingRegistrationCount={profilingRegistrationCountToday}
+            newGranteesToday={newGranteesToday}
+            approvedMemberCount={approvedMemberCountToday}
+          />
+          <main className="h-full min-w-0 flex-1 overflow-y-auto">
+            <AdminGlobalTopBar
+              openInquiryCount={openInquiryCount}
+              pendingSubmissionCount={pendingDocumentCount}
+            />
+            <div className="px-8 py-8">{children}</div>
+          </main>
+        </div>
       </div>
-    </div>
+    </AdminSearchProvider>
   );
 }

@@ -95,21 +95,20 @@ function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onC
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col w-full text-left transition hover:border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${active ? "ring-2 ring-slate-900" : ""}`}
+      className={`group relative w-full overflow-hidden bg-white rounded-2xl border p-4 shadow-sm flex flex-col gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${active ? "border-slate-900 ring-1 ring-inset ring-slate-900 shadow-md" : "border-slate-200/80 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"}`}
     >
-      <div className="flex justify-between items-start mb-4">
-        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-600 border border-slate-100">
-          <Icon className="w-5 h-5" />
+      <div aria-hidden="true" className="pointer-events-none absolute -top-10 -right-10 w-32 h-32 bg-cyan-50/50 rounded-full blur-2xl transition-colors duration-500 group-hover:bg-cyan-100/50" />
+      <div className="relative z-10 flex items-center justify-between gap-3">
+        <span className={`text-[10px] font-bold tracking-widest uppercase ${active ? "text-cyan-700" : "text-slate-400"}`}>{label}</span>
+        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-transform duration-300 group-hover:scale-110 ${active ? "bg-cyan-600 text-white" : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"}`}>
+          <Icon className="w-3.5 h-3.5" />
         </div>
       </div>
-      <span className="text-[10px] font-bold text-slate-500 tracking-widest uppercase mb-1">
-        {label}
-      </span>
-      <div className="flex items-baseline gap-2">
-        <span className="text-4xl font-black text-slate-900 leading-none tracking-tight">
+      <div className="relative z-10">
+        <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none">
           {value}
-        </span>
-        <span className="text-xs text-slate-500">{subtitle}</span>
+        </h3>
+        <p className={`text-[11px] font-medium mt-1 ${active ? "text-slate-500" : "text-slate-400"}`}>{subtitle}</p>
       </div>
     </button>
   );
@@ -870,21 +869,19 @@ export default function SkeapApplicationsClient({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-[1480px] gap-6 px-6 py-8">
-        <main className="flex-1 space-y-6">
-          <header className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
+      <div className="mx-auto flex min-h-screen max-w-[1480px] gap-6 px-6">
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 pb-12">
+          <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.35em] text-slate-500">SKEAP Applications</p>
-                <h1 className="mt-3 text-4xl font-black text-slate-950">Application review workspace</h1>
-                <p className="mt-3 max-w-2xl text-sm text-slate-600">
-                  Select an application to inspect uploaded files, leave reviewer notes, and approve or return applicants.
-                </p>
-              </div>
+              <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">SKEAP Applications</span>
+              <h1 className="mt-0.5 mb-1.5 text-2xl font-bold tracking-tight text-slate-900">Application review workspace</h1>
+              <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
+                Select an application to inspect uploaded files, leave reviewer notes, and approve or return applicants.
+              </p>
             </div>
           </header>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <ApplicationMetricCard
               label="Pending Review"
               value={stats.pending}
@@ -920,7 +917,16 @@ export default function SkeapApplicationsClient({
           </div>
 
           {isQueueEmpty ? (
-            <section className="mt-6 flex min-h-[500px] w-full flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <section className="relative flex min-h-[400px] w-full flex-col items-center justify-center overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 opacity-40"
+                style={{
+                  backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+                  backgroundSize: "24px 24px",
+                }}
+              />
+              <div className="relative z-10 flex flex-col items-center">
               <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 shadow-sm">
                 <CheckCircle2 className="h-10 w-10 text-emerald-600" />
               </div>
@@ -937,9 +943,10 @@ export default function SkeapApplicationsClient({
                 <RefreshCw className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`} />
                 <span>{isRefreshing ? "Checking..." : "Check for new submissions"}</span>
               </button>
+              </div>
             </section>
           ) : (
-          <section className="mt-6 flex h-[calc(100vh-280px)] min-h-[600px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+          <section className="flex h-[calc(100vh-280px)] min-h-[600px] w-full overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
             <aside className="flex h-full min-h-0 w-80 shrink-0 flex-col border-r border-slate-200 bg-slate-50 lg:w-96">
               <div className="sticky top-0 z-10 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-slate-50/90 p-5 backdrop-blur-sm">
                 <div>
