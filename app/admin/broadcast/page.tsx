@@ -1,10 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCircle2, ChevronDown, Loader2, Radio, Search, Send } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Loader2, Send, X } from "lucide-react";
 
 type Grantee = { id: string; fullName: string; email: string };
 type AudienceType = "ALL" | "CUSTOM";
+type BroadcastDraft = {
+  subject: string;
+  message: string;
+  audienceType: AudienceType;
+  granteeIds: string[];
+};
+
+const BROADCAST_DRAFT_KEY = "skonnect.admin.broadcast.draft";
 
 async function readJsonResponse(response: Response) {
   const text = await response.text();
@@ -32,6 +40,30 @@ export default function BroadcastPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const granteeSearchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const restoreTimer = window.setTimeout(() => {
+      const savedDraft = window.localStorage.getItem(BROADCAST_DRAFT_KEY);
+      if (!savedDraft) return;
+
+      try {
+        const draft = JSON.parse(savedDraft) as Partial<BroadcastDraft>;
+        if (typeof draft.subject === "string") setSubject(draft.subject);
+        if (typeof draft.message === "string") setMessage(draft.message);
+        if (draft.audienceType === "ALL" || draft.audienceType === "CUSTOM") {
+          setAudienceType(draft.audienceType);
+        }
+        if (Array.isArray(draft.granteeIds)) {
+          setSelectedGranteeIds(draft.granteeIds.filter((id): id is string => typeof id === "string"));
+        }
+      } catch {
+        window.localStorage.removeItem(BROADCAST_DRAFT_KEY);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(restoreTimer);
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -116,6 +148,7 @@ export default function BroadcastPage() {
       setMessage("");
       setAudienceType("ALL");
       setSelectedGranteeIds([]);
+      window.localStorage.removeItem(BROADCAST_DRAFT_KEY);
       setSuccess(`Broadcast sent to ${data.sent ?? 0} active grantee${data.sent === 1 ? "" : "s"}.`);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to send broadcast.");
@@ -124,15 +157,40 @@ export default function BroadcastPage() {
     }
   }
 
+  function handleSaveDraft() {
+    setError(null);
+    try {
+      window.localStorage.setItem(BROADCAST_DRAFT_KEY, JSON.stringify({
+        subject,
+        message,
+        audienceType,
+        granteeIds: selectedGranteeIds,
+      } satisfies BroadcastDraft));
+      setSuccess("Draft saved in this browser.");
+    } catch {
+      setError("Unable to save this draft in your browser.");
+    }
+  }
+
+  function toggleGrantee(grantee: Grantee) {
+    setSelectedGranteeIds((ids) => ids.includes(grantee.id)
+      ? ids.filter((id) => id !== grantee.id)
+      : [...ids, grantee.id]);
+    setGranteeSearch("");
+    granteeSearchInputRef.current?.focus();
+  }
+
+  function removeGrantee(granteeId: string) {
+    setSelectedGranteeIds((ids) => ids.filter((id) => id !== granteeId));
+    granteeSearchInputRef.current?.focus();
+  }
+
   return (
-    <div className="mx-auto max-w-4xl py-4">
-      <div className="mb-8">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0F3D5C] text-white">
-          <Radio className="h-6 w-6" aria-hidden="true" />
-        </div>
-        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#0F3D5C]">Communication</p>
-        <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">Broadcast Messages</h1>
-        <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 pb-12">
+      <div>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Communication</span>
+        <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Broadcast Messages</h1>
+        <p className="text-sm leading-relaxed text-slate-500">
           Send instant in-app messages and automated emails to all active SKEAP grantees.
         </p>
       </div>
@@ -151,94 +209,170 @@ export default function BroadcastPage() {
         </div>
       ) : null}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <div className="mb-8 rounded-2xl border border-sky-100 bg-sky-50 p-4">
-          <div className="flex items-center gap-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-[#0F3D5C] shadow-sm">
-            <Radio className="h-5 w-5" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Audience</p>
-            <p className="mt-1 font-semibold text-slate-900">
-              {audienceType === "ALL" ? "Target: All Active Grantees" : `${selectedGranteeIds.length} specific grantee${selectedGranteeIds.length === 1 ? "" : "s"} selected`}
-            </p>
-          </div>
-          </div>
-          <div className="mt-5 grid gap-2 sm:grid-cols-2">
-            {(["ALL", "CUSTOM"] as const).map((option) => (
-              <label key={option} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-semibold transition ${audienceType === option ? "border-[#0F3D5C] bg-white text-[#0F3D5C]" : "border-sky-100 bg-transparent text-slate-700 hover:bg-white/70"}`}>
-                <input
-                  type="radio"
-                  name="audienceType"
-                  value={option}
-                  checked={audienceType === option}
-                  onChange={() => setAudienceType(option)}
-                  className="h-4 w-4 accent-[#0F3D5C]"
-                  disabled={submitting}
-                />
-                {option === "ALL" ? "All Active Grantees" : "Specific Grantees"}
-              </label>
-            ))}
-          </div>
-          {audienceType === "CUSTOM" ? (
-            <div ref={dropdownRef} className="relative z-50 mt-4">
-              <button type="button" onClick={() => setGranteeMenuOpen((open) => !open)} disabled={submitting || loadingGrantees} className="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-700">
-                <span className="truncate">{loadingGrantees ? "Loading grantees..." : selectedGrantees.length ? selectedGrantees.map((grantee) => grantee.fullName).join(", ") : "Search and select grantees"}</span>
-                <ChevronDown className="ml-3 h-4 w-4 flex-shrink-0" aria-hidden="true" />
-              </button>
-              {granteeMenuOpen ? (
-                <div className="absolute z-50 mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3">
-                    <Search className="h-4 w-4 text-slate-400" aria-hidden="true" />
-                    <input value={granteeSearch} onChange={(event) => setGranteeSearch(event.target.value)} placeholder="Search by name or email" className="w-full py-2 text-sm outline-none" autoFocus />
+      <div className="flex flex-col rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+        <form onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-8 p-6 sm:p-8">
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Target Audience</span>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {(["ALL", "CUSTOM"] as const).map((option) => {
+                  const isSelected = audienceType === option;
+                  return (
+                    <label
+                      key={option}
+                      className={`group relative flex cursor-pointer gap-3 rounded-2xl border p-4 shadow-sm transition-all ${
+                        isSelected
+                          ? "border-cyan-500 bg-cyan-50/30"
+                          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex h-5 items-center">
+                        <input
+                          type="radio"
+                          name="audienceType"
+                          value={option}
+                          checked={isSelected}
+                          onChange={() => setAudienceType(option)}
+                          className="h-4 w-4 border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                          disabled={submitting}
+                        />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className={`text-sm font-semibold ${isSelected ? "text-cyan-900" : "text-slate-700 transition-colors group-hover:text-slate-900"}`}>
+                          {option === "ALL" ? "All Active Grantees" : "Specific Grantees"}
+                        </span>
+                        <span className={`mt-0.5 text-[11px] ${isSelected ? "text-cyan-700/70" : "text-slate-500"}`}>
+                          {option === "ALL" ? "Send to everyone currently enrolled." : "Hand-pick recipients from a list."}
+                        </span>
+                      </div>
+                      {isSelected ? (
+                        <span aria-hidden="true" className="pointer-events-none absolute -inset-px rounded-2xl border border-cyan-500 opacity-50 ring-1 ring-inset ring-cyan-500" />
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+
+              {audienceType === "CUSTOM" ? (
+                <div ref={dropdownRef} className="relative z-50 mt-2 flex flex-col gap-2 animate-fadeIn">
+                  <label htmlFor="grantee-search" className="text-xs font-bold uppercase tracking-widest text-slate-400">Select Recipients</label>
+                  <div
+                    className="flex min-h-[48px] w-full cursor-text flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 transition-all focus-within:border-cyan-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-cyan-500/10"
+                    onClick={() => granteeSearchInputRef.current?.focus()}
+                  >
+                    {selectedGrantees.map((grantee) => (
+                      <span key={grantee.id} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-200/60 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-900 shadow-sm">
+                        {grantee.fullName}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${grantee.fullName}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeGrantee(grantee.id);
+                          }}
+                          className="rounded-md p-0.5 text-cyan-600 transition-colors hover:bg-cyan-100 hover:text-cyan-900"
+                        >
+                          <X className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      ref={granteeSearchInputRef}
+                      id="grantee-search"
+                      type="text"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-controls="grantee-search-results"
+                      aria-expanded={granteeMenuOpen}
+                      placeholder={selectedGrantees.length === 0 ? "Search by name or email..." : ""}
+                      value={granteeSearch}
+                      onFocus={() => setGranteeMenuOpen(true)}
+                      onChange={(event) => {
+                        setGranteeSearch(event.target.value);
+                        setGranteeMenuOpen(true);
+                      }}
+                      disabled={submitting || loadingGrantees}
+                      className="min-w-[120px] flex-1 border-none bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                    />
                   </div>
-                  <div className="mt-2 max-h-56 overflow-y-auto">
-                    {filteredGrantees.length ? filteredGrantees.map((grantee) => {
-                      const selected = selectedGranteeIds.includes(grantee.id);
-                      return <button key={grantee.id} type="button" onClick={() => setSelectedGranteeIds((ids) => selected ? ids.filter((id) => id !== grantee.id) : [...ids, grantee.id])} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-slate-50"><span className={`flex h-5 w-5 items-center justify-center rounded border ${selected ? "border-[#0F3D5C] bg-[#0F3D5C] text-white" : "border-slate-300"}`}>{selected ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}</span><span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-800">{grantee.fullName}</span><span className="block truncate text-xs text-slate-500">{grantee.email}</span></span></button>;
-                    }) : <p className="px-2 py-4 text-center text-sm text-slate-500">No active grantees found.</p>}
-                  </div>
+                  {granteeMenuOpen ? (
+                    <div id="grantee-search-results" role="listbox" className="absolute left-0 right-0 top-full z-50 mt-2 max-h-60 overflow-x-hidden overflow-y-auto rounded-2xl border border-slate-200/80 bg-white shadow-xl">
+                      {loadingGrantees ? (
+                        <p className="px-4 py-3 text-sm text-slate-500">Loading grantees...</p>
+                      ) : filteredGrantees.length ? filteredGrantees.map((grantee) => {
+                        const isSelected = selectedGranteeIds.includes(grantee.id);
+                        return (
+                          <button
+                            key={grantee.id}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => toggleGrantee(grantee)}
+                            className="flex w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left transition-colors last:border-0 hover:bg-slate-50"
+                          >
+                            <span className="flex min-w-0 flex-col">
+                              <span className="truncate text-sm font-semibold text-slate-900">{grantee.fullName}</span>
+                              <span className="truncate text-xs text-slate-500">{grantee.email}</span>
+                            </span>
+                            {isSelected ? <Check className="ml-3 h-4 w-4 shrink-0 text-cyan-600" aria-hidden="true" /> : null}
+                          </button>
+                        );
+                      }) : (
+                        <p className="px-4 py-3 text-sm text-slate-500">No active grantees found.</p>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
-          ) : null}
-        </div>
 
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="broadcast-subject" className="mb-2 block text-sm font-semibold text-slate-800">Subject</label>
-            <input
-              id="broadcast-subject"
-              type="text"
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-              placeholder="Enter a clear subject"
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/15"
-              disabled={submitting}
-            />
+            <hr className="border-slate-100" />
+
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-2">
+                <label htmlFor="broadcast-subject" className="text-xs font-bold uppercase tracking-widest text-slate-400">Subject Line</label>
+                <input
+                  id="broadcast-subject"
+                  type="text"
+                  value={subject}
+                  onChange={(event) => setSubject(event.target.value)}
+                  placeholder="e.g., Important: Semester 2 Requirements"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-500/10"
+                  disabled={submitting}
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label htmlFor="broadcast-message" className="text-xs font-bold uppercase tracking-widest text-slate-400">Message Body</label>
+                <textarea
+                  id="broadcast-message"
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  placeholder="Write your announcement here..."
+                  rows={8}
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-500/10"
+                  disabled={submitting}
+                />
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label htmlFor="broadcast-message" className="mb-2 block text-sm font-semibold text-slate-800">Message Content</label>
-            <textarea
-              id="broadcast-message"
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder="Write the announcement body"
-              rows={9}
-              className="w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/15"
+          <div className="flex items-center justify-end gap-3 rounded-b-3xl border-t border-slate-100 bg-slate-50/80 px-6 py-4">
+            <button
+              type="button"
+              onClick={handleSaveDraft}
               disabled={submitting}
-            />
-          </div>
-
-          <div className="flex justify-end border-t border-slate-100 pt-6">
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Save as Draft
+            </button>
             <button
               type="submit"
               disabled={submitting}
-              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#0F3D5C] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#0b3048] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
-              {submitting ? "Sending..." : "Send Broadcast"}
+              <span>{submitting ? "Sending..." : "Send Broadcast"}</span>
             </button>
           </div>
         </form>

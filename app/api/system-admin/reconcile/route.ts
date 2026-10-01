@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { createClient as createSupabaseAdmin, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseAdmin, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
 
-type SupabaseAdminClient = SupabaseClient<any, "public", "public", any, any>;
+type SupabaseAdminClient = SupabaseClient;
 
 async function getActor() {
   const supabase = await createClient();
@@ -31,7 +32,7 @@ async function getActor() {
   return { actor };
 }
 
-function deriveFullName(authUser: any) {
+function deriveFullName(authUser: User) {
   const metadata = authUser.user_metadata || {};
   const fullNameFromMetadata =
     (typeof metadata.full_name === "string" && metadata.full_name.trim()) ||
@@ -62,7 +63,7 @@ function deriveFullName(authUser: any) {
 }
 
 async function listAllAuthUsers(supabaseAdmin: SupabaseAdminClient) {
-  const users: Array<any> = [];
+  const users: User[] = [];
   const perPage = 200;
   let page = 1;
 
@@ -85,6 +86,7 @@ export async function POST(request: NextRequest) {
   try {
     const actorResult = await getActor();
     if ("error" in actorResult) return actorResult.error;
+    const { actor } = actorResult;
 
     const url = new URL(request.url);
     const queryApply = url.searchParams.get("apply") === "true";
@@ -139,15 +141,36 @@ export async function POST(request: NextRequest) {
 
         const existingByEmail = await prisma.user.findFirst({
           where: { email: { equals: email, mode: "insensitive" } },
-          select: { id: true, authId: true },
+          select: { id: true, authId: true, email: true, fullName: true, role: true },
         });
 
         if (existingByEmail) {
           wouldRelink += 1;
           if (apply) {
-            await prisma.user.update({
-              where: { id: existingByEmail.id },
-              data: { authId },
+            await prisma.$transaction(async (tx) => {
+              await tx.user.update({
+                where: { id: existingByEmail.id },
+                data: { authId },
+              });
+              await writeAuditLog(tx, {
+                action: "AUTH_PROFILE_RELINKED",
+                actorId: actor.id,
+                targetTable: "users",
+                targetId: existingByEmail.id,
+                beforeData: {
+                  authId: existingByEmail.authId,
+                  email: existingByEmail.email,
+                  fullName: existingByEmail.fullName,
+                  role: existingByEmail.role,
+                },
+                afterData: {
+                  authId,
+                  email: existingByEmail.email,
+                  fullName: existingByEmail.fullName,
+                  role: existingByEmail.role,
+                },
+                metadata: { source: "auth_user_reconciliation" },
+              });
             });
             relinked += 1;
           }
@@ -156,13 +179,21 @@ export async function POST(request: NextRequest) {
 
         wouldCreate += 1;
         if (apply) {
-          await prisma.user.create({
-            data: {
-              authId,
-              email,
-              fullName: deriveFullName(authUser),
-              role: "YOUTH",
-            },
+          const fullName = deriveFullName(authUser);
+          await prisma.$transaction(async (tx) => {
+            const createdUser = await tx.user.create({
+              data: { authId, email, fullName, role: "YOUTH" },
+              select: { id: true },
+            });
+            await writeAuditLog(tx, {
+              action: "AUTH_PROFILE_CREATED",
+              actorId: actor.id,
+              targetTable: "users",
+              targetId: createdUser.id,
+              beforeData: null,
+              afterData: { authId, email, fullName, role: "YOUTH" },
+              metadata: { source: "auth_user_reconciliation" },
+            });
           });
           created += 1;
         }

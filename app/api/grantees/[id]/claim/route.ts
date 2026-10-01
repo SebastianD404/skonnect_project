@@ -1,22 +1,50 @@
 import { NextResponse } from "next/server";
+import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 const db = prisma; // explicit db variable
 
-export async function PATCH(request: Request, context: any) {
-  const maybeParams = context?.params;
-  const paramsObj = maybeParams && typeof maybeParams.then === "function" ? await maybeParams : maybeParams;
-  const id = paramsObj?.id as string | undefined;
+export async function PATCH(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
   if (!id) {
     return NextResponse.json({ ok: false, error: 'Missing id' }, { status: 400 });
   }
 
   try {
-    // Use Prisma upsert for a safe write that creates or updates the accounting_payouts row
-    await db.accountingPayout.upsert({
-      where: { granteeId: id },
-      update: { amount: 5000, claimedAt: new Date() },
-      create: { granteeId: id, amount: 5000, claimedAt: new Date() },
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const actor = await ensureProfile(user);
+    if (!actor || (actor.role !== Role.SK_OFFICIAL && actor.role !== Role.SUPER_ADMIN)) {
+      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    }
+
+    await db.$transaction(async (tx) => {
+      const before = await tx.accountingPayout.findUnique({ where: { granteeId: id } });
+      await tx.accountingPayout.upsert({
+        where: { granteeId: id },
+        update: { amount: 5000, claimedAt: new Date() },
+        create: { granteeId: id, amount: 5000, claimedAt: new Date() },
+      });
+      const after = await tx.accountingPayout.findUnique({ where: { granteeId: id } });
+      await writeAuditLog(tx, {
+        action: "Mark payout claimed",
+        actorId: actor.id,
+        targetTable: "accounting_payouts",
+        targetId: id,
+        beforeData: before,
+        afterData: after,
+        metadata: { source: "grantee_claim_endpoint" },
+      });
     });
 
     return NextResponse.json({ ok: true });

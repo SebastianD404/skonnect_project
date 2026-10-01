@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useEffect } from "react";
-import { Bell, HelpCircle, LoaderCircle, Mail, Search, X } from "lucide-react";
+import { Bell, LoaderCircle, Search } from "lucide-react";
 import { useAdminSearch } from "./AdminSearchContext";
 
 interface AdminGlobalTopBarProps {
@@ -24,12 +23,25 @@ export default function AdminGlobalTopBar({
   pendingSubmissionCount,
 }: AdminGlobalTopBarProps) {
   const { searchQuery, setSearchQuery } = useAdminSearch();
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [areNotificationsOpen, setAreNotificationsOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<AdminSearchResult[]>([]);
   const [searchState, setSearchState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const notificationCount = openInquiryCount + pendingSubmissionCount;
+
+  useEffect(() => {
+    if (!areNotificationsOpen) return;
+
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      if (!notificationRef.current?.contains(event.target as Node)) {
+        setAreNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+  }, [areNotificationsOpen]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -62,7 +74,6 @@ export default function AdminGlobalTopBar({
   }, [searchQuery]);
 
   return (
-    <>
       <header className="sticky top-0 z-50 flex w-full items-center justify-between border-b border-slate-200/70 bg-slate-50/80 px-5 py-4 backdrop-blur-md md:px-8">
         <div
           className="relative max-w-2xl flex-1"
@@ -145,24 +156,16 @@ export default function AdminGlobalTopBar({
           )}
         </div>
 
-        <div className="ml-4 flex shrink-0 items-center gap-2 md:gap-3">
-          <button
-            type="button"
-            onClick={() => setIsHelpOpen(true)}
-            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
-          >
-            <HelpCircle className="h-4 w-4 text-slate-400" />
-            <span className="hidden sm:inline">Help</span>
-          </button>
-          <div className="relative">
+        <div className="ml-4 flex shrink-0 items-center gap-3">
+          <div ref={notificationRef} className="relative">
             <button
               type="button"
-              aria-label="View notifications"
+              aria-label="Notifications"
               aria-expanded={areNotificationsOpen}
               onClick={() => setAreNotificationsOpen((open) => !open)}
-              className="relative rounded-full border border-slate-200 bg-white p-2.5 text-slate-400 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-600"
+              className="group relative flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white/95 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/40 hover:bg-[#0F3D5C]/5 hover:text-[#0F3D5C]"
             >
-              <Bell className="h-4 w-4" />
+              <Bell className={`h-4 w-4 transition-colors ${areNotificationsOpen ? "fill-current text-[#0F3D5C]" : "text-slate-600 group-hover:text-[#0F3D5C]"}`} />
               {notificationCount > 0 && (
                 <span aria-hidden="true" className="absolute right-2.5 top-2 h-1.5 w-1.5 rounded-full border border-white bg-red-500" />
               )}
@@ -203,50 +206,5 @@ export default function AdminGlobalTopBar({
           </div>
         </div>
       </header>
-
-      {isHelpOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4" role="presentation">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="admin-help-title"
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h2 id="admin-help-title" className="text-base font-bold text-slate-900">Help &amp; Support</h2>
-              <button
-                type="button"
-                onClick={() => setIsHelpOpen(false)}
-                aria-label="Close help dialog"
-                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-4 px-5 py-5">
-              <p className="text-sm leading-relaxed text-slate-600">
-                Need assistance with the admin dashboard or barangay programs? Contact our support team.
-              </p>
-              <a
-                href="mailto:support@skonnect.com"
-                className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-700 hover:text-cyan-800"
-              >
-                <Mail className="h-4 w-4" />
-                support@skonnect.com
-              </a>
-            </div>
-            <div className="border-t border-slate-100 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setIsHelpOpen(false)}
-                className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-              >
-                Close
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-    </>
   );
 }

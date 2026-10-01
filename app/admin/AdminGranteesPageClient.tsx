@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useEffect } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Download } from "lucide-react";
 import { useAdminSearch } from "./AdminSearchContext";
+import AdminExportButton from "./AdminExportButton";
 import { GranteeStatusTable, type GranteeTableRow } from "./grantees/GranteeStatusTable";
 import { SerializableSkeapApplicationFormPayload } from "./grantees/[id]/SkeapApplicationReviewClient";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
@@ -31,6 +30,7 @@ export default function AdminGranteesPageClient({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [isLoading, startTransition] = useTransition();
   useEffect(() => {
     const nextQuery = searchQuery.trim();
     if ((searchParams.get("q") ?? "") === nextQuery) return;
@@ -41,11 +41,13 @@ export default function AdminGranteesPageClient({
       else params.delete("q");
       params.set("page", "1");
       const queryString = params.toString();
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+      startTransition(() => {
+        router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+      });
     }, 250);
 
     return () => window.clearTimeout(timeout);
-  }, [pathname, router, searchParams, searchQuery]);
+  }, [pathname, router, searchParams, searchQuery, startTransition]);
   const exportParams = new URLSearchParams();
   const status = searchParams.get("status");
   if (status) exportParams.set("status", status);
@@ -110,13 +112,11 @@ export default function AdminGranteesPageClient({
               See the latest status, academic average, and enrollment details for every approved grantee.
             </p>
           </div>
-          <a
+          <AdminExportButton
             href={exportHref}
             className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
-          >
-            <Download className="h-4 w-4 text-slate-400" />
-            <span>Export Records</span>
-          </a>
+            iconClassName="h-4 w-4 text-slate-400"
+          />
         </header>
 
         <GranteeStatusTable
@@ -124,6 +124,8 @@ export default function AdminGranteesPageClient({
           page={page}
           pageSize={pageSize}
           totalCount={totalCount}
+          isLoading={isLoading}
+          startNavigation={(callback) => startTransition(callback)}
           onViewApplication={handleViewApplication}
           onDelete={handleDeleteRequest}
         />

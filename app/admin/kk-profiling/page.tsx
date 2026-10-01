@@ -1,8 +1,8 @@
 import { getProfilingRegistrationCount, getProfilingRegistrationCountByStatus, hasProfilingRegistrationColumn, listProfilingRegistrations } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Role } from "@prisma/client";
-import { Download } from "lucide-react";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
+import AdminExportButton from "../AdminExportButton";
 import { KKProfilingRegistrationsTable } from "@/app/admin/kk-profiling/KKProfilingRegistrationsTable";
 import { KKProfilingTableSearchField, KKProfilingTableSearchProvider } from "./KKProfilingTableSearch";
 import KKProfilingStatusTabs from "./KKProfilingStatusTabs";
@@ -82,13 +82,11 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
           </div>
 
           <div className="flex shrink-0 items-center gap-2.5">
-            <a
+            <AdminExportButton
               href={`/api/admin/kk-profiling/export?status=${encodeURIComponent(statusParam)}`}
               className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
-            >
-              <Download className="h-4 w-4 text-slate-400" />
-              <span>Export Records</span>
-            </a>
+              iconClassName="h-4 w-4 text-slate-400"
+            />
           </div>
         </div>
 
@@ -113,6 +111,8 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
               registrations={latestRegistrations}
               statusLabel={statusLabel}
               flat
+              pageNumber={page}
+              pageSize={pageSize}
             />
           </div>
 

@@ -169,7 +169,7 @@ export default function AuditLogsTable({ audits }: Props) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-[#D6E1EC] bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
         {filtered.length === 0 ? (
           <EmptyState />
         ) : (
@@ -177,14 +177,14 @@ export default function AuditLogsTable({ audits }: Props) {
             <div className="hidden lg:block">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-[#E4ECF3] bg-[#F7FAFD] text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    <th className="px-6 py-3">Action</th>
-                    <th className="px-6 py-3">Actor</th>
-                    <th className="px-6 py-3">Target</th>
-                    <th className="px-6 py-3">Recorded</th>
+                  <tr className="bg-slate-900 text-left text-[11px] font-bold tracking-wider text-white uppercase">
+                    <th className="px-6 py-4">Action</th>
+                    <th className="px-6 py-4">Actor</th>
+                    <th className="px-6 py-4">Target</th>
+                    <th className="px-6 py-4">Recorded</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#E8EEF5]">
+                <tbody className="divide-y divide-slate-100">
                   {filtered.map((audit) => {
                     const metadata = getAuditRoleChangeContext(audit);
                     const targetContext = getAuditTargetContext(audit);
@@ -196,7 +196,7 @@ export default function AuditLogsTable({ audits }: Props) {
                     return (
                     <tr
                       key={audit.id}
-                      className="cursor-pointer transition hover:bg-[#F8FBFE]"
+                      className="cursor-pointer transition hover:bg-slate-50/50"
                       onClick={() => setSelectedAudit(audit)}
                     >
                       <td className="px-6 py-4">
@@ -247,7 +247,7 @@ export default function AuditLogsTable({ audits }: Props) {
               </table>
             </div>
 
-            <ul className="divide-y divide-[#E8EEF5] lg:hidden">
+            <ul className="divide-y divide-slate-100 lg:hidden">
               {filtered.map((audit) => {
                 const metadata = getAuditRoleChangeContext(audit);
                 const targetContext = getAuditTargetContext(audit);
@@ -259,7 +259,7 @@ export default function AuditLogsTable({ audits }: Props) {
                 return (
                 <li
                   key={audit.id}
-                  className="space-y-2 p-5 transition hover:bg-[#F8FBFE]"
+                  className="space-y-2 px-6 py-4 transition hover:bg-slate-50/50"
                   onClick={() => setSelectedAudit(audit)}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -357,21 +357,21 @@ export default function AuditLogsTable({ audits }: Props) {
               {selectedChanges.length === 0 ? (
                 <p className="mt-2 text-sm text-slate-500">No explicit field changes detected.</p>
               ) : (
-                <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
+                <div className="mt-3 overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
                   <table className="w-full text-sm">
-                    <thead className="bg-slate-50 text-left text-xs text-slate-500">
+                    <thead className="bg-slate-900 text-left text-[11px] font-bold tracking-wider text-white uppercase">
                       <tr>
-                        <th className="px-4 py-2">Field</th>
-                        <th className="px-4 py-2">Before</th>
-                        <th className="px-4 py-2">After</th>
+                        <th className="px-6 py-4">Field</th>
+                        <th className="px-6 py-4">Before</th>
+                        <th className="px-6 py-4">After</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
                       {selectedChanges.map((c) => (
-                        <tr key={c.field}>
-                          <td className="px-4 py-3 font-medium text-slate-900">{c.field}</td>
-                          <td className="px-4 py-3 text-slate-600">{c.before}</td>
-                          <td className="px-4 py-3 text-slate-900 font-semibold">{c.after}</td>
+                        <tr key={c.field} className="transition hover:bg-slate-50/50">
+                          <td className="px-6 py-4 font-medium text-slate-900">{c.field}</td>
+                          <td className="px-6 py-4 text-slate-600">{c.before}</td>
+                          <td className="px-6 py-4 font-semibold text-slate-900">{c.after}</td>
                         </tr>
                       ))}
                     </tbody>

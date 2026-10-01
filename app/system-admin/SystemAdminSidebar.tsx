@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ShieldCheck, ScrollText } from "lucide-react";
+import { Cable, Database, LayoutDashboard, ScrollText, Users } from "lucide-react";
 import { SignOutButton } from "@/app/components/SignOutButton";
 
 type SessionUser = {
@@ -15,6 +15,7 @@ type SessionUser = {
 type Props = {
   activeUserCount: number;
   roleUpdateCount: number;
+  databaseStatus: "connected" | "unavailable";
 };
 
 function toTitleCase(value: string) {
@@ -51,7 +52,7 @@ function deriveDisplayName(fullName?: string | null, email?: string | null) {
   return toTitleCase(cleaned);
 }
 
-export default function SystemAdminSidebar({ activeUserCount, roleUpdateCount }: Props) {
+export default function SystemAdminSidebar({ activeUserCount, roleUpdateCount, databaseStatus }: Props) {
   const pathname = usePathname();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
@@ -96,7 +97,8 @@ export default function SystemAdminSidebar({ activeUserCount, roleUpdateCount }:
 
   const navItems = [
     { label: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
-    { label: "Role Management", href: "/system-admin/users", icon: ShieldCheck, badge: activeUserCount },
+    { label: "Users", href: "/system-admin/users", icon: Users, badge: activeUserCount },
+    { label: "API Integrations", href: "/system-admin/integrations", icon: Cable },
     { label: "Audit Logs", href: "/system-admin/audit", icon: ScrollText, badge: roleUpdateCount },
   ];
 
@@ -152,11 +154,17 @@ export default function SystemAdminSidebar({ activeUserCount, roleUpdateCount }:
 
       <div className="mt-6 rounded-2xl border border-[#1C4B67] bg-[#174968]/40 p-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#9AB0C2]">System health</p>
-        <div className="mt-3 flex items-baseline gap-2">
-          <p className="text-2xl font-black text-white">99.98%</p>
-          <span className="text-xs font-semibold text-emerald-300">stable</span>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Database className="h-4 w-4 text-[#9AB0C2]" />
+            Database
+          </div>
+          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${databaseStatus === "connected" ? "text-emerald-300" : "text-rose-300"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${databaseStatus === "connected" ? "bg-emerald-300" : "bg-rose-300"}`} />
+            {databaseStatus === "connected" ? "Connected" : "Unavailable"}
+          </span>
         </div>
-        <p className="mt-1 text-xs text-[#9AB0C2]">All services nominal over the last 30 days.</p>
+        <p className="mt-2 text-xs text-[#9AB0C2]">Live database connectivity check</p>
       </div>
 
       <div className="mt-auto border-t border-[#1C4B67] px-2 pt-4">

@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import * as XLSX from "xlsx";
-import { Wallet, Search, Download } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Wallet, Search, Download, LoaderCircle } from "lucide-react";
 import { getRecentSemesters } from "@/lib/semester";
 import { formatDate } from "@/lib/utils";
 // If you have shadcn/ui components installed, replace the native select below
@@ -41,7 +40,9 @@ export default function AdminAccountingPage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const savedTimeoutRef = useRef<number | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [processingIds, setProcessingIds] = useState<Record<string, boolean>>({});
   const formatter = useMemo(
@@ -53,6 +54,10 @@ export default function AdminAccountingPage() {
       }),
     []
   );
+
+  useEffect(() => () => {
+    if (savedTimeoutRef.current !== null) window.clearTimeout(savedTimeoutRef.current);
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -76,11 +81,6 @@ export default function AdminAccountingPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const rowsPerPage = 10;
   const totalPages = Math.max(1, Math.ceil(filteredWithSubmission.length / rowsPerPage));
-
-  useEffect(() => {
-    // reset to first page when filters change
-    setCurrentPage(1);
-  }, [filteredWithSubmission.length]);
 
   const pagedRows = useMemo(() => {
     const start = (currentPage - 1) * rowsPerPage;
@@ -203,7 +203,8 @@ export default function AdminAccountingPage() {
 
     setIsSaving(true);
     setErrorMessage(null);
-    setSuccessMessage(null);
+    setIsSaved(false);
+    if (savedTimeoutRef.current !== null) window.clearTimeout(savedTimeoutRef.current);
 
     try {
       const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
@@ -219,11 +220,10 @@ export default function AdminAccountingPage() {
       }
 
       const data = await res.json().catch(() => null);
-      setSuccessMessage('Budget saved');
       setErrorMessage(null);
       if (typeof data?.totalBudget === 'number') setTotalBudget(data.totalBudget);
-
-      setTimeout(() => setSuccessMessage(null), 2500);
+      setIsSaved(true);
+      savedTimeoutRef.current = window.setTimeout(() => setIsSaved(false), 2000);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
     } finally {
@@ -231,47 +231,68 @@ export default function AdminAccountingPage() {
     }
   }
 
-  function handleExportCsv() {
-    const budget = totalBudget ?? 0;
-    const remaining = remainingBudget;
+  function handleExportOfficialPayrollExcel() {
+    if (isExporting) return;
 
-    const reportRows: (string | number | null)[][] = [
-      ['Educational Assistance Disbursement Report'],
-      ['Semester:', selectedSemester],
-      ['Total Budget:', budget],
-      ['Remaining Funds:', remaining],
-      ['Total Claimed:', claimedCount],
-      [],
-      ['Student Name', 'Semester', 'Submission Status', 'Payout Status', 'Claimed Date'],
-    ];
+    const currentSemester = String(selectedSemester ?? "")
+      .replace(/\s*\(Current\)$/i, "")
+      .trim();
+    const payrollNumber = `SK-${new Date().getFullYear()}-${Math.floor(Math.random() * 900 + 100)}`;
+    const filenamePeriod = (currentSemester || "Current").replace(/[<>:"/\\|?*]/g, "_");
+    const filename = `Official_SKEAP_Payroll_${filenamePeriod}.xlsx`;
+    const exportStartedAt = performance.now();
+    const finishAfterMinimumDuration = (complete: () => void) => {
+      const remaining = Math.max(0, 1000 - (performance.now() - exportStartedAt));
+      window.setTimeout(complete, remaining);
+    };
 
-    filteredWithSubmission.forEach((g) => {
-      reportRows.push([
-        g.name,
-        g.semester,
-        g.submissionState ?? 'Not submitted',
-        g.status === 'Claimed' ? 'Received' : 'Pending',
-        formatDate(g.claimedAt),
-      ]);
-    });
+    setIsExporting(true);
+    setErrorMessage(null);
 
-    const worksheet = XLSX.utils.aoa_to_sheet(reportRows);
-    worksheet['!cols'] = [
-      { wch: 25 },
-      { wch: 30 },
-      { wch: 22 },
-      { wch: 18 },
-      { wch: 24 },
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 20 },
-      { wch: 22 },
-      { wch: 24 },
-    ];
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Disbursement Report');
-    XLSX.writeFile(workbook, 'Disbursement_Report.xlsx');
+    try {
+      const worker = new Worker(new URL("./payroll-export.worker.ts", import.meta.url), {
+        type: "module",
+      });
+      worker.onmessage = (event: MessageEvent<{ buffer?: ArrayBuffer; error?: string }>) => {
+        worker.terminate();
+        finishAfterMinimumDuration(() => {
+          if (event.data.buffer) {
+            const blob = new Blob([event.data.buffer], {
+              type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            });
+            const objectUrl = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = filename;
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+          } else {
+            setErrorMessage(event.data.error || "Unable to generate the payroll workbook.");
+          }
+          setIsExporting(false);
+        });
+      };
+      worker.onerror = () => {
+        worker.terminate();
+        finishAfterMinimumDuration(() => {
+          setErrorMessage("Unable to generate the payroll workbook.");
+          setIsExporting(false);
+        });
+      };
+      worker.postMessage({
+        currentSemester,
+        payrollNumber,
+        disbursements: filteredWithSubmission.map((item) => ({ name: item.name, status: item.status })),
+      });
+    } catch (error) {
+      finishAfterMinimumDuration(() => {
+        setErrorMessage(error instanceof Error ? error.message : "Unable to export payroll.");
+        setIsExporting(false);
+      });
+    }
   }
 
   async function toggleClaimed(id: string) {
@@ -339,18 +360,23 @@ export default function AdminAccountingPage() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={handleExportCsv}
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+            onClick={handleExportOfficialPayrollExcel}
+            disabled={isExporting}
+            aria-busy={isExporting}
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
           >
-            <Download className="h-4 w-4" />
-            Export CSV
+            {isExporting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {isExporting ? "Exporting..." : "Export Payroll"}
           </button>
 
           <div className="w-72">
             <label className="sr-only">Semester</label>
             <select
               value={selectedSemester}
-              onChange={(e) => setSelectedSemester(e.target.value)}
+              onChange={(e) => {
+                setSelectedSemester(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none shadow-sm focus:border-sky-400"
               aria-label="Filter by semester"
             >
@@ -363,17 +389,36 @@ export default function AdminAccountingPage() {
           </div>
         </div>
       </div>
-      {/* global error banner removed — use inline validation under the input instead */}
-      {successMessage ? (
-        <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          {successMessage}
-          <button onClick={() => setSuccessMessage(null)} className="ml-4 underline">
-            Dismiss
-          </button>
-        </div>
-      ) : null}
-
         {/* Top section - budget overview */}
+        {loading ? (
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2" aria-busy="true" aria-label="Loading accounting summary">
+            <div className="min-h-[168px] animate-pulse rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 rounded-lg bg-slate-100" />
+                <div className="h-4 w-28 rounded bg-slate-100" />
+              </div>
+              <div className="mt-4 h-3 w-32 rounded bg-slate-100" />
+              <div className="mt-2 flex items-center gap-4">
+                <div className="h-9 w-40 rounded-xl bg-slate-100" />
+                <div className="h-4 w-28 rounded bg-slate-100" />
+                <div className="ml-auto h-8 w-20 rounded-xl bg-slate-200" />
+              </div>
+            </div>
+            <div className="min-h-[168px] animate-pulse rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+              <div className="h-4 w-28 rounded bg-slate-100" />
+              <div className="mt-4 flex items-center justify-between gap-4">
+                <div>
+                  <div className="h-10 w-36 rounded bg-slate-100" />
+                  <div className="mt-2 h-3 w-44 rounded bg-slate-100" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-3 w-28 rounded bg-slate-100" />
+                  <div className="h-3 w-32 rounded bg-slate-100" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
@@ -389,6 +434,7 @@ export default function AdminAccountingPage() {
                 <div className="flex flex-col">
                   <input
                     type="number"
+                    step={GRANT_AMOUNT}
                     value={totalBudget !== null ? String(totalBudget) : ''}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -405,6 +451,7 @@ export default function AdminAccountingPage() {
                     aria-label="Total budget"
                   />
                   {validationError ? <div className="mt-1 text-sm text-red-500">{validationError}</div> : null}
+                  {errorMessage ? <div role="alert" className="mt-1 text-sm text-rose-600">{errorMessage}</div> : null}
                 </div>
 
                 <div className="text-sm text-slate-600">Grant amount: {formatter.format(GRANT_AMOUNT)}</div>
@@ -414,13 +461,18 @@ export default function AdminAccountingPage() {
                   onClick={handleSaveBudget}
                   disabled={isSaving}
                   aria-busy={isSaving}
-                  className={`ml-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800 active:scale-95 transition duration-150 min-w-[72px] ${isSaving ? 'opacity-80 cursor-wait' : ''}`}
+                  className={`ml-auto inline-flex min-w-[104px] items-center justify-center gap-2 rounded-2xl px-4 py-1.5 text-sm font-medium text-white shadow-sm transition duration-150 active:scale-95 ${isSaved ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-slate-800"} ${isSaving ? "cursor-wait opacity-80" : ""}`}
                 >
                   <span className="relative inline-flex items-center justify-center w-full">
                     {isSaving ? (
                       <>
                         <span className="absolute left-3 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
                         <span className="opacity-90">Saving...</span>
+                      </>
+                    ) : isSaved ? (
+                      <>
+                        <Check className="h-4 w-4" aria-hidden="true" />
+                        <span>Saved</span>
                       </>
                     ) : (
                       <span className="">Save</span>
@@ -450,6 +502,7 @@ export default function AdminAccountingPage() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Middle section - search + semester filter */}
         <div className="mt-6 flex items-center justify-between gap-4">
@@ -461,7 +514,10 @@ export default function AdminAccountingPage() {
               </div>
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
                 placeholder="Search student or name"
                 className="w-full rounded-2xl border border-transparent bg-white px-4 py-3 pl-11 text-sm text-slate-900 outline-none shadow-md focus:border-sky-300 focus:ring-2 focus:ring-sky-50"
                 aria-label="Search grantee by name"
@@ -474,7 +530,10 @@ export default function AdminAccountingPage() {
               {['All','Submitted','Not submitted'].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setSubmissionFilter(tab === 'All' ? 'all' : tab === 'Submitted' ? 'submitted' : 'not_submitted')}
+                  onClick={() => {
+                    setSubmissionFilter(tab === 'All' ? 'all' : tab === 'Submitted' ? 'submitted' : 'not_submitted');
+                    setCurrentPage(1);
+                  }}
                   className={`px-3 py-2 text-xs rounded-2xl font-medium transition ${submissionFilter === (tab === 'All' ? 'all' : tab === 'Submitted' ? 'submitted' : 'not_submitted') ? 'bg-sky-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
                   style={{lineHeight: '1'}}
                 >
@@ -487,7 +546,10 @@ export default function AdminAccountingPage() {
               {['All','Pending','Received'].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setClaimedFilter(tab === 'All' ? 'all' : tab === 'Received' ? 'received' : 'pending')}
+                  onClick={() => {
+                    setClaimedFilter(tab === 'All' ? 'all' : tab === 'Received' ? 'received' : 'pending');
+                    setCurrentPage(1);
+                  }}
                   className={`px-3 py-2 text-xs rounded-2xl font-medium transition ${claimedFilter === (tab === 'All' ? 'all' : tab === 'Received' ? 'received' : 'pending') ? 'bg-sky-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
                   style={{lineHeight: '1'}}
                 >

@@ -1,9 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, RotateCcw, Search, Send } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle2, Clock, Inbox, RotateCcw, Search, Send, TrendingDown, TrendingUp } from "lucide-react";
 import { useAdminSearch } from "./AdminSearchContext";
-import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 import type { TimePeriod } from "./DashboardHeaderWrapper";
 
 function extractUrls(text: string) {
@@ -94,10 +93,6 @@ const INQUIRY_FILTERS: Array<{ label: string; value: "ALL" | "OPEN" | "RESOLVED"
 ];
 
 export default function InquiriesPageClient({
-  dateLabel,
-  openInquiryCount,
-  pendingSubmissionCount,
-  statsByPeriod,
   inquiries,
 }: InquiriesPageClientProps) {
   const { searchQuery, setSearchQuery } = useAdminSearch();
@@ -134,6 +129,130 @@ export default function InquiriesPageClient({
       return matchesStatus && matchesSearch;
     });
   }, [localInquiries, searchQuery, statusFilter]);
+
+  const operationalMetrics = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    const startOfThisMonth = new Date(startOfToday);
+    startOfThisMonth.setDate(startOfThisMonth.getDate() - 30);
+    const startOfLastMonth = new Date(startOfThisMonth);
+    startOfLastMonth.setDate(startOfLastMonth.getDate() - 30);
+    const nowTimestamp = now.getTime();
+    const startOfTodayTimestamp = startOfToday.getTime();
+    const startOfYesterdayTimestamp = startOfYesterday.getTime();
+    const startOfThisMonthTimestamp = startOfThisMonth.getTime();
+    const startOfLastMonthTimestamp = startOfLastMonth.getTime();
+
+    const activeBacklog = localInquiries.filter((inquiry) => !inquiry.isResolved).length;
+    const receivedToday = localInquiries.filter((inquiry) => {
+      const createdAt = Date.parse(inquiry.createdAt);
+      return createdAt >= startOfTodayTimestamp && createdAt <= nowTimestamp;
+    }).length;
+    const receivedYesterday = localInquiries.filter((inquiry) => {
+      const createdAt = Date.parse(inquiry.createdAt);
+      return createdAt >= startOfYesterdayTimestamp && createdAt < startOfTodayTimestamp;
+    }).length;
+    const resolvedThisMonth = localInquiries.filter((inquiry) => {
+      if (!inquiry.isResolved || !inquiry.respondedAt) return false;
+      const respondedAt = Date.parse(inquiry.respondedAt);
+      return respondedAt >= startOfThisMonthTimestamp && respondedAt <= nowTimestamp;
+    }).length;
+    const resolvedLastMonth = localInquiries.filter((inquiry) => {
+      if (!inquiry.isResolved || !inquiry.respondedAt) return false;
+      const respondedAt = Date.parse(inquiry.respondedAt);
+      return respondedAt >= startOfLastMonthTimestamp && respondedAt < startOfThisMonthTimestamp;
+    }).length;
+
+    const currentMonthResponseTimes: number[] = [];
+    const lastMonthResponseTimes: number[] = [];
+    for (const inquiry of localInquiries) {
+      const firstAdminReply = getConversationMessages(inquiry).find((item) => item.role === "admin");
+      const createdTimestamp = Date.parse(inquiry.createdAt);
+      const firstReplyTimestamp = Date.parse(firstAdminReply?.createdAt ?? "");
+      const latestResponseTimestamp = Date.parse(inquiry.respondedAt ?? "");
+      const responseTimestamp = Number.isFinite(firstReplyTimestamp) && firstReplyTimestamp >= createdTimestamp
+        ? firstReplyTimestamp
+        : latestResponseTimestamp;
+      const duration = responseTimestamp - createdTimestamp;
+      if (!Number.isFinite(duration) || duration < 0) continue;
+      const activityTimestamp = Number.isFinite(latestResponseTimestamp) ? latestResponseTimestamp : responseTimestamp;
+      if (activityTimestamp >= startOfThisMonthTimestamp && activityTimestamp <= nowTimestamp) {
+        currentMonthResponseTimes.push(duration);
+      } else if (activityTimestamp >= startOfLastMonthTimestamp && activityTimestamp < startOfThisMonthTimestamp) {
+        lastMonthResponseTimes.push(duration);
+      }
+    }
+
+    const average = (values: number[]) => values.length
+      ? values.reduce((total, value) => total + value, 0) / values.length
+      : null;
+    const averageResponseTime = average(currentMonthResponseTimes);
+    const previousAverageResponseTime = average(lastMonthResponseTimes);
+    const formatDuration = (milliseconds: number | null) => {
+      if (milliseconds === null) return "N/A";
+      const minutes = Math.round(milliseconds / 60_000);
+      return minutes >= 60 ? `${(minutes / 60).toFixed(1)}h` : `${minutes}m`;
+    };
+    const receivedChange = receivedYesterday === 0
+      ? receivedToday === 0 ? "0% vs yesterday" : `+${receivedToday} vs yesterday`
+      : `${Math.round(((receivedToday - receivedYesterday) / receivedYesterday) * 100) > 0 ? "+" : ""}${Math.round(((receivedToday - receivedYesterday) / receivedYesterday) * 100)}% vs yesterday`;
+    const resolvedChange = resolvedThisMonth - resolvedLastMonth;
+    const responseTimeChange = averageResponseTime === null
+      ? "Pending data"
+      : previousAverageResponseTime === null
+        ? averageResponseTime <= 60 * 60_000 ? "Fast response" : "No prior data"
+        : `${Math.round((averageResponseTime - previousAverageResponseTime) / 60_000) > 0 ? "+" : ""}${Math.round((averageResponseTime - previousAverageResponseTime) / 60_000)}m`;
+
+    return [
+      {
+        label: "Open Inquiries",
+        value: String(activeBacklog),
+        description: "unresolved items",
+        trend: activeBacklog > 0 ? "Requires Action" : "All clear",
+        icon: Inbox,
+        tone: activeBacklog > 0 ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600",
+        trendIcon: null,
+      },
+      {
+        label: "Received Today",
+        value: String(receivedToday),
+        description: "submitted today",
+        trend: receivedChange,
+        icon: CalendarDays,
+        tone: "bg-slate-100 text-slate-600",
+        trendIcon: null,
+      },
+      {
+        label: "Resolved This Month",
+        value: String(resolvedThisMonth),
+        description: "closed this month",
+        trend: `${resolvedChange > 0 ? "+" : ""}${resolvedChange}`,
+        icon: CheckCircle2,
+        tone: "bg-emerald-50 text-emerald-600",
+        trendIcon: resolvedChange >= 0 ? TrendingUp : TrendingDown,
+      },
+      {
+        label: "Avg Response Time",
+        value: averageResponseTime === null ? "No replies yet" : formatDuration(averageResponseTime),
+        description: "speed to first reply",
+        trend: responseTimeChange,
+        icon: Clock,
+        tone: averageResponseTime !== null && (previousAverageResponseTime !== null
+          ? averageResponseTime <= previousAverageResponseTime
+          : averageResponseTime <= 60 * 60_000)
+          ? "bg-emerald-50 text-emerald-600"
+          : "bg-slate-100 text-slate-600",
+        trendIcon: averageResponseTime !== null && (previousAverageResponseTime !== null
+          ? averageResponseTime <= previousAverageResponseTime
+          : averageResponseTime <= 60 * 60_000)
+          ? TrendingDown
+          : previousAverageResponseTime !== null && averageResponseTime !== null ? TrendingUp : null,
+      },
+    ];
+  }, [localInquiries]);
 
   async function handleSendReply(inquiryId: string) {
     const text = (replyText[inquiryId] ?? "").trim();
@@ -277,66 +396,86 @@ export default function InquiriesPageClient({
   }
 
   return (
-    <>
-      <DashboardHeaderWrapper
-        dateLabel={dateLabel}
-        openInquiryCount={openInquiryCount}
-        pendingSubmissionCount={pendingSubmissionCount}
-        statsByPeriod={statsByPeriod}
-        compact
-        showNotificationBell={false}
-      />
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 pb-12">
+      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div className="max-w-2xl">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Communication</span>
+          <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Manage Inquiries</h1>
+          <p className="text-sm leading-relaxed text-slate-500">
+            Review, respond to, and resolve support questions and citizen concerns.
+          </p>
+        </div>
+      </header>
 
-      <div className="flex-1 py-0 mt-8">
-        <div className="px-8 space-y-6">
-          <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-6 py-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.28em] text-[#0F3D5C]">Support inquiries</p>
-                  <h2 className="mt-2 text-2xl font-black text-slate-950">General support questions</h2>
-                </div>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full">
-                  <div className="relative flex-1 min-w-[300px]">
-                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="search"
-                      placeholder="Search subject, message, email..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full rounded-full border border-slate-200 bg-white py-2 pl-11 pr-4 text-sm text-slate-700 placeholder-slate-500 outline-none transition focus:ring-2 focus:ring-[#0F3D5C]/20 focus:border-[#0F3D5C]"
-                    />
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {INQUIRY_FILTERS.map((filter) => (
-                      <button
-                        key={filter.value}
-                        type="button"
-                        onClick={() => setStatusFilter(filter.value)}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                          statusFilter === filter.value
-                            ? "bg-[#0F3D5C] text-white shadow-sm"
-                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                        }`}
-                      >
-                        {filter.label}
-                      </button>
-                    ))}
-                  </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {operationalMetrics.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <div key={stat.label} className="group relative flex min-h-[172px] min-w-0 flex-col justify-between overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300">
+              <div className="relative z-10 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{stat.label}</span>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-600">
+                  <Icon className="h-4 w-4" />
                 </div>
               </div>
+              <div className={`relative z-10 mt-4 tracking-tight ${stat.value === "No replies yet" ? "text-lg font-semibold text-slate-400" : "text-3xl font-black text-slate-900"}`}>
+                {stat.value}
+              </div>
+              <div className="relative z-10 mt-2 flex min-w-0 items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-xs text-slate-500" title={stat.description}>{stat.description}</span>
+                <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${stat.tone}`}>
+                  {stat.trendIcon ? <stat.trendIcon className="h-3 w-3" /> : null}
+                  {stat.trend}
+                </span>
+              </div>
             </div>
+          );
+        })}
+      </div>
 
-            <div className="relative max-h-[600px] overflow-auto custom-scroll">
-              <table className="w-full min-w-[900px] divide-y divide-slate-200 text-sm">
-                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-500 shadow-sm">
-                  <tr>
-                    <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Subject</th>
-                    <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">User</th>
-                    <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Status</th>
-                    <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Submitted</th>
-                    <th className="whitespace-nowrap px-6 py-4 text-left font-semibold">Response</th>
-                    <th className="px-6 py-4 text-right font-semibold">Action</th>
+      <div className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-col items-center justify-between gap-4 border-b border-slate-100 bg-white p-4 sm:flex-row sm:p-5">
+          <label className="relative block w-full sm:w-80">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              placeholder="Search subject, message, email..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm text-slate-700 shadow-sm outline-none placeholder:text-slate-400 transition-colors focus:border-cyan-500"
+            />
+          </label>
+          <div className="flex w-full shrink-0 items-center overflow-x-auto rounded-xl bg-slate-100 p-1 sm:w-auto">
+            {INQUIRY_FILTERS.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                onClick={() => setStatusFilter(filter.value)}
+                aria-pressed={statusFilter === filter.value}
+                className={`shrink-0 rounded-lg px-4 py-1.5 text-sm transition-all ${
+                  statusFilter === filter.value
+                    ? "bg-white font-semibold text-slate-900 shadow-sm"
+                    : "font-medium text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+            <div className="w-full overflow-x-auto">
+              <table className="w-full table-fixed border-collapse whitespace-nowrap text-left text-sm divide-y divide-slate-200">
+                <thead className="relative z-30 bg-gradient-to-r from-slate-900 to-cyan-900">
+                  <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
+                    <th className="w-[25%] pl-6 pr-4 py-4 text-left sm:pl-8">Subject</th>
+                    <th className="w-[20%] px-4 py-4 text-left">User</th>
+                    <th className="w-[12%] px-4 py-4 text-left">Status</th>
+                    <th className="w-[13%] px-4 py-4 text-left">Submitted</th>
+                    <th className="w-[14%] px-4 py-4 text-left">Response</th>
+                    <th className="w-[16%] pl-8 pr-6 py-4 text-left text-[11px] font-bold uppercase tracking-widest text-cyan-50 sm:pl-9">
+                      Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
@@ -353,7 +492,7 @@ export default function InquiriesPageClient({
                       return (
                         <Fragment key={inquiry.id}>
                           <tr className="transition hover:bg-slate-50">
-                            <td className="w-[250px] max-w-[250px] px-6 py-4">
+                            <td className="max-w-0 pl-6 pr-4 py-4 sm:pl-8">
                               <div className="truncate font-semibold text-slate-900" title={inquiry.subject}>
                                 {inquiry.subject}
                               </div>
@@ -361,7 +500,7 @@ export default function InquiriesPageClient({
                                 {inquiry.message}
                               </div>
                             </td>
-                            <td className="max-w-[200px] px-6 py-4">
+                            <td className="max-w-0 px-4 py-4">
                               <div className="truncate font-medium text-slate-900" title={inquiry.user.fullName}>
                                 {inquiry.user.fullName}
                               </div>
@@ -369,7 +508,7 @@ export default function InquiriesPageClient({
                                 {inquiry.user.email}
                               </div>
                             </td>
-                            <td className="px-6 py-4">
+                            <td className="px-4 py-4">
                               <span
                                 className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
                                   inquiry.isResolved
@@ -380,14 +519,14 @@ export default function InquiriesPageClient({
                                 {inquiry.isResolved ? "Resolved" : "Open"}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-slate-700">
+                            <td className="px-4 py-4 text-slate-700">
                               {new Date(inquiry.createdAt).toLocaleDateString("en-US", {
                                 month: "short",
                                 day: "numeric",
                                 year: "numeric",
                               })}
                             </td>
-                            <td className="px-6 py-4 text-slate-700">
+                            <td className="px-4 py-4 text-slate-700">
                               {inquiry.respondedAt
                                 ? new Date(inquiry.respondedAt).toLocaleDateString("en-US", {
                                     month: "short",
@@ -396,15 +535,17 @@ export default function InquiriesPageClient({
                                   })
                                 : "—"}
                             </td>
-                            <td className="px-6 py-4 text-right">
-                              <button
-                                type="button"
-                                onClick={() => setExpandedId(isExpanded ? null : inquiry.id)}
-                                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-700 transition hover:bg-slate-200"
-                              >
-                                {isExpanded ? "Hide" : "Details"}
-                                <ArrowRight className="h-3.5 w-3.5" />
-                              </button>
+                            <td className="px-4 py-4 sm:px-6">
+                              <div className="flex justify-end sm:justify-start">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedId(isExpanded ? null : inquiry.id)}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition-all hover:bg-slate-100 hover:text-slate-900"
+                                >
+                                  {isExpanded ? "Hide" : "Details"}
+                                  <ArrowRight className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                           {isExpanded ? (
@@ -565,10 +706,8 @@ export default function InquiriesPageClient({
                   )}
                 </tbody>
               </table>
-            </div>
           </div>
         </div>
-      </div>
-    </>
+        </main>
   );
 }

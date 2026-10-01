@@ -5,16 +5,30 @@ import HeroCtaButton from "@/app/components/HeroCtaButton";
 import OrdinancesSection from "@/components/OrdinancesSection";
 import { useAuth } from "@/app/components/AuthProvider";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
 
 export default function HomePage() {
   const pathname = usePathname();
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [activeLink, setActiveLink] = useState<string>(pathname);
   const [youthCount, setYouthCount] = useState<number | null>(null);
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const dashboardPath = user?.role === "GRANTEE"
+    ? "/grantee-dashboard"
+    : user?.role === "SK_OFFICIAL"
+      ? "/admin"
+      : user?.role === "SUPER_ADMIN"
+        ? "/system-admin"
+        : null;
+
+  useEffect(() => {
+    if (!authLoading && dashboardPath) {
+      router.replace(dashboardPath);
+    }
+  }, [authLoading, dashboardPath, router]);
 
   useEffect(() => {
     let mounted = true;
@@ -58,6 +72,8 @@ export default function HomePage() {
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [pathname]);
+
+  if (dashboardPath) return null;
 
   const navLinkClass = (href: string) =>
     `px-4 py-2 font-semibold transition-all rounded-lg ${activeLink === href ? "text-[#0F3D5C] bg-[#0F3D5C]/10" : "text-[#3C3C3C] hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5"}`;

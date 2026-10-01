@@ -42,8 +42,13 @@ async function getReminderSettings() {
   };
 }
 
-async function upsertReminderSetting(type: ReminderType, offsets: number[], deadline?: string | null) {
-  return prisma.reminderSetting.upsert({
+async function upsertReminderSetting(
+  client: Prisma.TransactionClient,
+  type: ReminderType,
+  offsets: number[],
+  deadline?: string | null
+) {
+  return client.reminderSetting.upsert({
     where: { type },
     create: {
       type,
@@ -133,32 +138,51 @@ export async function POST(request: Request) {
   }
 
   try {
-    await prisma.user.update({
-      where: { id: appUser.id },
-      data: {
-        fullName,
-        email,
-        settings: {
-          inquiryAlerts: Boolean(inquiryAlerts),
-          submissionAlerts: Boolean(submissionAlerts),
-        },
-      } as unknown as Prisma.UserUpdateInput,
-    });
-
     const previousSettings = await getReminderSettings();
+    const nextProfileSettings = {
+      inquiryAlerts: Boolean(inquiryAlerts),
+      submissionAlerts: Boolean(submissionAlerts),
+    };
 
     await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: appUser.id },
+        data: {
+          fullName,
+          email,
+          settings: nextProfileSettings,
+        } as unknown as Prisma.UserUpdateInput,
+      });
+
       await upsertReminderSetting(
+        tx,
         ReminderType.SKEAP_APPLICATION,
         parseReminderOffsets(String(skeapReminderOffsets ?? "")),
         typeof skeapDeadline === "string" ? skeapDeadline : null
       );
 
       await writeAuditLog(tx, {
-        action: "OVERRIDE_DEADLINE",
+        action: "UPDATE_ADMIN_PROFILE_SETTINGS",
+        actorId: appUser.id,
+        targetTable: "users",
+        targetId: appUser.id,
+        beforeData: {
+          fullName: appUser.fullName,
+          email: appUser.email,
+          settings: appUser.settings,
+        },
+        afterData: {
+          fullName,
+          email,
+          settings: nextProfileSettings,
+        },
+      });
+
+      await writeAuditLog(tx, {
+        action: "UPDATE_REMINDER_SETTINGS",
         actorId: appUser.id,
         targetTable: "reminder_settings",
-        targetId: appUser.id,
+        targetId: ReminderType.SKEAP_APPLICATION,
         beforeData: previousSettings,
         afterData: {
           skeapReminderOffsets,

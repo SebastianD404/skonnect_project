@@ -7,6 +7,7 @@ interface AdminTablePaginationFooterProps {
   page: number;
   pageSize: number;
   basePath: string;
+  startNavigation?: (callback: () => void) => void;
 }
 
 export default function AdminTablePaginationFooter({
@@ -14,6 +15,7 @@ export default function AdminTablePaginationFooter({
   page,
   pageSize,
   basePath,
+  startNavigation,
 }: AdminTablePaginationFooterProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -23,7 +25,10 @@ export default function AdminTablePaginationFooter({
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(nextPage));
     params.set("pageSize", String(nextPageSize));
-    router.push(`${basePath}?${params.toString()}`, { scroll: false });
+    const href = `${basePath}?${params.toString()}`;
+    const navigate = () => router.push(href, { scroll: false });
+    if (startNavigation) startNavigation(navigate);
+    else navigate();
   };
 
   return (

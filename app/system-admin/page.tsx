@@ -2,51 +2,53 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import {
   Activity,
-  AlertTriangle,
+  ArrowRight,
   ArrowUpRight,
-  ScrollText,
+  FileText,
+  Shield,
   ShieldCheck,
+  ScrollText,
   TrendingUp,
   Users,
 } from "lucide-react";
+import SystemAdminDashboardActions from "./SystemAdminDashboardActions";
 
 export default async function SystemAdminDashboardPage() {
-  const [activeUserCount, roleUpdateCount, auditCount, recentAudits, roleCounts] =
-    await Promise.all([
-      prisma.user.count({
-        where: { isActive: true },
-      }),
-      prisma.auditLog.count({
-        where: {
-          action: {
-            contains: "ROLE",
-            mode: "insensitive",
+  const [activeUsersCount, auditEntriesRows, adminAccountsCount, recentAudits, roleCounts] = await Promise.all([
+    prisma.user.count({
+      where: { isActive: true },
+    }),
+    prisma.$queryRaw<Array<{ count: bigint }>>`SELECT COUNT(*)::bigint AS count FROM audit_logs WHERE "createdAt" >= NOW() - INTERVAL '30 days'`,
+    prisma.user.count({
+      where: {
+        isActive: true,
+        role: { in: ["SK_OFFICIAL", "SUPER_ADMIN"] },
+      },
+    }),
+    prisma.auditLog.findMany({
+      take: 4,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        action: true,
+        targetTable: true,
+        createdAt: true,
+        actor: {
+          select: {
+            fullName: true,
           },
         },
-      }),
-      prisma.auditLog.count(),
-      prisma.auditLog.findMany({
-        take: 4,
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          action: true,
-          targetTable: true,
-          createdAt: true,
-          actor: {
-            select: {
-              fullName: true,
-            },
-          },
-        },
-      }),
-      prisma.user.groupBy({
-        by: ["role"],
-        _count: {
-          role: true,
-        },
-      }),
-    ]);
+      },
+    }),
+    prisma.user.groupBy({
+      by: ["role"],
+      _count: {
+        role: true,
+      },
+    }),
+  ]);
+
+  const auditEntriesCount = Number(auditEntriesRows[0]?.count ?? 0);
 
   const totalUsers = Math.max(
     1,
@@ -69,134 +71,106 @@ export default async function SystemAdminDashboardPage() {
     },
   ];
 
-  const stats = [
-    {
-      label: "Active Users",
-      value: activeUserCount,
-      delta: "Currently active accounts",
-      icon: Users,
-      tone: "bg-[#0F3D5C]/10 text-[#0F3D5C]",
-    },
-    {
-      label: "Role Updates",
-      value: roleUpdateCount,
-      delta: "Role-related log entries",
-      icon: ShieldCheck,
-      tone: "bg-sky-100 text-sky-700",
-    },
-    {
-      label: "Audit Entries",
-      value: auditCount,
-      delta: "All recorded governance logs",
-      icon: ScrollText,
-      tone: "bg-emerald-100 text-emerald-700",
-    },
-    {
-      label: "Pending Reviews",
-      value: 0,
-      delta: "No pending review workflows",
-      icon: AlertTriangle,
-      tone: "bg-amber-100 text-amber-700",
-    },
-  ] as const;
-
   return (
-    <div className="mx-auto max-w-7xl space-y-8">
-      <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-        <span className="text-slate-900">System Admin</span>
-        <span>/</span>
-        <span>Dashboard</span>
+    <div className="mx-auto max-w-7xl">
+      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            System Admin / Dashboard
+          </div>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">
+            System Administration
+          </h1>
+          <p className="text-sm text-slate-500">
+            Platform governance, access controls, and immutable audit trails for Barangay Pico.
+          </p>
+        </div>
+        <SystemAdminDashboardActions />
       </div>
 
-      <section className="relative overflow-hidden rounded-3xl border border-[#14476B]/20 bg-gradient-to-br from-[#0F3D5C] via-[#1B5F86] to-[#24A4D8] p-8 text-white shadow-xl lg:p-12">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.22),transparent_45%),radial-gradient(circle_at_100%_100%,rgba(255,255,255,0.18),transparent_40%)]" />
-        <div className="relative grid gap-8 lg:grid-cols-[1.35fr_1fr] lg:items-center">
-          <div className="space-y-5">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]">
-              <span className="h-1.5 w-1.5 rounded-full bg-cyan-200" />
-              System Admin Console
+      <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Link
+          href="/system-admin/users"
+          className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-cyan-600">
+              Active Users
             </span>
-            <h1 className="text-4xl font-black leading-[1.02] tracking-tight sm:text-5xl lg:text-6xl">
-              Oversee users,
-              <br />
-              permissions, and
-              <br />
-              audit history.
-            </h1>
-            <p className="max-w-xl text-base text-slate-100/85 sm:text-lg">
-              Manage roles, review system logs, and keep the SKonnect platform secure and
-              compliant for Barangay Pico.
-            </p>
-            <div className="flex flex-wrap gap-3 pt-2">
-              <Link
-                href="/system-admin/users"
-                className="group inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-[#0F3D5C] transition hover:bg-white/90"
-              >
-                Manage users
-                <ArrowUpRight className="h-4 w-4 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-              </Link>
-              <Link
-                href="/system-admin/audit"
-                className="inline-flex items-center gap-2 rounded-xl border border-white/35 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
-              >
-                Audit history
-              </Link>
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-600">
+              <Users className="h-4 w-4" />
             </div>
           </div>
+          <div className="mt-4 text-3xl font-black tracking-tight text-slate-900">
+            {activeUsersCount}
+          </div>
+          <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+            Manage accounts <ArrowRight className="h-3 w-3" />
+          </div>
+        </Link>
 
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-100/80">
-              Governance pulse
-            </p>
-            <p className="mt-2 text-3xl font-black">Today at a glance</p>
-            <div className="mt-5 space-y-4">
-              {[
-                { label: "Sign-ins (24h)", value: "--", trend: "live" },
-                { label: "Role changes", value: String(roleUpdateCount), trend: "records" },
-                { label: "Security alerts", value: "0", trend: "stable" },
-              ].map((row) => (
-                <div
-                  key={row.label}
-                  className="flex items-center justify-between border-b border-white/15 pb-3 last:border-0 last:pb-0"
-                >
-                  <span className="text-sm text-slate-100/80">{row.label}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl font-bold tabular-nums">{row.value}</span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-cyan-200">
-                      {row.trend}
-                    </span>
-                  </div>
-                </div>
-              ))}
+        <Link
+          href="/system-admin/audit"
+          className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-cyan-600">
+              Audit Entries
+            </span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-600">
+              <FileText className="h-4 w-4" />
             </div>
           </div>
-        </div>
-      </section>
+          <div className="mt-4 text-3xl font-black tracking-tight text-slate-900">
+            {auditEntriesCount}
+          </div>
+          <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+            View compliance logs <ArrowRight className="h-3 w-3" />
+          </div>
+        </Link>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map(({ label, value, delta, icon: Icon, tone }) => (
-          <div
-            key={label}
-            className="rounded-2xl border border-[#D6E1EC] bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  {label}
-                </p>
-                <p className="mt-3 text-4xl font-black tabular-nums text-slate-900">{value}</p>
-              </div>
-              <div className={`grid h-10 w-10 place-items-center rounded-xl ${tone}`}>
-                <Icon className="h-4 w-4" />
-              </div>
+        <Link
+          href="/system-admin/users"
+          className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-indigo-600">
+              Privileged Accounts
+            </span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
+              <Shield className="h-4 w-4" />
             </div>
-            <p className="mt-3 text-xs text-slate-500">{delta}</p>
           </div>
-        ))}
+          <div className="mt-4 text-3xl font-black tracking-tight text-slate-900">
+            {adminAccountsCount}
+          </div>
+          <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+            Active SK Officials &amp; Super Admins <ArrowRight className="h-3 w-3" />
+          </div>
+        </Link>
+
+        <Link
+          href="/system-admin/reconcile"
+          className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-emerald-600">
+              System Security
+            </span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+              <ShieldCheck className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-4 text-3xl font-black tracking-tight text-slate-900">Enforced</div>
+          <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+            System Admin routes are role-gated <ArrowRight className="h-3 w-3" />
+          </div>
+        </Link>
+
       </section>
 
       <section className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 overflow-hidden rounded-2xl border border-[#D6E1EC] bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-[#D6E1EC] bg-white shadow-sm lg:col-span-2">
           <div className="flex items-center justify-between border-b border-[#E4ECF3] px-6 py-4">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-[#0F3D5C]" />
@@ -245,9 +219,9 @@ export default async function SystemAdminDashboardPage() {
             </div>
             <div className="mt-4 space-y-2">
               {[
-                { label: "Assign a new role", href: "/system-admin/users" },
-                { label: "Review audit logs", href: "/system-admin/audit" },
-                { label: "Export user report", href: "/system-admin/users" },
+                { label: "Manage User Roles", href: "/system-admin/users" },
+                { label: "View & Export Audit Logs", href: "/system-admin/audit" },
+                { label: "Reconcile Auth Users", href: "/system-admin/reconcile" },
               ].map((item) => (
                 <Link
                   key={item.label}

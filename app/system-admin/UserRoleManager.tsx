@@ -4,14 +4,11 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Role } from "@prisma/client";
 import {
-  Check,
-  ChevronDown,
   Download,
   Eye,
   Filter,
-  MoreHorizontal,
+  LoaderCircle,
   Pencil,
-  Power,
   Search,
   Trash2,
   X,
@@ -21,9 +18,10 @@ type UserItem = {
   id: string;
   fullName: string;
   email: string;
+  avatarUrl: string | null;
   role: Role;
   isActive: boolean;
-  updatedAt: string;
+  createdAt: string;
 };
 
 type Props = {
@@ -44,12 +42,12 @@ export default function UserRoleManager({ users }: Props) {
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
   const [showRoleFilterMenu, setShowRoleFilterMenu] = useState(false);
-  const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
   const [viewingUser, setViewingUser] = useState<UserItem | null>(null);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
   const [editFullName, setEditFullName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const [draftRoles, setDraftRoles] = useState<Record<string, Role>>(() =>
     Object.fromEntries(users.map((user) => [user.id, user.role])) as Record<string, Role>
   );
@@ -69,18 +67,11 @@ export default function UserRoleManager({ users }: Props) {
     });
   }, [query, roleFilter, users]);
 
-  function updateRoleDraft(userId: string, role: Role) {
+  function updateRole(userId: string, role: Role) {
+    const user = users.find((item) => item.id === userId);
+    if (!user || user.role === role || (isPending && pendingUserId !== userId)) return;
+
     setDraftRoles((prev) => ({ ...prev, [userId]: role }));
-    setMessage(null);
-  }
-
-  function saveRole(userId: string) {
-    const nextRole = draftRoles[userId];
-    if (!nextRole) {
-      setMessage({ type: "error", text: "Choose a role first." });
-      return;
-    }
-
     setPendingUserId(userId);
     setMessage(null);
 
@@ -89,7 +80,7 @@ export default function UserRoleManager({ users }: Props) {
         const response = await fetch(`/api/system-admin/users/${userId}/role`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: nextRole }),
+          body: JSON.stringify({ role }),
         });
 
         const result = await response.json();
@@ -100,6 +91,7 @@ export default function UserRoleManager({ users }: Props) {
         setMessage({ type: "success", text: "Role updated successfully." });
         router.refresh();
       } catch (error) {
+        setDraftRoles((prev) => ({ ...prev, [userId]: user.role }));
         const text = error instanceof Error ? error.message : "Failed to update role";
         setMessage({ type: "error", text });
       } finally {
@@ -108,34 +100,84 @@ export default function UserRoleManager({ users }: Props) {
     });
   }
 
-  function exportCsv() {
-    const headers = ["Full Name", "Email", "Role", "Active", "Updated At"];
-    const rows = filteredUsers.map((user) => [
-      user.fullName,
-      user.email,
-      user.role,
-      user.isActive ? "ACTIVE" : "INACTIVE",
-      new Date(user.updatedAt).toISOString(),
-    ]);
+  function handleExportUsersExcel() {
+    if (isExporting) return;
+    if (filteredUsers.length === 0) {
+      window.alert("No records found to export for the selected filter.");
+      return;
+    }
 
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
-      .join("\n");
+    const filterLabel = roleFilter === "ALL" ? "ALL_ROLES" : roleFilter.toUpperCase();
+    const currentDate = new Date().toISOString().split("T")[0];
+    const filename = `SKonnect_Users_${filterLabel}_${currentDate}.xlsx`;
+    const exportStartedAt = performance.now();
+    const finishAfterMinimumDuration = (complete: () => void) => {
+      const remaining = Math.max(0, 1000 - (performance.now() - exportStartedAt));
+      window.setTimeout(complete, remaining);
+    };
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `system-admin-users-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    setIsExporting(true);
+    setMessage(null);
+    try {
+      const worker = new Worker(new URL("./users-export.worker.ts", import.meta.url), {
+        type: "module",
+      });
+
+      worker.onmessage = (event: MessageEvent<{ buffer?: ArrayBuffer; error?: string }>) => {
+        worker.terminate();
+        finishAfterMinimumDuration(() => {
+          try {
+            if (!event.data.buffer) {
+              throw new Error(event.data.error || "Unable to generate the Excel workbook.");
+            }
+
+            const blob = new Blob([event.data.buffer], {
+              type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            });
+            const objectUrl = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = filename;
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+          } catch (error) {
+            setMessage({
+              type: "error",
+              text: error instanceof Error ? error.message : "Unable to export users.",
+            });
+          } finally {
+            setIsExporting(false);
+          }
+        });
+      };
+
+      worker.onerror = () => {
+        worker.terminate();
+        finishAfterMinimumDuration(() => {
+          setMessage({ type: "error", text: "Unable to generate the Excel workbook." });
+          setIsExporting(false);
+        });
+      };
+
+      worker.postMessage(filteredUsers);
+    } catch (error) {
+      finishAfterMinimumDuration(() => {
+        setMessage({
+          type: "error",
+          text: error instanceof Error ? error.message : "Unable to export users.",
+        });
+        setIsExporting(false);
+      });
+    }
   }
 
   function openEditUser(user: UserItem) {
     setEditingUser(user);
     setEditFullName(user.fullName);
     setEditEmail(user.email);
-    setOpenMenuUserId(null);
   }
 
   function submitEditUser() {
@@ -169,13 +211,10 @@ export default function UserRoleManager({ users }: Props) {
     });
   }
 
-  function deactivateUser(user: UserItem) {
-    if (!user.isActive) {
-      setOpenMenuUserId(null);
-      return;
-    }
-
-    const confirmed = window.confirm(`Deactivate ${user.fullName}?`);
+  function toggleUserStatus(user: UserItem) {
+    const nextIsActive = !user.isActive;
+    const action = nextIsActive ? "Reactivate" : "Deactivate";
+    const confirmed = window.confirm(`${action} ${user.fullName}?`);
     if (!confirmed) return;
 
     setPendingUserId(user.id);
@@ -186,19 +225,18 @@ export default function UserRoleManager({ users }: Props) {
         const response = await fetch(`/api/system-admin/users/${user.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ isActive: false }),
+          body: JSON.stringify({ isActive: nextIsActive }),
         });
 
         const result = await response.json();
         if (!response.ok) {
-          throw new Error(result?.error || "Failed to deactivate user");
+          throw new Error(result?.error || `Failed to ${action.toLowerCase()} user`);
         }
 
-        setMessage({ type: "success", text: "User deactivated." });
-        setOpenMenuUserId(null);
+        setMessage({ type: "success", text: `User ${nextIsActive ? "reactivated" : "deactivated"}.` });
         router.refresh();
       } catch (error) {
-        const text = error instanceof Error ? error.message : "Failed to deactivate user";
+        const text = error instanceof Error ? error.message : `Failed to ${action.toLowerCase()} user`;
         setMessage({ type: "error", text });
       } finally {
         setPendingUserId(null);
@@ -225,7 +263,6 @@ export default function UserRoleManager({ users }: Props) {
         }
 
         setMessage({ type: "success", text: "User deleted successfully." });
-        setOpenMenuUserId(null);
         router.refresh();
       } catch (error) {
         const text = error instanceof Error ? error.message : "Failed to delete user";
@@ -301,11 +338,17 @@ export default function UserRoleManager({ users }: Props) {
 
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
-            onClick={exportCsv}
+            disabled={isExporting}
+            aria-busy={isExporting}
+            className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+            onClick={handleExportUsersExcel}
           >
-            <Download className="h-4 w-4" />
-            Export
+            {isExporting ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {isExporting ? "Exporting..." : "Export"}
           </button>
           <div className="hidden text-xs text-slate-500 sm:block">
             <span className="font-semibold text-slate-900 tabular-nums">{filteredUsers.length}</span> of{" "}
@@ -314,179 +357,141 @@ export default function UserRoleManager({ users }: Props) {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-6 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">System Users &amp; Role Management</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Manage account access, assign RBAC roles, and control active user permissions.
+            </p>
+          </div>
+          <span className="w-fit rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
+            Total Accounts: {users.length}
+          </span>
+        </div>
         {filteredUsers.length > 0 ? (
-          filteredUsers.map((user) => {
-            const draftRole = draftRoles[user.id] ?? user.role;
-            const busy = isPending && pendingUserId === user.id;
-            const unchanged = draftRole === user.role;
-            const initials = user.fullName
-              .split(" ")
-              .map((chunk) => chunk[0])
-              .slice(0, 2)
-              .join("")
-              .toUpperCase();
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
+              <thead className="bg-slate-900 text-[11px] font-bold tracking-wider text-white uppercase">
+                <tr className="text-left">
+                  <th className="px-6 py-4">User / Email</th>
+                  <th className="px-6 py-4">Current Role</th>
+                  <th className="px-6 py-4">Account Status</th>
+                  <th className="px-6 py-4">Joined Date</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredUsers.map((user) => {
+                  const draftRole = draftRoles[user.id] ?? user.role;
+                  const busy = isPending && pendingUserId === user.id;
+                  const initials = user.fullName
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map((part) => part[0])
+                    .join("")
+                    .toUpperCase();
 
-            return (
-              <article
-                key={user.id}
-                className="group relative overflow-hidden rounded-2xl border border-[#D6E1EC] bg-white p-5 shadow-sm transition hover:shadow-md"
-              >
-                <header className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#1E97D1] text-sm font-bold text-white">
-                    {initials || "U"}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-900">{user.fullName}</p>
-                    <p className="truncate text-xs text-slate-500">{user.email}</p>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                        user.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          user.isActive ? "bg-emerald-500" : "bg-slate-400"
-                        }`}
-                      />
-                      {user.isActive ? "Active" : "Inactive"}
-                    </span>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                        aria-label={`Manage ${user.fullName}`}
-                        title="Manage user"
-                        onClick={() =>
-                          setOpenMenuUserId((prev) => (prev === user.id ? null : user.id))
-                        }
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-
-                      {openMenuUserId === user.id ? (
-                        <div className="absolute right-0 top-8 z-20 w-48 overflow-hidden rounded-xl border border-[#D8E3EC] bg-white shadow-lg">
-                          <div className="border-b border-[#E8EEF5] px-3 py-2 text-xs font-semibold text-slate-700">
-                            Manage user
+                  return (
+                    <tr key={user.id} className="transition hover:bg-slate-50/50">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          {user.avatarUrl ? (
+                            <img
+                              src={user.avatarUrl}
+                              alt=""
+                              className="h-9 w-9 shrink-0 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
+                              {initials || "U"}
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-bold text-slate-900">{user.fullName || "Unnamed User"}</p>
+                            <p className="mt-0.5 text-xs text-slate-500">{user.email}</p>
                           </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <select
+                            aria-label={`Role for ${user.fullName}`}
+                            value={draftRole}
+                            onChange={(event) => updateRole(user.id, event.target.value as Role)}
+                            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                            disabled={isPending}
+                          >
+                            {ROLE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          {busy ? <LoaderCircle className="h-4 w-4 animate-spin text-slate-500" aria-label="Updating role" /> : null}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${user.isActive ? "text-emerald-700" : "text-slate-500"}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
+                            {user.isActive ? "Active" : "Inactive"}
+                          </span>
                           <button
                             type="button"
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                            onClick={() => {
-                              setViewingUser(user);
-                              setOpenMenuUserId(null);
-                            }}
+                            onClick={() => toggleUserStatus(user)}
+                            disabled={busy}
+                            className="text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline disabled:opacity-50"
                           >
-                            <Eye className="h-4 w-4" />
-                            View details
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                            onClick={() => openEditUser(user)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                            Edit user
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            onClick={() => deactivateUser(user)}
-                            disabled={!user.isActive || busy}
-                          >
-                            <Power className="h-4 w-4" />
-                            Deactivate
-                          </button>
-                          <div className="border-t border-[#E8EEF5]" />
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-600 transition hover:bg-rose-50"
-                            onClick={() => deleteUser(user)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
+                            {user.isActive ? "Deactivate" : "Reactivate"}
                           </button>
                         </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </header>
-
-                <div className="mt-4 flex items-center gap-4 text-xs">
-                  <div>
-                    <p className="text-slate-500">Current role</p>
-                    <span className="mt-1 inline-flex rounded-md border border-[#CDE0EE] bg-[#EDF5FB] px-2 py-0.5 text-[10px] font-semibold text-[#0F3D5C]">
-                      {user.role}
-                    </span>
-                  </div>
-
-                  <div className="h-8 w-px bg-[#DFE7EF]" />
-
-                  <div>
-                    <p className="text-slate-500">Updated</p>
-                    <p className="mt-1 font-medium text-slate-900 tabular-nums">
-                      {new Date(user.updatedAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 rounded-xl border border-[#D8E3EC] bg-[#F8FBFE] p-3">
-                  <label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Assign role
-                  </label>
-                  <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                    <div className="relative min-w-0">
-                      <select
-                        value={draftRole}
-                        onChange={(event) =>
-                          updateRoleDraft(user.id, event.target.value as Role)
-                        }
-                        className="h-10 w-full min-w-0 appearance-none rounded-lg border border-[#CFDBE7] bg-white px-3 pr-10 text-sm font-medium outline-none transition focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
-                        disabled={busy}
-                      >
-                        {ROLE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => saveRole(user.id)}
-                      disabled={busy || unchanged}
-                      className={`inline-flex min-w-[102px] items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold transition ${
-                        busy || isPending
-                          ? "bg-[#0F3D5C]/80 text-white"
-                          : unchanged
-                            ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                            : "bg-[#0F3D5C] text-white hover:opacity-95"
-                      }`}
-                    >
-                      {busy ? (
-                        "Saving..."
-                      ) : unchanged ? (
-                        "No change"
-                      ) : (
-                        <>
-                          <Check className="h-4 w-4" />
-                          Save
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            );
-          })
+                      </td>
+                      <td className="px-6 py-4 text-xs tabular-nums text-slate-500">
+                        {new Date(user.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setViewingUser(user)}
+                            title={`View ${user.fullName}`}
+                            aria-label={`View ${user.fullName}`}
+                            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditUser(user)}
+                            title={`Edit ${user.fullName}`}
+                            aria-label={`Edit ${user.fullName}`}
+                            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteUser(user)}
+                            title={`Delete ${user.fullName}`}
+                            aria-label={`Delete ${user.fullName}`}
+                            disabled={busy}
+                            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
-          <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-[#D6E1EC] bg-white p-10 shadow-sm">
-            <p className="text-lg font-semibold text-[#0F3D5C]">No users found.</p>
+          <div className="p-10">
+            <p className="text-lg font-semibold text-slate-900">No users found.</p>
             <p className="mt-3 text-sm leading-6 text-slate-600">
               Once user profiles exist in the database, they will appear here automatically.
             </p>
@@ -513,7 +518,7 @@ export default function UserRoleManager({ users }: Props) {
               <p><span className="font-semibold text-slate-700">Email:</span> {viewingUser.email}</p>
               <p><span className="font-semibold text-slate-700">Role:</span> {viewingUser.role}</p>
               <p><span className="font-semibold text-slate-700">Status:</span> {viewingUser.isActive ? "ACTIVE" : "INACTIVE"}</p>
-              <p><span className="font-semibold text-slate-700">Updated:</span> {new Date(viewingUser.updatedAt).toLocaleString()}</p>
+              <p><span className="font-semibold text-slate-700">Joined:</span> {new Date(viewingUser.createdAt).toLocaleString()}</p>
             </div>
           </div>
         </div>

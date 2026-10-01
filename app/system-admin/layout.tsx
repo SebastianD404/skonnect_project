@@ -24,6 +24,10 @@ export default async function SystemAdminLayout({
       },
     }),
   ]);
+  const databaseStatus = await prisma
+    .$queryRaw<Array<{ health_check: number }>>`SELECT 1 AS health_check`
+    .then(() => "connected" as const)
+    .catch(() => "unavailable" as const);
 
   return (
     <div className="min-h-screen bg-[#EFF4FA] text-slate-950">
@@ -31,6 +35,7 @@ export default async function SystemAdminLayout({
         <SystemAdminSidebar
           activeUserCount={activeUserCount}
           roleUpdateCount={roleUpdateCount}
+          databaseStatus={databaseStatus}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">

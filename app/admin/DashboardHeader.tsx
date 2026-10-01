@@ -180,7 +180,7 @@ export default function DashboardHeader({
       )}
 
       {/* Main Content Header */}
-      <div className="pt-6 pb-2">
+      <div>
         <div className="px-8 flex flex-col gap-0">
           <p className="text-xs uppercase tracking-[0.35em] font-semibold text-[#0F3D5C] leading-none">
             {dateLabel}
@@ -217,8 +217,8 @@ export default function DashboardHeader({
 
       {/* Stats Grid */}
       {stats && stats.length > 0 && (
-        <div className="px-8 py-2">
-          <div className={`grid gap-4 ${operationalSnapshot ? `mt-8 grid-cols-1 md:grid-cols-2 ${stats.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}` : "sm:grid-cols-2 lg:grid-cols-4"}`}>
+        <div className="px-8">
+          <div className={`grid gap-4 ${operationalSnapshot ? `grid-cols-1 md:grid-cols-2 ${stats.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}` : "sm:grid-cols-2 lg:grid-cols-4"}`}>
             {stats.map((stat) => {
               const Icon = stat.icon;
               if (operationalSnapshot) {

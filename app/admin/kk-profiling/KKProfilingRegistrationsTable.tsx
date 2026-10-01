@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Download, Search } from "lucide-react";
+import { useDeferredValue, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Loader2, Search } from "lucide-react";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
 import type { KKProfilingRegistration } from "./types";
 import { useAdminSearch } from "../AdminSearchContext";
+import AdminExportButton from "../AdminExportButton";
 import { formatDate } from "@/lib/utils";
 import { useKKProfilingTableSearch } from "./KKProfilingTableSearch";
 
@@ -20,30 +21,64 @@ const deleteRegistration = async (id: string) => {
   }
 };
 
+function rowsForStatus(registrations: KKProfilingRegistration[], statusLabel?: string) {
+  const normalizedTab = String(statusLabel ?? "").toLowerCase();
+  return normalizedTab
+    ? registrations.filter((registration) => String(registration.reviewStatus ?? "Pending").toLowerCase() === normalizedTab)
+    : registrations;
+}
+
 export function KKProfilingRegistrationsTable({
   registrations,
   statusLabel,
   flat = false,
   exportHref,
+  pageNumber,
+  pageSize,
 }: {
   registrations: KKProfilingRegistration[];
   statusLabel?: string;
   flat?: boolean;
   exportHref?: string;
+  pageNumber?: number;
+  pageSize?: number;
 }) {
-  const [rows, setRows] = useState(registrations);
+  const [rowState, setRowState] = useState(() => ({
+    registrations,
+    statusLabel,
+    rows: rowsForStatus(registrations, statusLabel),
+  }));
+  let rows = rowState.rows;
+  if (rowState.registrations !== registrations || rowState.statusLabel !== statusLabel) {
+    rows = rowsForStatus(registrations, statusLabel);
+    setRowState({ registrations, statusLabel, rows });
+  }
   const [tableQuery, setTableQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const { searchQuery } = useAdminSearch();
   const pageSearch = useKKProfilingTableSearch();
+  const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const activeTableQuery = pageSearch?.query ?? tableQuery;
   const setActiveTableQuery = pageSearch?.setQuery ?? setTableQuery;
+  const deferredTableQuery = useDeferredValue(activeTableQuery);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const requestedStatus = (searchParams.get("status") ?? "pending").toLowerCase();
+  const requestedPageValue = Number(searchParams.get("page") ?? "1");
+  const requestedPage = Number.isFinite(requestedPageValue) ? Math.max(1, Math.floor(requestedPageValue)) : 1;
+  const requestedPageSizeValue = Number(searchParams.get("pageSize") ?? "10");
+  const requestedPageSize = Number.isFinite(requestedPageSizeValue) ? requestedPageSizeValue : 10;
+  const routePending = pathname === "/admin/kk-profiling" && (
+    requestedStatus !== String(statusLabel ?? "Pending").toLowerCase() ||
+    requestedPage !== (pageNumber ?? 1) ||
+    requestedPageSize !== (pageSize ?? 10)
+  );
+  const isLoading = routePending;
 
   const filteredRows = useMemo(() => {
-    const workspaceQuery = searchQuery.trim().toLowerCase();
-    const localQuery = activeTableQuery.trim().toLowerCase();
+    const workspaceQuery = deferredSearchQuery.trim().toLowerCase();
+    const localQuery = deferredTableQuery.trim().toLowerCase();
     if (!workspaceQuery && !localQuery) return rows;
 
     return rows.filter((registration) => {
@@ -60,23 +95,15 @@ export function KKProfilingRegistrationsTable({
       return (!workspaceQuery || searchableText.includes(workspaceQuery)) &&
         (!localQuery || searchableText.includes(localQuery));
     });
-  }, [rows, searchQuery, activeTableQuery]);
-
-  useEffect(() => {
-    setIsLoading(true);
-    const normalizedTab = String(statusLabel ?? "").toLowerCase();
-    const initialRows = normalizedTab
-      ? registrations.filter((r) => String(r.reviewStatus ?? "Pending").toLowerCase() === normalizedTab)
-      : registrations;
-    setRows(initialRows);
-    const timer = window.setTimeout(() => setIsLoading(false), 200);
-    return () => window.clearTimeout(timer);
-  }, [registrations, statusLabel]);
+  }, [rows, deferredSearchQuery, deferredTableQuery]);
 
   const handleDelete = async (id: string) => {
     try {
       await deleteRegistration(id);
-      setRows((current) => current.filter((row) => row.id !== id));
+      setRowState((current) => ({
+        ...current,
+        rows: current.rows.filter((row) => row.id !== id),
+      }));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete registration");
@@ -89,7 +116,10 @@ export function KKProfilingRegistrationsTable({
 
     // If the updated registration no longer belongs in this tab, remove it and refresh server data
     if (normalizedTab && normalizedUpdated && normalizedTab !== normalizedUpdated) {
-      setRows((current) => current.filter((row) => row.id !== updatedRegistration.id));
+      setRowState((current) => ({
+        ...current,
+        rows: current.rows.filter((row) => row.id !== updatedRegistration.id),
+      }));
       try {
         router.refresh();
       } catch {
@@ -98,9 +128,10 @@ export function KKProfilingRegistrationsTable({
       return;
     }
 
-    setRows((current) =>
-      current.map((row) => (row.id === updatedRegistration.id ? updatedRegistration : row))
-    );
+    setRowState((current) => ({
+      ...current,
+      rows: current.rows.map((row) => (row.id === updatedRegistration.id ? updatedRegistration : row)),
+    }));
   };
 
   const handleStatusUpdate = (status: "Approved" | "Returned") => {
@@ -130,23 +161,29 @@ export function KKProfilingRegistrationsTable({
               />
             </label>
             {exportHref ? (
-            <a
+            <AdminExportButton
               href={exportHref}
               className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 sm:self-auto"
-            >
-              <Download className="h-3.5 w-3.5 text-slate-400" />
-              <span>Export Records</span>
-            </a>
+              iconClassName="h-3.5 w-3.5 text-slate-400"
+            />
             ) : null}
           </div>
         )}
-        {isLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 backdrop-blur-sm">
-            <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border-4 border-slate-200 border-t-slate-950 animate-spin" />
-          </div>
-        )}
-        <table className="min-w-full border-collapse whitespace-nowrap text-left text-sm">
-          <thead className={flat ? "bg-gradient-to-r from-slate-900 to-cyan-900" : "bg-slate-50 text-slate-600"}>
+        <div className="relative w-full overflow-x-auto">
+          {isLoading ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="absolute inset-x-0 bottom-0 top-[50px] z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1.5px] transition-all duration-300"
+            >
+              <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 shadow-sm">
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-cyan-600" />
+                <span className="text-xs font-semibold text-slate-600">Loading records...</span>
+              </div>
+            </div>
+          ) : null}
+          <table className="min-w-full border-collapse whitespace-nowrap text-left text-sm">
+          <thead className={`relative z-30 ${flat ? "bg-gradient-to-r from-slate-900 to-cyan-900" : "bg-slate-50 text-slate-600"}`}>
             <tr className={flat
               ? "border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50"
               : "text-[11px] font-bold uppercase tracking-wider text-slate-600"}
@@ -160,7 +197,7 @@ export function KKProfilingRegistrationsTable({
               <th className="px-6 py-4 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
+          <tbody className={`divide-y divide-slate-100 bg-white text-slate-700 transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
               {filteredRows.map((registration) => (
                 <tr key={registration.id} className="transition-colors hover:bg-slate-50/50">
                   <td className="px-6 py-4">
@@ -201,6 +238,7 @@ export function KKProfilingRegistrationsTable({
               : "No profiles match your filters."}
           </div>
         ) : null}
+        </div>
       </div>
     </div>
   );

@@ -68,7 +68,7 @@ export default function AdminDashboardPageClient({
 
 
   return (
-    <>
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 pb-12">
       <DashboardHeaderWrapper
         dateLabel={dateLabel}
         openInquiryCount={openInquiryCount}
@@ -77,9 +77,12 @@ export default function AdminDashboardPageClient({
         operationalSnapshot
       />
 
-      <div className="flex-1 py-8">
-        <div className="px-8 flex flex-col gap-6">
-          <div className="grid grid-cols-1 items-stretch gap-6 mt-6 lg:grid-cols-2">
+      <div className="flex items-center gap-4 px-8 py-2">
+        <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">Action Center</span>
+        <div className="h-px flex-1 rounded-full bg-slate-200/60" />
+      </div>
+
+      <div className="grid grid-cols-1 items-stretch gap-4 px-8 md:grid-cols-2">
             <section className="group relative flex min-h-[320px] flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm">
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-gradient-to-r from-slate-900 via-cyan-800 to-cyan-500" />
               <div
@@ -203,9 +206,7 @@ export default function AdminDashboardPageClient({
               )}
               </div>
             </section>
-          </div>
-        </div>
       </div>
-    </>
+    </main>
   );
 }

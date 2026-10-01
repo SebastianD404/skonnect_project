@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import type { SubmissionStatus } from "@prisma/client";
-import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Search } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Loader2, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
 interface SubmissionRow {
@@ -53,29 +53,6 @@ const EMPTY_REVIEW_DRAFT: ReviewDraft = {
   coe: { status: "PENDING", notes: "" },
   grades: { status: "PENDING", notes: "" },
 };
-
-function TableSkeletonRow() {
-  return (
-    <tr className="animate-pulse border-b border-slate-100">
-      <td className="px-6 py-4">
-        <div className="flex flex-col gap-1.5">
-          <div className="h-3.5 w-32 rounded-md bg-slate-200" />
-          <div className="h-3 w-44 rounded-md bg-slate-100" />
-        </div>
-      </td>
-      <td className="px-6 py-4"><div className="h-3.5 w-36 rounded-md bg-slate-200" /></td>
-      <td className="px-6 py-4">
-        <div className="flex flex-col gap-1.5">
-          <div className="h-3.5 w-48 rounded-md bg-slate-200" />
-          <div className="h-3 w-16 rounded-md bg-slate-100" />
-        </div>
-      </td>
-      <td className="px-6 py-4"><div className="h-3.5 w-12 rounded-md bg-slate-200" /></td>
-      <td className="px-6 py-4"><div className="h-3.5 w-20 rounded-md bg-slate-200" /></td>
-      <td className="px-6 py-4 text-right"><div className="ml-auto h-7 w-16 rounded-lg bg-slate-200" /></td>
-    </tr>
-  );
-}
 
 interface TabDef {
   id: TabType;
@@ -170,6 +147,12 @@ export default function SubmissionReviewTable() {
   const completedSemesterOptions = ["all", ...responseData.semesters];
   const pageRangeStart = responseData.totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageRangeEnd = Math.min(page * pageSize, responseData.totalCount);
+  const activeTabRecordLabel = {
+    "pending-coe": "pending",
+    "active-scholars": "awaiting grades",
+    "pending-grades": "pending grade review",
+    completed: "fully cleared",
+  }[activeTab];
 
   function changeTab(tab: TabType) {
     setActiveTab(tab);
@@ -246,7 +229,7 @@ export default function SubmissionReviewTable() {
   }
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+    <div className="flex h-fit flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
       <div className="flex flex-col justify-between gap-4 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5 xl:flex-row xl:items-center">
         <label className="relative block w-full xl:w-80">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -283,11 +266,11 @@ export default function SubmissionReviewTable() {
         </div>
       </div>
 
-      {activeTab === "completed" && (
-        <div className="flex animate-fadeIn items-center justify-between border-b border-slate-100 bg-slate-50/80 px-5 py-2.5">
-          <span className="text-xs font-medium text-slate-500">
-            Showing <span className="font-bold text-slate-700">{responseData.totalCount}</span> fully cleared records
-          </span>
+      <div className="flex h-[52px] items-center justify-between border-b border-slate-100 bg-slate-50/80 px-5">
+        <span className="text-xs font-medium text-slate-500">
+          Showing <span className="font-bold text-slate-700">{responseData.totalCount}</span> {activeTabRecordLabel} records
+        </span>
+        {activeTab === "completed" && (
           <div className="flex items-center gap-2">
             <label htmlFor="completed-semester" className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Filter Semester:</label>
             <select
@@ -305,10 +288,10 @@ export default function SubmissionReviewTable() {
               ))}
             </select>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      <div className="w-full overflow-x-auto" aria-busy={isLoading}>
+      <div className="w-full" aria-busy={isLoading}>
         {loadError ? (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div>
         ) : null}
@@ -318,21 +301,32 @@ export default function SubmissionReviewTable() {
         {actionSuccess ? (
           <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{actionSuccess}</div>
         ) : null}
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-gradient-to-r from-slate-900 to-cyan-900 text-cyan-50 text-[11px] font-bold tracking-widest uppercase">
+        <div className={`relative w-full overflow-x-auto ${isLoading ? "min-h-[250px]" : ""}`}>
+          {isLoading ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="absolute inset-x-0 bottom-0 top-[50px] z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1.5px] transition-all duration-300"
+            >
+              <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 shadow-sm">
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-cyan-600" />
+                <span className="text-xs font-semibold text-slate-600">Loading submissions...</span>
+              </div>
+            </div>
+          ) : null}
+        <table className="w-full table-fixed border-collapse whitespace-nowrap text-left text-sm divide-y divide-slate-200">
+          <thead className="relative z-30 bg-gradient-to-r from-slate-900 to-cyan-900 text-cyan-50 text-[11px] font-bold tracking-widest uppercase">
             <tr className="border-b border-slate-800">
-              <th className="whitespace-nowrap px-6 py-4 text-left">Grantee</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left">Semester</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left">School / Level</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left">Average</th>
-              <th className="whitespace-nowrap px-6 py-4 text-left">Submitted</th>
-              <th className="px-6 py-4 text-right">Action</th>
+              <th className="w-[25%] truncate px-6 py-4 text-left">Grantee</th>
+              <th className="w-[15%] truncate px-6 py-4 text-left">Semester</th>
+              <th className="w-[25%] truncate px-6 py-4 text-left">School / Level</th>
+              <th className="w-[10%] truncate px-6 py-4 text-left">Average</th>
+              <th className="w-[15%] truncate px-6 py-4 text-left">Submitted</th>
+              <th className="w-[10%] truncate px-6 py-4 text-right">Action</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
-            {isLoading ? Array.from({ length: Math.min(pageSize, 3) }, (_, rowIndex) => (
-              <TableSkeletonRow key={`submission-skeleton-${rowIndex}`} />
-            )) : rows.length === 0 ? (
+          <tbody className={`divide-y divide-slate-200 bg-white transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
+            {!isLoading && rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="py-12 text-center">
                   <div className="flex flex-col items-center justify-center">
@@ -358,13 +352,13 @@ export default function SubmissionReviewTable() {
                           <div className="truncate text-xs text-slate-500">{submission.grantee.user.email}</div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-slate-700">{submission.semester}</td>
+                      <td className="truncate px-6 py-4 text-slate-700">{submission.semester}</td>
                       <td className="px-6 py-4 text-slate-700">
-                        <div>{submission.grantee.school}</div>
-                        <div className="text-xs text-slate-500">{submission.grantee.yearLevel}</div>
+                        <div className="truncate">{submission.grantee.school}</div>
+                        <div className="truncate text-xs text-slate-500">{submission.grantee.yearLevel}</div>
                       </td>
-                      <td className="px-6 py-4 text-slate-700">{(submission.generalAverage ?? submission.grantee.generalAverage)?.toFixed(2) ?? "—"}</td>
-                      <td className="px-6 py-4 text-slate-700">{formatDate(submission.submittedAt)}</td>
+                      <td className="truncate px-6 py-4 text-slate-700">{(submission.generalAverage ?? submission.grantee.generalAverage)?.toFixed(2) ?? "—"}</td>
+                      <td className="truncate px-6 py-4 text-slate-700">{formatDate(submission.submittedAt)}</td>
                       <td className="px-6 py-4 text-right">
                         <button
                           type="button"
@@ -573,6 +567,7 @@ export default function SubmissionReviewTable() {
             )}
           </tbody>
         </table>
+        </div>
         <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-4">
             <span className="text-xs font-medium text-slate-500">
