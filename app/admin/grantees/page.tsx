@@ -115,6 +115,7 @@ export default async function AdminGranteesPage({ searchParams }: {
                 id: true,
                 application: {
                   select: {
+                    id: true,
                     currentCourse: true,
                     yearLevel: true,
                     gwa: true,
@@ -222,7 +223,9 @@ export default async function AdminGranteesPage({ searchParams }: {
       updatedAt: grantee.updatedAt.toISOString(),
       detailsHref: `/admin/grantees/${grantee.id}`,
       application,
-      applicationDownloadHref: latestInquiry ? `/api/admin/skeap-applications/${latestInquiry.id}/download` : undefined,
+      applicationDownloadHref: latestInquiry?.application
+        ? `/api/admin/skeap-applications/${latestInquiry.application.id}/download`
+        : undefined,
     };
   });
 
@@ -238,6 +241,7 @@ export default async function AdminGranteesPage({ searchParams }: {
     graduatedAt: null,
     retentionExpiresAt: null,
     updatedAt: user.updatedAt.toISOString(),
+    detailsHref: `/admin/grantees/user-${user.id}`,
   }));
 
   const granteeRowsById = new Map(granteeRows.map((grantee) => [grantee.id, grantee]));

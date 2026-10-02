@@ -5,6 +5,7 @@ generator client {
 
 datasource db {
   provider   = "postgresql"
+  url        = env("DATABASE_URL")
   extensions = [pg_stat_statements, pgcrypto, supabase_vault, uuid_ossp(map: "uuid-ossp"), vector]
 }
 
@@ -144,6 +145,7 @@ model SkeapApplication {
   gender            String?
   grades            Json?
   timeline          Json?
+  educationalBackground  Json?
   waitlistPosition  Int?
   inquiry           Inquiry?
   user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)

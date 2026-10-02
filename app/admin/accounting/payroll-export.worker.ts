@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx-js-style";
+import PizZip from "pizzip";
 
 type PayrollDisbursement = {
   name: string;
@@ -21,110 +22,118 @@ const workerScope = self as unknown as {
 workerScope.onmessage = (event) => {
   try {
     const { currentSemester, payrollNumber, disbursements } = event.data;
-    const blackBorder = {
+    const getBlackBorder = (): NonNullable<XLSX.CellStyle["border"]> => ({
       top: { style: "thin", color: { rgb: "000000" } },
       bottom: { style: "thin", color: { rgb: "000000" } },
       left: { style: "thin", color: { rgb: "000000" } },
       right: { style: "thin", color: { rgb: "000000" } },
-    };
-    const blueBannerStyle = {
+    });
+    const getBlueBannerStyle = (): XLSX.CellStyle => ({
       fill: { fgColor: { rgb: "00A8E8" } },
       font: { name: "Arial", sz: 14, bold: true, color: { rgb: "FFFFFF" } },
       alignment: { horizontal: "center", vertical: "center" },
-      border: blackBorder,
-    };
-    const yellowBannerStyle = {
+      border: getBlackBorder(),
+    });
+    const getYellowBannerStyle = (): XLSX.CellStyle => ({
       fill: { fgColor: { rgb: "FFC000" } },
       font: { name: "Arial", sz: 11, bold: true, color: { rgb: "000000" } },
       alignment: { horizontal: "center", vertical: "center" },
-      border: blackBorder,
-    };
-    const orangeHeaderStyle = {
+      border: getBlackBorder(),
+    });
+    const getOrangeHeaderStyle = (): XLSX.CellStyle => ({
       fill: { fgColor: { rgb: "ED7D31" } },
       font: { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } },
       alignment: { horizontal: "center", vertical: "center", wrapText: true },
-      border: blackBorder,
-    };
-    const cellStyle = {
+      border: getBlackBorder(),
+    });
+    const getDataCellStyle = (
+      alignment: XLSX.CellStyle["alignment"] = { vertical: "center" },
+    ): XLSX.CellStyle => ({
       font: { name: "Arial", sz: 10 },
-      alignment: { vertical: "center" },
-      border: blackBorder,
-    };
-    const metadataStyle = {
+      alignment: { ...alignment },
+      border: getBlackBorder(),
+    });
+    const getMetadataStyle = (): XLSX.CellStyle => ({
       font: { name: "Arial", sz: 9, bold: true },
       alignment: { vertical: "center" },
-      border: blackBorder,
-    };
-    const textCell = (value: string, style: XLSX.CellObject["s"]): XLSX.CellObject => ({
+      border: getBlackBorder(),
+    });
+    const textCell = (value: string, styleFactory: () => XLSX.CellStyle): XLSX.CellObject => ({
       v: value,
       t: "s",
-      s: style,
+      s: styleFactory(),
     });
-    const createRowCells = (count: number, style: XLSX.CellObject["s"]) =>
-      Array.from({ length: count }, () => textCell("", style));
+    const createRowCells = (count: number, styleFactory: () => XLSX.CellStyle) =>
+      Array.from({ length: count }, () => textCell("", styleFactory));
+    const spacerCell = (): XLSX.CellObject => ({ v: "", t: "s" });
 
     const wsData: Array<Array<string | number | XLSX.CellObject>> = [
-      [textCell("PAYROLL", blueBannerStyle), ...createRowCells(6, blueBannerStyle)],
+      [],
+      [spacerCell(), textCell("PAYROLL", getBlueBannerStyle), ...createRowCells(6, getBlueBannerStyle)],
       [
-        textCell(`PERIOD COVERED: ${currentSemester || "For the semester"}`, yellowBannerStyle),
-        ...createRowCells(6, yellowBannerStyle),
+        spacerCell(),
+        textCell(`PERIOD COVERED: ${currentSemester || "For the semester"}`, getYellowBannerStyle),
+        ...createRowCells(6, getYellowBannerStyle),
       ],
       [
-        textCell("Barangay: PICO LA TRINIDAD SK", metadataStyle),
-        ...createRowCells(1, metadataStyle),
-        textCell("City/Municipality: LA TRINIDAD", metadataStyle),
-        ...createRowCells(1, metadataStyle),
-        textCell(`Payroll No: ${payrollNumber}`, metadataStyle),
-        ...createRowCells(2, metadataStyle),
+        spacerCell(),
+        textCell("Barangay: PICO LA TRINIDAD SK", getMetadataStyle),
+        ...createRowCells(1, getMetadataStyle),
+        textCell("City/Municipality: LA TRINIDAD", getMetadataStyle),
+        ...createRowCells(1, getMetadataStyle),
+        textCell(`Payroll No: ${payrollNumber}`, getMetadataStyle),
+        ...createRowCells(2, getMetadataStyle),
       ],
       [
-        textCell("Tel. #: 422-0811", metadataStyle),
-        ...createRowCells(1, metadataStyle),
-        textCell("Province: BENGUET", metadataStyle),
-        ...createRowCells(4, metadataStyle),
+        spacerCell(),
+        textCell("Tel. #: 422-0811", getMetadataStyle),
+        ...createRowCells(1, getMetadataStyle),
+        textCell("Province: BENGUET", getMetadataStyle),
+        ...createRowCells(4, getMetadataStyle),
       ],
       [
-        textCell("No.", orangeHeaderStyle),
-        textCell("Name", orangeHeaderStyle),
-        textCell("Position", orangeHeaderStyle),
-        textCell("Compensation", orangeHeaderStyle),
-        textCell("", orangeHeaderStyle),
-        textCell("Net Amount Due", orangeHeaderStyle),
-        textCell("Signature of Recipient", orangeHeaderStyle),
+        spacerCell(),
+        textCell("No.", getOrangeHeaderStyle),
+        textCell("Name", getOrangeHeaderStyle),
+        textCell("Position", getOrangeHeaderStyle),
+        textCell("Compensation", getOrangeHeaderStyle),
+        textCell("", getOrangeHeaderStyle),
+        textCell("Net Amount Due", getOrangeHeaderStyle),
+        textCell("Signature of Recipient", getOrangeHeaderStyle),
       ],
       [
-        textCell("", orangeHeaderStyle),
-        textCell("", orangeHeaderStyle),
-        textCell("", orangeHeaderStyle),
-        textCell("Incentives", orangeHeaderStyle),
-        textCell("Total", orangeHeaderStyle),
-        textCell("", orangeHeaderStyle),
-        textCell("", orangeHeaderStyle),
+        spacerCell(),
+        textCell("", getOrangeHeaderStyle),
+        textCell("", getOrangeHeaderStyle),
+        textCell("", getOrangeHeaderStyle),
+        textCell("Incentives", getOrangeHeaderStyle),
+        textCell("Total", getOrangeHeaderStyle),
+        textCell("", getOrangeHeaderStyle),
+        textCell("", getOrangeHeaderStyle),
       ],
     ];
 
     disbursements.forEach((item, index) => {
-      const amountStyle = {
-        ...cellStyle,
-        alignment: { horizontal: "right", vertical: "center" },
-      };
       wsData.push([
-        { v: index + 1, t: "n", s: { ...cellStyle, alignment: { horizontal: "center", vertical: "center" } } },
-        { v: item.name || "Unnamed Scholar", t: "s", s: cellStyle },
-        { v: "Scholar", t: "s", s: { ...cellStyle, alignment: { horizontal: "center", vertical: "center" } } },
-        { v: 5000, t: "n", z: "₱#,##0.00", s: amountStyle },
-        { v: 5000, t: "n", z: "₱#,##0.00", s: amountStyle },
-        { v: 5000, t: "n", z: "₱#,##0.00", s: amountStyle },
+        spacerCell(),
+        { v: index + 1, t: "n", s: getDataCellStyle({ horizontal: "center", vertical: "center" }) },
+        { v: item.name || "Unnamed Scholar", t: "s", s: getDataCellStyle() },
+        { v: "Scholar", t: "s", s: getDataCellStyle({ horizontal: "center", vertical: "center" }) },
+        { v: 5000, t: "n", z: "₱#,##0.00", s: getDataCellStyle({ horizontal: "right", vertical: "center" }) },
+        { v: 5000, t: "n", z: "₱#,##0.00", s: getDataCellStyle({ horizontal: "right", vertical: "center" }) },
+        { v: 5000, t: "n", z: "₱#,##0.00", s: getDataCellStyle({ horizontal: "right", vertical: "center" }) },
         {
           v: item.status === "Claimed" ? "Claimed (Direct)" : "",
           t: "s",
-          s: cellStyle,
+          s: getDataCellStyle(),
         },
       ]);
     });
 
     const worksheet = XLSX.utils.aoa_to_sheet(wsData);
+    worksheet["!ref"] = `A1:H${wsData.length}`;
     worksheet["!cols"] = [
+      { wch: 3 },
       { wch: 6 },
       { wch: 30 },
       { wch: 14 },
@@ -134,6 +143,7 @@ workerScope.onmessage = (event) => {
       { wch: 28 },
     ];
     worksheet["!rows"] = [
+      { hpt: 12 },
       { hpt: 26 },
       { hpt: 22 },
       { hpt: 20 },
@@ -142,28 +152,46 @@ workerScope.onmessage = (event) => {
       { hpt: 22 },
     ];
     worksheet["!merges"] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
-      { s: { r: 2, c: 0 }, e: { r: 2, c: 1 } },
-      { s: { r: 2, c: 2 }, e: { r: 2, c: 3 } },
-      { s: { r: 2, c: 4 }, e: { r: 2, c: 6 } },
-      { s: { r: 3, c: 0 }, e: { r: 3, c: 1 } },
-      { s: { r: 3, c: 2 }, e: { r: 3, c: 3 } },
-      { s: { r: 4, c: 0 }, e: { r: 5, c: 0 } },
-      { s: { r: 4, c: 1 }, e: { r: 5, c: 1 } },
-      { s: { r: 4, c: 2 }, e: { r: 5, c: 2 } },
+      { s: { r: 1, c: 1 }, e: { r: 1, c: 7 } },
+      { s: { r: 2, c: 1 }, e: { r: 2, c: 7 } },
+      { s: { r: 3, c: 1 }, e: { r: 3, c: 2 } },
+      { s: { r: 3, c: 3 }, e: { r: 3, c: 4 } },
+      { s: { r: 3, c: 5 }, e: { r: 3, c: 7 } },
+      { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },
       { s: { r: 4, c: 3 }, e: { r: 4, c: 4 } },
-      { s: { r: 4, c: 5 }, e: { r: 5, c: 5 } },
-      { s: { r: 4, c: 6 }, e: { r: 5, c: 6 } },
+      { s: { r: 5, c: 1 }, e: { r: 6, c: 1 } },
+      { s: { r: 5, c: 2 }, e: { r: 6, c: 2 } },
+      { s: { r: 5, c: 3 }, e: { r: 6, c: 3 } },
+      { s: { r: 5, c: 4 }, e: { r: 5, c: 5 } },
+      { s: { r: 5, c: 6 }, e: { r: 6, c: 6 } },
+      { s: { r: 5, c: 7 }, e: { r: 6, c: 7 } },
     ];
+    worksheet["!margins"] = { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
+    worksheet["!views"] = [{ showGridLines: false }];
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Official Payroll");
     const output = XLSX.write(workbook, { bookType: "xlsx", type: "array", cellStyles: true });
-    const buffer =
-      output instanceof ArrayBuffer
-        ? output
-        : output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength) as ArrayBuffer;
+    const zip = new PizZip(new Uint8Array(output));
+    const worksheetFile = zip.file("xl/worksheets/sheet1.xml");
+    if (!worksheetFile) throw new Error("Unable to configure payroll worksheet view.");
+    const worksheetXml = worksheetFile.asText();
+    const sheetViewPattern = /(<sheetView\b[^>]*?)(\/?>)/;
+    if (!sheetViewPattern.test(worksheetXml)) {
+      throw new Error("Unable to configure payroll worksheet view.");
+    }
+    zip.file(
+      "xl/worksheets/sheet1.xml",
+      worksheetXml.replace(sheetViewPattern, (_match, attributes: string, closing: string) => {
+        const viewAttributes = attributes.replace(/\s+showGridLines="[^"]*"/, "");
+        return `${viewAttributes} showGridLines="0"${closing}`;
+      }),
+    );
+    const outputWithHiddenGridlines = zip.generate({ type: "uint8array", compression: "DEFLATE" });
+    const buffer = outputWithHiddenGridlines.buffer.slice(
+      outputWithHiddenGridlines.byteOffset,
+      outputWithHiddenGridlines.byteOffset + outputWithHiddenGridlines.byteLength,
+    ) as ArrayBuffer;
 
     workerScope.postMessage({ buffer }, [buffer]);
   } catch (error) {

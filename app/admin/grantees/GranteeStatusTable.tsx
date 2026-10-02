@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
-import { Eye, Loader2, Search, Trash2 } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { Eye, FileText, Loader2, Search, Trash2 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import type { SerializableSkeapApplicationFormPayload } from "./[id]/SkeapApplicationReviewClient";
+import type { SerializableSkeapApplicationFormPayload } from "./[id]/GranteeDossierView";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 
 export interface GranteeTableRow {
@@ -66,6 +65,8 @@ export function GranteeStatusTable({
   onDelete?: (grantee: GranteeTableRow) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [pendingGranteeId, setPendingGranteeId] = useState<string | null>(null);
+  const [isViewingGrantee, startViewTransition] = useTransition();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -73,6 +74,14 @@ export function GranteeStatusTable({
   const statusFilter = FILTERS.find((filter) => filter.value === requestedStatus)?.value ?? "ALL";
   const handleQueryChange = (value: string) => {
     setQuery(value);
+  };
+
+  const handleViewGrantee = (grantee: GranteeTableRow) => {
+    const href = grantee.detailsHref;
+    if (!href || isViewingGrantee) return;
+
+    setPendingGranteeId(grantee.id);
+    startViewTransition(() => router.push(href));
   };
 
   const handleStatusFilterChange = (value: (typeof FILTERS)[number]["value"]) => {
@@ -209,45 +218,50 @@ export function GranteeStatusTable({
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="inline-flex items-center justify-center gap-2">
-                        {grantee.status === "GRADUATED" && grantee.detailsHref ? (
-                          <Link
-                            href={grantee.detailsHref}
-                            title="View archived grantee record"
-                            aria-label="View archived grantee record"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Link>
-                        ) : grantee.application ? (
+                        {grantee.detailsHref ? (
                           <button
                             type="button"
-                            onClick={() => onViewApplication?.(grantee)}
-                            title="View application form"
-                            aria-label="View application form"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
+                            onClick={() => handleViewGrantee(grantee)}
+                            disabled={isViewingGrantee}
+                            aria-busy={isViewingGrantee && pendingGranteeId === grantee.id}
+                            title={
+                              isViewingGrantee && pendingGranteeId === grantee.id
+                                ? "Loading grantee details"
+                                : grantee.status === "GRADUATED"
+                                  ? "View archived grantee record"
+                                  : "View grantee details"
+                            }
+                            aria-label={grantee.status === "GRADUATED" ? "View archived grantee record" : "View grantee details"}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
                           >
-                            <Eye className="h-4 w-4" />
+                            {isViewingGrantee && pendingGranteeId === grantee.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Eye className="h-4 w-4" aria-hidden="true" />
+                            )}
                           </button>
-                        ) : grantee.detailsHref ? (
-                          <Link
-                            href={grantee.detailsHref}
-                            title="View grantee"
-                            aria-label="View grantee"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-[#0F3D5C]/10 hover:text-[#0F3D5C]"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Link>
                         ) : (
                           <button
                             type="button"
                             disabled
-                            title="View grantee"
-                            aria-label="View grantee"
+                            title="Grantee details unavailable"
+                            aria-label="Grantee details unavailable"
                             className="inline-flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-full bg-slate-50 text-slate-400"
                           >
-                            <Eye className="h-4 w-4" />
+                            <Eye className="h-4 w-4" aria-hidden="true" />
                           </button>
                         )}
+                        {grantee.application ? (
+                          <button
+                            type="button"
+                            onClick={() => onViewApplication?.(grantee)}
+                            title="Preview application form"
+                            aria-label="Preview application form"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900 active:scale-95"
+                          >
+                            <FileText className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        ) : null}
                         {grantee.status !== "GRADUATED" ? (
                           <button
                             type="button"

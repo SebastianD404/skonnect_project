@@ -1,10 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SubmissionStatus } from "@prisma/client";
+import { Prisma, SubmissionStatus } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeUploadedFiles, SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+
+const EDUCATION_LEVELS = ["elementary", "highSchool", "college", "vocational"] as const;
+const EDUCATION_FIELDS = [
+  "elementarySchool",
+  "elementaryYearGraduated",
+  "highSchool",
+  "highSchoolYearGraduated",
+  "college",
+  "collegeYearGraduated",
+  "vocational",
+  "vocationalYearGraduated",
+  "elemSchool",
+  "elemYear",
+  "hsSchool",
+  "hsYear",
+  "collegeSchool",
+  "collegeYear",
+  "vocationalSchool",
+  "vocationalYear",
+] as const;
+
+function normalizeEducationalBackground(value: unknown): Prisma.InputJsonObject | undefined {
+  let parsed: unknown = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (error) {
+      console.warn("Ignoring invalid SKEAP educational background JSON.", error);
+      return undefined;
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+
+  const source = parsed as Record<string, unknown>;
+  const background: Record<string, Prisma.InputJsonValue> = {};
+  for (const level of EDUCATION_LEVELS) {
+    const entry = source[level];
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const values = entry as Record<string, unknown>;
+      const school = values.school;
+      const year = values.year ?? values.yearGraduated;
+      const normalized: Record<string, Prisma.InputJsonValue> = {};
+      if (typeof school === "string" || typeof school === "number") {
+        normalized.school = String(school).trim();
+      }
+      if (typeof year === "string" || typeof year === "number") {
+        normalized.year = String(year).trim();
+      }
+      if (Object.keys(normalized).length) background[level] = normalized;
+    } else if (typeof entry === "string" || typeof entry === "number") {
+      background[level] = String(entry).trim();
+    }
+  }
+  for (const field of EDUCATION_FIELDS) {
+    const entry = source[field];
+    if (typeof entry === "string" || typeof entry === "number") {
+      background[field] = String(entry).trim();
+    }
+  }
+  return Object.keys(background).length ? background : undefined;
+}
 
 function buildSkeapInquiryMessage(data: {
   applicantName?: string;
@@ -94,6 +155,8 @@ export async function POST(request: NextRequest) {
     const schoolName = String(body.schoolName || "").trim();
     const currentCourse = String(body.currentCourse || "").trim();
     const yearLevel = String(body.yearLevel || "").trim();
+    const fathersContact = String(body.fathersContact ?? "").trim();
+    const mothersContact = String(body.mothersContact ?? "").trim();
     const enrollmentFileUrl = String(body.enrollmentFileUrl || "").trim();
     const reportCardFileUrl = String(body.reportCardFileUrl || "").trim();
     const gwaRaw = String(body.gwa || "").trim();
@@ -103,10 +166,18 @@ export async function POST(request: NextRequest) {
 
     const rawAppUploadedFiles = body.uploadedFiles ?? body.allUploadedFiles ?? body.documentUploads ?? null;
     const uploadedFiles = normalizeUploadedFiles(rawAppUploadedFiles);
+    const educationalBackground = normalizeEducationalBackground(body.educationalBackground);
 
     if (!schoolName || !currentCourse || !yearLevel || !enrollmentFileUrl || !reportCardFileUrl) {
       return NextResponse.json(
         { error: "School, course, year level, enrollment file, and report card file are required." },
+        { status: 400 }
+      );
+    }
+
+    if (!fathersContact || !mothersContact) {
+      return NextResponse.json(
+        { error: "Father's and mother's contact numbers are required. Enter N/A when not applicable." },
         { status: 400 }
       );
     }
@@ -180,6 +251,7 @@ export async function POST(request: NextRequest) {
       // Persist optional grades and timeline if provided by client
       grades: Array.isArray(body.grades) ? body.grades : undefined,
       timeline: body.timeline ? body.timeline : undefined,
+      educationalBackground,
       enrollmentFileUrl,
       reportCardFileUrl,
       applicantName: body.applicantName || undefined,
@@ -191,9 +263,10 @@ export async function POST(request: NextRequest) {
       gender: body.gender || undefined,
       fathersName: body.fathersName || undefined,
       fathersOccupation: body.fathersOccupation || undefined,
-      fathersContact: body.fathersContact || undefined,
+      fathersContact,
       mothersMaidenName: body.mothersMaidenName || undefined,
       mothersOccupation: body.mothersOccupation || undefined,
+      mothersContact,
       contactNumber: body.contactNumber || undefined,
       emailAddress: body.emailAddress || undefined,
       uploadedFiles,

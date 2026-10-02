@@ -917,12 +917,25 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                 <input
                   data-required="profile"
                   value={fathersContact}
+                  disabled={fathersContact === "N/A"}
                   onChange={(e) => {
                     setFathersContact(e.target.value);
                     markFieldValid("fathersContact");
                   }}
                   className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("fathersContact") ? "border-rose-600" : "border-slate-300"}`}
                 />
+                <label className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={fathersContact === "N/A"}
+                    onChange={(e) => {
+                      setFathersContact(e.target.checked ? "N/A" : "");
+                      markFieldValid("fathersContact");
+                    }}
+                    className="rounded border-slate-300"
+                  />
+                  Not applicable (single-parent household)
+                </label>
               </label>
               <label className="flex flex-col">
                 <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mother's maiden name</span>
@@ -955,12 +968,25 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                 <input
                   data-required="profile"
                   value={mothersContact}
+                  disabled={mothersContact === "N/A"}
                   onChange={(e) => {
                     setMothersContact(e.target.value);
                     markFieldValid("mothersContact");
                   }}
                   className={`mt-1 rounded-xl border px-3 py-2 ${invalidFields.has("mothersContact") ? "border-rose-600" : "border-slate-300"}`}
                 />
+                <label className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={mothersContact === "N/A"}
+                    onChange={(e) => {
+                      setMothersContact(e.target.checked ? "N/A" : "");
+                      markFieldValid("mothersContact");
+                    }}
+                    className="rounded border-slate-300"
+                  />
+                  Not applicable (single-parent household)
+                </label>
               </label>
             </div>
             <div className="mt-3">

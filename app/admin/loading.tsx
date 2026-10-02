@@ -147,18 +147,44 @@ function InquirySkeleton() {
 function DashboardSkeleton() {
   return (
     <div className="animate-pulse">
-      <DashboardHeader operationalSnapshot />
-      <div className="flex flex-col gap-6 px-8 py-8 lg:grid lg:grid-cols-2">
-        {Array.from({ length: 2 }, (_, index) => (
-          <section key={index} className="min-h-72 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <Placeholder className="h-3 w-32 rounded-full" />
-            <Placeholder className="mt-2 h-5 w-40 rounded-md" />
-            <div className="mt-8 space-y-4">
-              {Array.from({ length: 3 }, (_, row) => <Placeholder key={row} className="h-10 w-full rounded-xl bg-slate-100" />)}
+      <header className="px-8 pt-6">
+        <Placeholder className="mb-4 h-3 w-48 rounded bg-slate-200" />
+        <Placeholder className="h-10 w-[500px] max-w-full rounded bg-slate-300" />
+      </header>
+
+      <section aria-hidden="true" className="mt-8 grid grid-cols-1 gap-6 px-8 md:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <Placeholder className="h-3 w-24 rounded bg-slate-200" />
+              <Placeholder className="h-8 w-8 rounded-full bg-slate-200" />
             </div>
-          </section>
+            <Placeholder className="mt-4 h-8 w-12 rounded bg-slate-300" />
+            <Placeholder className="mt-2 h-3 w-20 rounded bg-slate-200" />
+          </div>
         ))}
+      </section>
+
+      <div className="mt-10 flex items-center gap-4 px-8">
+        <Placeholder className="mb-4 h-3 w-32 rounded bg-slate-200" />
+        <div className="mb-4 h-px flex-1 rounded-full bg-slate-200/60" />
       </div>
+
+      <section aria-hidden="true" className="grid grid-cols-1 gap-6 px-8 lg:grid-cols-2">
+        {Array.from({ length: 2 }, (_, index) => (
+          <div key={index} className="min-h-[320px] rounded-xl border border-slate-100 border-t-2 border-t-cyan-500/20 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <Placeholder className="h-5 w-32 rounded bg-slate-300" />
+              <Placeholder className="h-4 w-16 rounded bg-slate-200" />
+            </div>
+            <div className="mt-6 flex h-48 w-full flex-col items-center justify-center">
+              <Placeholder className="mb-4 h-12 w-12 rounded-full bg-slate-100" />
+              <Placeholder className="mb-2 h-4 w-40 rounded bg-slate-200" />
+              <Placeholder className="h-3 w-56 max-w-full rounded bg-slate-200" />
+            </div>
+          </div>
+        ))}
+      </section>
     </div>
   );
 }

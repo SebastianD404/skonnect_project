@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAdminSearch } from "./AdminSearchContext";
 import AdminExportButton from "./AdminExportButton";
 import { GranteeStatusTable, type GranteeTableRow } from "./grantees/GranteeStatusTable";
-import { SerializableSkeapApplicationFormPayload } from "./grantees/[id]/SkeapApplicationReviewClient";
+import type { SerializableSkeapApplicationFormPayload } from "./grantees/[id]/GranteeDossierView";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 
 interface AdminGranteesPageClientProps {

@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, unstable_rethrow } from "next/navigation";
+import type { Prisma } from "@prisma/client";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
-import { ClipboardList, FileText, User } from "lucide-react";
-import GraduationAction from "./GraduationAction";
-import SkeapApplicationReviewClient, {
-  SerializableSkeapApplicationFormPayload,
-} from "./SkeapApplicationReviewClient";
+import { OFFICIAL_SITIOS } from "@/lib/kk";
+import { ArrowLeft } from "lucide-react";
+import GranteeDossierView, {
+  type SerializableSkeapApplicationFormPayload,
+} from "./GranteeDossierView";
+import GranteeDetailErrorState from "./GranteeDetailErrorState";
 
 type Props = {
   params: Promise<{
@@ -23,233 +25,226 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
     notFound();
   }
 
-  const hasRetentionColumn = await hasGranteeRetentionColumn();
-  const grantee = await prisma.grantee.findUnique({
-    where: { id: granteeId },
-    select: {
-      id: true,
-      userId: true,
-      status: true,
-      school: true,
-      yearLevel: true,
-      generalAverage: true,
-      dateEnrolled: true,
-      graduatedAt: true,
-      ...(hasRetentionColumn ? { retentionExpiresAt: true } : {}),
-      user: { select: { fullName: true, email: true } },
-      submissions: {
-        orderBy: { submittedAt: "desc" },
-        take: 5,
-      },
-    },
-  });
-
-  if (!grantee) {
-    notFound();
-  }
-
-  const isGraduated = grantee.status === "GRADUATED";
-  const retentionExpiryDate = getRetentionExpiryDate(grantee);
-
-  const applicationInquiry = await prisma.inquiry.findFirst({
-    where: {
-      userId: grantee.userId,
-      subject: { contains: "SKEAP application", mode: "insensitive" },
-      NOT: [{ reviewStatus: { contains: "cancel", mode: "insensitive" } }],
-    },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      createdAt: true,
-      user: {
-        select: {
-          email: true,
+  let granteeData;
+  try {
+    const hasRetentionColumn = await hasGranteeRetentionColumn();
+    const grantee = await prisma.grantee.findUnique({
+      where: { id: granteeId },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        school: true,
+        yearLevel: true,
+        generalAverage: true,
+        dateEnrolled: true,
+        graduatedAt: true,
+        ...(hasRetentionColumn ? { retentionExpiresAt: true } : {}),
+        user: {
+          select: {
+            fullName: true,
+            email: true,
+            phoneNumber: true,
+            avatarUrl: true,
+            barangay: true,
+            kkProfile: {
+              select: {
+                purok: true,
+                barangay: true,
+                addressLine: true,
+              },
+            },
+            skeapApplications: {
+              orderBy: { submittedAt: "desc" },
+              take: 1,
+              select: {
+                id: true,
+                currentCourse: true,
+                yearLevel: true,
+                gwa: true,
+                applicantName: true,
+                permanentAddress: true,
+                dateOfBirth: true,
+                placeOfBirth: true,
+                age: true,
+                civilStatus: true,
+                gender: true,
+                fathersName: true,
+                fathersOccupation: true,
+                fathersContact: true,
+                mothersMaidenName: true,
+                mothersOccupation: true,
+                mothersContact: true,
+                contactNumber: true,
+                emailAddress: true,
+                photoFileUrl: true,
+                uploadedFiles: true,
+                grades: true,
+                timeline: true,
+                inquiry: { select: { id: true } },
+              },
+            },
+          },
+        },
+        submissions: {
+          orderBy: { submittedAt: "desc" },
+          take: 5,
         },
       },
-      // Select the entire application object so any existing fields (grades, timeline, etc.) are available
-      application: true,
-    },
-  });
+    });
 
+    if (!grantee) {
+      notFound();
+    }
+
+    granteeData = { grantee };
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("Failed to load grantee details:", error);
+    return <GranteeDetailErrorState />;
+  }
+
+  const { grantee } = granteeData;
+  const skeapApplication = grantee.user.skeapApplications[0] ?? null;
+  const addressLineParts = (grantee.user.kkProfile?.addressLine ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => Boolean(part) && part.toLowerCase() !== "address pending verification");
+  const purokParts = (grantee.user.kkProfile?.purok ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const isSitio = (part: string) =>
+    OFFICIAL_SITIOS.some((sitio) => sitio.toLowerCase() === part.toLowerCase());
+  const isBarangay = (part: string) =>
+    part.replace(/\./g, "").replace(/^(barangay|brgy)\s+/i, "").trim().toLowerCase() ===
+    (grantee.user.kkProfile?.barangay || grantee.user.barangay).replace(/\./g, "").trim().toLowerCase();
+  const sitio =
+    [...purokParts, ...addressLineParts].find(isSitio) ??
+    purokParts.find((part) => !isBarangay(part)) ??
+    null;
+  const localityParts = addressLineParts.filter((part) => !isSitio(part) && !isBarangay(part));
+  const [municipality, ...provinceParts] = localityParts;
+  const isGraduated = grantee.status === "GRADUATED";
+  const retentionExpiryDate = getRetentionExpiryDate(grantee);
   const serializedSkeapApplication: SerializableSkeapApplicationFormPayload | null =
-    applicationInquiry?.application === null || applicationInquiry?.application === undefined
+    !skeapApplication
       ? null
       : {
-          currentCourse: applicationInquiry.application.currentCourse ?? undefined,
-          yearLevel: applicationInquiry.application.yearLevel ?? undefined,
-          gwa: applicationInquiry.application.gwa ?? null,
-          applicantName: applicationInquiry.application.applicantName ?? undefined,
-          permanentAddress: applicationInquiry.application.permanentAddress ?? undefined,
-          dateOfBirth: applicationInquiry.application.dateOfBirth?.toISOString() ?? undefined,
-          placeOfBirth: applicationInquiry.application.placeOfBirth ?? undefined,
-          age: applicationInquiry.application.age ?? undefined,
-          civilStatus: applicationInquiry.application.civilStatus ?? undefined,
-          gender: applicationInquiry.application.gender ?? undefined,
-          fathersName: applicationInquiry.application.fathersName ?? undefined,
-          fathersOccupation: applicationInquiry.application.fathersOccupation ?? undefined,
-          fathersContact: applicationInquiry.application.fathersContact ?? undefined,
-          mothersMaidenName: applicationInquiry.application.mothersMaidenName ?? undefined,
-          mothersOccupation: applicationInquiry.application.mothersOccupation ?? undefined,
-          mothersContact: applicationInquiry.application.mothersContact ?? undefined,
-          contactNumber: applicationInquiry.application.contactNumber ?? undefined,
-          emailAddress: applicationInquiry.application.emailAddress ?? applicationInquiry.user.email ?? undefined,
-          photoFileUrl: applicationInquiry.application.photoFileUrl ?? undefined,
-          uploadedFiles: applicationInquiry.application.uploadedFiles ?? undefined,
-          // If the application object persisted grades or timeline, pass them through
-          grades: (applicationInquiry.application as any).grades ?? undefined,
-          timeline: (applicationInquiry.application as any).timeline ?? null,
+          currentCourse: skeapApplication.currentCourse,
+          yearLevel: skeapApplication.yearLevel,
+          gwa: skeapApplication.gwa,
+          applicantName: skeapApplication.applicantName ?? undefined,
+          permanentAddress: skeapApplication.permanentAddress ?? undefined,
+          dateOfBirth: skeapApplication.dateOfBirth?.toISOString() ?? undefined,
+          placeOfBirth: skeapApplication.placeOfBirth ?? undefined,
+          age: skeapApplication.age ?? undefined,
+          civilStatus: skeapApplication.civilStatus ?? undefined,
+          gender: skeapApplication.gender ?? undefined,
+          fathersName: skeapApplication.fathersName ?? undefined,
+          fathersOccupation: skeapApplication.fathersOccupation ?? undefined,
+          fathersContact: skeapApplication.fathersContact ?? undefined,
+          mothersMaidenName: skeapApplication.mothersMaidenName ?? undefined,
+          mothersOccupation: skeapApplication.mothersOccupation ?? undefined,
+          mothersContact: skeapApplication.mothersContact ?? undefined,
+          contactNumber: skeapApplication.contactNumber ?? undefined,
+          emailAddress: skeapApplication.emailAddress ?? undefined,
+          photoFileUrl: skeapApplication.photoFileUrl ?? undefined,
+          uploadedFiles: skeapApplication.uploadedFiles ?? undefined,
+          grades: serializeGrades(skeapApplication.grades),
+          timeline: serializeTimeline(skeapApplication.timeline),
         };
 
   return (
-    <div className="space-y-8">
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-[#0F3D5C]">Grantee details</p>
-            <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">{grantee.user.fullName}</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-500">View the grantee’s profile data, enrollment status, and recent submission history.</p>
-            {isGraduated ? (
-              <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                <p className="text-sm font-semibold text-emerald-900">
-                  Archived Record: This scholar successfully completed their term on {grantee.graduatedAt?.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) ?? "a date not recorded"}. This record is locked for 5-year statutory audit compliance.
-                </p>
-                {retentionExpiryDate ? (
-                  <p className="mt-1 text-xs text-emerald-800">
-                    Retention period ends {retentionExpiryDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.
-                  </p>
-                ) : null}
-              </div>
+    <div>
+      <header className="mb-6">
+        <Link
+          href="/admin/grantees"
+          className="inline-flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-slate-900"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Back to grantees
+        </Link>
+        {isGraduated ? (
+          <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <p className="text-sm font-semibold text-emerald-900">
+              Archived record: term completed {grantee.graduatedAt?.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) ?? "on an unrecorded date"}.
+            </p>
+            {retentionExpiryDate ? (
+              <p className="mt-1 text-xs text-emerald-800">
+                Retention period ends {retentionExpiryDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.
+              </p>
             ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY" ? (
-              <GraduationAction granteeId={grantee.id} granteeName={grantee.user.fullName} />
-            ) : null}
-            <Link
-              href="/admin/grantees"
-              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              Back to grantees
-            </Link>
-          </div>
-        </div>
-      </div>
+        ) : null}
+      </header>
 
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <section className="space-y-6 rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-slate-900 text-white">
-              <User className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">KK Profiling</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">Profile details</h2>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Email</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.user.email}</p>
-            </div>
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">School / year</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.school}</p>
-              <p className="text-sm text-slate-500">{grantee.yearLevel}</p>
-            </div>
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Status</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.status}</p>
-              {grantee.graduatedAt ? (
-                <p className="mt-1 text-xs text-slate-500">
-                  Graduated {new Date(grantee.graduatedAt).toLocaleDateString()}
-                </p>
-              ) : null}
-            </div>
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Enrollment date</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{new Date(grantee.dateEnrolled).toLocaleDateString()}</p>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Scholarship metrics</p>
-                <h3 className="mt-2 text-xl font-semibold text-slate-950">Academic summary</h3>
-              </div>
-              <div className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm">
-                GPA: {grantee.generalAverage !== null ? grantee.generalAverage.toFixed(2) : "—"}
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-6">
-            <SkeapApplicationReviewClient
-              application={serializedSkeapApplication}
-              downloadHref={applicationInquiry ? `/api/admin/skeap-applications/${applicationInquiry.id}/download` : undefined}
-            />
-          </div>
-        </section>
-
-        <aside className="space-y-6 rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-slate-900 text-white">
-              <ClipboardList className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">SKEAP application</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">Application status</h2>
-            </div>
-          </div>
-
-          <div className="grid gap-4">
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Approval status</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.status}</p>
-            </div>
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Enrollment date</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{new Date(grantee.dateEnrolled).toLocaleDateString()}</p>
-            </div>
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Current school</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{grantee.school}</p>
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-[#0F3D5C]">Recent submissions</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-950">Recent semester files</h2>
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700">
-            <FileText className="h-4 w-4" />
-            latest 5
-          </div>
-        </div>
-
-        <div className="mt-6 space-y-4">
-          {grantee.submissions.length === 0 ? (
-            <div className="rounded-3xl bg-slate-50 p-6 text-sm text-slate-500">No submissions found for this grantee.</div>
-          ) : (
-            grantee.submissions.map((submission: any) => (
-              <div key={submission.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{submission.semester}</p>
-                    <p className="text-sm text-slate-500">{submission.status}</p>
-                  </div>
-                  <p className="text-sm text-slate-500">Submitted {new Date(submission.submittedAt).toLocaleDateString()}</p>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
+      <GranteeDossierView
+        grantee={{
+          id: grantee.id,
+          fullName: grantee.user.fullName,
+          email: grantee.user.email,
+          phoneNumber: grantee.user.phoneNumber,
+          avatarUrl: grantee.user.avatarUrl,
+          permanentAddress: {
+            sitio,
+            barangay: grantee.user.kkProfile?.barangay || grantee.user.barangay,
+            municipality: municipality ?? null,
+            province: provinceParts.join(", ") || null,
+          },
+          school: grantee.school,
+          yearLevel: grantee.yearLevel,
+          status: grantee.status,
+          dateEnrolled: grantee.dateEnrolled.toISOString(),
+          graduatedAt: grantee.graduatedAt?.toISOString() ?? null,
+          generalAverage: grantee.generalAverage,
+          submissions: grantee.submissions.map((submission) => ({
+            id: submission.id,
+            semester: submission.semester,
+            status: submission.status,
+            submittedAt: submission.submittedAt.toISOString(),
+          })),
+        }}
+        application={serializedSkeapApplication}
+        downloadHref={
+          skeapApplication
+            ? `/api/admin/skeap-applications/${skeapApplication.id}/download`
+            : undefined
+        }
+      />
     </div>
   );
+}
+
+function serializeGrades(value: Prisma.JsonValue | null): SerializableSkeapApplicationFormPayload["grades"] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.flatMap((entry) => {
+    if (entry === null || Array.isArray(entry) || typeof entry !== "object") {
+      return [];
+    }
+
+    const subject = typeof entry.subject === "string" ? entry.subject : undefined;
+    const grade =
+      typeof entry.grade === "string" || typeof entry.grade === "number" ? entry.grade : undefined;
+    return [{ subject, grade }];
+  });
+}
+
+function serializeTimeline(value: Prisma.JsonValue | null): SerializableSkeapApplicationFormPayload["timeline"] {
+  if (value === null || Array.isArray(value) || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    years: typeof value.years === "number" ? value.years : undefined,
+    semestersPerYear: Array.isArray(value.semestersPerYear)
+      ? value.semestersPerYear.filter((semester): semester is number => typeof semester === "number")
+      : undefined,
+    labels: Array.isArray(value.labels)
+      ? value.labels.filter((label): label is string => typeof label === "string")
+      : undefined,
+  };
 }

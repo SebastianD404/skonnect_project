@@ -15,23 +15,23 @@ export async function GET(req: Request) {
 
     const rows = await db.grantee.findMany({
       orderBy: { updatedAt: "desc" },
-      where: normalizedSemester
-        ? {
-            submissions: {
-              some: {
-                semester: { equals: normalizedSemester, mode: "insensitive" },
-              },
+      where: {
+        ...(normalizedSemester && {
+          submissions: {
+            some: {
+              semester: { equals: normalizedSemester, mode: "insensitive" },
             },
-          }
-        : undefined,
+          },
+        }),
+      },
       include: {
         user: { select: { fullName: true } },
         submissions: {
-          where: normalizedSemester
-            ? {
-                semester: { equals: normalizedSemester, mode: "insensitive" },
-              }
-            : undefined,
+          where: {
+            ...(normalizedSemester && {
+              semester: { equals: normalizedSemester, mode: "insensitive" },
+            }),
+          },
           orderBy: { submittedAt: "desc" },
           take: 1,
           select: { id: true, status: true, semester: true, submittedAt: true },

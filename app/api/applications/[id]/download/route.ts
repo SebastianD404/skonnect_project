@@ -1,133 +1,100 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
-import PizZip from "pizzip";
-import Docxtemplater from "docxtemplater";
-import ImageModule from "docxtemplater-image-module-free";
 import { prisma } from "@/lib/prisma";
+import { generateSkeapApplicationDocx } from "@/lib/docx/skeap-application-template";
 
-const TEMPLATE_FILENAME = "SKEAP Application Form (2).docx";
-const TEMPLATE_PATH = join(process.cwd(), "public", TEMPLATE_FILENAME);
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function safeString(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return String(value);
-  if (value instanceof Date) return value.toLocaleDateString("en-US");
-  return String(value);
-}
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
 
-function formatDate(value: unknown): string {
-  if (!value) return "";
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.valueOf())) return "";
-  return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-}
-
-async function fetchImageBuffer(url: string): Promise<Buffer | null> {
-  if (!url) return null;
+export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return buffer;
-  } catch {
-    return null;
-  }
-}
-
-export async function GET(request: NextRequest, context: any) {
-  try {
-    const params = context?.params instanceof Promise ? await context.params : context?.params;
-    const id = params?.id;
-    if (!id || typeof id !== "string") {
+    const { id } = await context.params;
+    if (!id) {
       return NextResponse.json({ error: "Missing or invalid application ID" }, { status: 400 });
     }
 
-    const skeapApplication = await prisma.skeapApplication.findUnique({
-      where: { id },
-      include: { inquiry: true },
-    });
-
-    let inquiryCreatedAt: Date | undefined;
-    let application = skeapApplication;
-
+    let application = await prisma.skeapApplication.findUnique({ where: { id } });
+    let submittedAt: Date | undefined;
     if (!application) {
       const inquiry = await prisma.inquiry.findUnique({
         where: { id },
-        select: {
-          createdAt: true,
-          application: true,
-        },
+        select: { createdAt: true, application: true },
       });
       if (!inquiry?.application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 });
       }
-      application = inquiry.application as typeof skeapApplication;
-      inquiryCreatedAt = inquiry.createdAt;
+      application = inquiry.application;
+      submittedAt = inquiry.createdAt;
     }
 
-    if (!application) {
-      return NextResponse.json({ error: "Application not found" }, { status: 404 });
-    }
-
-    const submittedAt = inquiryCreatedAt ?? skeapApplication?.inquiry?.createdAt ?? undefined;
-
-    const data = {
-      applicantName: safeString(application.applicantName),
-      permanentAddress: safeString(application.permanentAddress),
-      dateOfBirth: formatDate(application.dateOfBirth),
-      placeOfBirth: safeString(application.placeOfBirth),
-      age: safeString(application.age),
-      civilStatus: safeString(application.civilStatus),
-      gender: safeString(application.gender),
-      fathersName: safeString(application.fathersName),
-      fathersOccupation: safeString(application.fathersOccupation),
-      fathersContact: safeString(application.fathersContact),
-      mothersMaidenName: safeString(application.mothersMaidenName),
-      mothersOccupation: safeString(application.mothersOccupation),
-      mothersContact: safeString(application.mothersContact),
-      contactNumber: safeString(application.contactNumber),
-      emailAddress: safeString(application.emailAddress),
-      currentCourse: safeString(application.currentCourse),
-      yearLevel: safeString(application.yearLevel),
-      gwa: safeString(application.gwa),
-      enrollmentFileUrl: safeString(application.enrollmentFileUrl),
-      reportCardFileUrl: safeString(application.reportCardFileUrl),
-      submittedAt: formatDate(submittedAt),
-      profilePhoto: safeString(application.photoFileUrl),
-    } as const;
-
-    const templateBuffer = readFileSync(TEMPLATE_PATH);
-    const zip = new PizZip(templateBuffer);
-    const imageModule = new ImageModule({
-      centered: false,
-      fileType: "docx",
-      getImage: async (tagValue: any) => {
-        if (!tagValue) return null;
-        return fetchImageBuffer(String(tagValue));
+    const applicant = await prisma.user.findUnique({
+      where: { id: application.userId },
+      select: {
+        fullName: true,
+        email: true,
+        phoneNumber: true,
+        avatarUrl: true,
+        kkProfile: {
+          select: {
+            firstName: true,
+            lastName: true,
+            purok: true,
+            barangay: true,
+            addressLine: true,
+          },
+        },
+        profilingRegistrations: {
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: {
+            registeredNationalVoter: true,
+            sex: true,
+            age: true,
+            civilStatus: true,
+            contactNumber: true,
+          },
+        },
       },
-      getSize: () => [120, 120],
     });
 
-    const doc = new Docxtemplater(zip, {
-      modules: [imageModule],
-      paragraphLoop: true,
-      linebreaks: true,
-    });
-    doc.setData(data);
-    doc.render();
+    const output = await generateSkeapApplicationDocx(
+      { ...application, submittedAt: submittedAt ?? application.submittedAt },
+      {
+        fullName: applicant?.fullName,
+        firstName: applicant?.kkProfile?.firstName,
+        lastName: applicant?.kkProfile?.lastName,
+        email: applicant?.email,
+        contactNumber: applicant?.profilingRegistrations[0]?.contactNumber ?? applicant?.phoneNumber,
+        avatarUrl: applicant?.avatarUrl,
+        gender: applicant?.profilingRegistrations[0]?.sex,
+        age: applicant?.profilingRegistrations[0]?.age,
+        civilStatus: applicant?.profilingRegistrations[0]?.civilStatus,
+        registeredNationalVoter: applicant?.profilingRegistrations[0]?.registeredNationalVoter,
+        address: applicant?.kkProfile
+          ? {
+              sitio: applicant.kkProfile.purok,
+              barangay: applicant.kkProfile.barangay,
+              addressLine: applicant.kkProfile.addressLine,
+            }
+          : undefined,
+      }
+    );
 
-    const outputBuffer = doc.getZip().generate({ type: "nodebuffer" });
-
-    return new NextResponse(Buffer.from(outputBuffer), {
+    return new NextResponse(Buffer.from(output), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="SKEAP Application Form (2).docx"`,
+        "Content-Disposition": 'attachment; filename="SKEAP Application Form (2).docx"',
+        "Cache-Control": "no-store, no-cache, must-revalidate",
       },
     });
   } catch (error) {
+    console.error("Failed to generate SKEAP application document:", error);
     const message = error instanceof Error ? error.message : "Failed to generate application document";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+export const runtime = "nodejs";
