@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { generateSkeapApplicationDocx } from "@/lib/docx/skeap-application-template";
+import {
+  generateSkeapApplicationDocx,
+} from "@/lib/docx/skeap-application-template";
+import { getSkeapApplicationDocxSelect } from "@/lib/docx/skeap-application-select";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,12 +17,19 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    let application = await prisma.skeapApplication.findUnique({ where: { id } });
+    const applicationSelect = await getSkeapApplicationDocxSelect();
+    let application = await prisma.skeapApplication.findUnique({
+      where: { id },
+      select: applicationSelect,
+    });
     let submittedAt: Date | undefined;
     if (!application) {
       const inquiry = await prisma.inquiry.findUnique({
         where: { id },
-        select: { createdAt: true, application: true },
+        select: {
+          createdAt: true,
+          application: { select: applicationSelect },
+        },
       });
       if (!inquiry?.application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 });

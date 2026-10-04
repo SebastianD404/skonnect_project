@@ -139,6 +139,9 @@ model SkeapApplication {
   photoFileUrl      String?
   age               Int?
   civilStatus       String?
+  registeredVoter   Boolean?
+  totalFamilyMonthlyIncome String?
+  signatureUrl      String?
   mothersContact    String?
   school            String
   gender            String?

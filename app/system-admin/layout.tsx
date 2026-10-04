@@ -2,7 +2,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import SystemAdminSidebar from "./SystemAdminSidebar";
-import { Bell, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 export default async function SystemAdminLayout({
   children,
@@ -50,19 +50,9 @@ export default async function SystemAdminLayout({
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="relative grid h-10 w-10 place-items-center rounded-xl border border-[#CFDBE7] bg-white text-slate-700 transition hover:bg-slate-50"
-                  aria-label="Notifications"
-                >
-                  <Bell className="h-4 w-4" />
-                  <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500" />
-                </button>
-                <div className="hidden items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 sm:flex">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <span className="text-xs font-semibold text-slate-500">Live</span>
-                </div>
+              <div className="hidden items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 sm:flex">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-xs font-semibold text-slate-500">Live</span>
               </div>
             </div>
           </header>

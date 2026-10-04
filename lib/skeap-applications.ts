@@ -32,6 +32,7 @@ export const SKEAP_APPLICATION_SELECT = {
     select: {
       fullName: true,
       email: true,
+      phoneNumber: true,
       grantee: {
         select: {
           yearLevel: true,
@@ -228,10 +229,11 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
 
   return {
     id: inquiry.id,
-    applicantName: inquiry.application?.applicantName || inquiry.user?.fullName || inquiry.user?.email || "Unknown applicant",
-    applicantEmail: inquiry.application?.emailAddress || inquiry.user?.email,
-    yearLevel: inquiry.application?.yearLevel || inquiry.user?.grantee?.yearLevel || "",
-    school: inquiry.application?.school || inquiry.application?.currentCourse || inquiry.user?.grantee?.school || "",
+    applicantName: inquiry.user?.fullName || inquiry.application?.applicantName || inquiry.user?.email || "Unknown applicant",
+    applicantEmail: inquiry.user?.email || inquiry.application?.emailAddress || "",
+    applicantPhoneNumber: inquiry.user?.phoneNumber || inquiry.application?.contactNumber || "",
+    yearLevel: inquiry.user?.grantee?.yearLevel || inquiry.application?.yearLevel || "",
+    school: inquiry.user?.grantee?.school || inquiry.application?.school || inquiry.application?.currentCourse || "",
     submittedAt: inquiry.createdAt.toISOString(),
     status,
     documents,

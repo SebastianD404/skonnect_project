@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 const { createRequire } = require("module");
-const sharp = require("sharp");
 
 const requireFromScript = createRequire(__filename);
 const { createWorker, PSM } = requireFromScript("tesseract.js");
@@ -126,6 +125,20 @@ async function main() {
     process.exit(1);
   }
 
+  const inputExtension = path.extname(inputPath).toLowerCase();
+  if (inputExtension === ".doc" || inputExtension === ".docx") {
+    process.stdout.write(JSON.stringify({
+      success: true,
+      status: "needs_review",
+      isValid: false,
+      matchedKeywords: [],
+      text: "",
+      message: "Word document accepted. It will need manual verification.",
+    }));
+    return;
+  }
+
+  const sharp = requireFromScript("sharp");
   const fileBuffer = fs.readFileSync(inputPath);
   const workerPath = path.resolve(process.cwd(), "node_modules", "tesseract.js", "src", "worker-script", "node", "index.js");
   const corePath = path.resolve(process.cwd(), "node_modules", "tesseract.js-core", "tesseract-core.wasm.js");
@@ -148,6 +161,16 @@ async function main() {
 
     const { data } = await worker.recognize(processedBuffer);
     const rawText = String(data?.text || "");
+
+    if (documentType === "skeap_valid_id") {
+      process.stdout.write(JSON.stringify({
+        success: true,
+        isValid: false,
+        matchedKeywords: [],
+        text: rawText,
+      }));
+      return;
+    }
 
     if (documentType === "front_id" || documentType === "back_id") {
       const genericMatches = findMatches(rawText, ID_KEYWORDS);

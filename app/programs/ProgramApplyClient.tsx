@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, X } from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
 import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-profile-client";
+import { useAuth } from "@/app/components/AuthProvider";
+import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 
 type Props = {
   slug: string;
@@ -16,6 +18,9 @@ type ProgramStatus = {
   label?: string;
   summary?: string;
   granteeCount?: number;
+  activeScholarsCount?: number;
+  maxSlots?: number | null;
+  remainingSlots?: number;
 };
 
 const PROGRAM_STATUS_CACHE_TTL = 5 * 60 * 1000;
@@ -59,6 +64,7 @@ function prefetchProgramStatus(slug: string) {
 }
 
 export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
+  const { user, loading: authLoading } = useAuth();
   const [open, setOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<KKProfile | null>(null);
   const [checkingKkProfile, setCheckingKkProfile] = useState(false);
@@ -67,7 +73,9 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   const [status, setStatus] = useState<ProgramStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [footerActionsTarget, setFooterActionsTarget] = useState<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [submittedReference, setSubmittedReference] = useState<string | null>(null);
+  const autoApplyHandled = useRef(false);
 
   function openApplicationModal(profile: KKProfile) {
     setUserProfile(profile);
@@ -78,8 +86,23 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   async function openApplyFlow(skipKkCheck = false) {
     setCheckingKkProfile(true);
     setKkCheckError(null);
+    const isTestAccount = isSkeapTestAccount(user?.email);
 
     try {
+      if (isTestAccount && user?.email) {
+        openApplicationModal({
+          fullName: user.fullName || "",
+          email: user.email,
+          contactNumber: "",
+          purok: "",
+          addressLine: "",
+          barangay: "Pico",
+          birthDate: "",
+          age: 0,
+        });
+        return;
+      }
+
       const data = await fetchKKProfile();
       const isApproved =
         data.registration?.reviewStatus === "Approved" ||
@@ -92,7 +115,8 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
         setKkCheckError("Your KK profiling registration must be approved before you can apply for SKEAP.");
         setShowKkRequiredModal(true);
       }
-    } catch {
+    } catch (error) {
+      console.error("Unable to load KK profile before SKEAP application:", error);
       setShowKkRequiredModal(true);
     } finally {
       setCheckingKkProfile(false);
@@ -101,15 +125,19 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
 
   useEffect(() => {
     prefetchProgramStatus(slug);
-    prefetchKKProfile();
-  }, [slug]);
+    if (!authLoading && !isSkeapTestAccount(user?.email)) prefetchKKProfile();
+  }, [authLoading, slug, user?.email]);
 
   useEffect(() => {
+    if (authLoading || autoApplyHandled.current) return;
+
+    let autoApplyTimer: number | undefined;
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get("openApply") === "1") {
+        autoApplyHandled.current = true;
         const skip = params.get("skipKkCheck") === "1";
-        void openApplyFlow(skip);
+        autoApplyTimer = window.setTimeout(() => void openApplyFlow(skip), 0);
         params.delete("openApply");
         params.delete("skipKkCheck");
         const base = window.location.pathname + (params.toString() ? `?${params.toString()}` : "");
@@ -118,7 +146,12 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
     } catch {
       // ignore environments without window
     }
-  }, []);
+    return () => {
+      if (autoApplyTimer !== undefined) window.clearTimeout(autoApplyTimer);
+    };
+  // The auth-ready guard and handled ref ensure the URL action runs once for the resolved user.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user?.email]);
 
   useEffect(() => {
     if (!open) return;
@@ -155,17 +188,18 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   const isOpen =
     (status?.label || "").toLowerCase().includes("open") ||
     (status?.badge || "").toLowerCase().includes("open");
+  const isWaitlisted = status?.remainingSlots === 0;
   return (
     <>
       <button
         onMouseEnter={() => {
           prefetchProgramStatus(slug);
-          prefetchKKProfile();
+          if (!authLoading && !isSkeapTestAccount(user?.email)) prefetchKKProfile();
         }}
         onClick={() => {
           void openApplyFlow();
         }}
-        disabled={checkingKkProfile}
+        disabled={checkingKkProfile || authLoading}
         className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
       >
         {checkingKkProfile ? "Checking KK profile..." : "Apply for SKEAP →"}
@@ -303,28 +337,51 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                 </div>
               </div>
             ) : (
-            <div className="relative flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto overflow-x-hidden p-8 lg:flex-row">
-              <aside className="sticky top-8 z-10 mt-2 flex w-full shrink-0 self-start flex-col gap-4 lg:w-80">
+            <div ref={scrollContainerRef} className="relative flex min-h-0 flex-1 flex-col items-start gap-x-8 gap-y-8 overflow-y-auto overflow-x-hidden p-8 lg:flex-row">
+              <aside className="sticky top-0 z-10 flex w-full shrink-0 self-start flex-col gap-4 lg:w-80">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Program window</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-900">
-                    {!loading && status ? (isOpen ? "Applications are open" : "Applications are closed") : "Checking application status"}
+                  <p className={`mt-2 text-sm font-semibold ${isWaitlisted ? "text-amber-600" : "text-slate-900"}`}>
+                    {!loading && status
+                      ? isWaitlisted
+                        ? "Waitlist Open"
+                        : isOpen
+                          ? "Applications are open"
+                          : "Applications are closed"
+                      : "Checking application status"}
                   </p>
                   <div className="mt-2 text-sm text-slate-500">
                     {loading ? (
                       <div className="mt-1 flex items-center gap-2" aria-label="Loading registered scholar count">
-                        <span>There are currently</span>
+                        <span>Loading available SKEAP slots</span>
                         <span className="inline-block h-4 w-6 animate-pulse rounded bg-slate-200" aria-hidden="true" />
-                        <span>registered SKEAP scholars.</span>
                       </div>
-                    ) : typeof status?.granteeCount === "number" ? (
+                    ) : typeof status?.maxSlots === "number" &&
+                      typeof status.remainingSlots === "number" ? (
+                      isWaitlisted ? (
+                        <p>
+                          All <strong className="font-bold text-slate-900">{status.maxSlots}</strong> slots are currently
+                          filled. You can still apply to be placed on the waitlist, and we will contact you if new slots
+                          open up.
+                        </p>
+                      ) : (
+                        <p>
+                          <strong className="font-bold text-slate-900">{status.remainingSlots}</strong>{" "}
+                          SKEAP slots remaining out of{" "}
+                          <strong className="font-bold text-slate-900">{status.maxSlots}</strong>.
+                        </p>
+                      )
+                    ) : status &&
+                      (typeof status.maxSlots === "undefined" || status.maxSlots === null) ? (
                       <p>
-                        There {status.granteeCount === 1 ? "is" : "are"} currently{" "}
-                        <strong className="font-bold text-slate-900">{status.granteeCount}</strong>{" "}
-                        registered SKEAP scholar{status.granteeCount === 1 ? "" : "s"}.
+                        Open for applications (
+                        <strong className="font-bold text-slate-900">
+                          {status.activeScholarsCount ?? status.granteeCount ?? 0}
+                        </strong>{" "}
+                        approved scholars).
                       </p>
                     ) : (
-                      <p>Unable to load the registered scholar count.</p>
+                      <p>Unable to load available SKEAP slots.</p>
                     )}
                   </div>
                 </div>
@@ -355,7 +412,7 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                 ) : null}
             </aside>
 
-            <section className="min-w-0 w-full flex-1">
+            <section className="min-w-0 w-full flex-1 self-start">
                 {!loading && status && !isOpen ? (
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-700">
                     SKEAP applications are currently closed for this cycle.
@@ -364,7 +421,9 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                   <SkeapApplicationWizard
                     requirements={requirements}
                     footerActionsTarget={footerActionsTarget}
+                    scrollContainerRef={scrollContainerRef}
                     userProfile={userProfile!}
+                    allowManualProfileDetails={isSkeapTestAccount(user?.email)}
                     onSubmitted={setSubmittedReference}
                   />
                 )}

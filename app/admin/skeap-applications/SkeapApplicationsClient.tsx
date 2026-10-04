@@ -50,6 +50,7 @@ interface ApplicationRecord {
   id: string;
   applicantName: string;
   applicantEmail: string;
+  applicantPhoneNumber: string;
   yearLevel: string;
   school: string;
   submittedAt: string;
@@ -355,6 +356,7 @@ export default function SkeapApplicationsClient({
   const [hasNextPage, setHasNextPage] = useState(initialHasNextPage);
   const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
   const isFetchingNextPageRef = useRef(false);
   const isRefreshingRef = useRef(false);
   const [messageDraft, setMessageDraft] = useState("");
@@ -393,6 +395,7 @@ export default function SkeapApplicationsClient({
 
   const selectedApplication =
     paginatedApplications.find((app) => app.id === selectedAppId) ?? paginatedApplications[0] ?? null;
+  const effectiveSelectedAppId = selectedApplication?.id ?? "";
 
   const selectedStatus = normalizeApplicationStatus(selectedApplication?.status ?? "");
   const isApproved = selectedStatus === "Approved";
@@ -404,7 +407,7 @@ export default function SkeapApplicationsClient({
       ? "Resubmitted Applications"
       : viewFilter === "approved"
       ? "Approved Archive"
-      : "Returned / Correction Queue";
+      : "Returned Applications";
   const activeFilterName =
     viewFilter === "pending"
       ? "Pending Review"
@@ -418,6 +421,15 @@ export default function SkeapApplicationsClient({
   function changeViewFilter(filter: typeof viewFilter) {
     setViewFilter(filter);
     setCurrentPage(1);
+
+    if (filter !== "approved" && selectedAcademicYear !== initialAcademicYear) {
+      setSelectedAcademicYear(initialAcademicYear);
+      setApplications([]);
+      setSelectedAppId("");
+      setCursor(null);
+      setHasNextPage(false);
+      void handleRefresh(initialAcademicYear);
+    }
   }
 
   const initialStatusMap = useMemo(
@@ -478,6 +490,51 @@ export default function SkeapApplicationsClient({
   );
 
   const applicationDetails = selectedApplication?.application;
+
+  useEffect(() => {
+    const applicationId = selectedApplication?.id;
+    if (!applicationId) return;
+
+    let isActive = true;
+    const syncApplicantProfile = async () => {
+      if (document.visibilityState !== "visible") return;
+
+      try {
+        const response = await fetch(
+          `/api/admin/skeap-applications/${encodeURIComponent(applicationId)}`,
+          { cache: "no-store" }
+        );
+        if (!response.ok) throw new Error("Failed to refresh applicant profile.");
+
+        const result = await response.json() as {
+          profile: Pick<ApplicationRecord, "applicantName" | "applicantEmail" | "applicantPhoneNumber" | "school" | "yearLevel">;
+        };
+        if (!isActive) return;
+
+        setApplications((current) =>
+          current.map((application) =>
+            application.id === applicationId
+              ? { ...application, ...result.profile }
+              : application
+          )
+        );
+      } catch (error) {
+        console.error("Failed to sync current applicant profile:", error);
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void syncApplicantProfile();
+    }, 30_000);
+    window.addEventListener("focus", syncApplicantProfile);
+    void syncApplicantProfile();
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncApplicantProfile);
+    };
+  }, [selectedApplication?.id]);
 
   const documentMapByUrl = useMemo(
     () =>
@@ -568,16 +625,18 @@ export default function SkeapApplicationsClient({
 
   const activeReviewVerified = activeReviewDocument?.verified ?? activeReviewGroup?.verified ?? false;
 
-  const resolvedSelectedAppId = useMemo(
-    () => (paginatedApplications.some((app) => app.id === selectedAppId) ? selectedAppId : paginatedApplications[0]?.id ?? ""),
-    [paginatedApplications, selectedAppId]
-  );
-
-  const handleRefresh = useCallback(async (academicYear = selectedAcademicYear) => {
+  const handleRefresh = useCallback(async (
+    academicYear = selectedAcademicYear,
+    { refreshServerData = true, silent = false }: { refreshServerData?: boolean; silent?: boolean } = {}
+  ) => {
     if (isRefreshingRef.current || isFetchingNextPageRef.current) return;
 
     isRefreshingRef.current = true;
-    setIsRefreshing(true);
+    if (silent) {
+      setIsPolling(true);
+    } else {
+      setIsRefreshing(true);
+    }
     try {
       const params = new URLSearchParams({ academicYear });
       const response = await fetch(`/api/admin/skeap-applications?${params}`, { cache: "no-store" });
@@ -589,23 +648,54 @@ export default function SkeapApplicationsClient({
         nextCursor: { id: string; createdAt: string } | null;
       };
 
-      setApplications(page.applications);
-      setCurrentPage(1);
-      setSelectedAppId((currentId) =>
-        page.applications.some((application) => application.id === currentId)
-          ? currentId
-          : page.applications[0]?.id ?? ""
-      );
+      if (silent) {
+        setApplications((current) => {
+          const refreshedIds = new Set(page.applications.map((application) => application.id));
+          return [
+            ...page.applications,
+            ...current.filter((application) => !refreshedIds.has(application.id)),
+          ];
+        });
+      } else {
+        setApplications(page.applications);
+        setCurrentPage(1);
+        setSelectedAppId((currentId) =>
+          page.applications.some((application) => application.id === currentId)
+            ? currentId
+            : page.applications[0]?.id ?? ""
+        );
+      }
       setCursor(page.nextCursor);
       setHasNextPage(page.hasNextPage);
-      if (academicYear === initialAcademicYear) router.refresh();
+      if (refreshServerData && academicYear === initialAcademicYear) router.refresh();
     } catch (error) {
       console.error(error);
     } finally {
       isRefreshingRef.current = false;
-      setIsRefreshing(false);
+      if (silent) {
+        setIsPolling(false);
+      } else {
+        setIsRefreshing(false);
+      }
     }
   }, [initialAcademicYear, router, selectedAcademicYear]);
+
+  useEffect(() => {
+    const refreshSilently = () => {
+      if (document.visibilityState === "visible") {
+        void handleRefresh(selectedAcademicYear, { refreshServerData: false, silent: true });
+      }
+    };
+    const intervalId = window.setInterval(refreshSilently, 15_000);
+    document.addEventListener("visibilitychange", refreshSilently);
+    window.addEventListener("focus", refreshSilently);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", refreshSilently);
+      window.removeEventListener("focus", refreshSilently);
+    };
+  }, [handleRefresh, selectedAcademicYear]);
 
   function handleAcademicYearChange(academicYear: string) {
     if (academicYear === selectedAcademicYear) return;
@@ -652,12 +742,6 @@ export default function SkeapApplicationsClient({
       setIsFetchingNextPage(false);
     }
   }, [cursor, hasNextPage, selectedAcademicYear]);
-
-  useEffect(() => {
-    if (resolvedSelectedAppId !== selectedAppId) {
-      setSelectedAppId(resolvedSelectedAppId);
-    }
-  }, [resolvedSelectedAppId, selectedAppId]);
 
   function updateSelectedApplication(
     updater: (application: ApplicationRecord) => ApplicationRecord
@@ -793,6 +877,7 @@ export default function SkeapApplicationsClient({
 
     try {
       await rejectApplication(rejectionReason.trim());
+      router.refresh();
       updateSelectedApplication((application) => ({
         ...application,
         status: "REJECTED",
@@ -810,6 +895,7 @@ export default function SkeapApplicationsClient({
         const nextOpenApplication = displayedApplications.find((app) => app.id !== currentSelectedId);
         return nextOpenApplication?.id ?? currentSelectedId;
       });
+      await handleRefresh(selectedAcademicYear, { refreshServerData: false });
       setShowRejectModal(false);
       setRejectionReason("");
     } catch (error) {
@@ -834,6 +920,7 @@ export default function SkeapApplicationsClient({
     try {
       const approvalText = "Application approved. The applicant has been routed to the scholarship waitlist for promotion and capacity management.";
       const result = await saveReviewUpdate("approve", approvalText, []);
+      router.refresh();
       const reviewThread = result?.reviewThread;
       if (reviewThread) {
         updateSelectedApplication((application) => ({
@@ -858,6 +945,7 @@ export default function SkeapApplicationsClient({
           ],
         }));
       }
+      await handleRefresh(selectedAcademicYear, { refreshServerData: false });
     } catch (error) {
       console.error(error);
     }
@@ -870,7 +958,7 @@ export default function SkeapApplicationsClient({
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto flex min-h-screen max-w-[1480px] gap-6 px-6">
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 pb-12">
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 pb-20">
           <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
               <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">SKEAP Applications</span>
@@ -916,50 +1004,32 @@ export default function SkeapApplicationsClient({
             />
           </div>
 
-          {isQueueEmpty ? (
-            <section className="relative flex min-h-[400px] w-full flex-col items-center justify-center overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 opacity-40"
-                style={{
-                  backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
-                  backgroundSize: "24px 24px",
-                }}
-              />
-              <div className="relative z-10 flex flex-col items-center">
-              <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 shadow-sm">
-                <CheckCircle2 className="h-10 w-10 text-emerald-600" />
-              </div>
-              <h2 className="mb-2 text-2xl font-black text-slate-900">No applications found</h2>
-              <p className="mb-8 max-w-md text-sm leading-relaxed text-slate-500">
-                There are no applications in the <span className="font-semibold text-slate-700">{activeFilterName}</span> queue.
-              </p>
-              <button
-                type="button"
-                onClick={() => void handleRefresh()}
-                disabled={isRefreshing || isFetchingNextPage}
-                className="group inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`} />
-                <span>{isRefreshing ? "Checking..." : "Check for new submissions"}</span>
-              </button>
-              </div>
-            </section>
-          ) : (
-          <section className="flex h-[calc(100vh-280px)] min-h-[600px] w-full overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-            <aside className="flex h-full min-h-0 w-80 shrink-0 flex-col border-r border-slate-200 bg-slate-50 lg:w-96">
+          <section className="flex w-full items-stretch overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+            <aside className="flex h-full min-h-[500px] w-80 shrink-0 flex-col justify-between border-r border-slate-200 bg-slate-50 lg:w-96">
               <div className="sticky top-0 z-10 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-slate-50/90 p-5 backdrop-blur-sm">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Applicant queue</p>
-                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">{queueTitle}</h2>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Applicant queue</p>
+                    <h2 className="mt-3 text-2xl font-semibold text-slate-950">{queueTitle}</h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefresh()}
+                    disabled={isRefreshing || isPolling || isFetchingNextPage}
+                    title="Refresh queue"
+                    aria-label={isPolling ? "Checking for queue updates" : "Refresh queue"}
+                    className="group shrink-0 rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing || isPolling ? "animate-spin" : ""}`} />
+                  </button>
                 </div>
-                <div className="flex items-center gap-2">
+                {viewFilter === "approved" ? (
                   <select
-                    aria-label="Filter applications by academic year"
+                    aria-label="Filter approved applications by academic year"
                     value={selectedAcademicYear}
                     onChange={(event) => handleAcademicYearChange(event.target.value)}
                     disabled={isRefreshing || isFetchingNextPage}
-                    className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600 disabled:cursor-wait disabled:opacity-60"
+                    className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600 disabled:cursor-wait disabled:opacity-60"
                   >
                     {academicYears.map((academicYear) => (
                       <option key={academicYear} value={academicYear}>
@@ -967,20 +1037,10 @@ export default function SkeapApplicationsClient({
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => void handleRefresh()}
-                    disabled={isRefreshing || isFetchingNextPage}
-                    title="Refresh list"
-                    aria-label="Refresh list"
-                    className="group shrink-0 rounded-lg border border-slate-200 bg-white p-2 text-slate-400 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    <RefreshCw className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`} />
-                  </button>
-                </div>
+                ) : null}
               </div>
 
-              <div className="custom-scroll min-h-0 flex-1 overflow-y-auto">
+              <div className="custom-scroll flex-1">
                 <div className="flex flex-col gap-3 p-4">
                   {paginatedApplications.length === 0 && (hasNextPage || isRefreshing) && (
                     <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
@@ -1002,14 +1062,14 @@ export default function SkeapApplicationsClient({
                       key={application.id}
                       type="button"
                       onClick={() => setSelectedAppId(application.id)}
-                      aria-pressed={application.id === selectedAppId}
+                      aria-pressed={application.id === effectiveSelectedAppId}
                       className={`group relative w-full overflow-hidden rounded-xl border px-5 py-4 text-left transition-all ${
-                        application.id === selectedAppId
+                        application.id === effectiveSelectedAppId
                           ? "border-slate-200 bg-white text-slate-900 shadow-md"
                           : "border-transparent bg-transparent text-slate-900 hover:bg-slate-100"
                       }`}
                     >
-                      {application.id === selectedAppId && (
+                    {application.id === effectiveSelectedAppId && (
                         <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1.5 bg-cyan-700" />
                       )}
                       <div className="pl-2">
@@ -1046,9 +1106,27 @@ export default function SkeapApplicationsClient({
                     </button>
                   ))}
 
+                  {isQueueEmpty && (
+                    <div className="flex flex-col items-center px-3 py-10 text-center">
+                      <FolderOpen className="mb-3 h-9 w-9 stroke-[1.5] text-slate-300" />
+                      <p className="text-sm font-semibold text-slate-700">No applications in this queue</p>
+                      <p className="mt-1 max-w-xs text-xs leading-relaxed text-slate-500">
+                        There are no {activeFilterName.toLowerCase()} applications to review right now.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void handleRefresh()}
+                        disabled={isRefreshing || isPolling || isFetchingNextPage}
+                        className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing || isPolling ? "animate-spin" : ""}`} />
+                        {isRefreshing || isPolling ? "Checking..." : "Refresh queue"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3">
+              <div className="border-t border-slate-200 bg-white px-4 py-3">
                 <div className="flex items-center justify-between">
                   <button
                     type="button"
@@ -1085,9 +1163,9 @@ export default function SkeapApplicationsClient({
               </div>
             </aside>
 
-            <div className="custom-scroll relative flex flex-1 flex-col items-stretch justify-start overflow-y-auto bg-slate-50/50">
+            <div className="custom-scroll relative flex min-w-0 flex-1 self-start flex-col items-stretch justify-start overflow-y-auto bg-slate-50/50">
               {selectedApplication ? (
-                <div className="flex flex-1 flex-col">
+                <div className="flex flex-col">
                   <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 pt-4 backdrop-blur-sm">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -1105,7 +1183,7 @@ export default function SkeapApplicationsClient({
                         <span>View Form</span>
                       </button>
                     </div>
-                    <div className="mt-3 flex items-center gap-6 overflow-x-auto" role="tablist" aria-label="Application details sections">
+                    <div className="mt-3 mb-2 flex items-center gap-6 overflow-x-auto" role="tablist" aria-label="Application details sections">
                       {([
                         { id: "overview", label: "Overview" },
                         { id: "documents", label: "Documents & Files" },
@@ -1131,15 +1209,15 @@ export default function SkeapApplicationsClient({
                     </div>
                   </div>
 
-                  <div className={`mx-auto flex min-h-0 w-full max-w-4xl flex-col px-4 md:px-6 ${
+                  <div className={`mx-auto flex min-h-[500px] w-full max-w-4xl flex-col px-4 md:px-6 ${
                     activeTab === "overview"
-                      ? "flex-1 justify-center py-3"
+                        ? "justify-start pb-6 pt-6"
                       : activeTab === "documents"
                       ? "pt-5 pb-3"
                       : "flex-1 gap-4 pb-10 pt-4"
                   }`}>
                     {activeTab === "overview" && (
-                      <div id="application-panel-overview" role="tabpanel" aria-labelledby="application-tab-overview" className="flex flex-col gap-4">
+                      <div id="application-panel-overview" role="tabpanel" aria-labelledby="application-tab-overview" className="flex flex-col space-y-6">
                     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                       <div className="border-b border-slate-100 px-5 py-4">
                         <h3 className="text-sm font-semibold text-slate-900">Applicant profile</h3>
@@ -1172,7 +1250,7 @@ export default function SkeapApplicationsClient({
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Course / Year</span>
                           <span className="break-words text-sm font-semibold text-slate-900">
-                            {[applicationDetails?.currentCourse, applicationDetails?.yearLevel || selectedApplication.yearLevel]
+                            {[applicationDetails?.currentCourse, selectedApplication.yearLevel || applicationDetails?.yearLevel]
                               .filter(Boolean)
                               .join(" • ") || "Not provided"}
                           </span>
@@ -1191,22 +1269,22 @@ export default function SkeapApplicationsClient({
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-2 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Phone</span>
-                          <span className="text-sm font-semibold text-slate-900 break-words">{applicationDetails?.contactNumber || "Not provided"}</span>
+                          <span className="text-sm font-semibold text-slate-900 break-words">{selectedApplication.applicantPhoneNumber || "Not provided"}</span>
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-4 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email</span>
                           <span
                             className="text-sm font-semibold text-slate-900 break-all"
-                            title={applicationDetails?.emailAddress || selectedApplication.applicantEmail}
+                            title={selectedApplication.applicantEmail}
                           >
-                            {applicationDetails?.emailAddress || selectedApplication.applicantEmail}
+                            {selectedApplication.applicantEmail}
                           </span>
                         </div>
                       </div>
                     </section>
 
                     {isApproved ? (
-                      <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
                         <div className="flex items-start gap-3">
                           <div className="mt-0.5 shrink-0">
                             <CheckCircle className="h-5 w-5 text-emerald-600" />
@@ -1339,18 +1417,19 @@ export default function SkeapApplicationsClient({
 
                     {activeTab === "activity" && (
                       <div id="application-panel-activity" role="tabpanel" aria-labelledby="application-tab-activity" className="flex flex-col gap-4">
-                    <div className={`rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm ${isApproved ? "pb-4" : ""}`}>
-                      <div className="flex items-center justify-between gap-4">
+                    <div className={`flex h-[600px] max-h-[650px] min-h-[480px] flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm ${isApproved ? "pb-4" : ""}`}>
+                      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-100 pb-4">
                         <div>
                           <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Conversation</p>
-                          <h2 className="mt-3 text-2xl font-semibold text-slate-950">Return notes & messages</h2>
+                          <h2 className="mt-2 text-2xl font-semibold text-slate-950">Return notes & messages</h2>
                         </div>
                         <span className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
                           {selectedApplication?.messages?.length ?? 0} messages
                         </span>
                       </div>
 
-                      <div className="relative mt-4 space-y-8 border-l-2 border-slate-100 pl-6">
+                      <div className="custom-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pl-4 pr-2">
+                        <div className="relative space-y-8 border-l-2 border-slate-100 pl-6">
                         {(selectedApplication?.messages || []).map((message) => {
                           const urls = extractUrls(message.text);
                           const textWithoutUrls = urls.reduce((text, url) => text.replace(url, ""), message.text).trim();
@@ -1417,12 +1496,12 @@ export default function SkeapApplicationsClient({
                             </article>
                           );
                         })}
-                      </div>
+                        </div>
 
                       {!isApproved && attachedFileNotes.length > 0 && (
-                        <div className="mt-4 space-y-2">
+                        <div className="space-y-2">
                           <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-500">Attached file notes</p>
-                          <div className="space-y-2">
+                          <div className="custom-scroll max-h-32 space-y-2 overflow-y-auto pr-1">
                             {attachedFileNotes.map((attachment, index) => (
                               <div
                                 key={`${attachment.fileId}-${attachment.fileUrl ?? index}-${index}`}
@@ -1459,27 +1538,34 @@ export default function SkeapApplicationsClient({
                           </div>
                         </div>
                       )}
+                      </div>
 
                       {!isApproved && (
-                        <div className="mt-4">
-                          <label className="block text-sm font-semibold text-slate-900">Write a note to the applicant</label>
-                          <textarea
-                            ref={noteTextareaRef}
-                            value={messageDraft}
-                            onChange={(event) => setMessageDraft(event.target.value)}
-                            rows={4}
-                            placeholder="Explain what is missing or how to improve the upload."
-                            className="mt-3 w-full rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleSendMessage}
-                            disabled={!messageDraft.trim() && attachedFileNotes.length === 0}
-                            className="mt-4 inline-flex items-center gap-2 rounded-3xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <Send className="h-4 w-4" />
-                            Send message
-                          </button>
+                        <div className="mt-4 shrink-0 border-t border-slate-100 pt-4">
+                          <label htmlFor="reviewer-note" className="sr-only">Write a note to the applicant</label>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-2 transition-all focus-within:border-slate-400 focus-within:bg-white">
+                            <textarea
+                              id="reviewer-note"
+                              ref={noteTextareaRef}
+                              value={messageDraft}
+                              onChange={(event) => setMessageDraft(event.target.value)}
+                              rows={2}
+                              placeholder="Write a note to the applicant..."
+                              className="w-full resize-none bg-transparent px-2 pt-1 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                            />
+                            <div className="flex items-center justify-between px-2 pb-1">
+                              <span className="text-xs text-slate-400">Use clear, actionable feedback</span>
+                              <button
+                                type="button"
+                                onClick={handleSendMessage}
+                                disabled={!messageDraft.trim() && attachedFileNotes.length === 0}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                                Send
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1488,23 +1574,18 @@ export default function SkeapApplicationsClient({
                   </div>
                 </div>
               ) : (
-                <div className="flex min-h-[400px] flex-col items-center justify-center rounded-[2rem] border border-dashed border-slate-200 bg-white p-12 text-center">
-                  <FolderOpen className="mb-3 h-12 w-12 stroke-[1.5] text-slate-300" />
-                  <h3 className="mt-4 text-xl font-semibold text-slate-900">All caught up!</h3>
-                  <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                    {viewFilter === "pending"
-                      ? "All pending applications have been processed. Select a row on the left or browse another queue above."
-                      : viewFilter === "resubmitted"
-                      ? "There are no resubmitted applications awaiting review. Select another queue above to continue."
-                      : viewFilter === "returned"
-                      ? "There are no returned applications available. Select another queue above to continue."
-                      : "Select a profile row from the archive list on the left to review its locked data history."}
+                <div className="flex min-h-[500px] flex-col items-center justify-center p-8 text-center">
+                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                    <FileText className="h-6 w-6" />
+                  </div>
+                  <h3 className="mb-1 text-lg font-semibold text-slate-800">No Application Selected</h3>
+                  <p className="max-w-sm text-sm leading-relaxed text-slate-500">
+                    Choose an application from the queue on the left to inspect uploaded files, review details, and take action.
                   </p>
                 </div>
               )}
             </div>
           </section>
-          )}
         </main>
       </div>
 

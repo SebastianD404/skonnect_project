@@ -27,7 +27,6 @@ interface DashboardHeaderWrapperProps {
   statsByPeriod?: Record<TimePeriod, StatItem[]>;
   operationalSnapshot?: boolean;
   compact?: boolean;
-  showNotificationBell?: boolean;
 }
 
 const ICON_MAP: Record<IconName, LucideIcon> = {
@@ -48,7 +47,6 @@ export default function DashboardHeaderWrapper({
   statsByPeriod,
   operationalSnapshot = false,
   compact = false,
-  showNotificationBell = true,
 }: DashboardHeaderWrapperProps) {
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("Month");
 
@@ -74,7 +72,6 @@ export default function DashboardHeaderWrapper({
       stats={statsWithIcons}
       operationalSnapshot={operationalSnapshot}
       compact={compact}
-      showNotificationBell={showNotificationBell}
       showToolbar={false}
     />
   );

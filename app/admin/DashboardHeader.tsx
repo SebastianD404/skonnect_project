@@ -3,12 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Bell,
   HelpCircle,
-  Plus,
   Search as SearchIcon,
   X,
-  AlertCircle,
   Book,
   Mail,
   Phone,
@@ -44,27 +41,22 @@ interface DashboardHeaderProps {
   stats?: Stat[];
   operationalSnapshot?: boolean;
   compact?: boolean;
-  showNotificationBell?: boolean;
   showToolbar?: boolean;
 }
 
 export default function DashboardHeader({
   dateLabel,
-  openInquiryCount,
-  pendingSubmissionCount,
   timePeriod,
   onTimePeriodChange,
   onSearch,
   stats = [],
   operationalSnapshot = false,
   compact = false,
-  showNotificationBell = true,
   showToolbar = true,
 }: DashboardHeaderProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -95,85 +87,6 @@ export default function DashboardHeader({
               <HelpCircle className="h-4 w-4" />
               <span className="hidden sm:inline">Help</span>
             </button>
-          {showNotificationBell && (
-            <div className="relative">
-              <button
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="relative inline-flex items-center justify-center rounded-full border border-slate-200 bg-white p-2 text-slate-700 transition hover:bg-slate-50"
-                title="Notifications"
-              >
-                <Bell className="h-4 w-4" />
-                {openInquiryCount + pendingSubmissionCount > 0 && (
-                  <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                )}
-              </button>
-
-              {/* Notifications Dropdown */}
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-96 max-h-[420px] flex flex-col rounded-2xl bg-white shadow-2xl border border-gray-100 z-50 overflow-hidden">
-                  <div className="sticky top-0 bg-white/95 backdrop-blur-sm px-4 py-3 border-b border-gray-100 flex items-center justify-between z-10">
-                    <span className="font-semibold text-gray-900 text-sm">Notifications</span>
-                    <button
-                      onClick={() => setShowNotifications(false)}
-                      className="text-slate-400 hover:text-slate-600"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-1.5">
-                    {openInquiryCount > 0 && (
-                      <div className="rounded-xl px-3 py-2 hover:bg-slate-50 cursor-pointer transition">
-                        <div className="flex items-start gap-3">
-                          <div className="mt-1 h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-slate-900 text-sm">
-                              {openInquiryCount} Open Inquiries
-                            </p>
-                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">
-                              Awaiting your response
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {pendingSubmissionCount > 0 && (
-                      <div className="rounded-xl px-3 py-2 hover:bg-slate-50 cursor-pointer transition">
-                        <div className="flex items-start gap-3">
-                          <div className="mt-1 h-2 w-2 rounded-full bg-sky-500 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-slate-900 text-sm">
-                              {pendingSubmissionCount} Pending Submissions
-                            </p>
-                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">
-                              Under review queue
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {openInquiryCount === 0 && pendingSubmissionCount === 0 && (
-                      <div className="px-3 py-8 text-center">
-                        <p className="text-sm text-slate-500">
-                          All caught up! No new notifications.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="border-t border-slate-200 px-4 py-2">
-                    <button
-                      onClick={() => {
-                        setShowNotifications(false);
-                        router.push("/admin/inquiries");
-                      }}
-                      className="w-full text-center text-xs font-medium text-[#0F3D5C] hover:text-[#0D2E47] py-2"
-                    >
-                      View all
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
           </div>
         </div>
       </div>

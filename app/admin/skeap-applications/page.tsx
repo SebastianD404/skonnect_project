@@ -118,6 +118,7 @@ function mapInquiryToApplication(inquiry: {
   user: {
     fullName: string | null;
     email: string;
+    phoneNumber: string | null;
     grantee: {
       yearLevel: string | null;
       school: string | null;
@@ -246,10 +247,11 @@ function mapInquiryToApplication(inquiry: {
 
   return {
     id: inquiry.id,
-    applicantName: inquiry.application?.applicantName || inquiry.user?.fullName || inquiry.user?.email || "Unknown applicant",
-    applicantEmail: inquiry.application?.emailAddress || inquiry.user?.email,
-    yearLevel: inquiry.application?.yearLevel || inquiry.user?.grantee?.yearLevel || "",
-    school: inquiry.application?.school || inquiry.application?.currentCourse || inquiry.user?.grantee?.school || "",
+    applicantName: inquiry.user?.fullName || inquiry.application?.applicantName || inquiry.user?.email || "Unknown applicant",
+    applicantEmail: inquiry.user?.email || inquiry.application?.emailAddress || "",
+    applicantPhoneNumber: inquiry.user?.phoneNumber || inquiry.application?.contactNumber || "",
+    yearLevel: inquiry.user?.grantee?.yearLevel || inquiry.application?.yearLevel || "",
+    school: inquiry.user?.grantee?.school || inquiry.application?.school || inquiry.application?.currentCourse || "",
     submittedAt: inquiry.createdAt.toISOString(),
     status,
     documents,
@@ -327,19 +329,28 @@ export default async function SkeapApplicationsPage() {
   const pendingCount = await prisma.inquiry.count({
     where: {
       ...queueBaseWhere,
-      AND: [statusOrWhere(["pending"], statusFields)],
+      AND: [
+        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
+        statusOrWhere(["pending"], statusFields),
+      ],
     },
   });
   const returnedCount = await prisma.inquiry.count({
     where: {
       ...queueBaseWhere,
-      AND: [statusOrWhere(["returned", "return", "correction", "revise", "revision"], statusFields)],
+      AND: [
+        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
+        statusOrWhere(["returned", "return", "correction", "revise", "revision"], statusFields),
+      ],
     },
   });
   const resubmittedCount = await prisma.inquiry.count({
     where: {
       ...queueBaseWhere,
-      AND: [statusOrWhere(["resubm", "resubmit", "resubmitted"], statusFields)],
+      AND: [
+        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
+        statusOrWhere(["resubm", "resubmit", "resubmitted"], statusFields),
+      ],
     },
   });
   const approvedCount = await prisma.inquiry.count({

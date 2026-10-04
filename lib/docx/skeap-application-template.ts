@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Prisma } from "@prisma/client";
 import Docxtemplater from "docxtemplater";
 import ImageModule from "docxtemplater-image-module-free";
 import PizZip from "pizzip";
@@ -8,11 +9,46 @@ import { getPhotoUploadGroup } from "@/lib/skeap-upload";
 
 const TEMPLATE_PATH = join(process.cwd(), "public", "SKEAP Application Form (2).docx");
 
+export const SKEAP_APPLICATION_DOCX_BASE_SELECT = {
+  id: true,
+  userId: true,
+  currentCourse: true,
+  yearLevel: true,
+  gwa: true,
+  enrollmentFileUrl: true,
+  reportCardFileUrl: true,
+  status: true,
+  submittedAt: true,
+  updatedAt: true,
+  applicantName: true,
+  permanentAddress: true,
+  dateOfBirth: true,
+  placeOfBirth: true,
+  fathersName: true,
+  fathersOccupation: true,
+  fathersContact: true,
+  mothersMaidenName: true,
+  mothersOccupation: true,
+  contactNumber: true,
+  emailAddress: true,
+  uploadedFiles: true,
+  photoFileUrl: true,
+  age: true,
+  civilStatus: true,
+  mothersContact: true,
+  school: true,
+  gender: true,
+  grades: true,
+  timeline: true,
+  educationalBackground: true,
+} satisfies Prisma.SkeapApplicationSelect;
+
 type SkeapApplicationTemplateInput = {
   applicantName?: string | null;
   gender?: string | null;
   age?: number | string | null;
   civilStatus?: string | null;
+  registeredVoter?: boolean | null;
   permanentAddress?: string | null;
   dateOfBirth?: Date | string | null;
   placeOfBirth?: string | null;
@@ -28,6 +64,8 @@ type SkeapApplicationTemplateInput = {
   mothersOccupation?: string | null;
   mothersContact?: string | null;
   totalFamilyMonthlyIncome?: string | number | null;
+  signatureUrl?: string | null;
+  schoolHistory?: unknown;
   elementarySchool?: string | null;
   elementaryYearGraduated?: string | number | null;
   highSchool?: string | null;
@@ -60,6 +98,19 @@ function safeText(value: string | number | null | undefined) {
   if (value === null || value === undefined) return "N/A";
   const text = String(value).trim();
   return text || "N/A";
+}
+
+function toTitleCase(value: string | null | undefined) {
+  return safeText(value)
+    .toLocaleLowerCase()
+    .replace(/(^|[\s-])(\p{L})/gu, (_match, separator: string, letter: string) =>
+      `${separator}${letter.toLocaleUpperCase()}`
+    );
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  const text = safeText(value);
+  return text === "N/A" ? text : text.toLowerCase();
 }
 
 function parseEducationalBackground(value: unknown): Record<string, unknown> {
@@ -125,10 +176,12 @@ function formatDate(value: Date | string | null | undefined) {
   return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
-function voterRegistrationStatus(value: string | null | undefined): boolean | null {
+function voterRegistrationStatus(value: string | boolean | null | undefined): boolean | null {
+  if (typeof value === "boolean") return value;
   const normalized = value?.trim().toLowerCase();
   if (normalized === "yes" || normalized === "true" || normalized === "1") return true;
-  if (normalized === "no" || normalized === "false" || normalized === "0") return false;
+  if (normalized === "registered") return true;
+  if (normalized === "no" || normalized === "false" || normalized === "0" || normalized === "not registered") return false;
   return null;
 }
 
@@ -143,8 +196,8 @@ function formatApplicantAddress(
   const structuredAddress = formatPermanentAddress({
     sitio: applicantAddress?.sitio,
     barangay: applicantAddress?.barangay,
-    municipality: locality[0],
-    province: locality.slice(1).join(", "),
+    municipality: applicantAddress?.municipality ?? locality[0],
+    province: applicantAddress?.province ?? locality.slice(1).join(", "),
   });
   if (structuredAddress !== "Not specified") return structuredAddress;
 
@@ -153,7 +206,7 @@ function formatApplicantAddress(
     .map((part) => part.trim())
     .filter(Boolean)
     .join(", ");
-  return fallbackAddress || "Not specified";
+  return fallbackAddress || "N/A";
 }
 
 function getProfilePhotoUrl(application: SkeapApplicationTemplateInput, context: ApplicantTemplateContext) {
@@ -165,50 +218,57 @@ function getProfilePhotoUrl(application: SkeapApplicationTemplateInput, context:
   );
 }
 
-function buildTemplateData(
+export function buildSkeapApplicationTemplateData(
   application: SkeapApplicationTemplateInput,
   context: ApplicantTemplateContext,
   profilePhoto: string
 ) {
-  const voterStatus = voterRegistrationStatus(context.registeredNationalVoter);
-  const education = parseEducationalBackground(application.educationalBackground);
+  const voterStatus = voterRegistrationStatus(
+    application.registeredVoter ?? context.registeredNationalVoter
+  );
+  const schoolHistory = parseEducationalBackground(
+    application.schoolHistory ?? application.educationalBackground
+  );
   const profileName = [context.firstName, context.lastName]
     .map((part) => part?.trim())
     .filter(Boolean)
     .join(" ");
-  const fallbackName = context.fullName?.trim() || application.applicantName;
+  const applicantDisplayName = application.applicantName?.trim() || context.fullName?.trim() || profileName;
+  const formattedAddress = formatApplicantAddress(application.permanentAddress, context.address);
   return {
-    applicantName: safeText(profileName || fallbackName),
-    gender: safeText(context.gender ?? application.gender),
+    applicantName: toTitleCase(applicantDisplayName),
+    applicantNameUpper: safeText(applicantDisplayName).toUpperCase(),
+    gender: toTitleCase(context.gender ?? application.gender),
     age: safeText(context.age ?? application.age),
-    civilStatus: safeText(context.civilStatus ?? application.civilStatus),
-    permanentAddress: formatApplicantAddress(application.permanentAddress, context.address),
+    civilStatus: ` ${toTitleCase(context.civilStatus ?? application.civilStatus)}`,
+    permanentAddress: toTitleCase(formattedAddress),
     dateOfBirth: formatDate(application.dateOfBirth),
-    placeOfBirth: safeText(application.placeOfBirth),
+    placeOfBirth: toTitleCase(application.placeOfBirth),
     contactNumber: safeText(context.contactNumber ?? application.contactNumber),
-    emailAddress: safeText(context.email ?? application.emailAddress),
-    school: safeText(application.school),
-    yearLevel: safeText(application.yearLevel),
-    course: safeText(application.currentCourse),
-    fatherName: safeText(application.fathersName),
-    fatherOccupation: safeText(application.fathersOccupation),
+    emailAddress: normalizeEmail(context.email ?? application.emailAddress),
+    school: toTitleCase(application.school),
+    yearLevel: toTitleCase(application.yearLevel),
+    course: toTitleCase(application.currentCourse),
+    fatherName: toTitleCase(application.fathersName),
+    fatherOccupation: toTitleCase(application.fathersOccupation),
     fatherContact: safeText(application.fathersContact),
-    motherName: safeText(application.mothersMaidenName),
-    motherOccupation: safeText(application.mothersOccupation),
+    motherName: toTitleCase(application.mothersMaidenName),
+    motherOccupation: toTitleCase(application.mothersOccupation),
     motherContact: safeText(application.mothersContact),
     familyIncome: safeText(application.totalFamilyMonthlyIncome),
-    elemSchool: safeText(educationValue(education, "elementary", "school") ?? application.elementarySchool),
-    elemYear: safeText(educationValue(education, "elementary", "year") ?? application.elementaryYearGraduated),
-    hsSchool: safeText(educationValue(education, "highSchool", "school") ?? application.highSchool),
-    hsYear: safeText(educationValue(education, "highSchool", "year") ?? application.highSchoolYearGraduated),
-    collegeSchool: safeText(educationValue(education, "college", "school") ?? application.college),
-    collegeYear: safeText(educationValue(education, "college", "year") ?? application.collegeYearGraduated),
-    vocSchool: safeText(educationValue(education, "vocational", "school") ?? application.vocational),
-    vocYear: safeText(educationValue(education, "vocational", "year") ?? application.vocationalYearGraduated),
+    elemSchool: toTitleCase(safeText(educationValue(schoolHistory, "elementary", "school") ?? application.elementarySchool)),
+    elemYear: safeText(educationValue(schoolHistory, "elementary", "year") ?? application.elementaryYearGraduated),
+    hsSchool: toTitleCase(safeText(educationValue(schoolHistory, "highSchool", "school") ?? application.highSchool)),
+    hsYear: safeText(educationValue(schoolHistory, "highSchool", "year") ?? application.highSchoolYearGraduated),
+    collegeSchool: toTitleCase(safeText(educationValue(schoolHistory, "college", "school") ?? application.college)),
+    collegeYear: safeText(educationValue(schoolHistory, "college", "year") ?? application.collegeYearGraduated),
+    vocSchool: toTitleCase(safeText(educationValue(schoolHistory, "vocational", "school") ?? application.vocational)),
+    vocYear: safeText(educationValue(schoolHistory, "vocational", "year") ?? application.vocationalYearGraduated),
     submissionDate: formatDate(application.submittedAt),
-    voterYes: voterStatus === true ? "[X] Yes" : "[  ] Yes",
-    voterNo: voterStatus === false ? "[X] No" : "[  ] No",
+    voterYes: voterStatus === true ? "[✓]" : voterStatus === null ? "[?]" : "[ ]",
+    voterNo: voterStatus === false ? "[✓]" : voterStatus === null ? "[?]" : "[ ]",
     profileImage: profilePhoto,
+    applicantSignature: application.signatureUrl || null,
   };
 }
 
@@ -246,19 +306,46 @@ async function fetchProfilePhoto(url: string) {
   }
 }
 
+function signatureDataUrlToBuffer(value: string) {
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
+  if (!match) {
+    throw new Error("Stored SKEAP applicant signature is not a valid PNG data URL.");
+  }
+  const buffer = Buffer.from(match[1], "base64");
+  if (
+    buffer.length > 512_000 ||
+    buffer.length < 8 ||
+    !buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  ) {
+    throw new Error("Stored SKEAP applicant signature is not a valid PNG image.");
+  }
+  return buffer;
+}
+
+async function fetchSignatureImage(value: string) {
+  return value.startsWith("data:image/png;base64,")
+    ? signatureDataUrlToBuffer(value)
+    : fetchProfilePhoto(value);
+}
+
 export async function generateSkeapApplicationDocx(
   application: SkeapApplicationTemplateInput,
   context: ApplicantTemplateContext = {}
 ) {
   const profilePhotoUrl = getProfilePhotoUrl(application, context);
   const profilePhotoBuffer = await fetchProfilePhoto(profilePhotoUrl);
-  const data = buildTemplateData(application, context, profilePhotoBuffer ? profilePhotoUrl : "");
+  const signatureBuffer = application.signatureUrl
+    ? await fetchSignatureImage(application.signatureUrl)
+    : null;
+  const data = buildSkeapApplicationTemplateData(application, context, profilePhotoBuffer ? profilePhotoUrl : "");
   const zip = new PizZip(readFileSync(TEMPLATE_PATH));
   const imageModule = new ImageModule({
     centered: false,
     fileType: "docx",
-    getImage: () => profilePhotoBuffer,
-    getSize: () => [170, 170],
+    getImage: (_tagValue: string, tagName: string) =>
+      tagName === "applicantSignature" ? signatureBuffer : profilePhotoBuffer,
+    getSize: (_image: Buffer | null, _tagValue: string, tagName: string) =>
+      tagName === "applicantSignature" ? [240, 64] : [192, 192],
   });
   const document = new Docxtemplater(zip, {
     modules: [imageModule],

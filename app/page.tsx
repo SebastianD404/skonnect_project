@@ -16,6 +16,7 @@ export default function HomePage() {
   const [youthCount, setYouthCount] = useState<number | null>(null);
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [hasSkeapApplication, setHasSkeapApplication] = useState(false);
   const dashboardPath = user?.role === "GRANTEE"
     ? "/grantee-dashboard"
     : user?.role === "SK_OFFICIAL"
@@ -29,6 +30,29 @@ export default function HomePage() {
       router.replace(dashboardPath);
     }
   }, [authLoading, dashboardPath, router]);
+
+  useEffect(() => {
+    let mounted = true;
+    setHasSkeapApplication(false);
+
+    if (authLoading || user?.role !== "YOUTH") return;
+
+    fetch("/api/skeap/applications", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Failed to check SKEAP application status");
+        }
+        const data = await response.json();
+        if (mounted) setHasSkeapApplication(data.hasApplication === true);
+      })
+      .catch((error) => {
+        console.error("Could not check SKEAP application status:", error);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [authLoading, user?.id, user?.role]);
 
   useEffect(() => {
     let mounted = true;
@@ -106,7 +130,7 @@ export default function HomePage() {
               </p>
               
               <div className="flex flex-wrap items-center gap-4 pt-4">
-                <HeroCtaButton />
+                <HeroCtaButton hasApplication={hasSkeapApplication} />
                 <Link
                   href={user?.role === "YOUTH" ? "/youth-dashboard/inquiries" : "/grantee-dashboard/inquiries"}
                   className="inline-flex min-h-12 min-w-[220px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 bg-transparent px-6 py-3 font-semibold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"

@@ -1,6 +1,7 @@
 export type KKProfile = {
   id?: string;
   fullName: string;
+  middleName?: string | null;
   email: string;
   contactNumber: string;
   purok: string;

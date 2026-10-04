@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 
 const PROGRAM_STATUS_DEFAULTS: Record<string, { badge: string; label: string }> = {
   "skeap-scholarship": {
@@ -16,14 +17,17 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
     return NextResponse.json({ error: "Program status not available" }, { status: 404 });
   }
 
-  const [activeScholars, probationaryScholars, graduatedScholars, removedScholars, pendingApplications] = await Promise.all([
+  const [activeScholars, probationaryScholars, graduatedScholars, removedScholars, pendingApplications, maxSlots, activeScholarsCount] = await Promise.all([
     prisma.grantee.count({ where: { status: "ACTIVE" } }),
     prisma.grantee.count({ where: { status: "PROBATIONARY" } }),
     prisma.grantee.count({ where: { status: "GRADUATED" } }),
     prisma.grantee.count({ where: { status: "REMOVED" } }),
     prisma.submission.count({ where: { status: "PENDING" } }),
+    getSkeapMaxSlots(),
+    prisma.skeapApplication.count({ where: ACTIVE_SKEAP_APPLICATION_WHERE }),
   ]);
 
+  const remainingSlots = Math.max(0, maxSlots - activeScholarsCount);
   const totalScholars = activeScholars + probationaryScholars + graduatedScholars;
   const summary = pendingApplications > 0
     ? `There are ${pendingApplications} pending SKEAP application${pendingApplications === 1 ? "" : "s"} awaiting review.`
@@ -37,6 +41,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
     summary,
     granteeCount: activeScholars,
     activeScholars,
+    activeScholarsCount,
+    maxSlots,
+    remainingSlots,
     removedScholars,
     totalScholars,
     nextReview: "TBA",

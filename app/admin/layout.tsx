@@ -1,6 +1,6 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
-import { prisma, getProfilingRegistrationCount, getProfilingRegistrationCountByStatus, getProfilingRegistrationCountByStatusSince } from "@/lib/prisma";
+import { prisma, getProfilingRegistrationCountByStatusSince } from "@/lib/prisma";
 import AdminSidebar from "./AdminSidebar";
 import AdminGlobalTopBar from "./AdminGlobalTopBar";
 import { AdminSearchProvider } from "./AdminSearchContext";
@@ -24,37 +24,21 @@ export default async function AdminLayout({
   const subjectWhere = { subject: { contains: "SKEAP application", mode: "insensitive" as const } };
   const excludeCancelled = { reviewStatus: { contains: "cancel", mode: "insensitive" as const } };
   const excludeApproved = { reviewStatus: { contains: "approve", mode: "insensitive" as const } };
-
-  const statusOrWhere = (patterns: string[]) => {
-    return {
-      OR: patterns.flatMap((pattern) => [
-        { reviewStatus: { contains: pattern, mode: "insensitive" as const } },
-        { response: { contains: pattern, mode: "insensitive" as const } },
-      ]),
-    } as const;
-  };
+  const statusOrWhere = (patterns: string[]) => ({
+    OR: patterns.flatMap((pattern) => [
+      { reviewStatus: { contains: pattern, mode: "insensitive" as const } },
+      { response: { contains: pattern, mode: "insensitive" as const } },
+    ]),
+  });
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  const [openInquiryCount, skeapApplicationCount, pendingDocumentCount, profilingRegistrationCount, newGranteesToday, approvedMemberCountToday] =
-    await Promise.all([
-      prisma.inquiry.count({
-        where: { ...supportInquiryFilter, isResolved: false },
-      }),
-      prisma.inquiry.count({
-        where: {
-          ...subjectWhere,
-          NOT: [excludeCancelled, excludeApproved],
-          AND: [statusOrWhere(["pending", "return", "resubm", "respond"])],
-        },
-      }),
-      prisma.submission.count({ where: { status: "PENDING" } }),
-      getProfilingRegistrationCount(),
-      prisma.grantee.count({ where: { createdAt: { gte: startOfToday } } }),
-      getProfilingRegistrationCountByStatusSince("Approved", startOfToday),
-    ]);
-  // compute today's counts for sidebar badges (show only items added today)
+  const [newGranteesToday, approvedMemberCountToday] = await Promise.all([
+    prisma.grantee.count({ where: { createdAt: { gte: startOfToday } } }),
+    getProfilingRegistrationCountByStatusSince("Approved", startOfToday),
+  ]);
+
   const [
     openInquiryCountToday,
     skeapApplicationCountToday,
@@ -86,10 +70,7 @@ export default async function AdminLayout({
             approvedMemberCount={approvedMemberCountToday}
           />
           <main className="h-full min-w-0 flex-1 overflow-y-auto">
-            <AdminGlobalTopBar
-              openInquiryCount={openInquiryCount}
-              pendingSubmissionCount={pendingDocumentCount}
-            />
+            <AdminGlobalTopBar />
             <div className="px-8 py-8">{children}</div>
           </main>
         </div>

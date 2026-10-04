@@ -9,7 +9,7 @@ type OcrValidationOptions = {
 
 type ScanResult = {
   success: boolean;
-  status: "success" | "error";
+  status: "success" | "error" | "needs_review";
   badgeText: string;
   message: string;
   isValid: boolean;

@@ -53,6 +53,14 @@ html {
   display: none;
 }
 
+.scrollbar-hide {
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 *,
 *::before,
 *::after {

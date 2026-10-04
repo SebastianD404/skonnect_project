@@ -5,6 +5,7 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeUploadedFiles, SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 
 const EDUCATION_LEVELS = ["elementary", "highSchool", "college", "vocational"] as const;
 const EDUCATION_FIELDS = [
@@ -26,6 +27,34 @@ const EDUCATION_FIELDS = [
   "vocationalYear",
 ] as const;
 
+export async function GET() {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ hasApplication: false });
+    }
+
+    const appUser = await ensureProfile(user);
+    if (!appUser) {
+      return NextResponse.json({ hasApplication: false });
+    }
+
+    const application = await prisma.skeapApplication.findFirst({
+      where: { userId: appUser.id },
+      select: { id: true },
+    });
+
+    return NextResponse.json({ hasApplication: Boolean(application) });
+  } catch (error) {
+    console.error("Failed to check SKEAP application status:", error);
+    return NextResponse.json({ error: "Failed to check SKEAP application status." }, { status: 500 });
+  }
+}
+
 function normalizeEducationalBackground(value: unknown): Prisma.InputJsonObject | undefined {
   let parsed: unknown = value;
   if (typeof parsed === "string") {
@@ -33,10 +62,10 @@ function normalizeEducationalBackground(value: unknown): Prisma.InputJsonObject 
       parsed = JSON.parse(parsed);
     } catch (error) {
       console.warn("Ignoring invalid SKEAP educational background JSON.", error);
-      return undefined;
+      parsed = {};
     }
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) parsed = {};
 
   const source = parsed as Record<string, unknown>;
   const background: Record<string, Prisma.InputJsonValue> = {};
@@ -64,7 +93,32 @@ function normalizeEducationalBackground(value: unknown): Prisma.InputJsonObject 
       background[field] = String(entry).trim();
     }
   }
-  return Object.keys(background).length ? background : undefined;
+  const educationFields = [
+    { key: "elementary", aliases: ["elementarySchool", "elemSchool"], level: "elementary", value: "school" },
+    { key: "elementaryYearGraduated", aliases: ["elemYear"], level: "elementary", value: "year" },
+    { key: "highSchool", aliases: ["hsSchool"], level: "highSchool", value: "school" },
+    { key: "highSchoolYearGraduated", aliases: ["hsYear"], level: "highSchool", value: "year" },
+    { key: "college", aliases: ["collegeSchool"], level: "college", value: "school" },
+    { key: "collegeYearGraduated", aliases: ["collegeYear"], level: "college", value: "year" },
+    { key: "vocational", aliases: ["vocationalSchool"], level: "vocational", value: "school" },
+    { key: "vocationalYearGraduated", aliases: ["vocationalYear"], level: "vocational", value: "year" },
+  ] as const;
+
+  for (const field of educationFields) {
+    const nested = background[field.level];
+    const nestedValue =
+      nested && typeof nested === "object" && !Array.isArray(nested)
+        ? (nested as Record<string, unknown>)[field.value] ??
+          (field.value === "year" ? (nested as Record<string, unknown>).yearGraduated : undefined)
+        : undefined;
+    const value = [background[field.key], ...field.aliases.map((alias) => background[alias]), nestedValue]
+      .find((candidate) =>
+        (typeof candidate === "string" || typeof candidate === "number") && String(candidate).trim()
+      );
+    background[field.key] = value === undefined ? "N/A" : String(value).trim();
+  }
+
+  return background;
 }
 
 function buildSkeapInquiryMessage(data: {
@@ -152,10 +206,29 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    const firstName = String(body.firstName ?? "").trim();
+    const middleName = String(body.middleName ?? "").trim();
+    const lastName = String(body.lastName ?? "").trim();
+    const applicantName = firstName && middleName && lastName
+      ? `${lastName}, ${firstName} ${middleName}`
+      : "";
     const schoolName = String(body.schoolName || "").trim();
     const currentCourse = String(body.currentCourse || "").trim();
     const yearLevel = String(body.yearLevel || "").trim();
+    const permanentAddress = String(body.permanentAddress ?? "").trim();
+    const dateOfBirthRaw = String(body.dateOfBirth ?? "").trim();
+    const dateOfBirth = dateOfBirthRaw ? new Date(dateOfBirthRaw) : null;
+    const placeOfBirth = String(body.placeOfBirth ?? "").trim();
+    const civilStatus = String(body.civilStatus ?? "").trim();
+    const gender = String(body.gender ?? "").trim();
+    const contactNumber = String(body.contactNumber ?? "").trim();
+    const emailAddress = String(body.emailAddress ?? "").trim();
+    const photoFileUrl = String(body.photoFileUrl ?? "").trim();
+    const fathersName = String(body.fathersName ?? "").trim();
+    const fathersOccupation = String(body.fathersOccupation ?? "").trim();
     const fathersContact = String(body.fathersContact ?? "").trim();
+    const mothersMaidenName = String(body.mothersMaidenName ?? "").trim();
+    const mothersOccupation = String(body.mothersOccupation ?? "").trim();
     const mothersContact = String(body.mothersContact ?? "").trim();
     const enrollmentFileUrl = String(body.enrollmentFileUrl || "").trim();
     const reportCardFileUrl = String(body.reportCardFileUrl || "").trim();
@@ -163,6 +236,53 @@ export async function POST(request: NextRequest) {
     const gwa = gwaRaw ? Number(gwaRaw) : null;
     const ageRaw = body.age == null ? "" : String(body.age).trim();
     const age = ageRaw ? Number(ageRaw) : undefined;
+    const totalFamilyMonthlyIncome = String(body.totalFamilyMonthlyIncome ?? "").trim();
+    const registeredVoter = body.registeredVoter;
+    const signatureUrl = typeof body.signatureUrl === "string" ? body.signatureUrl : "";
+
+    if (!firstName || !middleName || !lastName) {
+      return NextResponse.json({ error: "Applicant first, middle, and last names are required." }, { status: 400 });
+    }
+    if (typeof registeredVoter !== "boolean") {
+      return NextResponse.json(
+        { error: "Please indicate whether you are a registered national voter." },
+        { status: 400 }
+      );
+    }
+    if (
+      !permanentAddress ||
+      !schoolName ||
+      !dateOfBirthRaw ||
+      !dateOfBirth ||
+      Number.isNaN(dateOfBirth.getTime()) ||
+      !placeOfBirth ||
+      !ageRaw ||
+      !civilStatus ||
+      !gender ||
+      !contactNumber ||
+      !emailAddress ||
+      !photoFileUrl
+    ) {
+      return NextResponse.json(
+        { error: "All personal information fields are required, including the applicant photo." },
+        { status: 400 }
+      );
+    }
+    if (signatureUrl.length > 1_000_000) {
+      return NextResponse.json({ error: "Signature is too large. Please clear it and sign again." }, { status: 413 });
+    }
+    const signatureMatch = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(signatureUrl);
+    if (!signatureMatch) {
+      return NextResponse.json({ error: "Please provide a valid PNG signature." }, { status: 400 });
+    }
+    const signatureBuffer = Buffer.from(signatureMatch[1], "base64");
+    if (
+      signatureBuffer.length > 512_000 ||
+      signatureBuffer.length < 8 ||
+      !signatureBuffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    ) {
+      return NextResponse.json({ error: "Please provide a valid PNG signature under 512 KB." }, { status: 400 });
+    }
 
     const rawAppUploadedFiles = body.uploadedFiles ?? body.allUploadedFiles ?? body.documentUploads ?? null;
     const uploadedFiles = normalizeUploadedFiles(rawAppUploadedFiles);
@@ -175,9 +295,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!fathersContact || !mothersContact) {
+    if (
+      !fathersName ||
+      !fathersOccupation ||
+      !fathersContact ||
+      !mothersMaidenName ||
+      !mothersOccupation ||
+      !mothersContact ||
+      !totalFamilyMonthlyIncome
+    ) {
       return NextResponse.json(
-        { error: "Father's and mother's contact numbers are required. Enter N/A when not applicable." },
+        { error: "Complete all family background fields. Enter N/A for contact details that do not apply." },
         { status: 400 }
       );
     }
@@ -186,31 +314,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "GWA must be between 0 and 100." }, { status: 400 });
     }
 
-    if (age !== undefined && (Number.isNaN(age) || age < 0 || age > 120)) {
-      return NextResponse.json({ error: "Age must be a valid number between 0 and 120." }, { status: 400 });
+    if (age === undefined || Number.isNaN(age) || age <= 0 || age > 120) {
+      return NextResponse.json({ error: "Age must be a valid number between 1 and 120." }, { status: 400 });
     }
 
-    const kkProfile = await prisma.user.findUnique({
-      where: { id: appUser.id },
-      select: { kkProfileId: true },
-    });
+    if (!isSkeapTestAccount(user.email)) {
+      const kkProfile = await prisma.user.findUnique({
+        where: { id: appUser.id },
+        select: { kkProfileId: true },
+      });
 
-    if (!kkProfile?.kkProfileId) {
-      return NextResponse.json({ error: "You must complete KK profiling first." }, { status: 403 });
-    }
+      if (!kkProfile?.kkProfileId) {
+        return NextResponse.json({ error: "You must complete KK profiling first." }, { status: 403 });
+      }
 
-    // Check if the latest KK profiling registration is approved
-    const latestRegistration = await prisma.profilingRegistration.findFirst({
-      where: { userId: appUser.id },
-      orderBy: { submittedAt: "desc" },
-      select: { reviewStatus: true },
-    });
+      const latestRegistration = await prisma.profilingRegistration.findFirst({
+        where: { userId: appUser.id },
+        orderBy: { submittedAt: "desc" },
+        select: { reviewStatus: true },
+      });
 
-    if (latestRegistration?.reviewStatus !== "Approved") {
-      return NextResponse.json(
-        { error: "Your KK profiling registration must be approved before you can apply for SKEAP." },
-        { status: 403 }
-      );
+      if (latestRegistration?.reviewStatus !== "Approved") {
+        return NextResponse.json(
+          { error: "Your KK profiling registration must be approved before you can apply for SKEAP." },
+          { status: 403 }
+        );
+      }
     }
 
     const requiredUploadKeys = [
@@ -254,23 +383,26 @@ export async function POST(request: NextRequest) {
       educationalBackground,
       enrollmentFileUrl,
       reportCardFileUrl,
-      applicantName: body.applicantName || undefined,
-      permanentAddress: body.permanentAddress || undefined,
-      dateOfBirth: body.dateOfBirth ? new Date(String(body.dateOfBirth)) : undefined,
-      placeOfBirth: body.placeOfBirth || undefined,
-      age: body.age ? Number(body.age) : undefined,
-      civilStatus: body.civilStatus || undefined,
-      gender: body.gender || undefined,
-      fathersName: body.fathersName || undefined,
-      fathersOccupation: body.fathersOccupation || undefined,
+      applicantName,
+      permanentAddress,
+      dateOfBirth,
+      placeOfBirth,
+      age,
+      civilStatus,
+      registeredVoter,
+      totalFamilyMonthlyIncome: totalFamilyMonthlyIncome || undefined,
+      signatureUrl,
+      gender,
+      fathersName,
+      fathersOccupation,
       fathersContact,
-      mothersMaidenName: body.mothersMaidenName || undefined,
-      mothersOccupation: body.mothersOccupation || undefined,
+      mothersMaidenName,
+      mothersOccupation,
       mothersContact,
-      contactNumber: body.contactNumber || undefined,
-      emailAddress: body.emailAddress || undefined,
+      contactNumber,
+      emailAddress,
       uploadedFiles,
-      photoFileUrl: body.photoFileUrl || undefined,
+      photoFileUrl,
       // keep uploaded files as normalized JSON
     };
 

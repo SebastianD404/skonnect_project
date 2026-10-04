@@ -48,6 +48,7 @@ export async function GET() {
       kkProfile: {
         select: {
           id: true,
+          middleName: true,
           fullName: true,
           purok: true,
           addressLine: true,
@@ -104,6 +105,7 @@ export async function GET() {
   return NextResponse.json({
     profile: {
       id: profile.kkProfile.id,
+      middleName: profile.kkProfile.middleName,
       fullName: profile.kkProfile.fullName,
       email: profile.kkProfile.email || profile.email,
       contactNumber: profile.kkProfile.contactNumber || profile.phoneNumber,
