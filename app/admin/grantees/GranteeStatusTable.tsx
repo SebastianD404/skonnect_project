@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Eye, FileText, Loader2, Search, Trash2 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import type { SerializableSkeapApplicationFormPayload } from "./[id]/GranteeDossierView";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 
@@ -197,7 +198,7 @@ export function GranteeStatusTable({
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-slate-900 font-medium">{grantee.school}</div>
+                      <div className="text-slate-900 font-medium">{normalizeSkeapSchoolName(grantee.school)}</div>
                       <div className="text-xs text-slate-500">{grantee.yearLevel}</div>
                     </td>
                     <td className="px-6 py-4">

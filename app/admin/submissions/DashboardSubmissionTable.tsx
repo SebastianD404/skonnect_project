@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { formatDate } from "@/lib/utils";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -162,7 +163,7 @@ export function DashboardSubmissionTable({ submissions, totalCount }: Props) {
       if (!normalizedQuery) return true;
       return (
         row.grantee.user.fullName.toLowerCase().includes(normalizedQuery) ||
-        row.grantee.school.toLowerCase().includes(normalizedQuery) ||
+        normalizeSkeapSchoolName(row.grantee.school).toLowerCase().includes(normalizedQuery) ||
         row.grantee.yearLevel.toLowerCase().includes(normalizedQuery) ||
         row.semester.toLowerCase().includes(normalizedQuery)
       );
@@ -312,7 +313,7 @@ export function DashboardSubmissionTable({ submissions, totalCount }: Props) {
                   </div>
                 </td>
                 <td className="px-4 py-4 align-top">
-                  <div className="text-sm font-semibold text-slate-950">{row.grantee.school}</div>
+                  <div className="text-sm font-semibold text-slate-950">{normalizeSkeapSchoolName(row.grantee.school)}</div>
                   <div className="mt-1 text-xs text-slate-500">{row.grantee.program}</div>
                 </td>
                 <td className="px-4 py-4 align-top">

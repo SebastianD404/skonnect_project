@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { normalizeUploadedFiles, SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { isSkeapTestAccount } from "@/lib/skeap-test-access";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 
 const EDUCATION_LEVELS = ["elementary", "highSchool", "college", "vocational"] as const;
 const EDUCATION_FIELDS = [
@@ -212,10 +214,11 @@ export async function POST(request: NextRequest) {
     const applicantName = firstName && middleName && lastName
       ? `${lastName}, ${firstName} ${middleName}`
       : "";
-    const schoolName = String(body.schoolName || "").trim();
+    const schoolName = normalizeSkeapSchoolName(String(body.schoolName || "").trim());
     const currentCourse = String(body.currentCourse || "").trim();
     const yearLevel = String(body.yearLevel || "").trim();
-    const permanentAddress = String(body.permanentAddress ?? "").trim();
+    const permanentAddressInput = String(body.permanentAddress ?? "").trim();
+    const permanentAddress = formatSkeapPermanentAddress({}, permanentAddressInput);
     const dateOfBirthRaw = String(body.dateOfBirth ?? "").trim();
     const dateOfBirth = dateOfBirthRaw ? new Date(dateOfBirthRaw) : null;
     const placeOfBirth = String(body.placeOfBirth ?? "").trim();
@@ -250,7 +253,8 @@ export async function POST(request: NextRequest) {
       );
     }
     if (
-      !permanentAddress ||
+      !permanentAddressInput ||
+      permanentAddress === "Not specified" ||
       !schoolName ||
       !dateOfBirthRaw ||
       !dateOfBirth ||

@@ -23,7 +23,7 @@ describe("SKEAP application DOCX", () => {
     );
 
     expect(documentXml).not.toContain("{%applicantSignature}");
-    expect(documentXml).toContain("Applicant, First Middle");
+    expect(documentXml).toContain("Profile Name Without Middle");
     expect(mediaFiles.some((name) => name.endsWith(".png"))).toBe(true);
   });
 
@@ -82,7 +82,7 @@ describe("SKEAP application DOCX", () => {
     expect(templateData.motherOccupation).toBe("Public School Teacher");
     expect(templateData.elemSchool).toBe("La Trinidad Central School");
     expect(templateData.hsSchool).toBe("Benguet National High School");
-    expect(templateData.collegeSchool).toBe("King's College Of The Philippines");
+    expect(templateData.collegeSchool).toBe("King's College of the Philippines");
     expect(templateData.vocSchool).toBe("Technical Education Center");
     expect(templateData.elemYear).toBe("2010");
   });
@@ -101,8 +101,26 @@ describe("SKEAP application DOCX", () => {
         vocationalYearGraduated: "",
       },
     });
+
     const documentXml = new PizZip(output).file("word/document.xml")?.asText() ?? "";
 
     expect(documentXml.match(/N\/A/g)?.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("uses the current profile name instead of a stale SKEAP application name", () => {
+    const templateData = buildSkeapApplicationTemplateData(
+      {
+        applicantName: "Old Name",
+        emailAddress: "old@example.com",
+      },
+      {
+        fullName: "Updated Name",
+        email: "updated@example.com",
+      },
+      ""
+    );
+
+    expect(templateData.applicantName).toBe("Updated Name");
+    expect(templateData.emailAddress).toBe("updated@example.com");
   });
 });

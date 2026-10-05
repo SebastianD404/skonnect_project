@@ -63,9 +63,24 @@ export async function GET(request: Request) {
   }
 
   if (confirmedUser?.email) {
-    await prisma.user.updateMany({
-      where: { authId: confirmedUser.id },
-      data: { email: confirmedUser.email.toLowerCase() },
+    const confirmedEmail = confirmedUser.email.toLowerCase();
+    await prisma.$transaction(async (tx) => {
+      const profile = await tx.user.updateMany({
+        where: { authId: confirmedUser.id },
+        data: { email: confirmedEmail },
+      });
+      if (profile.count > 0) {
+        const user = await tx.user.findUnique({
+          where: { authId: confirmedUser.id },
+          select: { id: true },
+        });
+        if (user) {
+          await tx.skeapApplication.updateMany({
+            where: { userId: user.id },
+            data: { emailAddress: confirmedEmail },
+          });
+        }
+      }
     });
   }
 

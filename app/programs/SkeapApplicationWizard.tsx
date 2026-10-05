@@ -13,6 +13,7 @@ import {
 import SmartPortraitDropzone from "@/components/SmartPortraitDropzone";
 import type { KKProfile } from "@/lib/kk-profile-client";
 import { validateDocumentOCR, type DocumentOCRResult } from "@/lib/skeap-document-ocr";
+import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 
 type UploadedFile = {
   id: string;
@@ -183,10 +184,12 @@ function findUploadFileForKey(files: UploadedFile[], key: SkeapUploadKey) {
 }
 
 function formatPermanentAddress(parts: Array<string | undefined | null>) {
-  return parts
-    .filter((part): part is string => Boolean(part && String(part).trim()))
-    .map((part) => String(part).trim())
-    .join(", ");
+  const address = formatSkeapPermanentAddress({
+    sitio: parts[0],
+    barangay: parts[1],
+    addressLine: parts[2],
+  });
+  return address === "Not specified" ? "" : address;
 }
 
 function parseProfileName(fullName: string) {
@@ -922,7 +925,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
               >
                 <option value="">Select your school</option>
                 <option value="Benguet State University (BSU)">Benguet State University (BSU)</option>
-                <option value="King's College of the Philippines (KCP)">King's College of the Philippines (KCP)</option>
+                <option value="King's College of the Philippines">King&apos;s College of the Philippines</option>
                 <option value="Cordillera Career Development College (CCDC)">Cordillera Career Development College (CCDC)</option>
                 <option value="Star Colleges">Star Colleges</option>
                 <option value="BVS Colleges">BVS Colleges</option>

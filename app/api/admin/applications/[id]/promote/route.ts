@@ -5,6 +5,7 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, DEFAULT_SKEAP_MAX_SLOTS, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -82,12 +83,12 @@ export async function POST(
         where: { userId: application.userId },
         create: {
           userId: application.userId,
-          school: application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL,
+          school: normalizeSkeapSchoolName(application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL),
           yearLevel: application.yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL,
           status: "ACTIVE",
         },
         update: {
-          school: application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL,
+          school: normalizeSkeapSchoolName(application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL),
           yearLevel: application.yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL,
           status: "ACTIVE",
           dateRemoved: null,

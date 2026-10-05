@@ -4,10 +4,12 @@ import { Prisma } from "@prisma/client";
 import Docxtemplater from "docxtemplater";
 import ImageModule from "docxtemplater-image-module-free";
 import PizZip from "pizzip";
-import { formatPermanentAddress, type PermanentAddressParts } from "@/lib/grantee-address";
+import sharp from "sharp";
+import { formatSkeapPermanentAddress, type PermanentAddressParts } from "@/lib/grantee-address";
 import { getPhotoUploadGroup } from "@/lib/skeap-upload";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
-const TEMPLATE_PATH = join(process.cwd(), "public", "SKEAP Application Form (2).docx");
+const TEMPLATE_PATH = join(process.cwd(), "public", "SKEAP Application Form.docx");
 
 export const SKEAP_APPLICATION_DOCX_BASE_SELECT = {
   id: true,
@@ -189,24 +191,14 @@ function formatApplicantAddress(
   applicationAddress: string | null | undefined,
   applicantAddress: ApplicantTemplateContext["address"]
 ) {
-  const locality = (applicantAddress?.addressLine ?? "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const structuredAddress = formatPermanentAddress({
+  const structuredAddress = formatSkeapPermanentAddress({
     sitio: applicantAddress?.sitio,
     barangay: applicantAddress?.barangay,
-    municipality: applicantAddress?.municipality ?? locality[0],
-    province: applicantAddress?.province ?? locality.slice(1).join(", "),
-  });
-  if (structuredAddress !== "Not specified") return structuredAddress;
-
-  const fallbackAddress = applicationAddress
-    ?.split(",")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(", ");
-  return fallbackAddress || "N/A";
+    municipality: applicantAddress?.municipality,
+    province: applicantAddress?.province,
+    addressLine: applicantAddress?.addressLine,
+  }, applicationAddress);
+  return structuredAddress === "Not specified" ? "N/A" : structuredAddress;
 }
 
 function getProfilePhotoUrl(application: SkeapApplicationTemplateInput, context: ApplicantTemplateContext) {
@@ -233,7 +225,7 @@ export function buildSkeapApplicationTemplateData(
     .map((part) => part?.trim())
     .filter(Boolean)
     .join(" ");
-  const applicantDisplayName = application.applicantName?.trim() || context.fullName?.trim() || profileName;
+  const applicantDisplayName = context.fullName?.trim() || application.applicantName?.trim() || profileName;
   const formattedAddress = formatApplicantAddress(application.permanentAddress, context.address);
   return {
     applicantName: toTitleCase(applicantDisplayName),
@@ -246,7 +238,7 @@ export function buildSkeapApplicationTemplateData(
     placeOfBirth: toTitleCase(application.placeOfBirth),
     contactNumber: safeText(context.contactNumber ?? application.contactNumber),
     emailAddress: normalizeEmail(context.email ?? application.emailAddress),
-    school: toTitleCase(application.school),
+    school: normalizeSkeapSchoolName(toTitleCase(application.school)),
     yearLevel: toTitleCase(application.yearLevel),
     course: toTitleCase(application.currentCourse),
     fatherName: toTitleCase(application.fathersName),
@@ -256,13 +248,13 @@ export function buildSkeapApplicationTemplateData(
     motherOccupation: toTitleCase(application.mothersOccupation),
     motherContact: safeText(application.mothersContact),
     familyIncome: safeText(application.totalFamilyMonthlyIncome),
-    elemSchool: toTitleCase(safeText(educationValue(schoolHistory, "elementary", "school") ?? application.elementarySchool)),
+    elemSchool: normalizeSkeapSchoolName(toTitleCase(safeText(educationValue(schoolHistory, "elementary", "school") ?? application.elementarySchool))),
     elemYear: safeText(educationValue(schoolHistory, "elementary", "year") ?? application.elementaryYearGraduated),
-    hsSchool: toTitleCase(safeText(educationValue(schoolHistory, "highSchool", "school") ?? application.highSchool)),
+    hsSchool: normalizeSkeapSchoolName(toTitleCase(safeText(educationValue(schoolHistory, "highSchool", "school") ?? application.highSchool))),
     hsYear: safeText(educationValue(schoolHistory, "highSchool", "year") ?? application.highSchoolYearGraduated),
-    collegeSchool: toTitleCase(safeText(educationValue(schoolHistory, "college", "school") ?? application.college)),
+    collegeSchool: normalizeSkeapSchoolName(toTitleCase(safeText(educationValue(schoolHistory, "college", "school") ?? application.college))),
     collegeYear: safeText(educationValue(schoolHistory, "college", "year") ?? application.collegeYearGraduated),
-    vocSchool: toTitleCase(safeText(educationValue(schoolHistory, "vocational", "school") ?? application.vocational)),
+    vocSchool: normalizeSkeapSchoolName(toTitleCase(safeText(educationValue(schoolHistory, "vocational", "school") ?? application.vocational))),
     vocYear: safeText(educationValue(schoolHistory, "vocational", "year") ?? application.vocationalYearGraduated),
     submissionDate: formatDate(application.submittedAt),
     voterYes: voterStatus === true ? "[✓]" : voterStatus === null ? "[?]" : "[ ]",
@@ -328,6 +320,30 @@ async function fetchSignatureImage(value: string) {
     : fetchProfilePhoto(value);
 }
 
+async function prepSignature(
+  buf: Buffer,
+  maxW = 160,
+  maxH = 45
+): Promise<{ buf: Buffer; size: [number, number] }> {
+  const { data, info } = await sharp(buf)
+    .flatten({ background: "#ffffff" })
+    .trim({ threshold: 10 })
+    .png()
+    .toBuffer({ resolveWithObject: true });
+  const scale = Math.min(maxW / info.width, maxH / info.height);
+  return {
+    buf: data,
+    size: [Math.round(info.width * scale), Math.round(info.height * scale)],
+  };
+}
+
+async function prepPhoto(buf: Buffer) {
+  return sharp(buf)
+    .resize(380, 380, { fit: "cover", position: "centre" })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+}
+
 export async function generateSkeapApplicationDocx(
   application: SkeapApplicationTemplateInput,
   context: ApplicantTemplateContext = {}
@@ -337,15 +353,19 @@ export async function generateSkeapApplicationDocx(
   const signatureBuffer = application.signatureUrl
     ? await fetchSignatureImage(application.signatureUrl)
     : null;
+  const photo = profilePhotoBuffer ? await prepPhoto(profilePhotoBuffer) : null;
+  const sig: { buf: Buffer | null; size: [number, number] } = signatureBuffer
+    ? await prepSignature(signatureBuffer)
+    : { buf: null, size: [160, 45] };
   const data = buildSkeapApplicationTemplateData(application, context, profilePhotoBuffer ? profilePhotoUrl : "");
   const zip = new PizZip(readFileSync(TEMPLATE_PATH));
   const imageModule = new ImageModule({
     centered: false,
     fileType: "docx",
-    getImage: (_tagValue: string, tagName: string) =>
-      tagName === "applicantSignature" ? signatureBuffer : profilePhotoBuffer,
-    getSize: (_image: Buffer | null, _tagValue: string, tagName: string) =>
-      tagName === "applicantSignature" ? [240, 64] : [192, 192],
+    getImage: (_tagValue: string, key: string) =>
+      key === "applicantSignature" ? sig.buf : photo,
+    getSize: (_image: Buffer | null, _tagValue: string, key: string) =>
+      key === "applicantSignature" ? sig.size : [190, 190],
   });
   const document = new Docxtemplater(zip, {
     modules: [imageModule],

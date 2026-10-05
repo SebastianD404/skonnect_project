@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { ArrowUpRight, Download, FileText, Image as ImageIcon } from "lucide-react";
 import { formatPermanentAddress } from "@/lib/grantee-address";
 import { getAdditionalUploadGroups, getCoreUploadGroups, getPhotoUploadGroup } from "@/lib/skeap-upload";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import GraduationAction from "./GraduationAction";
 
 export type SerializableSkeapApplicationFormPayload = {
@@ -108,7 +109,7 @@ export default function GranteeDossierView({
       <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <SectionHeading title="Academic & enrollment summary" />
         <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-3">
-          <Detail label="School">{grantee.school}</Detail>
+          <Detail label="School">{normalizeSkeapSchoolName(grantee.school)}</Detail>
           <Detail label="Course">{application?.currentCourse ?? "—"}</Detail>
           <Detail label="Year level">{grantee.yearLevel}</Detail>
           <Detail label="Enrollment date">{formatDate(grantee.dateEnrolled)}</Detail>

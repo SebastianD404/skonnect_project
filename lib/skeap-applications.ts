@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { getUploadGroups } from "@/lib/skeap-upload";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 
 interface ApplicationMessage {
   id: string;
@@ -33,6 +35,13 @@ export const SKEAP_APPLICATION_SELECT = {
       fullName: true,
       email: true,
       phoneNumber: true,
+      kkProfile: {
+        select: {
+          purok: true,
+          addressLine: true,
+          barangay: true,
+        },
+      },
       grantee: {
         select: {
           yearLevel: true,
@@ -233,7 +242,9 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
     applicantEmail: inquiry.user?.email || inquiry.application?.emailAddress || "",
     applicantPhoneNumber: inquiry.user?.phoneNumber || inquiry.application?.contactNumber || "",
     yearLevel: inquiry.user?.grantee?.yearLevel || inquiry.application?.yearLevel || "",
-    school: inquiry.user?.grantee?.school || inquiry.application?.school || inquiry.application?.currentCourse || "",
+    school: normalizeSkeapSchoolName(
+      inquiry.user?.grantee?.school || inquiry.application?.school || inquiry.application?.currentCourse || ""
+    ),
     submittedAt: inquiry.createdAt.toISOString(),
     status,
     documents,
@@ -243,8 +254,12 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
           currentCourse: inquiry.application.currentCourse,
           yearLevel: inquiry.application.yearLevel,
           gwa: inquiry.application.gwa,
-          applicantName: inquiry.application.applicantName || inquiry.user?.fullName || undefined,
-          permanentAddress: inquiry.application.permanentAddress || undefined,
+          applicantName: inquiry.user?.fullName || inquiry.application.applicantName || undefined,
+          permanentAddress: formatSkeapPermanentAddress({
+            sitio: inquiry.user?.kkProfile?.purok,
+            barangay: inquiry.user?.kkProfile?.barangay,
+            addressLine: inquiry.user?.kkProfile?.addressLine,
+          }, inquiry.application.permanentAddress),
           dateOfBirth: inquiry.application.dateOfBirth ? inquiry.application.dateOfBirth.toISOString() : undefined,
           placeOfBirth: inquiry.application.placeOfBirth || undefined,
           age: inquiry.application.age ?? undefined,
@@ -256,8 +271,8 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
           mothersMaidenName: inquiry.application.mothersMaidenName || undefined,
           mothersOccupation: inquiry.application.mothersOccupation || undefined,
           mothersContact: inquiry.application.mothersContact || undefined,
-          contactNumber: inquiry.application.contactNumber || undefined,
-          emailAddress: inquiry.application.emailAddress || inquiry.user.email || undefined,
+          contactNumber: inquiry.user?.phoneNumber || inquiry.application.contactNumber || undefined,
+          emailAddress: inquiry.user?.email || inquiry.application.emailAddress || undefined,
           photoFileUrl: inquiry.application.photoFileUrl || undefined,
           uploadedFiles: inquiry.application.uploadedFiles ?? undefined,
         }

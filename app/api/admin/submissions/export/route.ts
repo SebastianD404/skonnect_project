@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { exportToExcel } from "@/lib/utils/export";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 export async function GET() {
   const supabase = await createClient();
@@ -39,7 +40,7 @@ export async function GET() {
       fullName: submission.grantee.user.fullName,
       email: submission.grantee.user.email,
       semester: submission.semester,
-      school: submission.grantee.school,
+      school: normalizeSkeapSchoolName(submission.grantee.school),
       yearLevel: submission.grantee.yearLevel,
       generalAverage: submission.generalAverage,
       status: submission.status,

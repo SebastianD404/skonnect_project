@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { createClient } from "@/lib/supabase/server";
 import { mapInquiryToApplication, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 
@@ -37,7 +38,7 @@ export async function GET(
         applicantName: application.applicantName,
         applicantEmail: application.applicantEmail,
         applicantPhoneNumber: application.applicantPhoneNumber,
-        school: application.school,
+        school: normalizeSkeapSchoolName(application.school),
         yearLevel: application.yearLevel,
       },
     });

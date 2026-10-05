@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import type { SubmissionStatus } from "@prisma/client";
 import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Loader2, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 interface SubmissionRow {
   id: string;
@@ -354,7 +355,7 @@ export default function SubmissionReviewTable() {
                       </td>
                       <td className="truncate px-6 py-4 text-slate-700">{submission.semester}</td>
                       <td className="px-6 py-4 text-slate-700">
-                        <div className="truncate">{submission.grantee.school}</div>
+                        <div className="truncate">{normalizeSkeapSchoolName(submission.grantee.school)}</div>
                         <div className="truncate text-xs text-slate-500">{submission.grantee.yearLevel}</div>
                       </td>
                       <td className="truncate px-6 py-4 text-slate-700">{(submission.generalAverage ?? submission.grantee.generalAverage)?.toFixed(2) ?? "—"}</td>

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { SettingsShell } from "@/app/components/SettingsShell";
 import { ProfileSettingsForm } from "./profile-settings-form";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
@@ -69,7 +70,7 @@ export default async function ProfilePage({ searchParams }: { searchParams?: Pro
         email={appUser.email}
         phoneNumber={appUser.phoneNumber}
         role={appUser.role}
-        school={appUser.grantee?.school ?? ""}
+        school={normalizeSkeapSchoolName(appUser.grantee?.school ?? "")}
         yearLevel={appUser.grantee?.yearLevel ?? ""}
         needsGranteeProfile={needsGranteeProfile}
         emailConfirmation={confirmationParams?.email_confirmation}

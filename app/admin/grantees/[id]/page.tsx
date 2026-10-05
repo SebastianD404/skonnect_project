@@ -3,6 +3,7 @@ import { notFound, unstable_rethrow } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
 import { ArrowLeft } from "lucide-react";
 import GranteeDossierView, {
@@ -192,7 +193,7 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
             municipality: municipality ?? null,
             province: provinceParts.join(", ") || null,
           },
-          school: grantee.school,
+          school: normalizeSkeapSchoolName(grantee.school),
           yearLevel: grantee.yearLevel,
           status: grantee.status,
           dateEnrolled: grantee.dateEnrolled.toISOString(),

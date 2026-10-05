@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 export type SkeapWaitlistApplication = {
   id: string;
@@ -52,7 +53,7 @@ export async function getSkeapWaitlistSnapshot(): Promise<SkeapWaitlistSnapshot>
       applicantName: application.applicantName || application.user.fullName || application.user.email,
       emailAddress: application.emailAddress || application.user.email,
       contactNumber: application.contactNumber,
-      school: application.school,
+      school: normalizeSkeapSchoolName(application.school),
       currentCourse: application.currentCourse,
       yearLevel: application.yearLevel,
     })),

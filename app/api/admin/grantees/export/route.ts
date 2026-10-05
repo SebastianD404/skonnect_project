@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { exportToExcel } from "@/lib/utils/export";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -77,7 +78,7 @@ export async function GET(request: NextRequest) {
     fullName: grantee.user.fullName,
     email: grantee.user.email,
     contactNumber: grantee.user.phoneNumber,
-    school: grantee.school,
+    school: normalizeSkeapSchoolName(grantee.school),
     yearLevel: grantee.yearLevel,
     status: grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY" ? "Active" : grantee.status,
     generalAverage: grantee.generalAverage,

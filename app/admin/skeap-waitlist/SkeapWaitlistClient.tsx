@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw, Search } from "lucide-react";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 type CapacityState = {
   activeCount: number;
@@ -263,7 +264,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     </td>
                     <td className="px-6 py-4 text-slate-700">
                       <div className="flex flex-col gap-0.5">
-                        <p>{application.school}</p>
+                        <p>{normalizeSkeapSchoolName(application.school)}</p>
                         <p className="text-xs font-medium text-slate-500">{application.currentCourse} · {application.yearLevel}</p>
                       </div>
                     </td>

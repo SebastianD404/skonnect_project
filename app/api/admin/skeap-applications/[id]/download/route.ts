@@ -94,7 +94,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return new NextResponse(Buffer.from(output), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": 'attachment; filename="SKEAP Application Form (2).docx"',
+        "Content-Disposition": 'attachment; filename="SKEAP Application Form.docx"',
         "Cache-Control": "no-store, no-cache, must-revalidate",
       },
     });

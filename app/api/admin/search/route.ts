@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { listProfilingRegistrations, prisma } from "@/lib/prisma";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { createClient } from "@/lib/supabase/server";
 
 type SearchResult = {
@@ -128,7 +129,7 @@ export async function GET(request: NextRequest) {
       id: `grantee-${grantee.id}`,
       type: "Grantee",
       label: grantee.user.fullName,
-      detail: `${grantee.user.email} · ${grantee.school} · ${grantee.status.toLowerCase()}`,
+      detail: `${grantee.user.email} · ${normalizeSkeapSchoolName(grantee.school)} · ${grantee.status.toLowerCase()}`,
       href: `/admin/grantees/${grantee.id}`,
       updatedAt: grantee.updatedAt.getTime(),
     })),

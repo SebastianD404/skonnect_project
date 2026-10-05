@@ -2,6 +2,7 @@
 
 import { ArrowUpRight, Download, Image as ImageIcon, X } from "lucide-react";
 import { getAdditionalUploadGroups, getCoreUploadGroups, getPhotoUploadGroup } from "@/lib/skeap-upload";
+import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 
 type ApplicationFormModalProps = {
   isOpen: boolean;
@@ -136,7 +137,7 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
                   ["Gender", application.gender],
                   ["Civil status", application.civilStatus],
                   ["Place of birth", application.placeOfBirth],
-                  ["Permanent address", application.permanentAddress],
+                  ["Permanent address", formatSkeapPermanentAddress({}, application.permanentAddress)],
                   ["Age", application.age],
                   ["Date of birth", application.dateOfBirth ? formatDateOfBirth(application.dateOfBirth) : null],
                 ], true, "grid grid-cols-1 gap-x-6 gap-y-2 md:grid-cols-3")}

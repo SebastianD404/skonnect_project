@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import PizZip from "pizzip";
 
-const templatePath = "public/SKEAP Application Form (2).docx";
+const templatePath = "public/SKEAP Application Form.docx";
 const zip = new PizZip(fs.readFileSync(templatePath));
 const documentXml = zip.file("word/document.xml")?.asText();
 if (!documentXml) throw new Error("SKEAP DOCX is missing word/document.xml");

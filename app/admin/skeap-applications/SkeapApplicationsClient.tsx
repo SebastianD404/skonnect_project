@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, Che
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { CORE_UPLOAD_KEYS, SKEAP_UPLOAD_KEY, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 interface DocumentItem {
   id: string;
@@ -514,7 +515,18 @@ export default function SkeapApplicationsClient({
         setApplications((current) =>
           current.map((application) =>
             application.id === applicationId
-              ? { ...application, ...result.profile }
+              ? {
+                  ...application,
+                  ...result.profile,
+                  application: application.application
+                    ? {
+                        ...application.application,
+                        applicantName: result.profile.applicantName,
+                        emailAddress: result.profile.applicantEmail,
+                        contactNumber: result.profile.applicantPhoneNumber,
+                      }
+                    : application.application,
+                }
               : application
           )
         );
@@ -1077,7 +1089,7 @@ export default function SkeapApplicationsClient({
                           <div className="min-w-0">
                             <p className="truncate text-sm font-bold text-slate-900">{application.applicantName}</p>
                             <p className="mt-1 truncate text-xs text-slate-500">
-                              {application.school || "No school provided"}
+                              {normalizeSkeapSchoolName(application.school) || "No school provided"}
                               {application.school && application.yearLevel ? " • " : ""}
                               {application.yearLevel || ""}
                             </p>
@@ -1265,7 +1277,7 @@ export default function SkeapApplicationsClient({
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-4 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">School / Institution</span>
-                          <span className="text-sm font-semibold leading-snug text-slate-900 break-words">{selectedApplication.school || "Not provided"}</span>
+                          <span className="text-sm font-semibold leading-snug text-slate-900 break-words">{normalizeSkeapSchoolName(selectedApplication.school) || "Not provided"}</span>
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-2 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Phone</span>

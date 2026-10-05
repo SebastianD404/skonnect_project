@@ -9,6 +9,7 @@ import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
 } from "@/lib/grantee-profile";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 const PAGE_SIZES = [10, 20, 50] as const;
 
@@ -212,7 +213,7 @@ export default async function AdminGranteesPage({ searchParams }: {
       id: grantee.id,
       fullName: grantee.user.fullName,
       email: grantee.user.email,
-      school: grantee.school,
+      school: normalizeSkeapSchoolName(grantee.school),
       yearLevel: grantee.yearLevel,
       status: grantee.status,
       generalAverage:

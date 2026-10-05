@@ -134,39 +134,47 @@ export async function updateProfileName(
   }
 
   try {
-    await db.user.update({
-      where: { id: profile.id },
-      data: {
-        fullName,
-        email: emailChangeRequested ? profile.email : email,
-        phoneNumber,
-      },
+    const savedEmail = emailChangeRequested ? profile.email : email;
+    await db.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: profile.id },
+        data: {
+          fullName,
+          email: savedEmail,
+          phoneNumber,
+        },
+      });
+      await tx.skeapApplication.updateMany({
+        where: { userId: profile.id },
+        data: {
+          applicantName: fullName,
+          emailAddress: savedEmail,
+          contactNumber: phoneNumber,
+        },
+      });
+
+      if (profile.role === "GRANTEE") {
+        await tx.grantee.upsert({
+          where: { userId: profile.id },
+          create: {
+            userId: profile.id,
+            school: school || GRANTEE_PLACEHOLDER_SCHOOL,
+            yearLevel: yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+            status: "ACTIVE",
+          },
+          update: {
+            school,
+            yearLevel,
+          },
+        });
+      }
     });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "P2002") {
       return { error: "That email address is already linked to another account." };
     }
-    return { error: "We could not update your profile. Please try again." };
-  }
-
-  if (profile.role === "GRANTEE") {
-    try {
-      await db.grantee.upsert({
-        where: { userId: profile.id },
-        create: {
-          userId: profile.id,
-          school: school || GRANTEE_PLACEHOLDER_SCHOOL,
-          yearLevel: yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL,
-          status: "ACTIVE",
-        },
-        update: {
-          school,
-          yearLevel,
-        },
-      });
-    } catch {
-      return { error: "Your profile email was updated, but school details could not be saved." };
-    }
+    console.error("Failed to synchronize profile and SKEAP applicant records:", error);
+    return { error: "We could not update your profile and application records. Please try again." };
   }
 
   // Cookie refresh is best-effort: the profile and credentials are already saved.
