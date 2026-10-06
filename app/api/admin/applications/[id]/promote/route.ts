@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logAuditEvent } from "@/lib/audit/logger";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, DEFAULT_SKEAP_MAX_SLOTS, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -111,7 +112,24 @@ export async function POST(
         }
       }
 
-      return { id: application.id, applicantName: application.applicantName };
+      return {
+        id: application.id,
+        applicantId: application.userId,
+        applicantName: application.applicantName,
+      };
+    });
+
+    logAuditEvent({
+      actorId: auth.user.id,
+      actorEmail: auth.user.email,
+      action: "APPLICATION_PROMOTED",
+      resource: "skeap_applications",
+      resourceId: promoted.id,
+      metadata: {
+        applicantId: promoted.applicantId,
+        target: promoted.applicantName || promoted.applicantId,
+        resultingStatus: "APPROVED",
+      },
     });
 
     return NextResponse.json({ success: true, application: promoted });

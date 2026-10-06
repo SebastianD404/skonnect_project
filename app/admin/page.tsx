@@ -22,6 +22,7 @@ export default async function SKOfficialDashboardPage() {
     profilingRegistrationCount,
     profilingMonthlyRows,
     recentInquiries,
+    pendingReviews,
   ] = await Promise.all([
     prisma.grantee.count({ where: { status: { in: ["ACTIVE", "PROBATIONARY"] } } }),
     prisma.inquiry.count({
@@ -65,6 +66,25 @@ export default async function SKOfficialDashboardPage() {
           select: {
             fullName: true,
             email: true,
+          },
+        },
+      },
+    }),
+    prisma.submission.findMany({
+      where: { status: "PENDING" },
+      orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+      take: 3,
+      select: {
+        id: true,
+        semester: true,
+        coeFileUrl: true,
+        gradeFileUrl: true,
+        submittedAt: true,
+        grantee: {
+          select: {
+            school: true,
+            yearLevel: true,
+            user: { select: { fullName: true } },
           },
         },
       },
@@ -175,9 +195,13 @@ export default async function SKOfficialDashboardPage() {
       profilingRegistrationCount={profilingRegistrationCount}
       profilingSeries={profilingSeries}
       profilingMonths={profilingMonths}
-      recentInquiries={recentInquiries.map((inquiry: any) => ({
+      recentInquiries={recentInquiries.map((inquiry) => ({
         ...inquiry,
         createdAt: inquiry.createdAt.toISOString(),
+      }))}
+      pendingReviews={pendingReviews.map((review) => ({
+        ...review,
+        submittedAt: review.submittedAt.toISOString(),
       }))}
     />
   );

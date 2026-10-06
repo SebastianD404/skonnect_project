@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users, Banknote } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
@@ -56,6 +56,15 @@ interface AdminSidebarProps {
   approvedMemberCount: number;
 }
 
+interface SidebarCounts {
+  openInquiryCount: number;
+  skeapApplicationCount: number;
+  pendingDocumentCount: number;
+  profilingRegistrationCount: number;
+  newGranteeCount: number;
+  approvedMemberCount: number;
+}
+
 export default function AdminSidebar({
   openInquiryCount,
   skeapApplicationCount,
@@ -66,10 +75,72 @@ export default function AdminSidebar({
 }: AdminSidebarProps) {
   const pathname = usePathname();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [liveCounts, setLiveCounts] = useState<SidebarCounts>({
+    openInquiryCount,
+    skeapApplicationCount,
+    pendingDocumentCount,
+    profilingRegistrationCount,
+    newGranteeCount: newGranteesToday,
+    approvedMemberCount,
+  });
+  const countsRequest = useRef(false);
   const displayName = useMemo(
     () => deriveDisplayName(sessionUser?.fullName, sessionUser?.email),
     [sessionUser?.fullName, sessionUser?.email]
   );
+
+  useEffect(() => {
+    let mounted = true;
+    let controller: AbortController | null = null;
+
+    async function refreshCounts() {
+      if (!mounted || document.visibilityState !== "visible" || countsRequest.current) return;
+      countsRequest.current = true;
+      controller = new AbortController();
+
+      try {
+        const response = await fetch("/api/admin/sidebar-counts", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || "Unable to refresh sidebar counts.");
+        if (
+          mounted &&
+          data?.counts &&
+          Object.values(data.counts).every((count) => Number.isInteger(count))
+        ) {
+          setLiveCounts(data.counts as SidebarCounts);
+        }
+      } catch (error) {
+        if (mounted && !controller.signal.aborted) {
+          console.error("Failed to refresh admin sidebar counts:", error);
+        }
+      } finally {
+        countsRequest.current = false;
+      }
+    }
+
+    const interval = window.setInterval(refreshCounts, 15_000);
+    const handleFocus = () => void refreshCounts();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refreshCounts();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("admin-inquiries-updated", handleFocus);
+    void refreshCounts();
+
+    return () => {
+      mounted = false;
+      controller?.abort();
+      countsRequest.current = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("admin-inquiries-updated", handleFocus);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     let mounted = true;
@@ -127,17 +198,17 @@ export default function AdminSidebar({
     {
       title: "People Management",
       items: [
-        { label: "Members", href: "/admin/members", icon: Users, badge: approvedMemberCount },
-            { label: "Grantees", href: "/admin/grantees", icon: Users, badge: newGranteesToday },
-        { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: profilingRegistrationCount },
+        { label: "Members", href: "/admin/members", icon: Users, badge: liveCounts.approvedMemberCount },
+            { label: "Grantees", href: "/admin/grantees", icon: Users, badge: liveCounts.newGranteeCount },
+        { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: liveCounts.profilingRegistrationCount },
       ],
     },
     {
       title: "Programs & Engagement",
       items: [
-        { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: skeapApplicationCount },
+        { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: liveCounts.skeapApplicationCount },
         { label: "SKEAP Waitlist", href: "/admin/skeap-waitlist", icon: ClipboardList },
-        { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: pendingDocumentCount },
+        { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: liveCounts.pendingDocumentCount },
       ],
     },
     {
@@ -150,7 +221,7 @@ export default function AdminSidebar({
       title: "Communication",
       items: [
         { label: "Broadcast", href: "/admin/broadcast", icon: Radio },
-        { label: "Inquiries", href: "/admin/inquiries", icon: Inbox, badge: openInquiryCount },
+        { label: "Inquiries", href: "/admin/inquiries", icon: Inbox, badge: liveCounts.openInquiryCount },
       ],
     },
     {

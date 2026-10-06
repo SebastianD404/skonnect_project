@@ -69,7 +69,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const markNotificationAsRead = useCallback(async (notificationId: string) => {
     mutationVersion.current += 1;
     setReadNotificationIds((current) => new Set(current).add(notificationId));
-    setServerUnreadCount((current) => current === null ? 0 : Math.max(0, current - 1));
+    if (!notificationId.startsWith("inquiry-reply:")) {
+      setServerUnreadCount((current) => current === null ? 0 : Math.max(0, current - 1));
+    }
     try {
       await fetch("/api/my/notifications/read", {
         method: "POST",

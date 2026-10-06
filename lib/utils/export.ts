@@ -87,7 +87,7 @@ function formatProfileRow(source: ExportSource): ExportRow {
     Name: getName(source),
     Email: getText(getValue(source, "email")),
     "Contact No": getContactNo(source),
-    Age: typeof getValue(source, "age") === "number" ? getValue(source, "age") as number : getText(getValue(source, "age")),
+    Age: getText(getValue(source, "age")),
     "Age Group": getText(getValue(source, "age_group", "ageGroup", "youthAgeGroup")),
     Classification: getText(getValue(source, "classification", "youthClassification")),
     "Work Status": getText(getValue(source, "work_status", "workStatus")),

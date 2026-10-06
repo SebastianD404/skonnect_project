@@ -5,6 +5,7 @@ import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { exportToExcel } from "@/lib/utils/export";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { logAuditEvent } from "@/lib/audit/logger";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -105,6 +106,16 @@ export async function GET(request: NextRequest) {
     return row ? [row] : [];
   });
   const file = exportToExcel(exportRows, "grantee-records", "grantees");
+  logAuditEvent({
+    actorId: appUser.id,
+    actorEmail: appUser.email,
+    action: "RECORDS_EXPORTED",
+    resource: "grantees",
+    metadata: {
+      recordCount: exportRows.length,
+      filters: { status: statusFilter, query: query || null },
+    },
+  });
 
   return new NextResponse(file.body, {
     headers: {

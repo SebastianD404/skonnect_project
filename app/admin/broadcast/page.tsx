@@ -203,9 +203,9 @@ export default function BroadcastPage() {
       ) : null}
 
       {success ? (
-        <div className="fixed right-6 top-6 z-10 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4 text-sm text-emerald-800 shadow-lg" role="status">
+        <div className="fixed right-6 top-20 z-[60] flex max-w-[calc(100vw-3rem)] items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4 text-sm text-emerald-800 shadow-lg sm:max-w-md" role="status">
           <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" aria-hidden="true" />
-          <span>{success}</span>
+          <span className="min-w-0 break-words">{success}</span>
         </div>
       ) : null}
 

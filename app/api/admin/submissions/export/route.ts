@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { exportToExcel } from "@/lib/utils/export";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { logAuditEvent } from "@/lib/audit/logger";
 
 export async function GET() {
   const supabase = await createClient();
@@ -51,6 +52,13 @@ export async function GET() {
     "document-submissions",
     "submissions"
   );
+  logAuditEvent({
+    actorId: admin.id,
+    actorEmail: admin.email,
+    action: "RECORDS_EXPORTED",
+    resource: "submissions",
+    metadata: { recordCount: submissions.length, filters: {} },
+  });
 
   return new NextResponse(file.body, {
     headers: {

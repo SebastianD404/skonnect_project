@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     where,
     orderBy: { createdAt: "desc" },
     take: 10,
-    select: { id: true, subject: true, createdAt: true, isResolved: true, response: true, reviewStatus: true },
+    select: { id: true, subject: true, createdAt: true, isResolved: true, response: true, respondedAt: true, reviewStatus: true },
   });
 
   return NextResponse.json({ inquiries });

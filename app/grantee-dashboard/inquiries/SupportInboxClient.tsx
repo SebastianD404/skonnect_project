@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Clock3, Inbox, Send } from "lucide-react";
 
@@ -48,6 +48,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
   const [inquiries, setInquiries] = useState<InquirySummary[]>([]);
   const [selectedId, setSelectedId] = useState(initialInquiryId);
   const [selectedInquiry, setSelectedInquiry] = useState<InquiryDetail | null>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingThread, setIsLoadingThread] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -89,24 +90,55 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
     if (!selectedId) return;
 
     let active = true;
-    async function loadThread() {
+    async function loadThread(showErrors = false) {
       try {
         const response = await fetch(`/api/my/inquiries/${selectedId}`, { cache: "no-store" });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Unable to load inquiry.");
-        if (active) setSelectedInquiry(data.inquiry ?? null);
+        if (!active || isSendingReply) return;
+        const inquiry = data.inquiry ?? null;
+        setSelectedInquiry((current) =>
+          current && inquiry && JSON.stringify(current) === JSON.stringify(inquiry) ? current : inquiry
+        );
+        if (inquiry) {
+          setInquiries((current) => current.map((item) => item.id === selectedId
+            ? { ...item, isResolved: inquiry.isResolved, response: inquiry.response }
+            : item));
+        }
       } catch (loadError) {
-        if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load inquiry.");
+        if (active && showErrors) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load inquiry.");
+        }
       } finally {
-        if (active) setIsLoadingThread(false);
+        if (active && showErrors) setIsLoadingThread(false);
       }
     }
 
-    void loadThread();
+    const refreshThread = () => {
+      if (document.visibilityState === "visible") void loadThread();
+    };
+    void loadThread(true);
+    const intervalId = window.setInterval(refreshThread, 15_000);
+    window.addEventListener("focus", refreshThread);
+    document.addEventListener("visibilitychange", refreshThread);
+
     return () => {
       active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshThread);
+      document.removeEventListener("visibilitychange", refreshThread);
     };
-  }, [selectedId]);
+  }, [isSendingReply, selectedId]);
+
+  const conversationVersion = selectedInquiry?.thread
+    .map((message) => `${message.id}:${message.createdAt}:${message.text}`)
+    .join("|") ?? "";
+
+  useEffect(() => {
+    if (selectedInquiry?.id === selectedId && conversationRef.current) {
+      conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
+    }
+  }, [selectedId, selectedInquiry?.id, conversationVersion]);
 
   useEffect(() => {
     if (!toastVisible) return;
@@ -180,8 +212,8 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
 
         {error && <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
-        <div className="grid min-h-[560px] overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm lg:grid-cols-[360px_1fr]">
-          <aside className={`border-slate-200 bg-slate-50/70 lg:border-r ${selectedInquiry ? "hidden lg:block" : "block"}`}>
+        <div className="grid h-[min(720px,calc(100dvh-14rem))] min-h-[480px] overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm lg:grid-cols-[360px_1fr]">
+          <aside className={`min-h-0 flex-col border-slate-200 bg-slate-50/70 lg:border-r ${selectedInquiry ? "hidden lg:flex" : "flex"}`}>
             <div className="border-b border-slate-200 px-5 py-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <Inbox className="h-4 w-4 text-[#0F3D5C]" />
@@ -189,7 +221,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
                 <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">{inquiries.length}</span>
               </div>
             </div>
-            <div className="max-h-[620px] overflow-y-auto p-3">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {isLoadingList ? (
                 <p className="px-3 py-8 text-sm text-slate-500">Loading your inquiries...</p>
               ) : inquiries.length === 0 ? (
@@ -219,11 +251,11 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
             </div>
           </aside>
 
-          <section className={`${selectedInquiry ? "block" : "hidden lg:block"}`}>
+          <section className={`min-h-0 overflow-hidden ${selectedInquiry ? "block" : "hidden lg:block"}`}>
             {isLoadingThread || (selectedId !== null && selectedInquiry?.id !== selectedId) ? (
-              <div className="flex h-full min-h-[560px] items-center justify-center text-sm text-slate-500">Loading conversation...</div>
+              <div className="flex h-full min-h-0 items-center justify-center text-sm text-slate-500">Loading conversation...</div>
             ) : selectedInquiry ? (
-              <div className="flex h-full min-h-[560px] flex-col">
+              <div className="flex h-full min-h-0 flex-col">
                 <div className="flex items-start gap-3 border-b border-slate-200 px-5 py-5 sm:px-8">
                   <button type="button" onClick={() => { setSelectedInquiry(null); setSelectedId(null); router.replace(`${basePath}/inquiries`); }} className="mt-1 rounded-full p-2 text-slate-500 hover:bg-slate-100 lg:hidden" aria-label="Back to inquiries">
                     <ArrowLeft className="h-4 w-4" />
@@ -236,7 +268,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
                   <span className={`ml-auto shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${getStatus(selectedInquiry).className}`}>{getStatus(selectedInquiry).label}</span>
                 </div>
 
-                <div className="flex-1 space-y-5 overflow-y-auto bg-slate-50/50 px-5 py-6 sm:px-8">
+                <div ref={conversationRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto bg-slate-50/50 px-5 py-6 sm:px-8">
                   {selectedInquiry.thread.map((message) => (
                     <div key={message.id} className={`max-w-[90%] rounded-2xl p-4 ${message.role === "admin" ? "bg-white text-slate-800 shadow-sm ring-1 ring-slate-200" : "ml-auto bg-[#0F3D5C] text-white"}`}>
                       <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{message.role === "admin" ? "SK officials" : "You"}</p>
@@ -248,7 +280,11 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
 
                 <form onSubmit={sendReply} className="border-t border-slate-200 bg-white px-5 py-4 sm:px-8">
                   <label htmlFor="inquiry-reply" className="sr-only">Reply to inquiry</label>
-                  <textarea id="inquiry-reply" value={replyText} onChange={(event) => setReplyText(event.target.value)} rows={3} placeholder="Reply to SK officials..." disabled={isSendingReply} className="w-full resize-none rounded-2xl border border-slate-300 p-3 text-sm text-slate-900 outline-none focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/15 disabled:bg-slate-50" />
+                  <textarea id="inquiry-reply" value={replyText} onChange={(event) => setReplyText(event.target.value)} onKeyDown={(event) => {
+                    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }} rows={3} placeholder="Reply to SK officials..." disabled={isSendingReply} className="w-full resize-none rounded-2xl border border-slate-300 p-3 text-sm text-slate-900 outline-none focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/15 disabled:bg-slate-50" />
                   <div className="mt-3 flex justify-end">
                     <button type="submit" disabled={isSendingReply || !replyText.trim()} className="inline-flex items-center gap-2 rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0D2E47] disabled:cursor-not-allowed disabled:opacity-50">
                       <Send className="h-4 w-4" />
@@ -258,7 +294,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
                 </form>
               </div>
             ) : (
-              <div className="flex h-full min-h-[560px] flex-col items-center justify-center px-6 text-center">
+              <div className="flex h-full min-h-0 flex-col items-center justify-center px-6 text-center">
                 <Inbox className="h-10 w-10 text-slate-300" />
                 <h2 className="mt-4 text-lg font-semibold text-slate-900">Select an inquiry</h2>
                 <p className="mt-1 max-w-sm text-sm leading-6 text-slate-500">Choose a support request to view the conversation and reply to SK officials.</p>

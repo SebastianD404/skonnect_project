@@ -82,7 +82,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
 
       await writeAuditLog(tx as any, {
-        action: "REJECT_SKEAP_APPLICATION",
+        action: "APPLICATION_REJECTED",
         actorId: auth.user.id,
         targetTable: "inquiries",
         targetId: id,

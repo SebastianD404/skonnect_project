@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Inbox } from "lucide-react";
 import { useNotificationState } from "./NotificationProvider";
 
@@ -24,8 +23,21 @@ type SupportThread = {
   subject: string;
   createdAt: string;
   response: string | null;
+  respondedAt: string | null;
   isResolved: boolean;
 };
+
+const INITIAL_NOTIFICATION_COUNT = 5;
+const NOTIFICATION_PAGE_SIZE = 10;
+
+function getSupportReplyKey(inquiry: SupportThread) {
+  if (inquiry.respondedAt) return `inquiry-reply:${inquiry.id}:${inquiry.respondedAt}`;
+  let hash = 0;
+  for (const character of inquiry.response ?? "") {
+    hash = (Math.imul(hash, 31) + character.charCodeAt(0)) | 0;
+  }
+  return `inquiry-reply:${inquiry.id}:${hash.toString(36)}`;
+}
 
 export function DashboardHeaderActions({ notifications = [], requiredRole, supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
   const {
@@ -43,11 +55,9 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
   const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
   const [broadcastNotifications, setBroadcastNotifications] = useState<NotificationItem[]>([]);
   const [inAppNotifications, setInAppNotifications] = useState<NotificationItem[]>([]);
-  const [portalReady, setPortalReady] = useState(false);
-  const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
+  const [expandedNotificationId, setExpandedNotificationId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
-  const [visibleCount, setVisibleCount] = useState(3);
-  const [hasExpandedNotifications, setHasExpandedNotifications] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_NOTIFICATION_COUNT);
   const [unreadNotifications, setUnreadNotifications] = useState<number>(notifications?.length ?? 0);
   const [clearedNotifications, setClearedNotifications] = useState(false);
   const [lastSeenNotificationsCount, setLastSeenNotificationsCount] = useState<number | null>(null);
@@ -76,14 +86,14 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
   };
 
   const handleNotificationClick = (notification: NotificationItem) => {
-    void markNotificationAsRead(notification.id);
-    setOpenPanel("none");
-    setSelectedNotification(notification);
+    setExpandedNotificationId((current) => current === notification.id ? null : notification.id);
+    if (!readNotificationIds.has(notification.id)) {
+      void markNotificationAsRead(notification.id);
+    }
+    if (filter === "unread") {
+      setFilter("all");
+    }
   };
-
-  useEffect(() => {
-    setPortalReady(true);
-  }, []);
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -95,7 +105,6 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpenPanel("none");
-        setSelectedNotification(null);
       }
     }
 
@@ -244,7 +253,11 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
   const visibleNotifications = filteredNotifications.slice(0, visibleCount);
   const notificationSignature = displayedNotifications.map((notification) => notification.id).join("|");
   const notificationCount = displayedNotifications.length;
-  const inquiryReplyCount = supportThreads.filter((inquiry) => Boolean(inquiry.response) && !inquiry.isResolved).length;
+  const inquiryReplyCount = supportThreads.filter((inquiry) =>
+    Boolean(inquiry.response) &&
+    !inquiry.isResolved &&
+    !readNotificationIds.has(getSupportReplyKey(inquiry))
+  ).length;
 
   useEffect(() => {
     const isOpen = openPanel === "notifications";
@@ -318,6 +331,7 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
           subject: item.subject,
           createdAt: item.createdAt,
           response: item.response ?? null,
+          respondedAt: item.respondedAt ?? null,
           isResolved: Boolean(item.isResolved),
         })));
         setBroadcastNotifications(broadcastMessages);
@@ -350,7 +364,14 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
     };
   }, [profileId, serverRole]);
 
-  // Sync notifications count only when new items arrive (increase). Clearing hides badge until new items.
+  const markSupportInboxViewed = () => {
+    const keys = supportThreads
+      .filter((inquiry) => Boolean(inquiry.response))
+      .map(getSupportReplyKey);
+    void Promise.all(keys.map(markNotificationAsRead));
+  };
+
+  // Sync notification count only when new items arrive; clearing hides it until then.
   useEffect(() => {
     if (!profileId) return;
     const next = notificationCount;
@@ -378,32 +399,6 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
       lastSeenNotificationsCount,
     }, profileId);
   }, [notificationCount, clearedNotifications, lastSeenNotificationsCount, profileId, unreadNotifications]);
-
-  const notificationModal = selectedNotification && portalReady ? createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="notification-modal-title"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) setSelectedNotification(null);
-      }}
-    >
-      <div
-        className="relative w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl flex flex-col"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <h2 id="notification-modal-title" className="text-lg font-semibold text-slate-900">Notification</h2>
-          <button type="button" onClick={() => setSelectedNotification(null)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700">Close</button>
-        </div>
-        <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{selectedNotification.text}</p>
-        <p className="mt-5 text-xs text-slate-500">
-          {selectedNotification.createdAt ? new Date(selectedNotification.createdAt).toLocaleString() : "Date unavailable"}
-        </p>
-      </div>
-    </div>,
-    document.body
-  ) : null;
 
   return (
     <div className="relative flex items-center gap-3" ref={wrapperRef}>
@@ -456,8 +451,7 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
                   type="button"
                   onClick={() => {
                     setFilter(option);
-                    setVisibleCount(3);
-                    setHasExpandedNotifications(false);
+                    setVisibleCount(INITIAL_NOTIFICATION_COUNT);
                   }}
                   className={filter === option
                     ? 'rounded-full bg-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600'
@@ -467,28 +461,34 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
                 </button>
               ))}
             </div>
-            <div className={`min-h-0 flex-1 p-2 ${hasExpandedNotifications ? "max-h-[550px] overflow-y-auto [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300" : "overflow-hidden"}`}>
+            <div className="max-h-[420px] min-h-0 flex-1 overflow-y-auto p-2 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300">
               {visibleNotifications.length > 0 ? (
                 <div className="space-y-2">
-                {visibleNotifications.map((notification, idx) => (
+                {visibleNotifications.map((notification, idx) => {
+                  const isExpanded = expandedNotificationId === notification.id;
+                  return (
                   <button
-                    key={`${notification.text}-${idx}`}
+                    key={`${notification.id}-${idx}`}
                     type="button"
                     onClick={() => handleNotificationClick(notification)}
-                    className={`flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-xl p-3 text-left text-sm transition-all ${readNotificationIds.has(notification.id) ? "bg-white text-slate-600 hover:bg-gray-50" : "bg-blue-50 text-slate-700 hover:bg-blue-100/50"}`}
+                    aria-expanded={isExpanded}
+                    className={`flex w-full min-w-0 items-start gap-3 rounded-xl p-3 text-left text-sm transition-all ${readNotificationIds.has(notification.id) ? "bg-white text-slate-600 hover:bg-gray-50" : "bg-blue-50 text-slate-700 hover:bg-blue-100/50"}`}
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500" aria-hidden="true">
                       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
                         <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.5 1.5V19h17v-1.5L19 16Z" />
                       </svg>
                     </span>
-                    <span className="min-w-0 flex-1 overflow-hidden">
-                      <p className="block overflow-hidden break-words text-ellipsis line-clamp-4 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">{truncateMessage(notification.text, 160)}</p>
+                    <span className="min-w-0 flex-1">
+                      <p className={`break-words ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-4"}`}>
+                        {isExpanded ? notification.text : truncateMessage(notification.text, 160)}
+                      </p>
                       {notification.createdAt && <span className="mt-1 block text-xs text-slate-400">{formatRelativeTime(notification.createdAt)}</span>}
                     </span>
                     {!readNotificationIds.has(notification.id) && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" aria-label="Unread" />}
                   </button>
-                ))}
+                  );
+                })}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
@@ -504,12 +504,14 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
                 <button
                   type="button"
                   onClick={() => {
-                    setVisibleCount((current) => current + 5);
-                    setHasExpandedNotifications(true);
+                    setVisibleCount((current) => current + NOTIFICATION_PAGE_SIZE);
                   }}
-                  className="w-full rounded-lg bg-gray-200 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-300"
+                  className="w-full rounded-lg bg-slate-100 py-2 text-sm font-semibold text-slate-800 transition-[transform,background-color,box-shadow] duration-150 hover:bg-slate-200 active:scale-[0.98] active:bg-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
                 >
-                  See previous notifications
+                  Show {Math.min(NOTIFICATION_PAGE_SIZE, filteredNotifications.length - visibleNotifications.length)} more
+                  <span className="ml-1 font-normal text-slate-500">
+                    ({filteredNotifications.length - visibleNotifications.length} remaining)
+                  </span>
                 </button>
               </div>
             )}
@@ -519,6 +521,7 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
 
       <Link
         href={supportInboxPath}
+        onClick={markSupportInboxViewed}
         className="relative inline-flex rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/40 hover:bg-[#0F3D5C]/5 hover:text-[#0F3D5C]"
         aria-label={inquiryReplyCount > 0 ? `Support Inbox, ${inquiryReplyCount} replies` : "Support Inbox"}
         title="Support Inbox"
@@ -581,7 +584,6 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
           </div>
         )}
       </div>
-      {notificationModal}
     </div>
   );
 }

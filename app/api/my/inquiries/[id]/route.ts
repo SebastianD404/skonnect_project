@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { ensureThreadMessage } from "@/lib/inquiries/thread";
 import { prisma } from "@/lib/prisma";
 
 const db = prisma;
@@ -34,16 +35,24 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const inquiry = await db.inquiry.findFirst({
     where: { id, userId: appUser.id },
-    select: { id: true, subject: true, message: true, response: true, createdAt: true, isResolved: true, reviewThread: true },
+    select: { id: true, subject: true, message: true, response: true, respondedAt: true, createdAt: true, isResolved: true, reviewThread: true },
   });
   if (!inquiry) return NextResponse.json({ error: "Inquiry not found" }, { status: 404 });
 
-  const thread = Array.isArray(inquiry.reviewThread) ? inquiry.reviewThread.filter(isThreadMessage) : [];
-  if (thread.length === 0) {
-    thread.push({ id: `inquiry-${inquiry.id}`, role: "applicant", createdAt: inquiry.createdAt.toISOString(), text: inquiry.message });
-    if (inquiry.response) {
-      thread.push({ id: `response-${inquiry.id}`, role: "admin", createdAt: inquiry.createdAt.toISOString(), text: inquiry.response });
-    }
+  let thread = Array.isArray(inquiry.reviewThread) ? inquiry.reviewThread.filter(isThreadMessage) : [];
+  thread = ensureThreadMessage(thread, {
+    id: `inquiry-${inquiry.id}`,
+    role: "applicant",
+    createdAt: inquiry.createdAt.toISOString(),
+    text: inquiry.message,
+  });
+  if (inquiry.response) {
+    thread = ensureThreadMessage(thread, {
+      id: `response-${inquiry.id}`,
+      role: "admin",
+      createdAt: inquiry.respondedAt?.toISOString() ?? inquiry.createdAt.toISOString(),
+      text: inquiry.response,
+    });
   }
 
   thread.sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());

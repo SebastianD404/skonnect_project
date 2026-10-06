@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
-import { writeAuditLog } from "@/lib/audit/logger";
+import { logAuditEvent, writeAuditLog } from "@/lib/audit/logger";
+import { ensureThreadMessage } from "@/lib/inquiries/thread";
 
 interface AttachedFileNote {
   fileId: string;
@@ -105,6 +106,8 @@ export async function PATCH(
       where: { id },
       select: {
         reviewThread: true,
+        message: true,
+        createdAt: true,
         userId: true,
         application: { select: { school: true, yearLevel: true, applicantName: true } },
       },
@@ -184,6 +187,8 @@ export async function PATCH(
         where: { id },
         select: {
           reviewThread: true,
+          message: true,
+          createdAt: true,
           userId: true,
           user: { select: { grantee: { select: { status: true } } } },
           application: { select: { id: true, status: true, school: true, currentCourse: true, yearLevel: true, applicantName: true } },
@@ -198,11 +203,19 @@ export async function PATCH(
       }
 
       const existingThreadFromTx = (Array.isArray(currentInquiry?.reviewThread)
-        ? currentInquiry!.reviewThread
+        ? currentInquiry.reviewThread.filter(isValidReviewMessage)
         : []) as unknown as ReviewMessage[];
+      const threadWithOriginalMessage = currentInquiry
+        ? ensureThreadMessage(existingThreadFromTx, {
+            id: `inquiry-${id}`,
+            role: "applicant" as const,
+            createdAt: currentInquiry.createdAt.toISOString(),
+            text: currentInquiry.message,
+          })
+        : existingThreadFromTx;
 
       const updatedThreadFromTx = (
-        isStatusOnlyAction ? existingThreadFromTx : [message, ...existingThreadFromTx]
+        isStatusOnlyAction ? threadWithOriginalMessage : [message, ...threadWithOriginalMessage]
       ) as unknown as Prisma.InputJsonArray;
 
       const updated = await (tx as any).inquiry.update({
@@ -279,6 +292,39 @@ export async function PATCH(
 
       return updated;
     });
+
+    if (action === "resolve") {
+      logAuditEvent({
+        actorId: appUser.id,
+        actorEmail: appUser.email,
+        action: "INQUIRY_RESOLVED",
+        resource: "inquiries",
+        resourceId: id,
+        metadata: { resultingStatus: "RESOLVED", applicantId: inquiry.userId },
+      });
+    } else if (action === "reopen") {
+      logAuditEvent({
+        actorId: appUser.id,
+        actorEmail: appUser.email,
+        action: "INQUIRY_REOPENED",
+        resource: "inquiries",
+        resourceId: id,
+        metadata: { resultingStatus: "OPEN", applicantId: inquiry.userId },
+      });
+    } else if (action === "approve") {
+      logAuditEvent({
+        actorId: appUser.id,
+        actorEmail: appUser.email,
+        action: "APPLICATION_APPROVED",
+        resource: "inquiries",
+        resourceId: id,
+        metadata: {
+          applicantId: inquiry.userId,
+          target: inquiry.application?.applicantName || inquiry.userId,
+          resultingStatus: updatedInquiry.reviewStatus ?? "Approved",
+        },
+      });
+    }
 
     revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin");

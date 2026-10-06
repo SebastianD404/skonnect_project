@@ -3,9 +3,10 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { listProfilingRegistrations } from "@/lib/prisma";
 import { exportToExcel } from "@/lib/utils/export";
+import { logAuditEvent } from "@/lib/audit/logger";
 
 export async function GET() {
-  await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
+  const admin = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
   const members = await listProfilingRegistrations({
     where: { reviewStatus: "Approved" },
@@ -24,6 +25,13 @@ export async function GET() {
     },
   });
   const file = exportToExcel(members, "sk-youth-members", "members");
+  logAuditEvent({
+    actorId: admin.id,
+    actorEmail: admin.email,
+    action: "RECORDS_EXPORTED",
+    resource: "kk_profiling_registrations",
+    metadata: { recordCount: members.length, filters: { reviewStatus: "Approved" } },
+  });
 
   return new NextResponse(file.body, {
     headers: {

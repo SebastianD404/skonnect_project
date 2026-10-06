@@ -95,7 +95,7 @@ export async function PATCH(
       if (!saved) throw new Error("GRANTEE_NOT_FOUND");
 
       await writeAuditLog(tx as any, {
-        action: "MUTATE_GRANTEE_STATUS",
+        action: "GRANTEE_STATUS_CHANGED",
         actorId: auth.user.id,
         targetTable: "grantees",
         targetId: id,

@@ -115,8 +115,11 @@ export function PublicHeader() {
           {authLoading ? (
             <div className="h-10 w-32 rounded-full bg-slate-200/70 animate-pulse" />
           ) : sessionUser ? (
-            sessionUser.role === "YOUTH" ? (
-              <DashboardHeaderActions requiredRole="YOUTH" supportInboxPath="/youth-dashboard/inquiries" />
+            sessionUser.role === "YOUTH" || sessionUser.role === "GRANTEE" ? (
+              <DashboardHeaderActions
+                requiredRole={sessionUser.role}
+                supportInboxPath={sessionUser.role === "YOUTH" ? "/youth-dashboard/inquiries" : "/grantee-dashboard/inquiries"}
+              />
             ) : (
             <div className="relative flex items-center gap-3" ref={wrapperRef}>
               <button

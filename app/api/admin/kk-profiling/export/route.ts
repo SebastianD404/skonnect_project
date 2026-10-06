@@ -3,6 +3,7 @@ import { ensureProfile } from "@/lib/auth";
 import { hasProfilingRegistrationColumn, listProfilingRegistrations } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { exportToExcel } from "@/lib/utils/export";
+import { logAuditEvent } from "@/lib/audit/logger";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -50,6 +51,13 @@ export async function GET(request: NextRequest) {
   });
 
   const file = exportToExcel(registrations, `kk-profiling-${requestedStatus}`, "kk-profiling");
+  logAuditEvent({
+    actorId: appUser.id,
+    actorEmail: appUser.email,
+    action: "RECORDS_EXPORTED",
+    resource: "kk_profiling_registrations",
+    metadata: { recordCount: registrations.length, filters: { reviewStatus: statusLabel } },
+  });
 
   return new NextResponse(file.body, {
     headers: {

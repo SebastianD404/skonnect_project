@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   HelpCircle,
   Search as SearchIcon,
@@ -54,7 +54,6 @@ export default function DashboardHeader({
   compact = false,
   showToolbar = true,
 }: DashboardHeaderProps) {
-  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [showHelpModal, setShowHelpModal] = useState(false);
 
@@ -171,14 +170,13 @@ export default function DashboardHeader({
                 const cardClassName = `group relative flex w-full flex-col gap-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 text-left shadow-sm transition-all duration-300 hover:shadow-md ${isPrimaryMetric ? "hover:border-cyan-300" : "hover:border-cyan-200"}`;
 
                 return stat.href ? (
-                  <button
+                  <Link
                     key={stat.label}
-                    type="button"
-                    onClick={() => router.push(stat.href!)}
-                    className={`${cardClassName} cursor-pointer`}
+                    href={stat.href}
+                    className={`${cardClassName} cursor-pointer no-underline`}
                   >
                     {cardContent}
-                  </button>
+                  </Link>
                 ) : (
                   <div key={stat.label} className={cardClassName}>
                     {cardContent}

@@ -182,9 +182,18 @@ export async function POST(
         where: { id },
         data: updateData,
       });
+      const flaggedField = documentType === "coe" ? "COE" : "GRADE_REPORT";
+      const manualOverride =
+        action === "APPROVE" &&
+        Array.isArray(existing.flaggedFields) &&
+        existing.flaggedFields.includes(flaggedField);
 
       await writeAuditLog(tx as any, {
-        action: action === "APPROVE" ? "APPROVE_ACADEMIC_SUBMISSION" : "FLAG_SUBMISSION_FOR_CORRECTION",
+        action: manualOverride
+          ? "DOCUMENT_OVERRIDDEN"
+          : action === "APPROVE"
+            ? "DOCUMENT_REVIEWED"
+            : "FLAG_SUBMISSION_FOR_CORRECTION",
         actorId: appUser.id,
         targetTable: "submissions",
         targetId: id,
@@ -200,6 +209,9 @@ export async function POST(
         },
         metadata: {
           documentType,
+          manualOverride,
+          systemFlagged: manualOverride,
+          reviewResult: action,
           reason: action === "RETURN_FOR_UPDATE" ? reviewNotes : undefined,
           target: existing.grantee ? `Submission ${id}` : `Submission ${id}`,
           targetId: id,
