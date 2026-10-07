@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { mapInquiryToApplication, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
+import { mapInquiryToApplication, skeapStatusWhere, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 
 const PAGE_SIZE = 15;
@@ -15,15 +15,6 @@ async function authorizeAdmin() {
 
   const appUser = await ensureProfile(user);
   return appUser?.role === Role.SK_OFFICIAL || appUser?.role === Role.SUPER_ADMIN;
-}
-
-function statusOrWhere(patterns: string[], fields: ReadonlyArray<"reviewStatus" | "response">) {
-  const or: Prisma.InquiryWhereInput[] = patterns.flatMap((pattern) =>
-    fields.map((field) => ({
-      [field]: { contains: pattern, mode: Prisma.QueryMode.insensitive },
-    } as Prisma.InquiryWhereInput))
-  );
-  return { OR: or };
 }
 
 export async function GET(request: NextRequest) {
@@ -62,7 +53,7 @@ export async function GET(request: NextRequest) {
         NOT: [{ reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive } }],
         AND: [
           { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-          statusOrWhere(["pending", "return", "resubm", "respond", "approve"], ["reviewStatus", "response"]),
+          skeapStatusWhere(["pending", "return", "resubm", "respond", "approve"]),
           ...cursorWhere,
         ],
       },

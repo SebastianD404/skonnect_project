@@ -13,7 +13,6 @@ type SessionUser = {
 };
 
 type Props = {
-  activeUserCount: number;
   roleUpdateCount: number;
   databaseStatus: "connected" | "unavailable";
 };
@@ -52,7 +51,7 @@ function deriveDisplayName(fullName?: string | null, email?: string | null) {
   return toTitleCase(cleaned);
 }
 
-export default function SystemAdminSidebar({ activeUserCount, roleUpdateCount, databaseStatus }: Props) {
+export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: Props) {
   const pathname = usePathname();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
@@ -97,7 +96,7 @@ export default function SystemAdminSidebar({ activeUserCount, roleUpdateCount, d
 
   const navItems = [
     { label: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
-    { label: "Users", href: "/system-admin/users", icon: Users, badge: activeUserCount },
+    { label: "Users", href: "/system-admin/users", icon: Users },
     { label: "API Integrations", href: "/system-admin/integrations", icon: Cable },
     { label: "Audit Logs", href: "/system-admin/audit", icon: ScrollText, badge: roleUpdateCount },
   ];

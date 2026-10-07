@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import ApplicationReviewClient from "./ApplicationReviewClient";
+import { getApplicantUploadedFiles } from "@/lib/skeap-upload";
 
 type Props = { params: Promise<{ id?: string }> };
 
@@ -12,8 +13,11 @@ type ReviewMessage = {
   role: "admin" | "applicant";
   createdAt: string;
   text: string;
+  action?: "return";
+  eventType?: "RESUBMISSION";
   attachments?: {
     fileId: string;
+    documentLabel?: string;
     fileName: string;
     fileUrl: string;
     fileType: string;
@@ -47,6 +51,15 @@ export default async function ApplicationPage({ params }: Props) {
     select: {
       id: true,
       userId: true,
+      user: {
+        select: {
+          kkProfile: {
+            select: {
+              purok: true,
+            },
+          },
+        },
+      },
       message: true,
       response: true,
       isResolved: true,
@@ -57,6 +70,8 @@ export default async function ApplicationPage({ params }: Props) {
       lastUpdatedBy: true,
       application: {
         select: {
+          id: true,
+          school: true,
           currentCourse: true,
           yearLevel: true,
           gwa: true,
@@ -146,11 +161,14 @@ export default async function ApplicationPage({ params }: Props) {
             lastUpdatedBy: application.lastUpdatedBy,
             application: application.application
               ? {
+                  id: application.application.id,
+                  school: application.application.school ?? undefined,
                   currentCourse: application.application.currentCourse,
                   yearLevel: application.application.yearLevel,
                   gwa: application.application.gwa ?? undefined,
                   applicantName: application.application.applicantName ?? undefined,
                   permanentAddress: application.application.permanentAddress ?? undefined,
+                  purok: application.user.kkProfile?.purok ?? undefined,
                   dateOfBirth: application.application.dateOfBirth ? application.application.dateOfBirth.toISOString() : undefined,
                   placeOfBirth: application.application.placeOfBirth ?? undefined,
                   age: application.application.age ?? undefined,
@@ -165,7 +183,7 @@ export default async function ApplicationPage({ params }: Props) {
                   contactNumber: application.application.contactNumber ?? undefined,
                   emailAddress: application.application.emailAddress ?? undefined,
                   photoFileUrl: application.application.photoFileUrl ?? undefined,
-                  uploadedFiles: application.application.uploadedFiles ?? undefined,
+                  uploadedFiles: getApplicantUploadedFiles(application.application.uploadedFiles),
                 }
               : undefined,
           }}

@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { prisma, getProfilingRegistrationCountByStatusSince } from "@/lib/prisma";
+import { skeapStatusWhere } from "@/lib/skeap-applications";
 import AdminSidebar from "./AdminSidebar";
 import AdminGlobalTopBar from "./AdminGlobalTopBar";
 import { AdminSearchProvider } from "./AdminSearchContext";
@@ -24,12 +25,6 @@ export default async function AdminLayout({
   const subjectWhere = { subject: { contains: "SKEAP application", mode: "insensitive" as const } };
   const excludeCancelled = { reviewStatus: { contains: "cancel", mode: "insensitive" as const } };
   const excludeApproved = { reviewStatus: { contains: "approve", mode: "insensitive" as const } };
-  const statusOrWhere = (patterns: string[]) => ({
-    OR: patterns.flatMap((pattern) => [
-      { reviewStatus: { contains: pattern, mode: "insensitive" as const } },
-      { response: { contains: pattern, mode: "insensitive" as const } },
-    ]),
-  });
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -50,7 +45,7 @@ export default async function AdminLayout({
       where: {
         ...subjectWhere,
         NOT: [excludeCancelled, excludeApproved],
-        AND: [statusOrWhere(["pending", "return", "resubm", "respond"])],
+        AND: [skeapStatusWhere(["pending", "return", "resubm", "respond"])],
         createdAt: { gte: startOfToday },
       },
     }),

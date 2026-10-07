@@ -3,12 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inbox, Info, MessageCircle, Trash2, Upload, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inbox, Info, MessageCircle, Trash2, Upload, UserRound, X } from "lucide-react";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { getCoreUploadGroups, getPhotoUploadGroup, CORE_UPLOAD_KEYS, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
+import { isSkeapApplicationReturned, isSkeapUploadMarkedForCorrection } from "@/lib/skeap-applications";
+import { formatActivityTimestamp } from "@/lib/utils";
 
 type ReviewAttachment = {
   fileId: string;
+  documentLabel?: string;
   fileName: string;
   fileUrl: string;
   fileType: string;
@@ -20,6 +24,8 @@ type ReviewMessage = {
   role: "admin" | "applicant";
   createdAt: string;
   text: string;
+  action?: "return";
+  eventType?: "RESUBMISSION";
   attachments?: ReviewAttachment[];
 };
 
@@ -35,11 +41,15 @@ type ApplicationReviewProps = {
     lastUpdatedBy: string | null;
     reviewThread: ReviewMessage[];
     application?: {
+      id: string;
+      school?: string;
       currentCourse?: string;
       yearLevel?: string;
       gwa?: number | null;
       applicantName?: string;
       permanentAddress?: string;
+      purok?: string;
+      sitio?: string;
       dateOfBirth?: string;
       placeOfBirth?: string;
       age?: number;
@@ -64,8 +74,7 @@ type StagedReplacement = {
   originalUrl: string;
   file: File;
   previewUrl: string;
-  status: "pending" | "uploading" | "uploaded" | "error";
-  error?: string;
+  status: "uploading" | "uploaded";
   uploadedUrl?: string;
 };
 
@@ -75,12 +84,14 @@ type SubmittedFile = {
   originalUrl: string;
   label: string;
   typeLabel: string;
+  fileType?: string;
   isImage: boolean;
   fileName: string;
+  pendingResubmission?: boolean;
   isMissing?: boolean;
 };
 
-const MAX_FILE_SIZE = 12 * 1024 * 1024;
+const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const ALLOWED_TYPES = new Set([
   "application/pdf",
   "application/msword",
@@ -141,14 +152,11 @@ function getFileTypeLabel(url: string) {
   return "Document";
 }
 
-function isCorrectionNote(text: string) {
-  return /correction|required|missing|incorrect|resubmit|return(ed)?/i.test(text);
-}
-
 type AttachmentPreview = {
   url: string;
   cleanName: string;
   isImage: boolean;
+  isPdf: boolean;
 };
 
 function getFileMetadata(url: string) {
@@ -158,9 +166,10 @@ function getFileMetadata(url: string) {
     fileNameWithTokens = fileNameWithTokens.split("?")[0].split("#")[0];
     const cleanName = fileNameWithTokens.replace(/^\d+-/, "") || "Attachment File";
     const isImage = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanName);
-    return { cleanName, isImage };
+    const isPdf = /\.pdf$/i.test(cleanName);
+    return { cleanName, isImage, isPdf };
   } catch {
-    return { cleanName: "Attachment File", isImage: false };
+    return { cleanName: "Attachment File", isImage: false, isPdf: false };
   }
 }
 
@@ -176,22 +185,7 @@ function formatBytes(bytes: number) {
 }
 
 function getFileActionHint(reviewThread: ReviewMessage[], file: SubmittedFile) {
-  const lowerLabel = file.label.toLowerCase();
-  return reviewThread.some((message) => {
-    if (message.role !== "admin") return false;
-    const text = message.text.toLowerCase();
-    if (message.attachments?.some((attachment) => {
-      return (
-        attachment.fileUrl === file.originalUrl ||
-        attachment.fileName.toLowerCase() === file.fileName.toLowerCase() ||
-        attachment.fileName.toLowerCase().includes(lowerLabel) ||
-        lowerLabel.includes(attachment.fileName.toLowerCase())
-      );
-    })) {
-      return true;
-    }
-    return text.includes(lowerLabel) && isCorrectionNote(text);
-  });
+  return isSkeapUploadMarkedForCorrection(reviewThread, file);
 }
 
 function parseSubmissionSummary(text?: string) {
@@ -239,10 +233,22 @@ function parseSubmissionSummary(text?: string) {
   return normalizedFields;
 }
 
-async function uploadDocument(file: File) {
+function DetailItem({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
+      <span className="truncate text-xs font-medium text-slate-900" title={value || "N/A"}>
+        {value || "N/A"}
+      </span>
+    </div>
+  );
+}
+
+async function uploadDocument(applicationId: string, slotId: string, file: File) {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch("/api/grantee/submissions/upload", {
+  formData.append("slotId", slotId);
+  const response = await fetch(`/api/applications/${applicationId}/resubmit/upload`, {
     method: "POST",
     body: formData,
   });
@@ -259,7 +265,12 @@ async function uploadDocument(file: File) {
 
 export default function ApplicationReviewClient({ application }: ApplicationReviewProps) {
   const router = useRouter();
+  useAutoRefresh(6_000);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const activityScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const previousActivityLengthRef = useRef<number | null>(null);
+  const activityApplicationIdRef = useRef(application.id);
+  const [isActivityNearBottom, setIsActivityNearBottom] = useState(true);
   const [stagedReplacements, setStagedReplacements] = useState<StagedReplacement[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -280,16 +291,14 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         originalUrl: upload?.url || "",
         label: SKEAP_UPLOAD_LABELS[key] || "Document",
         typeLabel: upload?.type || "Missing",
+        fileType: upload?.fileType,
         isImage: upload?.isImage ?? false,
         fileName: upload?.name || (upload?.url ? getFilenameFromUrl(upload.url) : ""),
+        pendingResubmission: upload?.pendingResubmission,
         isMissing: !upload?.url,
       };
     });
   }, [coreUploads]);
-
-  const activeCorrections = useMemo(() => {
-    return submittedFiles.filter((file) => getFileActionHint(application.reviewThread, file));
-  }, [submittedFiles, application.reviewThread]);
 
   const stagedMap = useMemo(() => {
     return stagedReplacements.reduce<Record<string, StagedReplacement>>((collector, replacement) => {
@@ -303,21 +312,36 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const isApproved = normalizedStatus === "APPROVED";
   const isResubmitted = normalizedStatus === "RESUBMITTED";
   const isRejected = normalizedStatus === "REJECTED";
-  const hasStagedChanges = stagedReplacements.length > 0;
-  const pendingReplacements = stagedReplacements.length;
+  const isApplicationReturned = isSkeapApplicationReturned(reviewStatusLabel);
+  const activeCorrections = useMemo(
+    () => isApplicationReturned
+      ? submittedFiles.filter((file) => getFileActionHint(application.reviewThread, file))
+      : [],
+    [isApplicationReturned, submittedFiles, application.reviewThread]
+  );
+  const isUploadingReplacement = stagedReplacements.some((replacement) => replacement.status === "uploading");
+  const pendingReplacementKeys = new Set([
+    ...submittedFiles.filter((file) => file.pendingResubmission).map((file) => file.slotId),
+    ...stagedReplacements
+      .filter((replacement) => replacement.status === "uploaded")
+      .map((replacement) => replacement.slotId),
+  ]);
+  const pendingReplacements = pendingReplacementKeys.size;
+  const hasSavedReplacements = pendingReplacements > 0;
   const latestRejectionNote = useMemo(() => {
-    return application.reviewThread
-      .filter((message) => message.role === "admin" && /rejected/i.test(message.text))
+    const note = application.reviewThread
+      .filter((message) => message.role === "admin" && /reject/i.test(message.text))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.text;
+    return note?.replace(/^(?:application\s+rejected|reason\s+for\s+rejection|rejection\s+reason)\s*:\s*/i, "");
   }, [application.reviewThread]);
-  const hasActionRequired = !isRejected && activeCorrections.length > 0 && !isResubmitted;
+  const hasActionRequired = isApplicationReturned && !isRejected && activeCorrections.length > 0 && !isResubmitted;
   const currentDisplayStatus = isRejected
     ? "REJECTED"
     : isResubmitted
     ? "RESUBMITTED"
     : isApproved
     ? "APPROVED"
-    : hasStagedChanges
+    : hasSavedReplacements
     ? "READY TO RESUBMIT"
     : reviewStatusLabel;
 
@@ -332,42 +356,44 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     ? "bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold"
     : isResubmitted
     ? "bg-sky-100 text-sky-700 border border-sky-200 font-bold"
-    : hasStagedChanges
+    : hasSavedReplacements
     ? "bg-emerald-100 text-emerald-700"
     : reviewStatusLabel.toLowerCase() === "returned"
-    ? "bg-rose-100 text-rose-700"
+    ? "bg-amber-50 text-amber-700 border border-amber-200"
     : "bg-slate-100 text-slate-700";
   const bannerBgClass = isRejected
     ? "bg-rose-50 text-rose-900 border border-rose-200"
     : isResubmitted
     ? "bg-sky-50 text-sky-800 border-sky-200"
-    : hasStagedChanges
+    : hasSavedReplacements
     ? "bg-emerald-50 text-emerald-800 border-emerald-200"
     : "bg-rose-50 text-rose-700 border-rose-100";
   const bannerMessage = isRejected
     ? "This application has been rejected and is now closed. No further updates are possible."
     : isResubmitted
     ? "Your updated application packet has been delivered to the review team. No further action is required at this time."
-    : hasStagedChanges
-    ? "All flagged files have been successfully replaced. Review your submission details below."
+    : isUploadingReplacement
+    ? "Saving your replacement file. Please keep this page open until the upload finishes."
+    : hasSavedReplacements
+    ? "Your replacement files are saved. Resubmit them when you are ready."
     : "Fix the flagged files below and resubmit your application.";
   const headerSubtext = isRejected
     ? "Your application process has been finalized. Review the administrative decision details below."
     : "Review feedback is shown first so you can resolve corrections immediately.";
-  const isEditLocked = isResubmitted || isRejected;
-  const disableResubmit = isResubmitted || isRejected || pendingReplacements === 0 || submitting;
+  const isEditLocked = !isApplicationReturned || isResubmitted || isRejected || isApproved;
+  const disableResubmit = !isApplicationReturned || isResubmitted || isRejected || pendingReplacements === 0 || isUploadingReplacement || submitting;
   const disableDelete = isResubmitted || isRejected || submitting;
-  const updateCount = application.reviewThread.length;
   const fileCount = submittedFiles.length;
   const resubmittedAtText = application.resubmittedAt ? new Date(application.resubmittedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "numeric" }) : null;
 
-  const handleReplacementSelected = (slotId: string, originalUrl: string, file: File) => {
+  const handleReplacementSelected = async (slotId: string, originalUrl: string, file: File) => {
+    if (isEditLocked || isUploadingReplacement) return;
     if (!ALLOWED_TYPES.has(file.type)) {
       setError("Only PDF, DOCX, PNG, JPG, and WEBP files are allowed.");
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
-      setError("File must be smaller than 12MB.");
+      setError("File must not exceed 15MB.");
       return;
     }
 
@@ -378,16 +404,38 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     const previewUrl = URL.createObjectURL(file);
     setStagedReplacements((current) => [
       ...current.filter((replacement) => replacement.slotId !== slotId),
-      { slotId, originalUrl, file, previewUrl, status: "pending" },
+      { slotId, originalUrl, file, previewUrl, status: "uploading" },
     ]);
+
+    try {
+      const uploadedUrl = await uploadDocument(application.id, slotId, file);
+      URL.revokeObjectURL(previewUrl);
+      setStagedReplacements((current) =>
+        current.map((replacement) =>
+          replacement.slotId === slotId
+            ? { ...replacement, previewUrl: "", uploadedUrl, status: "uploaded" }
+            : replacement
+        )
+      );
+      router.refresh();
+    } catch (uploadError) {
+      URL.revokeObjectURL(previewUrl);
+      setStagedReplacements((current) => current.filter((replacement) => replacement.slotId !== slotId));
+      setError(uploadError instanceof Error ? uploadError.message : "Unable to save replacement file.");
+    }
   };
 
   const handleChooseFile = (slotId: string) => {
+    if (isEditLocked || isUploadingReplacement) return;
     fileInputRefs.current[slotId]?.click();
   };
 
   const handleResubmit = async () => {
-    if (stagedReplacements.length === 0) {
+    if (!isApplicationReturned || isResubmitted || isRejected) {
+      setError("Your application can only be resubmitted after it has been returned for edits.");
+      return;
+    }
+    if (pendingReplacements === 0 || isUploadingReplacement) {
       setError("Select at least one file replacement before resubmitting.");
       return;
     }
@@ -397,18 +445,28 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     setSuccess(null);
 
     try {
-      const uploads = await Promise.all(
-        stagedReplacements.map(async (replacement) => {
-          const uploadedUrl = await uploadDocument(replacement.file);
-          return {
-            slotId: replacement.slotId,
-            originalUrl: replacement.originalUrl,
-            fileUrl: uploadedUrl,
-            fileName: replacement.file.name,
-            fileType: replacement.file.type || getFileTypeLabel(replacement.file.name),
-          };
-        })
-      );
+      const uploads = submittedFiles.flatMap((file) => {
+        const staged = stagedMap[file.slotId];
+        if (staged?.status === "uploaded" && staged.uploadedUrl) {
+          return [{
+            slotId: file.slotId,
+            originalUrl: file.originalUrl,
+            fileUrl: staged.uploadedUrl,
+            fileName: staged.file.name,
+            fileType: staged.file.type || getFileTypeLabel(staged.file.name),
+          }];
+        }
+        if (file.pendingResubmission) {
+          return [{
+            slotId: file.slotId,
+            originalUrl: file.originalUrl,
+            fileUrl: file.originalUrl,
+            fileName: file.fileName,
+            fileType: file.fileType || getFileTypeLabel(file.originalUrl),
+          }];
+        }
+        return [];
+      });
 
       const finalUrls = CORE_UPLOAD_KEYS.map((key) => {
         const file = submittedFiles.find((f) => f.slotId === key);
@@ -419,7 +477,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
       const body = {
         urls: finalUrls,
         replacements: uploads,
-        message: `Applicant resubmitted files:\n${finalUrls.filter(Boolean).join("\n")}`,
+        message: "Applicant resubmitted replacement files for review.",
       };
 
       const response = await fetch(`/api/applications/${application.id}/resubmit`, {
@@ -440,6 +498,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
       });
       setTimeout(() => setSuccess(null), 4500);
       router.refresh();
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to resubmit application.");
     } finally {
@@ -482,12 +541,18 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
 
   const activityEvents = useMemo(
     () =>
-      application.reviewThread.map((message) => {
-        const date = new Date(message.createdAt).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        });
+      [...application.reviewThread]
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .filter(
+          (message) =>
+            !(
+              isRejected &&
+              message.role === "admin" &&
+              /^(?:application rejected|reason for rejection)\s*:/i.test(message.text.trim())
+            )
+        )
+        .map((message) => {
+        const date = formatActivityTimestamp(message.createdAt);
         const isSystemNote =
           message.role === "applicant" &&
           !message.attachments?.length &&
@@ -497,18 +562,19 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         const attachmentPreviews: AttachmentPreview[] = (message.attachments ?? [])
           .map((attachment) => {
             const url = attachment.fileUrl || "";
-            const { cleanName, isImage } = getFileMetadata(url || attachment.fileName || "");
+            const { cleanName, isImage, isPdf: urlIsPdf } = getFileMetadata(url || attachment.fileName || "");
             return {
               url,
               cleanName: attachment.fileName || cleanName,
               isImage,
+              isPdf: attachment.fileType.toLowerCase() === "application/pdf" || urlIsPdf,
             };
           })
           .filter((attachment) => attachment.url);
 
         const inlineAttachmentPreviews = inlineUrls.map((url) => {
-          const { cleanName, isImage } = getFileMetadata(url);
-          return { url, cleanName, isImage };
+          const { cleanName, isImage, isPdf } = getFileMetadata(url);
+          return { url, cleanName, isImage, isPdf };
         });
 
         const content = inlineUrls.length
@@ -527,10 +593,53 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           content,
           attachments: attachmentPreviews.length > 0 ? attachmentPreviews : inlineAttachmentPreviews,
         };
-      }),
-    [application.reviewThread]
+        }),
+    [application.reviewThread, isRejected]
   );
+  const [lastReadActivityLength, setLastReadActivityLength] = useState(activityEvents.length);
   const submissionSummary = useMemo(() => parseSubmissionSummary(application.message || undefined), [application.message]);
+  const showReviewActivity = activityEvents.length > 0 || normalizedStatus === "RETURNED";
+  const hasNewActivity = !isActivityNearBottom && activityEvents.length > lastReadActivityLength;
+
+  useEffect(() => {
+    if (!showReviewActivity) return;
+
+    const container = activityScrollContainerRef.current;
+    const isInitialOrNewApplication = previousActivityLengthRef.current === null || activityApplicationIdRef.current !== application.id;
+    if (isInitialOrNewApplication) {
+      if (container && activityEvents.length > 0) container.scrollTop = container.scrollHeight;
+      previousActivityLengthRef.current = activityEvents.length;
+      activityApplicationIdRef.current = application.id;
+      return;
+    }
+
+    if (activityEvents.length > (previousActivityLengthRef.current ?? 0)) {
+      if (isActivityNearBottom) {
+        container?.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      }
+    }
+
+    previousActivityLengthRef.current = activityEvents.length;
+  }, [activityEvents.length, application.id, isActivityNearBottom, showReviewActivity]);
+
+  const handleActivityScroll = () => {
+    const container = activityScrollContainerRef.current;
+    if (!container) return;
+
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    setIsActivityNearBottom(nearBottom);
+    if (nearBottom) setLastReadActivityLength(activityEvents.length);
+  };
+
+  const scrollToLatestActivity = () => {
+    const container = activityScrollContainerRef.current;
+    if (!container) return;
+
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    setIsActivityNearBottom(true);
+    setLastReadActivityLength(activityEvents.length);
+  };
+
   return (
     <div className="space-y-6 pb-32">
       <header className="mb-8 w-full rounded-2xl border border-cyan-950/20 bg-[linear-gradient(120deg,#0f3d5c_0%,#145b72_58%,#e7f4f1_160%)] p-6 shadow-sm md:p-8">
@@ -585,210 +694,132 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         </div>
       ) : null}
 
-      {isRejected ? (
-        <div className="mb-6 p-5 bg-rose-50/50 border border-rose-200 rounded-xl flex items-start gap-4">
-          <div className="p-2 bg-rose-100 text-rose-600 rounded-lg">
-            <AlertCircle className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-rose-900">Application Rejection Notice</h3>
-            <p className="text-xs text-rose-700 font-semibold mt-1">
-              Reason: {latestRejectionNote || "Does not meet eligibility criteria."}
-            </p>
-            <p className="text-xs text-slate-400 mt-2">
-              If you believe this was an error, please contact the SK Review administration directly.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      <section className="grid gap-6 xl:grid-cols-[minmax(16rem,0.85fr)_minmax(0,1.15fr)]">
-        <div className="flex min-w-0 flex-col gap-6">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center gap-3 border-b border-slate-100 pb-4">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                <MessageCircle className="h-4 w-4" aria-hidden="true" />
-              </span>
-              <h2 className="text-base font-bold text-slate-900">Reviewer notes</h2>
-              <span className={`ml-auto inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide ${hasActionRequired ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
-                {`${updateCount} ${updateCount === 1 ? "update" : "updates"}`.toUpperCase()}
-              </span>
+      <section className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-1">
+        <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-3 rounded-t-2xl border-b border-slate-100 bg-white p-5">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-slate-500" aria-hidden="true" />
+              <h2 className="text-sm font-bold text-slate-900">Application summary</h2>
             </div>
-
-            <p className="mb-4 text-sm leading-relaxed text-slate-500">These notes were sent by the SK review team. Fix flagged documents below.</p>
-            <div className="space-y-5">
-              {application.reviewThread.length === 0 ? (
-                <div className="flex items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-                  <span className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-500">
-                    <Inbox className="h-4 w-4" aria-hidden="true" />
-                  </span>
-                  <p className="text-sm text-slate-500">No reviewer comments have been posted yet.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {submissionSummary ? (
-                    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                      <div className="flex items-start gap-4">
-                        <div className="flex-1">
-                          <h4 className="text-sm font-semibold text-slate-900">Applicant submission</h4>
-                          <p className="mt-1 text-xs text-slate-500">Initial details from the submitted application for quick review.</p>
-
-                          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-6 text-sm text-slate-700">
-                            {Object.entries(submissionSummary).map(([k, v]) => (
-                              <div key={k} className="flex gap-2 items-start">
-                                <div className="min-w-[8rem] text-xs text-slate-500">{k}</div>
-                                <div className="flex-1 text-sm font-medium text-slate-900 truncate">{v}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="w-24 flex-shrink-0">
-                          {application.application?.photoFileUrl ? (
-                            <img src={application.application.photoFileUrl} alt={submissionSummary["Applicant Name"] || "Applicant photo"} className="w-24 h-24 object-cover rounded-md border border-slate-100" />
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                  {activityEvents.map((event) => (
-                    <div key={event.id} className="relative pl-6">
-                      <div className={`absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full ${event.type === "system" ? "bg-indigo-500" : "bg-slate-400"} ring-4 ring-white`} />
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <span className={`font-semibold tracking-tight ${event.type === "system" ? "text-slate-500" : "text-slate-700"}`}>
-                            {event.actor}
-                          </span>
-                          <span className="text-slate-400">{event.date}</span>
-                        </div>
-                        <div className={`text-sm leading-6 ${event.type === "system" ? "text-slate-600" : "text-slate-700"} break-words whitespace-pre-wrap`}> 
-                          {event.content.split("\n").map((line, idx) => (
-                            <p key={idx} className="mt-1">{line}</p>
-                          ))}
-                        </div>
-
-                        {event.attachments.length > 0 ? (
-                          <div className="mt-3 flex flex-col gap-3 w-full">
-                            {/* Separate images and non-images for clearer layout */}
-                            <div className="flex items-start gap-4">
-                              <div className="flex-shrink-0 flex items-center gap-2">
-                                {event.attachments.filter(a => a.isImage).map((img) => (
-                                  <a key={img.url} href={img.url} target="_blank" rel="noopener noreferrer" className="w-20 h-20 overflow-hidden rounded-md border border-slate-200 bg-slate-100 shadow-sm">
-                                    <img src={img.url} alt={img.cleanName} className="w-full h-full object-cover" />
-                                  </a>
-                                ))}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex flex-wrap gap-2">
-                                  {event.attachments.filter(a => !a.isImage).map((attachment) => (
-                                    <a
-                                      key={attachment.url}
-                                      href={attachment.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100"
-                                      title={attachment.cleanName}
-                                    >
-                                      <FileText className="h-4 w-4 text-slate-400" />
-                                      <span className="max-w-[18rem] truncate">{attachment.cleanName}</span>
-                                    </a>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <aside className="space-y-6 xl:order-first xl:sticky xl:top-6 xl:self-start">
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center gap-3 border-b border-slate-100 pb-4">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                  <FileText className="h-4 w-4" aria-hidden="true" />
+            {normalizedStatus === "WAITLISTED" ? (
+              <span className="group relative inline-flex shrink-0 cursor-help items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-700" tabIndex={0} aria-label="Waitlisted status information">
+                WAITLISTED
+                <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                <span role="tooltip" className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-72 max-w-[calc(100vw-3rem)] rounded-lg bg-slate-900 p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  Program slots are currently full. You have been placed on a reservation list and will be contacted if slots become vacant. (First-come, first-served basis).
                 </span>
-                <h2 className="text-base font-bold text-slate-900">Application summary</h2>
-              </div>
-              <div className="space-y-5 text-sm text-slate-600">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <span className="text-sm text-slate-500">Current status</span>
-                  {normalizedStatus === "WAITLISTED" ? (
-                    <span className="group relative inline-flex cursor-help items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-amber-700" tabIndex={0} aria-label="Waitlisted status information">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-                      WAITLISTED
-                      <Info className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span role="tooltip" className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-72 max-w-[calc(100vw-3rem)] rounded-lg bg-slate-900 p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                        Program slots are currently full. You have been placed on a reservation list and will be contacted if slots become vacant. (First-come, first-served basis).
-                      </span>
-                    </span>
-                  ) : (
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] ${statusBadgeClass}`}>
-                      {currentDisplayStatus}
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-3">
-                  {application.lastUpdatedBy ? (
-                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-slate-700">
-                      <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Last updated</p>
-                      <p className="mt-1 text-sm">{application.lastUpdatedBy}</p>
-                    </div>
-                  ) : null}
-                </div>
+              </span>
+            ) : (
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${statusBadgeClass}`}>
+                {currentDisplayStatus}
+              </span>
+            )}
+          </div>
 
-                {isRejected ? (
-                  <div className="rounded-[1.75rem] border border-rose-200 bg-rose-50 p-4">
-                    <p className="text-sm font-semibold text-rose-900">Application Rejected</p>
-                    <p className="mt-2 text-sm text-rose-700">Reason: {latestRejectionNote || "Does not meet eligibility criteria."}</p>
-                    <p className="mt-3 text-sm text-slate-500">If you believe this was an error, contact the SK Review administration directly.</p>
-                  </div>
-                ) : isApproved ? (
-                  <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 p-4">
-                    <p className="text-sm font-semibold text-emerald-900">Application approved</p>
-                    <p className="mt-2 text-sm text-slate-700">Your application has been approved and onboarding is in progress.</p>
-                  </div>
+          <div className="flex flex-1 flex-col gap-5 p-5">
+            <section aria-label="Applicant context" className="flex items-start gap-4">
+                {application.application?.photoFileUrl ? (
+                  <img
+                    src={application.application.photoFileUrl}
+                    alt={submissionSummary?.["Applicant Name"] || application.application.applicantName || "Applicant"}
+                    className="h-14 w-14 shrink-0 rounded-xl border border-slate-200 object-cover shadow-sm"
+                  />
                 ) : (
-                  <div className="mb-5 rounded-r-lg border-l-4 border-cyan-500 bg-cyan-50 p-4">
-                    <p className="text-sm leading-relaxed text-slate-700">
-                      {pendingReplacements > 0
-                        ? `${pendingReplacements} replacement file${pendingReplacements > 1 ? "s" : ""} staged and ready to send.`
-                        : "Choose at least one file replacement to activate resubmission."}
-                    </p>
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-100">
+                    <UserRound className="h-6 w-6 text-slate-300" aria-hidden="true" />
                   </div>
                 )}
-
-                <div>
-                  {!isRejected && !isApproved ? (
-                    <button
-                      type="button"
-                      disabled={disableResubmit}
-                      onClick={handleResubmit}
-                      className={`flex w-full items-center justify-center gap-2 rounded-lg py-2.5 font-medium transition-colors ${disableResubmit ? "cursor-not-allowed bg-slate-100 text-slate-500" : "bg-slate-900 text-white hover:bg-slate-800"}`}
-                    >
-                      {submitting ? "Resubmitting..." : "Resubmit application"}
-                      <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => setShowDeleteConfirm(true)}
-                    disabled={submitting || deleting}
-                    className={`mt-3 flex w-full items-center justify-center gap-2 rounded-lg border py-2.5 font-medium transition-colors ${submitting || deleting ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-white text-red-600 hover:bg-red-50"}`}
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    {deleting ? "Deleting..." : "Delete Application"}
-                  </button>
+                <div className="mt-0.5 min-w-0 flex-1 space-y-0.5">
+                  <h3 className="truncate text-base font-bold text-slate-900">
+                    {submissionSummary?.["Applicant Name"] || application.application?.applicantName || "Applicant"}
+                  </h3>
+                  <p className="truncate text-xs text-slate-500">
+                    {submissionSummary?.["Email Address"] || application.application?.emailAddress || "N/A"}
+                  </p>
                 </div>
+            </section>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+              <DetailItem label="School / Institution" value={submissionSummary?.["School / Institution"] || application.application?.school} />
+              <DetailItem label="Year Level" value={submissionSummary?.["Year Level"] || application.application?.yearLevel} />
+              <DetailItem label="Course" value={submissionSummary?.Course || application.application?.currentCourse} />
+              <DetailItem label="Contact Number" value={submissionSummary?.["Contact Number"] || application.application?.contactNumber} />
+              <div className="border-t border-slate-200/60 pt-3">
+                <DetailItem
+                  label="Age"
+                  value={application.application?.age != null ? `${application.application.age} years old` : undefined}
+                />
+              </div>
+              <div className="border-t border-slate-200/60 pt-3">
+                <DetailItem
+                  label="Sitio"
+                  value={application.application?.purok || application.application?.sitio}
+                />
               </div>
             </div>
-          </aside>
+
+            <div className="space-y-5 text-sm text-slate-600">
+              {isRejected ? (
+                <div className="mt-auto space-y-2 rounded-xl border border-rose-100 bg-rose-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-bold text-rose-800">Application Rejected</p>
+                    {application.lastUpdatedBy ? (
+                      <span className="text-[10px] text-rose-400">By {application.lastUpdatedBy}</span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-rose-600"><span className="font-semibold">Reason:</span> {latestRejectionNote || "Does not meet eligibility criteria."}</p>
+                  <p className="text-[11px] text-rose-500">If you believe this was an error, contact the SK Review administration directly.</p>
+                </div>
+              ) : isApproved ? (
+                <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-sm font-semibold text-emerald-900">Application approved</p>
+                  <p className="mt-2 text-sm text-slate-700">Your application has been approved and onboarding is in progress.</p>
+                </div>
+              ) : (
+                <div className="mb-5 rounded-r-lg border-l-4 border-cyan-500 bg-cyan-50 p-4">
+                  <p className="text-sm leading-relaxed text-slate-700">
+                    {isUploadingReplacement
+                      ? "Saving replacement file..."
+                      : pendingReplacements > 0
+                      ? `${pendingReplacements} replacement file${pendingReplacements > 1 ? "s" : ""} saved and ready to send.`
+                      : "Choose at least one file replacement to activate resubmission."}
+                  </p>
+                </div>
+              )}
+
+              <div>
+                {!isRejected && !isApproved ? (
+                  <button
+                    type="button"
+                    disabled={disableResubmit}
+                    onClick={handleResubmit}
+                    className={`flex w-full items-center justify-center gap-2 rounded-lg py-2.5 font-medium transition-colors ${disableResubmit ? "cursor-not-allowed bg-slate-100 text-slate-500" : "bg-slate-900 text-white hover:bg-slate-800"}`}
+                  >
+                    {submitting ? "Resubmitting..." : "Resubmit application"}
+                    <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+          </div>
+          <footer className="mt-auto border-t border-slate-100 bg-slate-50/50 p-5">
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={submitting || deleting}
+              className={`flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2 text-xs font-semibold transition-colors ${submitting || deleting ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-white text-red-600 hover:bg-red-50"}`}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              {deleting ? "Deleting..." : "Delete Application"}
+            </button>
+          </footer>
+
+        </div>
         </div>
 
-        <div className="min-w-0 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_20px_40px_rgba(15,23,42,0.05)]">
+        <div className="min-w-0 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_20px_40px_rgba(15,23,42,0.05)] lg:col-span-2">
           <div className="border-b border-slate-100 bg-slate-50 p-5 pb-2">
             <div>
               <h2 className="mb-2 text-lg font-bold text-slate-900">Submitted files</h2>
@@ -808,14 +839,15 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           <div className="mt-5 min-w-0 space-y-2 px-4 pb-4 pt-0">
               {submittedFiles.map((file) => {
                 const staged = stagedMap[file.slotId];
-                const isReplacementActive = Boolean(staged);
-                const correction = getFileActionHint(application.reviewThread, file);
-                const previewSrc = staged?.previewUrl ?? file.originalUrl;
+                const isReplacementActive = Boolean(
+                  staged?.status === "uploading" || staged?.status === "uploaded" || file.pendingResubmission
+                );
+                const correction = isApplicationReturned && getFileActionHint(application.reviewThread, file);
+                const previewSrc = staged?.uploadedUrl ?? staged?.previewUrl ?? file.originalUrl;
                 const displayName = staged?.file.name ?? (file.isMissing ? "No file uploaded" : getCleanFilename(stripDatabasePrefix(file.fileName)));
                 const displayType = staged ? getFileTypeLabel(staged.file.name) : file.typeLabel;
                 const displaySize = staged ? formatBytes(staged.file.size) : null;
-                const downloadHref = staged?.previewUrl ?? (file.originalUrl || undefined);
-                const downloadName = staged?.file.name ?? file.fileName;
+                const downloadHref = staged?.uploadedUrl ?? staged?.previewUrl ?? (file.originalUrl || undefined);
 
                 return (
                   <div
@@ -849,7 +881,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                           ) : isResubmitted ? (
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Pending</span>
                           ) : correction && !isRejected ? (
-                            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-red-600">Correction</span>
+                            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-red-600">Need Correction</span>
                           ) : null}
                       </div>
                     </div>
@@ -858,9 +890,9 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                       {!isRejected && !isApproved ? (
                         <button
                           type="button"
-                          disabled={isEditLocked}
+                          disabled={isEditLocked || isUploadingReplacement}
                           onClick={() => handleChooseFile(file.slotId)}
-                          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition ${isEditLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}`}
+                          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition ${isEditLocked || isUploadingReplacement ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}`}
                         >
                           <Upload className="h-3.5 w-3.5" aria-hidden="true" />
                           {file.isMissing ? "Upload" : "Replace"}
@@ -869,9 +901,8 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                       {downloadHref ? (
                         <a
                           href={downloadHref}
-                          download={downloadName}
                           target="_blank"
-                          rel="noreferrer noopener"
+                          rel="noopener noreferrer"
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"
                           aria-label={`View file ${displayName}`}
                           title={`View file ${displayName}`}
@@ -889,7 +920,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                         onChange={(event) => {
                           const selectedFile = event.target.files?.[0];
                           if (selectedFile) {
-                            handleReplacementSelected(file.slotId, file.originalUrl, selectedFile);
+                            void handleReplacementSelected(file.slotId, file.originalUrl, selectedFile);
                           }
                           event.target.value = "";
                         }}
@@ -901,6 +932,114 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           </div>
         </div>
       </section>
+
+      {showReviewActivity ? (
+        <section className="w-full rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-center gap-3 border-b border-slate-100 pb-4">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+              <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <h2 className="text-base font-bold text-slate-900">Review activity</h2>
+            <span className={`ml-auto inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide ${hasActionRequired ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+              {`${activityEvents.length} ${activityEvents.length === 1 ? "update" : "updates"}`.toUpperCase()}
+            </span>
+          </div>
+          <p className="mb-4 text-sm leading-relaxed text-slate-500">Messages and updates from you and the SK review team.</p>
+          <div className="relative">
+            <div ref={activityScrollContainerRef} onScroll={handleActivityScroll} className="max-h-[450px] space-y-5 overflow-y-auto pr-2">
+              {activityEvents.length === 0 ? (
+                <div className="flex items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+                  <span className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-500">
+                    <Inbox className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <p className="text-sm text-slate-500">No additional review activity yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {activityEvents.map((event) => (
+                    <div key={event.id} className="relative pl-6">
+                      <div
+                        className={`absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full ${
+                          event.type === "reviewer"
+                            ? "bg-cyan-600"
+                            : event.type === "system"
+                            ? "bg-indigo-500"
+                            : "bg-slate-400"
+                        } ring-4 ring-white`}
+                      />
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className={`font-semibold tracking-tight ${event.type === "system" ? "text-slate-500" : "text-slate-700"}`}>
+                            {event.actor}
+                          </span>
+                          <span className="text-slate-400">{event.date}</span>
+                        </div>
+                        <div className={`break-words whitespace-pre-wrap text-sm leading-6 ${event.type === "system" ? "text-slate-600" : "text-slate-700"}`}>
+                          {event.content.split("\n").map((line, idx) => (
+                            <p key={idx} className="mt-1">{line}</p>
+                          ))}
+                        </div>
+                        {event.attachments.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-2.5">
+                            {event.attachments.map((file, index) => (
+                              <a
+                                key={`${file.url}-${index}`}
+                                href={file.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="group relative flex h-20 w-20 flex-col items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm transition-all hover:border-slate-400"
+                                title={file.cleanName}
+                                aria-label={`View attachment ${file.cleanName}`}
+                              >
+                                {file.isImage ? (
+                                  <img
+                                    src={file.url}
+                                    alt={file.cleanName || "Attachment"}
+                                    className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                                  />
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center p-2 text-center text-slate-500">
+                                    <svg className={`mb-1 h-7 w-7 ${file.isPdf ? "text-red-500" : "text-slate-500"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                    </svg>
+                                    <span className="w-full truncate text-[9px] font-bold uppercase tracking-tighter text-slate-600">
+                                      {file.isPdf ? "PDF" : file.cleanName.split(".").pop() || "File"}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 flex items-end bg-slate-900/0 p-1 transition-colors group-hover:bg-slate-900/10">
+                                  <span className="w-full truncate rounded bg-slate-900/80 px-1 text-center text-[8px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+                                    View
+                                  </span>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {hasNewActivity ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
+                <button
+                  type="button"
+                  onClick={scrollToLatestActivity}
+                  className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-teal-500 bg-teal-600 px-4 py-2 text-xs font-bold text-white shadow-lg transition-colors hover:bg-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                  aria-label="Scroll to the newest review activity"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                  </svg>
+                  New message
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {error ? (
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>

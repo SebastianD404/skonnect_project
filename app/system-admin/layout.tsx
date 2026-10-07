@@ -11,19 +11,14 @@ export default async function SystemAdminLayout({
 }>) {
   await requireRole([Role.SUPER_ADMIN]);
 
-  const [activeUserCount, roleUpdateCount] = await Promise.all([
-    prisma.user.count({
-      where: { isActive: true },
-    }),
-    prisma.auditLog.count({
-      where: {
-        action: {
-          contains: "ROLE",
-          mode: "insensitive",
-        },
+  const roleUpdateCount = await prisma.auditLog.count({
+    where: {
+      action: {
+        contains: "ROLE",
+        mode: "insensitive",
       },
-    }),
-  ]);
+    },
+  });
   const databaseStatus = await prisma
     .$queryRaw<Array<{ health_check: number }>>`SELECT 1 AS health_check`
     .then(() => "connected" as const)
@@ -33,7 +28,6 @@ export default async function SystemAdminLayout({
     <div className="min-h-screen bg-[#EFF4FA] text-slate-950">
       <div className="mx-auto flex min-h-screen max-w-[1480px]">
         <SystemAdminSidebar
-          activeUserCount={activeUserCount}
           roleUpdateCount={roleUpdateCount}
           databaseStatus={databaseStatus}
         />

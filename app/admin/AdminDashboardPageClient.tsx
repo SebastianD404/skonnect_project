@@ -80,7 +80,7 @@ export default function AdminDashboardPageClient({
   const [overview, setOverview] = useState<DashboardOverview>({
     stats: {
       totalGrantees: Number(stats.find((stat) => stat.label === "Total Grantees")?.value ?? 0),
-      pendingApplications: Number(stats.find((stat) => stat.label === "Pending Applications")?.value ?? 0),
+      pendingApplications: Number(stats.find((stat) => stat.label === "SKEAP Applications")?.value ?? 0),
       openInquiries: openInquiryCount,
       documentReviews: pendingSubmissionCount,
     },
@@ -138,7 +138,7 @@ export default function AdminDashboardPageClient({
   const liveStats = useMemo(() => {
     const values: Record<string, number> = {
       "Total Grantees": overview.stats.totalGrantees,
-      "Pending Applications": overview.stats.pendingApplications,
+      "SKEAP Applications": overview.stats.pendingApplications,
       "Open Inquiries": overview.stats.openInquiries,
       "Document Reviews": overview.stats.documentReviews,
     };

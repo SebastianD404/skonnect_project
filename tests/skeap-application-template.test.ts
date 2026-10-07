@@ -107,6 +107,20 @@ describe("SKEAP application DOCX", () => {
     expect(documentXml.match(/N\/A/g)?.length).toBeGreaterThanOrEqual(8);
   });
 
+  it("keeps unavailable vocational values uppercase N/A", () => {
+    const templateData = buildSkeapApplicationTemplateData(
+      {
+        vocational: "",
+        vocationalYearGraduated: "",
+      },
+      {},
+      ""
+    );
+
+    expect(templateData.vocSchool).toBe("N/A");
+    expect(templateData.vocYear).toBe("N/A");
+  });
+
   it("uses the current profile name instead of a stale SKEAP application name", () => {
     const templateData = buildSkeapApplicationTemplateData(
       {
@@ -122,5 +136,21 @@ describe("SKEAP application DOCX", () => {
 
     expect(templateData.applicantName).toBe("Updated Name");
     expect(templateData.emailAddress).toBe("updated@example.com");
+  });
+
+  it("prints profile first, middle, and last names in that order", () => {
+    const templateData = buildSkeapApplicationTemplateData(
+      { applicantName: "Old Name" },
+      {
+        fullName: "First Last",
+        firstName: "First",
+        middleName: "Middle",
+        lastName: "Last",
+      },
+      ""
+    );
+
+    expect(templateData.applicantName).toBe("First Middle Last");
+    expect(templateData.applicantNameUpper).toBe("FIRST MIDDLE LAST");
   });
 });

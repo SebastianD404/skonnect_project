@@ -4,7 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { getProfilingRegistrationCountByStatusSince, prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -18,6 +18,11 @@ export async function GET() {
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
+  const granteesLastViewedValue = new URL(request.url).searchParams.get("granteesLastViewed");
+  const granteesLastViewed = granteesLastViewedValue ? new Date(granteesLastViewedValue) : null;
+  if (granteesLastViewedValue && (!granteesLastViewed || Number.isNaN(granteesLastViewed.getTime()))) {
+    return NextResponse.json({ error: "Invalid Grantees viewed timestamp." }, { status: 400 });
+  }
 
   const supportInquiryFilter = {
     NOT: {
@@ -59,7 +64,13 @@ export async function GET() {
       }),
       prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: startOfToday } } }),
       prisma.profilingRegistration.count({ where: { submittedAt: { gte: startOfToday } } }),
-      prisma.grantee.count({ where: { createdAt: { gte: startOfToday } } }),
+      prisma.grantee.count({
+        where: {
+          createdAt: granteesLastViewed
+            ? { gt: granteesLastViewed }
+            : { gte: startOfToday },
+        },
+      }),
       getProfilingRegistrationCountByStatusSince("Approved", startOfToday),
     ]);
 

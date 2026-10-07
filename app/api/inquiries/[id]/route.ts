@@ -7,9 +7,12 @@ import { ensureProfile } from "@/lib/auth";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { logAuditEvent, writeAuditLog } from "@/lib/audit/logger";
 import { ensureThreadMessage } from "@/lib/inquiries/thread";
+import { normalizeUploadedFiles } from "@/lib/skeap-upload";
+import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 
 interface AttachedFileNote {
   fileId: string;
+  documentLabel?: string;
   fileName: string;
   fileUrl: string;
   fileType: string;
@@ -21,6 +24,8 @@ interface ReviewMessage {
   role: "admin" | "applicant";
   createdAt: string;
   text: string;
+  action?: "return";
+  eventType?: "RESUBMISSION";
   attachments?: AttachedFileNote[];
 }
 
@@ -54,7 +59,8 @@ function isValidAttachedFileNote(value: unknown): value is AttachedFileNote {
     typeof note.fileName === "string" &&
     typeof note.fileUrl === "string" &&
     typeof note.fileType === "string" &&
-    typeof note.adminRemark === "string"
+    typeof note.adminRemark === "string" &&
+    (note.documentLabel === undefined || typeof note.documentLabel === "string")
   );
 }
 
@@ -64,6 +70,8 @@ function isValidReviewMessage(value: unknown): value is ReviewMessage {
   if (message.role !== "admin" && message.role !== "applicant") return false;
   if (typeof message.id !== "string" || typeof message.createdAt !== "string") return false;
   if (typeof message.text !== "string") return false;
+  if (message.action !== undefined && message.action !== "return") return false;
+  if (message.eventType !== undefined && message.eventType !== "RESUBMISSION") return false;
   if (message.attachments !== undefined) {
     if (!Array.isArray(message.attachments)) return false;
     if (!message.attachments.every(isValidAttachedFileNote)) return false;
@@ -94,12 +102,15 @@ export async function PATCH(
       return NextResponse.json({ error: "Missing inquiry id" }, { status: 400 });
     }
 
-    if (action !== "message" && action !== "reply" && action !== "resolve" && action !== "reopen" && action !== "approve") {
+    if (action !== "message" && action !== "reply" && action !== "resolve" && action !== "reopen" && action !== "approve" && action !== "return") {
       return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
     }
 
-    if ((action === "message" || action === "reply") && !text && attachments.length === 0) {
+    if ((action === "message" || action === "reply" || action === "return") && !text && attachments.length === 0) {
       return NextResponse.json({ error: "Message text or attachments are required" }, { status: 400 });
+    }
+    if (action === "return" && !text) {
+      return NextResponse.json({ error: "Required corrections are needed to return this application" }, { status: 400 });
     }
 
     const inquiry = await prisma.inquiry.findUnique({
@@ -126,6 +137,7 @@ export async function PATCH(
       role: "admin",
       createdAt: new Date().toISOString(),
       text: action === "approve" && !text ? "Application approved. We will move this applicant to the next step." : text,
+      action: action === "return" ? "return" : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
     };
 
@@ -143,19 +155,10 @@ export async function PATCH(
       reviewThread: updatedThread,
     };
 
-    const isReturnedUpdate =
-      action === "message" &&
-      (attachments.length > 0 || /returned|correction|required|resubmit|revise|revision/i.test(text));
-
     if (action === "message") {
       updateData.response = message.text;
       updateData.respondedAt = new Date();
       updateData.lastUpdatedBy = "admin";
-
-      if (isReturnedUpdate) {
-        updateData.reviewStatus = "Returned";
-        updateData.isResolved = true;
-      }
     }
 
     if (action === "reply") {
@@ -174,32 +177,71 @@ export async function PATCH(
       updateData.lastUpdatedBy = "admin";
     }
 
-    if (action === "approve") {
-      updateData.reviewStatus = "Approved";
+    if (action === "return") {
+      updateData.reviewStatus = "Returned";
       updateData.response = message.text;
       updateData.respondedAt = new Date();
       updateData.isResolved = true;
       updateData.lastUpdatedBy = "admin";
     }
 
+    const maxSlots = action === "approve" ? await getSkeapMaxSlots() : null;
     const updatedInquiry = await prisma.$transaction(async (tx) => {
-      const currentInquiry = await (tx as any).inquiry.findUnique({
+      const currentInquiry = await tx.inquiry.findUnique({
         where: { id },
         select: {
           reviewThread: true,
           message: true,
           createdAt: true,
           userId: true,
+          reviewStatus: true,
           user: { select: { grantee: { select: { status: true } } } },
-          application: { select: { id: true, status: true, school: true, currentCourse: true, yearLevel: true, applicantName: true } },
+          application: { select: { id: true, status: true, school: true, currentCourse: true, yearLevel: true, applicantName: true, uploadedFiles: true } },
         },
       });
+
+      if (action === "return") {
+        const currentReviewStatus = String(currentInquiry?.reviewStatus || "").toLowerCase();
+        const currentApplicationStatus = currentInquiry?.application?.status;
+        if (
+          !currentInquiry ||
+          !currentInquiry.application?.id ||
+          !(/pending|resubmitted|resubmit/.test(currentReviewStatus)) ||
+          (currentApplicationStatus !== "PENDING" && currentApplicationStatus !== "RETURNED_FOR_EDIT")
+        ) {
+          throw new Error("This application is no longer eligible to be returned for edits.");
+        }
+      }
 
       if (action === "approve" && currentInquiry?.user?.grantee?.status === "GRADUATED") {
         throw new Error("GRANTEE_ARCHIVED");
       }
       if (action === "approve" && currentInquiry?.application?.status === "WAITLISTED") {
         throw new Error("Waitlisted applications must be promoted from the waitlist before approval.");
+      }
+      if (action === "approve" && currentInquiry?.application?.status === "APPROVED") {
+        throw new Error("This application has already been approved.");
+      }
+
+      let approvalStatus: "APPROVED" | "WAITLISTED" | undefined;
+      let approvalMessage = message;
+      let waitlistPosition: number | null = null;
+      if (action === "approve") {
+        if (!currentInquiry?.application?.id || maxSlots === null) {
+          throw new Error("The linked SKEAP application could not be found.");
+        }
+        const activeCount = await tx.skeapApplication.count({
+          where: ACTIVE_SKEAP_APPLICATION_WHERE,
+        });
+        approvalStatus = activeCount >= maxSlots ? "WAITLISTED" : "APPROVED";
+        if (approvalStatus === "WAITLISTED") {
+          waitlistPosition = (await tx.skeapApplication.count({ where: { status: "WAITLISTED" } })) + 1;
+        }
+        const applicantName = currentInquiry.application.applicantName || "Applicant";
+        const approvalText = approvalStatus === "WAITLISTED"
+          ? `Dear ${applicantName}, your SKEAP application has been approved and placed on the scholarship waitlist at position ${waitlistPosition}. Promotion and capacity management will be handled there.`
+          : `Dear ${applicantName}, your SKEAP application has been successfully approved. You have been granted an active scholarship slot for Barangay Pico. Please check your portal for next steps.`;
+        approvalMessage = { ...message, text: approvalText };
       }
 
       const existingThreadFromTx = (Array.isArray(currentInquiry?.reviewThread)
@@ -215,26 +257,83 @@ export async function PATCH(
         : existingThreadFromTx;
 
       const updatedThreadFromTx = (
-        isStatusOnlyAction ? threadWithOriginalMessage : [message, ...threadWithOriginalMessage]
+        isStatusOnlyAction ? threadWithOriginalMessage : [approvalMessage, ...threadWithOriginalMessage]
       ) as unknown as Prisma.InputJsonArray;
 
-      const updated = await (tx as any).inquiry.update({
+      const updated = await tx.inquiry.update({
         where: { id },
         data: {
           ...updateData,
           reviewThread: updatedThreadFromTx,
+          ...(action === "approve" && approvalStatus
+            ? {
+                reviewStatus: approvalStatus === "WAITLISTED" ? "Waitlisted" : "Approved",
+                response: approvalMessage.text,
+                respondedAt: new Date(),
+                isResolved: true,
+                lastUpdatedBy: "admin",
+              }
+            : {}),
         },
       });
 
+      if (action === "return" && currentInquiry?.application?.id) {
+        const uploadedFiles = normalizeUploadedFiles(currentInquiry.application.uploadedFiles);
+        await tx.skeapApplication.update({
+          where: { id: currentInquiry.application.id },
+          data: {
+            status: "RETURNED_FOR_EDIT",
+            ...(uploadedFiles
+              ? {
+                  uploadedFiles: Object.fromEntries(
+                    Object.entries(uploadedFiles).map(([key, upload]) => [
+                      key,
+                      {
+                        url: upload.url,
+                        ...(upload.name !== undefined ? { name: upload.name } : {}),
+                        ...(upload.verified !== undefined ? { verified: upload.verified } : {}),
+                      },
+                    ])
+                  ),
+                }
+              : {}),
+          },
+        });
+        await writeAuditLog(tx, {
+          action: "APPLICATION_RETURNED_FOR_EDITS",
+          actorId: appUser.id,
+          targetTable: "inquiries",
+          targetId: id,
+          beforeData: {
+            reviewStatus: currentInquiry.reviewStatus,
+            applicationStatus: currentInquiry.application.status,
+          },
+          afterData: {
+            reviewStatus: "Returned",
+            applicationStatus: "RETURNED_FOR_EDIT",
+            corrections: text,
+          },
+          metadata: {
+            target: currentInquiry.application.applicantName || currentInquiry.userId,
+            targetId: id,
+            reason: text,
+          },
+        });
+      }
+
       if (action === "approve" && currentInquiry?.userId) {
         if (currentInquiry.application?.id) {
-          await (tx as any).skeapApplication.update({
+          await tx.skeapApplication.update({
             where: { id: currentInquiry.application.id },
-            data: { status: "APPROVED", waitlistPosition: null },
+            data: {
+              status: approvalStatus,
+              waitlistPosition: approvalStatus === "WAITLISTED" ? waitlistPosition : null,
+            },
           });
         }
 
-        const targetUser = await (tx as any).user.findUnique({
+        if (approvalStatus === "APPROVED") {
+        const targetUser = await tx.user.findUnique({
           where: { id: currentInquiry.userId },
           select: { id: true, role: true },
         });
@@ -242,14 +341,14 @@ export async function PATCH(
         if (targetUser?.role === Role.YOUTH || targetUser?.role === Role.GRANTEE) {
           const previousRole = targetUser.role;
 
-          await (tx as any).user.update({
+          await tx.user.update({
             where: { id: targetUser.id },
             data: {
               role: Role.GRANTEE,
             },
           });
 
-          await writeAuditLog(tx as any, {
+          await writeAuditLog(tx, {
             action: "APPROVE_SKEAP_APPLICATION",
             actorId: appUser.id,
             targetTable: "users",
@@ -268,7 +367,7 @@ export async function PATCH(
             },
           });
 
-          await (tx as any).grantee.upsert({
+          await tx.grantee.upsert({
             where: { userId: targetUser.id },
             create: {
               userId: targetUser.id,
@@ -288,10 +387,11 @@ export async function PATCH(
             },
           });
         }
+        }
       }
 
       return updated;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     if (action === "resolve") {
       logAuditEvent({
@@ -344,6 +444,21 @@ export async function PATCH(
     console.error("Inquiry update failed:", error);
     if (message === "GRANTEE_ARCHIVED") {
       return NextResponse.json({ error: "Graduated Grantee records cannot be changed by application approval." }, { status: 409 });
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+      return NextResponse.json(
+        { error: "Application capacity changed while approving. Refresh and try again to see the current outcome." },
+        { status: 409 }
+      );
+    }
+    if (message === "This application is no longer eligible to be returned for edits.") {
+      return NextResponse.json({ error: message }, { status: 409 });
+    }
+    if (
+      message === "Waitlisted applications must be promoted from the waitlist before approval." ||
+      message === "This application has already been approved."
+    ) {
+      return NextResponse.json({ error: message }, { status: 409 });
     }
     return NextResponse.json({ error: message }, { status: 500 });
   }

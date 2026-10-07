@@ -1,5 +1,10 @@
 import { Prisma } from "@prisma/client";
-import { getUploadGroups } from "@/lib/skeap-upload";
+import {
+  getLatestSkeapResubmissionReplacements,
+  getUploadGroups,
+  mergeSkeapResubmittedFiles,
+  getUnpersistedSkeapResubmissionReplacements,
+} from "@/lib/skeap-upload";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 
@@ -8,8 +13,11 @@ interface ApplicationMessage {
   role: "admin" | "applicant";
   createdAt: string;
   text: string;
+  action?: "return";
+  eventType?: "RESUBMISSION";
   attachments?: {
     fileId: string;
+    documentLabel?: string;
     fileName: string;
     fileUrl: string;
     fileType: string;
@@ -37,6 +45,9 @@ export const SKEAP_APPLICATION_SELECT = {
       phoneNumber: true,
       kkProfile: {
         select: {
+          firstName: true,
+          middleName: true,
+          lastName: true,
           purok: true,
           addressLine: true,
           barangay: true,
@@ -76,6 +87,23 @@ export const SKEAP_APPLICATION_SELECT = {
     },
   },
 } satisfies Prisma.InquirySelect;
+
+export function skeapStatusWhere(patterns: readonly string[]): Prisma.InquiryWhereInput {
+  return {
+    OR: patterns.map((pattern) => ({
+      reviewStatus: { contains: pattern, mode: Prisma.QueryMode.insensitive },
+    })),
+  };
+}
+
+export function isSkeapApplicationRejected(reviewStatus: string | null | undefined): boolean {
+  return /reject/i.test(reviewStatus?.trim() ?? "");
+}
+
+export function isSkeapApplicationReturned(reviewStatus: string | null | undefined): boolean {
+  const normalized = (reviewStatus?.trim() ?? "").toUpperCase().replace(/[\s-]+/g, "_");
+  return ["RETURNED", "NEEDS_REVISION", "RETURNED_FOR_EDIT"].includes(normalized);
+}
 
 type SkeapInquiry = Prisma.InquiryGetPayload<{ select: typeof SKEAP_APPLICATION_SELECT }>;
 
@@ -157,11 +185,50 @@ function isValidReviewThreadItem(item: unknown): item is ApplicationMessage {
   return (
     (candidate.role === "admin" || candidate.role === "applicant") &&
     typeof candidate.createdAt === "string" &&
-    typeof candidate.text === "string"
+    typeof candidate.text === "string" &&
+    (candidate.action === undefined || candidate.action === "return")
+  );
+}
+
+export function isSkeapUploadMarkedForCorrection(
+  reviewThread: Array<{
+    role: string;
+    action?: string;
+    attachments?: Array<{ fileId?: string; fileUrl?: string }>;
+  }>,
+  file: { slotId: string; originalUrl: string }
+) {
+  const latestReturn = reviewThread.find(
+    (message) => message.role === "admin" && message.action === "return"
+  );
+  const returnMessage =
+    latestReturn ??
+    reviewThread.find(
+      (message) => message.role === "admin" && (message.attachments?.length ?? 0) > 0
+    );
+  if (!returnMessage) return false;
+
+  return Boolean(
+    returnMessage.attachments?.some(
+      (attachment) =>
+        (Boolean(file.slotId) && attachment.fileId === file.slotId) ||
+        (Boolean(file.originalUrl) && attachment.fileUrl === file.originalUrl)
+    )
   );
 }
 
 export function mapInquiryToApplication(inquiry: SkeapInquiry) {
+  const profileName = [
+    inquiry.user?.kkProfile?.firstName,
+    inquiry.user?.kkProfile?.middleName,
+    inquiry.user?.kkProfile?.lastName,
+  ].filter((part) => typeof part === "string" && part.trim()).join(" ");
+  const applicantName =
+    profileName ||
+    inquiry.user?.fullName ||
+    inquiry.application?.applicantName ||
+    inquiry.user?.email ||
+    "Unknown applicant";
   const urls = getUniqueUrls(inquiry.message || "");
   const persistedMessages = (Array.isArray(inquiry.reviewThread)
     ? inquiry.reviewThread.filter(isValidReviewThreadItem)
@@ -189,7 +256,15 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
     };
   });
 
-  const uploadGroups = getUploadGroups(inquiry.application?.uploadedFiles);
+  const latestReplacements = getLatestSkeapResubmissionReplacements(persistedMessages);
+  const fallbackReplacements = getUnpersistedSkeapResubmissionReplacements(
+    inquiry.application?.uploadedFiles,
+    latestReplacements
+  );
+  const effectiveUploadedFiles = fallbackReplacements.length
+    ? mergeSkeapResubmittedFiles(inquiry.application?.uploadedFiles, fallbackReplacements)
+    : inquiry.application?.uploadedFiles;
+  const uploadGroups = getUploadGroups(effectiveUploadedFiles);
   const responseText = inquiry.response?.trim();
   const status = (() => {
     const resubmittedMatcher = /resubm|resubmit|resubmitted/i;
@@ -238,7 +313,7 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
 
   return {
     id: inquiry.id,
-    applicantName: inquiry.user?.fullName || inquiry.application?.applicantName || inquiry.user?.email || "Unknown applicant",
+    applicantName,
     applicantEmail: inquiry.user?.email || inquiry.application?.emailAddress || "",
     applicantPhoneNumber: inquiry.user?.phoneNumber || inquiry.application?.contactNumber || "",
     yearLevel: inquiry.user?.grantee?.yearLevel || inquiry.application?.yearLevel || "",
@@ -254,7 +329,7 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
           currentCourse: inquiry.application.currentCourse,
           yearLevel: inquiry.application.yearLevel,
           gwa: inquiry.application.gwa,
-          applicantName: inquiry.user?.fullName || inquiry.application.applicantName || undefined,
+          applicantName,
           permanentAddress: formatSkeapPermanentAddress({
             sitio: inquiry.user?.kkProfile?.purok,
             barangay: inquiry.user?.kkProfile?.barangay,

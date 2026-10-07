@@ -38,7 +38,6 @@ type SkeapUploadValue = {
 
 const MAX_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024;
 const ACCEPTED_DOCUMENT_TYPES = "image/*,application/pdf,.doc,.docx";
-const MANUAL_REVIEW_MESSAGE = "We couldn't verify this document automatically. If your uploaded file is clear and correct, you can safely proceed anyway.";
 
 function isServerValidatedSkeapFile(file: File) {
   return /\.docx$/i.test(file.name) ||
@@ -85,15 +84,6 @@ function isPreviewableImage(file: Pick<UploadedFile, "name"> & { type?: string }
 
 function isPdfFile(file: Pick<UploadedFile, "name">) {
   return /\.pdf$/i.test(file.name);
-}
-
-function canPreviewInline(file: Pick<UploadedFile, "name"> & { type?: string }) {
-  return isPreviewableImage(file) || isPdfFile(file);
-}
-
-function isViewableInBrowser(file: Pick<UploadedFile, "name">) {
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  return ["pdf", "png", "jpg", "jpeg", "webp"].includes(extension || "");
 }
 
 function getFileBadge(file: Pick<UploadedFile, "name">) {
@@ -227,6 +217,19 @@ function isUploadCompleteForKey(files: UploadedFile[], key: SkeapUploadKey) {
 }
 
 const STEPS = ["Profile", "School", "Educational Background", "Uploads", "Signature"] as const;
+const SCHOOL_OPTIONS = [
+  "Benguet State University (BSU)",
+  "King's College of the Philippines (KCP)",
+  "Cordillera Career Development College (CCDC)",
+  "Star Colleges",
+  "BVS Colleges",
+  "Saint Louis University (SLU)",
+  "University of the Cordilleras (UC)",
+  "University of Baguio (UB)",
+  "University of the Philippines Baguio (UPB)",
+  "Baguio Central University (BCU)",
+  "Pines City Colleges (PCC)",
+];
 const YEAR_LEVELS = [
   "Incoming Freshman",
   "1st Year",
@@ -241,7 +244,7 @@ const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
   firstName: ["Last name and first name are required."],
   middleName: ["Middle name is required."],
   permanentAddress: ["Permanent address is required."],
-  schoolName: ["School / Institution is required."],
+  schoolName: ["School / Institution is required.", "Please enter or select your school."],
   dateOfBirth: ["Date of birth is required."],
   placeOfBirth: ["Place of birth is required."],
   age: ["Age is required.", "Please enter a valid age."],
@@ -263,6 +266,160 @@ const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
   totalFamilyMonthlyIncome: ["Total family monthly income is required."],
   applicantSignature: ["Please provide a signature."],
 };
+
+function SchoolCombobox({
+  value,
+  onChange,
+  onValid,
+  invalid,
+  error,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onValid: () => void;
+  invalid: boolean;
+  error?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const filteredOptions = SCHOOL_OPTIONS.filter((option) =>
+    option.toLowerCase().includes(value.trim().toLowerCase())
+  );
+  const activeOptionId = activeIndex >= 0 ? `skeap-school-option-${activeIndex}` : undefined;
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setActiveIndex(-1);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function selectOption(option: string) {
+    onChange(option);
+    onValid();
+    setIsOpen(false);
+    setActiveIndex(-1);
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative flex min-w-0 flex-col">
+      <label htmlFor="skeap-school-name" className="text-sm font-semibold">
+        School / Institution <span className="text-black" aria-hidden="true">*</span>
+      </label>
+      <div className="relative mt-1">
+        <input
+          id="skeap-school-name"
+          type="text"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={isOpen}
+          aria-controls="skeap-school-options"
+          aria-activedescendant={activeOptionId}
+          data-required="profile"
+          required
+          minLength={2}
+          aria-required="true"
+          aria-invalid={invalid}
+          aria-describedby={invalid ? "school-name-error" : undefined}
+          value={value}
+          onChange={(event) => {
+            const nextValue = event.currentTarget.value;
+            onChange(nextValue);
+            setIsOpen(true);
+            setActiveIndex(-1);
+            if (nextValue.trim().length >= 2) onValid();
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setIsOpen(true);
+              setActiveIndex((current) =>
+                filteredOptions.length ? Math.min(current + 1, filteredOptions.length - 1) : -1
+              );
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setIsOpen(true);
+              setActiveIndex((current) =>
+                filteredOptions.length ? Math.max(current - 1, 0) : -1
+              );
+            } else if (event.key === "Enter" && isOpen && activeIndex >= 0) {
+              event.preventDefault();
+              const option = filteredOptions[activeIndex];
+              if (option) selectOption(option);
+            } else if (event.key === "Escape") {
+              setIsOpen(false);
+              setActiveIndex(-1);
+            }
+          }}
+          placeholder="Select or type your school"
+          autoComplete="off"
+          className={`w-full min-w-0 rounded-lg border px-3 py-2 pr-10 text-slate-900 shadow-sm transition-colors focus:outline-none focus:ring-2 ${invalid ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100"}`}
+        />
+        <button
+          type="button"
+          aria-label={isOpen ? "Close school suggestions" : "Show school suggestions"}
+          aria-expanded={isOpen}
+          onClick={() => {
+            setIsOpen((open) => !open);
+            setActiveIndex(-1);
+          }}
+          className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500"
+        >
+          <svg
+            className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+          </svg>
+        </button>
+        {isOpen ? (
+          <div
+            id="skeap-school-options"
+            role="listbox"
+            aria-label="School suggestions"
+            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+          >
+            {filteredOptions.length ? (
+              filteredOptions.map((option, index) => (
+                <div
+                  id={`skeap-school-option-${index}`}
+                  key={option}
+                  role="option"
+                  aria-selected={option === value}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => selectOption(option)}
+                  className={`cursor-pointer px-4 py-2 text-sm text-slate-700 transition-colors ${index === activeIndex ? "bg-slate-100" : "hover:bg-slate-100"}`}
+                >
+                  {option}
+                </div>
+              ))
+            ) : (
+              <p className="px-4 py-3 text-sm text-slate-500" role="status">
+                No matching schools. Your typed entry will be used.
+              </p>
+            )}
+          </div>
+        ) : null}
+      </div>
+      {invalid ? (
+        <span id="school-name-error" className="mt-1 text-xs text-rose-600">
+          {error || "Please enter or select your school."}
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 export default function SkeapApplicationWizard({ onSubmitted, requirements, footerActionsTarget, scrollContainerRef, userProfile, allowManualProfileDetails = false }: { onSubmitted: (reference: string) => void; requirements?: string[]; footerActionsTarget?: HTMLElement | null; scrollContainerRef: RefObject<HTMLDivElement | null>; userProfile: KKProfile; allowManualProfileDetails?: boolean }) {
   const [step, setStep] = useState(0);
@@ -333,10 +490,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
   const [showGlobalError, setShowGlobalError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
-  const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const previewObjectUrlsRef = useRef(new Set<string>());
-  const previewFile = files.find((file) => file.id === previewFileId) ?? null;
 
   useEffect(() => () => {
     previewObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -391,6 +545,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
       if (!middleName.trim()) addError("middleName", "Middle name is required.");
       if (!permanentAddress.trim()) addError("permanentAddress", "Permanent address is required.");
       if (!schoolName.trim()) addError("schoolName", "School / Institution is required.");
+      else if (schoolName.trim().length < 2) addError("schoolName", "Please enter or select your school.");
       if (!dateOfBirth.trim()) addError("dateOfBirth", "Date of birth is required.");
       if (!placeOfBirth.trim()) addError("placeOfBirth", "Place of birth is required.");
       const parsedAge = Number(age);
@@ -752,7 +907,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          schoolName,
+          schoolName: schoolName.trim(),
           currentCourse: course,
           yearLevel,
           gwa: gwa,
@@ -908,29 +1063,13 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
               />
             </label>
             )}
-            <label className="flex min-w-0 flex-col">
-              <span className="text-sm font-semibold">School / Institution <span className="text-black" aria-hidden="true">*</span></span>
-              <select
-                data-required="profile"
-                required
-                aria-required="true"
-                aria-invalid={invalidFields.has("schoolName")}
-                value={schoolName}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setSchoolName(value);
-                  if (value.trim()) markFieldValid("schoolName");
-                }}
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 shadow-sm transition-colors focus:ring-2 ${invalidFields.has("schoolName") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100"}`}
-              >
-                <option value="">Select your school</option>
-                <option value="Benguet State University (BSU)">Benguet State University (BSU)</option>
-                <option value="King's College of the Philippines">King&apos;s College of the Philippines</option>
-                <option value="Cordillera Career Development College (CCDC)">Cordillera Career Development College (CCDC)</option>
-                <option value="Star Colleges">Star Colleges</option>
-                <option value="BVS Colleges">BVS Colleges</option>
-              </select>
-            </label>
+            <SchoolCombobox
+              value={schoolName}
+              onChange={setSchoolName}
+              onValid={() => markFieldValid("schoolName")}
+              invalid={invalidFields.has("schoolName")}
+              error={validationErrors.schoolName}
+            />
           </div>
 
           <div className="grid grid-cols-1 items-start gap-x-6 gap-y-4 md:grid-cols-2">
@@ -988,52 +1127,72 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                 className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 focus:outline-none ${invalidFields.has("age") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : allowManualProfileDetails ? "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500"}`}
               />
             </label>
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Civil Status <span className="text-black" aria-hidden="true">*</span></span>
-              <select
-                disabled={!allowManualProfileDetails}
-                data-required="profile"
-                required
-                aria-required="true"
-                value={civilStatus}
-                aria-invalid={invalidFields.has("civilStatus")}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setCivilStatus(value);
-                  if (value.trim()) markFieldValid("civilStatus");
-                }}
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 ${invalidFields.has("civilStatus") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : allowManualProfileDetails ? "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500"}`}
-              >
-                <option value="">Select status</option>
-                <option value="Single">Single</option>
-                <option value="Married">Married</option>
-                <option value="Widowed">Widowed</option>
-                <option value="Separated">Separated</option>
-                <option value="Other">Other</option>
-              </select>
-            </label>
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Gender <span className="text-black" aria-hidden="true">*</span></span>
-              <select
-                disabled={!allowManualProfileDetails}
-                data-required="profile"
-                required
-                aria-required="true"
-                value={gender}
-                aria-invalid={invalidFields.has("gender")}
-                onChange={(event) => {
-                  const selectedGender = event.currentTarget.value;
-                  setGender(selectedGender);
-                  if (selectedGender.trim()) markFieldValid("gender");
-                }}
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 ${invalidFields.has("gender") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : allowManualProfileDetails ? "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500"}`}
-              >
-                <option value="">Select gender</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Prefer not to say">Prefer not to say</option>
-              </select>
-            </label>
+            <div className="flex min-w-0 flex-col">
+              <label htmlFor="skeap-civil-status" className="text-sm font-semibold">
+                Civil Status <span className="text-black" aria-hidden="true">*</span>
+              </label>
+              <div className="relative mt-1 w-full">
+                <select
+                  id="skeap-civil-status"
+                  disabled={!allowManualProfileDetails}
+                  data-required="profile"
+                  required
+                  aria-required="true"
+                  value={civilStatus}
+                  aria-invalid={invalidFields.has("civilStatus")}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setCivilStatus(value);
+                    if (value.trim()) markFieldValid("civilStatus");
+                  }}
+                  className={`w-full appearance-none rounded-lg border px-3 py-2 pr-10 text-slate-900 ${invalidFields.has("civilStatus") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : allowManualProfileDetails ? "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500"}`}
+                >
+                  <option value="">Select status</option>
+                  <option value="Single">Single</option>
+                  <option value="Married">Married</option>
+                  <option value="Widowed">Widowed</option>
+                  <option value="Separated">Separated</option>
+                  <option value="Other">Other</option>
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                  <svg className="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-col">
+              <label htmlFor="skeap-gender" className="text-sm font-semibold">
+                Gender <span className="text-black" aria-hidden="true">*</span>
+              </label>
+              <div className="relative mt-1 w-full">
+                <select
+                  id="skeap-gender"
+                  disabled={!allowManualProfileDetails}
+                  data-required="profile"
+                  required
+                  aria-required="true"
+                  value={gender}
+                  aria-invalid={invalidFields.has("gender")}
+                  onChange={(event) => {
+                    const selectedGender = event.currentTarget.value;
+                    setGender(selectedGender);
+                    if (selectedGender.trim()) markFieldValid("gender");
+                  }}
+                  className={`w-full appearance-none rounded-lg border px-3 py-2 pr-10 text-slate-900 ${invalidFields.has("gender") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : allowManualProfileDetails ? "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500"}`}
+                >
+                  <option value="">Select gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Prefer not to say">Prefer not to say</option>
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                  <svg className="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+            </div>
             <label className="flex flex-col">
               <span className="text-sm font-semibold">Contact Number <span className="text-black" aria-hidden="true">*</span></span>
               <input
@@ -1073,7 +1232,6 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                   const uploadError = await onChooseFiles([file], "2x2 Photo");
                   if (uploadError) throw new Error(uploadError);
                 }}
-                onPreview={(previewUrl) => setPreviewPhotoUrl(previewUrl)}
               />
             </div>
             <fieldset className="mt-2 flex flex-col gap-2 md:col-span-2">
@@ -1193,22 +1351,13 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                               <div className="flex items-center gap-2">
                                 <span className="text-xs text-slate-500">{(voterFile.size / (1024 * 1024)).toFixed(2)} MB</span>
                                 {getFileBadge(voterFile)}
-                                {canPreviewInline(voterFile) && voterFile.previewUrl ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewFileId(voterFile.id)}
-                                    className="cursor-pointer text-xs font-medium text-blue-600 hover:underline"
-                                  >
-                                    View file
-                                  </button>
-                                ) : voterFileUrl ? (
+                                {voterFileUrl || voterFile.previewUrl ? (
                                   <a
-                                    href={voterFileUrl}
-                                    target={isViewableInBrowser(voterFile) ? "_blank" : "_self"}
-                                    rel={isViewableInBrowser(voterFile) ? "noopener noreferrer" : undefined}
-                                    download={!isViewableInBrowser(voterFile) ? voterFile.name : undefined}
+                                    href={voterFileUrl || voterFile.previewUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
                                     className="cursor-pointer text-xs font-medium text-blue-600 hover:underline"
-                                    aria-label={`${isViewableInBrowser(voterFile) ? "View" : "Download"} ${voterFile.name}${isViewableInBrowser(voterFile) ? " in a new tab" : ""}`}
+                                    aria-label={`View ${voterFile.name} in a new tab`}
                                   >
                                     View file
                                   </a>
@@ -1238,7 +1387,9 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                             <div>
                               <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900">Manual Verification Recommended</h4>
                               <p className="mt-0.5 text-xs leading-relaxed text-amber-800">
-                                {MANUAL_REVIEW_MESSAGE}
+                                We couldn&apos;t verify that this file is a valid match for the required{" "}
+                                <span className="font-semibold">{getUploadLabel(SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)}</span>.
+                                {" "}If your uploaded file is clear and correct, you can safely proceed anyway.
                               </p>
                             </div>
                           </div>
@@ -1634,22 +1785,13 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                               {matchingFile.status === "done" ? " · Ready" : null}
                             </span>
                             {getFileBadge(matchingFile)}
-                            {canPreviewInline(matchingFile) && matchingFile.previewUrl ? (
-                              <button
-                                type="button"
-                                onClick={() => setPreviewFileId(matchingFile.id)}
-                                className="text-xs font-medium text-cyan-700 hover:underline"
-                              >
-                                View file
-                              </button>
-                            ) : matchingFileUrl ? (
+                            {matchingFileUrl || matchingFile.previewUrl ? (
                               <a
-                                href={matchingFileUrl}
-                                target={isViewableInBrowser(matchingFile) ? "_blank" : "_self"}
-                                rel={isViewableInBrowser(matchingFile) ? "noopener noreferrer" : undefined}
-                                download={!isViewableInBrowser(matchingFile) ? matchingFile.name : undefined}
+                                href={matchingFileUrl || matchingFile.previewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="text-xs font-medium text-cyan-700 hover:underline"
-                                aria-label={`${isViewableInBrowser(matchingFile) ? "View" : "Download"} ${matchingFile.name}${isViewableInBrowser(matchingFile) ? " in a new tab" : ""}`}
+                                aria-label={`View ${matchingFile.name} in a new tab`}
                               >
                                 View file
                               </a>
@@ -1726,7 +1868,9 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                         <div>
                           <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900">Manual Verification Recommended</h4>
                           <p className="mt-0.5 text-xs leading-relaxed text-amber-800">
-                            {MANUAL_REVIEW_MESSAGE}
+                            We couldn&apos;t verify that this file is a valid match for the required{" "}
+                            <span className="font-semibold">{label}</span>.
+                            {" "}If your uploaded file is clear and correct, you can safely proceed anyway.
                           </p>
                         </div>
                       </div>
@@ -1793,70 +1937,6 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
       ) : null}
 
       {/* validation messages removed per request */}
-
-      {previewPhotoUrl ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
-          <div className="relative max-h-[90vh] w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
-            <button
-              type="button"
-              onClick={() => setPreviewPhotoUrl(null)}
-              className="absolute right-4 top-4 rounded-full border border-slate-200 bg-white p-2 text-slate-700 shadow-sm"
-              aria-label="Close photo preview"
-            >
-              ×
-            </button>
-            <img src={previewPhotoUrl} alt="2x2 photo preview" className="h-full w-full object-contain bg-slate-950" />
-          </div>
-        </div>
-      ) : null}
-
-      {previewFile ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setPreviewFileId(null);
-          }}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="document-preview-title"
-            className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-          >
-            <header className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <h2 id="document-preview-title" className="min-w-0 truncate text-sm font-semibold text-slate-900">
-                {previewFile.name}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setPreviewFileId(null)}
-                className="shrink-0 rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                aria-label="Close file preview"
-              >
-                ×
-              </button>
-            </header>
-            <div className="flex min-h-[240px] flex-1 items-center justify-center overflow-auto bg-slate-100 p-3">
-              {previewFile.previewUrl && isPreviewableImage(previewFile) ? (
-                <img
-                  src={previewFile.previewUrl}
-                  alt={`Preview of ${previewFile.name}`}
-                  className="max-h-[75vh] max-w-full rounded-lg object-contain"
-                />
-              ) : previewFile.previewUrl && isPdfFile(previewFile) ? (
-                <iframe
-                  src={previewFile.previewUrl}
-                  title={`Preview of ${previewFile.name}`}
-                  className="h-[75vh] w-full rounded-lg bg-white"
-                />
-              ) : (
-                <p className="text-sm text-slate-500">A preview is not available for this file.</p>
-              )}
-            </div>
-          </section>
-        </div>
-      ) : null}
 
       {footerActionsTarget ? createPortal(
         <div className="flex w-full items-center justify-between gap-3">

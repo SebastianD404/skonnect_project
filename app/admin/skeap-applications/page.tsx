@@ -2,7 +2,7 @@
 import { requireRole } from "@/lib/auth";
 import { Prisma, Role } from "@prisma/client";
 import { getUploadGroups } from "@/lib/skeap-upload";
-import { SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
+import { skeapStatusWhere, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { getAcademicYearDateRange, getAcademicYears, getCurrentAcademicYear } from "@/lib/semester";
@@ -13,8 +13,10 @@ interface ApplicationMessage {
   role: "admin" | "applicant";
   createdAt: string;
   text: string;
+  eventType?: "RESUBMISSION";
   attachments?: {
     fileId: string;
+    documentLabel?: string;
     fileName: string;
     fileUrl: string;
     fileType: string;
@@ -323,17 +325,6 @@ export default async function SkeapApplicationsPage() {
     NOT: [excludeCancelled],
   };
 
-  const statusFields = ["reviewStatus", "response"] as const;
-
-  function statusOrWhere(patterns: string[], fields: ReadonlyArray<"reviewStatus" | "response"> = ["reviewStatus"]) {
-    const or: Array<Prisma.InquiryWhereInput> = patterns.flatMap((p) =>
-      fields.map((field) => ({
-        [field]: { contains: p, mode: Prisma.QueryMode.insensitive },
-      } as Prisma.InquiryWhereInput))
-    );
-    return { OR: or };
-  }
-
   const queueBaseWhere = {
     ...baseWhere,
     NOT: [excludeCancelled, excludeApproved],
@@ -344,7 +335,7 @@ export default async function SkeapApplicationsPage() {
       ...queueBaseWhere,
       AND: [
         { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        statusOrWhere(["pending"], statusFields),
+        skeapStatusWhere(["pending"]),
       ],
     },
   });
@@ -353,7 +344,7 @@ export default async function SkeapApplicationsPage() {
       ...queueBaseWhere,
       AND: [
         { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        statusOrWhere(["returned", "return", "correction", "revise", "revision"], statusFields),
+        skeapStatusWhere(["returned", "return", "correction", "revise", "revision"]),
       ],
     },
   });
@@ -362,14 +353,14 @@ export default async function SkeapApplicationsPage() {
       ...queueBaseWhere,
       AND: [
         { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        statusOrWhere(["resubm", "resubmit", "resubmitted"], statusFields),
+        skeapStatusWhere(["resubm", "resubmit", "resubmitted"]),
       ],
     },
   });
   const approvedCount = await prisma.inquiry.count({
     where: {
       ...baseWhere,
-      AND: [statusOrWhere(["approve", "approved"], statusFields)],
+      AND: [skeapStatusWhere(["approve", "approved"])],
     },
   });
 
@@ -380,7 +371,7 @@ export default async function SkeapApplicationsPage() {
       ...baseWhere,
       AND: [
         { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        statusOrWhere(visibleStatusPatterns, statusFields),
+        skeapStatusWhere(visibleStatusPatterns),
       ],
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],

@@ -63,7 +63,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         id: `admin-reject-${Date.now()}`,
         role: "admin",
         createdAt: new Date().toISOString(),
-        text: `Application rejected: ${rejectionReason}`,
+        text: `Reason for rejection: ${rejectionReason}`,
       },
       ...existingThread,
     ];

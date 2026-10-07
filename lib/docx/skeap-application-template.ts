@@ -85,6 +85,7 @@ type SkeapApplicationTemplateInput = {
 type ApplicantTemplateContext = {
   fullName?: string | null;
   firstName?: string | null;
+  middleName?: string | null;
   lastName?: string | null;
   email?: string | null;
   contactNumber?: string | null;
@@ -103,7 +104,9 @@ function safeText(value: string | number | null | undefined) {
 }
 
 function toTitleCase(value: string | null | undefined) {
-  return safeText(value)
+  const text = safeText(value);
+  if (/^n\/a$/i.test(text)) return "N/A";
+  return text
     .toLocaleLowerCase()
     .replace(/(^|[\s-])(\p{L})/gu, (_match, separator: string, letter: string) =>
       `${separator}${letter.toLocaleUpperCase()}`
@@ -221,11 +224,11 @@ export function buildSkeapApplicationTemplateData(
   const schoolHistory = parseEducationalBackground(
     application.schoolHistory ?? application.educationalBackground
   );
-  const profileName = [context.firstName, context.lastName]
+  const profileName = [context.firstName, context.middleName, context.lastName]
     .map((part) => part?.trim())
     .filter(Boolean)
     .join(" ");
-  const applicantDisplayName = context.fullName?.trim() || application.applicantName?.trim() || profileName;
+  const applicantDisplayName = profileName || context.fullName?.trim() || application.applicantName?.trim() || "";
   const formattedAddress = formatApplicantAddress(application.permanentAddress, context.address);
   return {
     applicantName: toTitleCase(applicantDisplayName),

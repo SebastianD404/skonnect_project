@@ -50,6 +50,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         kkProfile: {
           select: {
             firstName: true,
+            middleName: true,
             lastName: true,
             purok: true,
             barangay: true,
@@ -75,6 +76,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       {
         fullName: applicant?.fullName,
         firstName: applicant?.kkProfile?.firstName,
+        middleName: applicant?.kkProfile?.middleName,
         lastName: applicant?.kkProfile?.lastName,
         email: applicant?.email,
         contactNumber: applicant?.profilingRegistrations[0]?.contactNumber ?? applicant?.phoneNumber,

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Download, Filter, ScrollText, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Download, Filter, ScrollText, Search, X } from "lucide-react";
 import {
   getAuditActionSummary,
   getAuditRoleChangeContext,
@@ -30,6 +30,29 @@ type AuditItem = {
 type Props = {
   audits: AuditItem[];
 };
+
+const TIME_RANGES = [
+  { label: "Last 24 Hours", value: "24h" },
+  { label: "Last 7 Days", value: "7d" },
+  { label: "Last 30 Days", value: "30d" },
+  { label: "Last 90 Days", value: "90d" },
+  { label: "All Time", value: "all" },
+] as const;
+const AUDIT_REFRESH_INTERVAL_MS = 15_000;
+
+function isAuditItem(value: unknown): value is AuditItem {
+  if (typeof value !== "object" || value === null) return false;
+  const audit = value as Record<string, unknown>;
+  return (
+    typeof audit.id === "string" &&
+    typeof audit.action === "string" &&
+    typeof audit.targetTable === "string" &&
+    typeof audit.targetId === "string" &&
+    typeof audit.createdAt === "string" &&
+    typeof audit.actorFullName === "string" &&
+    typeof audit.actorEmail === "string"
+  );
+}
 
 const actionTone: Record<string, string> = {
   ROLE_UPDATED: "bg-[#0F3D5C]/10 text-[#0F3D5C]",
@@ -62,18 +85,116 @@ const actionTone: Record<string, string> = {
 
 export default function AuditLogsTable({ audits }: Props) {
   const [query, setQuery] = useState("");
+  const [auditItems, setAuditItems] = useState(audits);
+  const [selectedRange, setSelectedRange] = useState<(typeof TIME_RANGES)[number]["value"]>("30d");
+  const [isRangeMenuOpen, setIsRangeMenuOpen] = useState(false);
+  const [isLoadingRange, setIsLoadingRange] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
   const [selectedAudit, setSelectedAudit] = useState<AuditItem | null>(null);
+  const rangeMenuRef = useRef<HTMLDivElement>(null);
+  const activeRangeLabel = TIME_RANGES.find((range) => range.value === selectedRange)?.label ?? "Last 30 Days";
   const exportHref = query
-    ? `/api/system-admin/audit/export?query=${encodeURIComponent(query)}`
-    : "/api/system-admin/audit/export";
+    ? `/api/system-admin/audit/export?range=${selectedRange}&query=${encodeURIComponent(query)}`
+    : `/api/system-admin/audit/export?range=${selectedRange}`;
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (rangeMenuRef.current && !rangeMenuRef.current.contains(event.target as Node)) {
+        setIsRangeMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, []);
+
+  const refreshAuditLogs = useCallback(async (
+    range: (typeof TIME_RANGES)[number]["value"],
+    { signal, showLoading = false }: { signal?: AbortSignal; showLoading?: boolean } = {}
+  ) => {
+    if (showLoading) setIsLoadingRange(true);
+    try {
+      const response = await fetch(`/api/system-admin/audit?range=${range}`, {
+        cache: "no-store",
+        signal,
+      });
+      const payload: unknown = await response.json();
+      if (!response.ok) {
+        const message =
+          typeof payload === "object" && payload !== null && "error" in payload && typeof payload.error === "string"
+            ? payload.error
+            : "Unable to load audit logs.";
+        throw new Error(message);
+      }
+      if (typeof payload !== "object" || payload === null || !("audits" in payload) || !Array.isArray(payload.audits)) {
+        throw new Error("The audit log response was invalid.");
+      }
+      if (!payload.audits.every(isAuditItem)) {
+        throw new Error("The audit log response was invalid.");
+      }
+
+      setAuditItems(payload.audits);
+      setRangeError(null);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setRangeError(error instanceof Error ? error.message : "Unable to load audit logs.");
+      }
+    } finally {
+      if (showLoading) setIsLoadingRange(false);
+    }
+  }, []);
+
+  function changeTimeRange(range: (typeof TIME_RANGES)[number]["value"]) {
+    if (range === selectedRange) {
+      setIsRangeMenuOpen(false);
+      return;
+    }
+    setRangeError(null);
+    setIsLoadingRange(true);
+    setSelectedRange(range);
+    setIsRangeMenuOpen(false);
+    setSelectedAudit(null);
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let isActive = true;
+    let isRefreshInProgress = false;
+    let isInitialRefresh = true;
+
+    const refreshIfVisible = async () => {
+      if (!isActive || isRefreshInProgress || document.visibilityState !== "visible") return;
+      isRefreshInProgress = true;
+      const showLoading = isInitialRefresh;
+      isInitialRefresh = false;
+      try {
+        await refreshAuditLogs(selectedRange, { signal: controller.signal, showLoading });
+      } finally {
+        isRefreshInProgress = false;
+      }
+    };
+
+    void refreshIfVisible();
+    const intervalId = window.setInterval(() => void refreshIfVisible(), AUDIT_REFRESH_INTERVAL_MS);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
+
+    return () => {
+      isActive = false;
+      controller.abort();
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
+    };
+  }, [refreshAuditLogs, selectedRange]);
 
   const filtered = useMemo(() => {
     const value = query.toLowerCase().trim();
     if (!value) {
-      return audits;
+      return auditItems;
     }
 
-    return audits.filter((audit) => {
+    return auditItems.filter((audit) => {
       const metadata = getAuditRoleChangeContext(audit);
       return [
         audit.action,
@@ -90,7 +211,7 @@ export default function AuditLogsTable({ audits }: Props) {
         .toLowerCase()
         .includes(value);
     });
-  }, [audits, query]);
+  }, [auditItems, query]);
 
   const selectedAuditMetadata = useMemo(() => {
     if (!selectedAudit) return null;
@@ -161,13 +282,43 @@ export default function AuditLogsTable({ audits }: Props) {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
-          >
-            <Filter className="h-4 w-4" />
-            Last 30 days
-          </button>
+          <div className="relative" ref={rangeMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsRangeMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={isRangeMenuOpen}
+              disabled={isLoadingRange}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+            >
+              <Filter className="h-4 w-4" />
+              {isLoadingRange ? "Loading..." : activeRangeLabel}
+              <ChevronDown className={`h-4 w-4 transition-transform ${isRangeMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+            {isRangeMenuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 z-30 mt-2 w-48 rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl"
+              >
+                {TIME_RANGES.map((range) => (
+                  <button
+                    key={range.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selectedRange === range.value}
+                    onClick={() => void changeTimeRange(range.value)}
+                    className={`w-full px-4 py-2 text-left text-xs font-medium transition-colors ${
+                      selectedRange === range.value
+                        ? "bg-teal-50 font-bold text-teal-700"
+                        : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {range.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <a
             href={exportHref}
             className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
@@ -177,6 +328,12 @@ export default function AuditLogsTable({ audits }: Props) {
           </a>
         </div>
       </div>
+
+      {rangeError ? (
+        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {rangeError}
+        </p>
+      ) : null}
 
       <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
         {filtered.length === 0 ? (
@@ -208,20 +365,25 @@ export default function AuditLogsTable({ audits }: Props) {
                       className="cursor-pointer transition hover:bg-slate-50/50"
                       onClick={() => setSelectedAudit(audit)}
                     >
-                      <td className="px-6 py-4">
-                        <div className="space-y-2">
+                      <td className="max-w-[28rem] px-6 py-4">
+                        <div className="flex max-w-md min-w-0 flex-col gap-1.5">
                           <span
-                            className={`inline-flex rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider ${
+                            className={`inline-flex w-fit max-w-full whitespace-normal break-words rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider ${
                               actionTone[audit.action] ?? "bg-slate-100 text-slate-600"
                             }`}
                           >
                             {audit.action.replace(/_/g, " ")}
                           </span>
                           {summaryText ? (
-                            <p className="text-xs leading-5 text-slate-500">{summaryText}</p>
+                            <p
+                              className="line-clamp-2 break-words text-xs leading-relaxed text-slate-500 [overflow-wrap:anywhere]"
+                              title={summaryText}
+                            >
+                              {summaryText}
+                            </p>
                           ) : null}
                           {hasRoleDelta ? (
-                            <div className="flex items-center gap-1.5 text-xs">
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
                               <span className="rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
                                 {metadata.oldRole || "Unknown"}
                               </span>
@@ -299,12 +461,19 @@ export default function AuditLogsTable({ audits }: Props) {
                     </div>
                   ) : null}
 
-                  <div className="space-y-1 text-xs text-slate-500">
+                  <div className="min-w-0 space-y-1 text-xs text-slate-500">
                     <div>
                       <span className="font-semibold text-slate-900">{targetContext.label}</span>
                       {targetContext.secondary ? <span> · {targetContext.secondary}</span> : null}
                     </div>
-                    {summaryText ? <p className="text-slate-500">{summaryText}</p> : null}
+                    {summaryText ? (
+                      <p
+                        className="line-clamp-2 break-words text-slate-500 [overflow-wrap:anywhere]"
+                        title={summaryText}
+                      >
+                        {summaryText}
+                      </p>
+                    ) : null}
                     <p className="font-mono text-[10px] text-slate-400">{shortAuditId(targetContext.id)}</p>
                   </div>
                 </li>
@@ -367,20 +536,28 @@ export default function AuditLogsTable({ audits }: Props) {
                 <p className="mt-2 text-sm text-slate-500">No explicit field changes detected.</p>
               ) : (
                 <div className="mt-3 overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-                  <table className="w-full text-sm">
+                  <table className="w-full table-fixed text-sm">
                     <thead className="bg-slate-900 text-left text-[11px] font-bold tracking-wider text-white uppercase">
                       <tr>
-                        <th className="px-6 py-4">Field</th>
-                        <th className="px-6 py-4">Before</th>
-                        <th className="px-6 py-4">After</th>
+                        <th className="w-1/4 px-4 py-4">Field</th>
+                        <th className="w-[37.5%] px-4 py-4">Before</th>
+                        <th className="w-[37.5%] px-4 py-4">After</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
                       {selectedChanges.map((c) => (
                         <tr key={c.field} className="transition hover:bg-slate-50/50">
-                          <td className="px-6 py-4 font-medium text-slate-900">{c.field}</td>
-                          <td className="px-6 py-4 text-slate-600">{c.before}</td>
-                          <td className="px-6 py-4 font-semibold text-slate-900">{c.after}</td>
+                          <td className="break-words px-4 py-4 align-top font-medium text-slate-900 [overflow-wrap:anywhere]">{c.field}</td>
+                          <td className="px-4 py-4 align-top text-slate-600">
+                            <div className="custom-scroll max-h-48 overflow-auto whitespace-pre-wrap break-words pr-2 [overflow-wrap:anywhere]">
+                              {c.before}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 align-top font-semibold text-slate-900">
+                            <div className="custom-scroll max-h-48 overflow-auto whitespace-pre-wrap break-words pr-2 [overflow-wrap:anywhere]">
+                              {c.after}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

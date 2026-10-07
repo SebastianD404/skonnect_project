@@ -6,8 +6,15 @@ import Link from "next/link";
 import { AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CornerUpLeft, Eye, FileText, FolderOpen, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
-import { CORE_UPLOAD_KEYS, SKEAP_UPLOAD_KEY, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
+import {
+  CORE_UPLOAD_KEYS,
+  getLatestSkeapResubmissionUploadKeys,
+  SKEAP_UPLOAD_KEY,
+  SKEAP_UPLOAD_LABELS,
+  SKEAP_UPLOAD_ORDER,
+} from "@/lib/skeap-upload";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { formatActivityTimestamp } from "@/lib/utils";
 
 interface DocumentItem {
   id: string;
@@ -17,6 +24,8 @@ interface DocumentItem {
   verified: boolean;
   comment: string;
   isImage: boolean;
+  fileName?: string;
+  updated?: boolean;
   status?: "Pending" | "Returned" | "Verified" | string;
 }
 
@@ -25,11 +34,13 @@ interface ApplicationMessage {
   role: "admin" | "applicant";
   createdAt: string;
   text: string;
+  eventType?: "RESUBMISSION";
   attachments?: AttachedFileNote[];
 }
 
 interface AttachedFileNote {
   fileId: string;
+  documentLabel?: string;
   fileName: string;
   fileUrl: string;
   fileType: string;
@@ -45,6 +56,7 @@ interface UploadGroup {
   type: string;
   isImage: boolean;
   verified?: boolean;
+  adminRemark?: string;
 }
 
 interface ApplicationRecord {
@@ -117,6 +129,7 @@ function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onC
 }
 
 function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMessage[]) {
+  if (doc.verified) return "Verified";
   if (doc.status === "Returned") return "Returned";
 
   const flaggedAttachment = reviewThread
@@ -135,12 +148,12 @@ function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMes
     });
 
   if (flaggedAttachment) return "Returned";
-  if (doc.verified) return "Verified";
   return "Pending";
 }
 
 function normalizeApplicationStatus(status: string) {
   const normalized = (status || "").trim().toLowerCase();
+  if (/waitlist/.test(normalized)) return "Waitlisted";
   if (/resubm|resubmit|resubmitted/.test(normalized)) return "Resubmitted";
   if (/returned|correction|required|revise|revision/.test(normalized)) return "Returned";
   if (/approve|approved/.test(normalized)) return "Approved";
@@ -148,16 +161,6 @@ function normalizeApplicationStatus(status: string) {
   if (/ineligible/.test(normalized)) return "Ineligible";
   if (/responded/.test(normalized)) return "Responded";
   return "Pending Review";
-}
-
-function statusFromReviewText(text: string) {
-  const normalized = (text || "").trim();
-  if (/resubm|resubmit|resubmitted/i.test(normalized)) return "Resubmitted";
-  if (/returned|correction|required|revise|revision/i.test(normalized)) return "Returned";
-  if (/approve|approved/i.test(normalized)) return "Approved";
-  if (/rejected/i.test(normalized)) return "Rejected";
-  if (/ineligible/i.test(normalized)) return "Ineligible";
-  return null;
 }
 
 function formatDate(dateString: string) {
@@ -190,6 +193,22 @@ function isImageUrl(url: string) {
 
 function isPdfUrl(url: string) {
   return /\.pdfm?(\?|$)/i.test(url);
+}
+
+function getDocumentFormat(doc: DocumentItem) {
+  const extensionSource = `${doc.previewUrl} ${doc.label}`;
+  if (
+    isPdfUrl(doc.previewUrl) ||
+    /\.pdfm?(?:\?|$|\s)/i.test(extensionSource) ||
+    doc.type.toLowerCase().includes("pdf") ||
+    doc.type.toLowerCase().includes("application/pdf")
+  ) {
+    return "PDF";
+  }
+  if (doc.isImage || doc.type.toLowerCase().includes("image") || doc.type.toLowerCase().startsWith("image/")) {
+    return "Image";
+  }
+  return doc.type || "Document";
 }
 
 function getFileTypeFromUrl(url: string): "image" | "pdf" | "office" | "document" {
@@ -296,18 +315,6 @@ function findDocumentByReviewKey(application: ApplicationRecord, reviewKey: stri
   const urlMatch = application.documents.find((doc) => normalizeUrlForMatch(doc.previewUrl) === normalizedGroupUrl);
   if (urlMatch) return urlMatch;
 
-  const labelMatch = application.documents.find((doc) => {
-    const lowerLabel = doc.label.toLowerCase();
-    const lowerGroupLabel = group.label.toLowerCase();
-    return (
-      doc.id === group.key ||
-      lowerLabel === lowerGroupLabel ||
-      lowerLabel.includes(lowerGroupLabel) ||
-      lowerGroupLabel.includes(lowerLabel)
-    );
-  });
-  if (labelMatch) return labelMatch;
-
   return {
     id: group.key,
     label: group.label,
@@ -363,14 +370,32 @@ export default function SkeapApplicationsClient({
   const [messageDraft, setMessageDraft] = useState("");
   const [attachedFileNotes, setAttachedFileNotes] = useState<AttachedFileNote[]>([]);
   const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const activityMessagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const activityMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const [showApprovePreview, setShowApprovePreview] = useState(false);
+  const [approvalCapacityFull, setApprovalCapacityFull] = useState<boolean | null>(null);
+  const [isLoadingApprovalPreview, setIsLoadingApprovalPreview] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
   const [showApprovalWarning, setShowApprovalWarning] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [isRejecting, setIsRejecting] = useState(false);
   const [rejectError, setRejectError] = useState<string | null>(null);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnMessage, setReturnMessage] = useState("");
+  const [isReturning, setIsReturning] = useState(false);
+  const [returnError, setReturnError] = useState<string | null>(null);
   const [activeReviewFile, setActiveReviewFile] = useState<string | null>(null);
   const [reviewModalNote, setReviewModalNote] = useState("");
+  const [reviewModalError, setReviewModalError] = useState<string | null>(null);
+  const [isSavingReviewNote, setIsSavingReviewNote] = useState(false);
+  const [isSavingDocumentVerification, setIsSavingDocumentVerification] = useState(false);
+  const [optimisticVerification, setOptimisticVerification] = useState<{
+    applicationId: string;
+    reviewFile: string;
+    verified: boolean;
+  } | null>(null);
 
   const displayedApplications = useMemo(
     () => applications.filter((app) => {
@@ -400,6 +425,9 @@ export default function SkeapApplicationsClient({
 
   const selectedStatus = normalizeApplicationStatus(selectedApplication?.status ?? "");
   const isApproved = selectedStatus === "Approved";
+  const isWaitlisted = selectedStatus === "Waitlisted";
+  const isReviewFinalized = isApproved || isWaitlisted;
+  const canReturnForEdits = !isReviewFinalized && selectedStatus !== "Returned" && selectedStatus !== "Rejected" && selectedStatus !== "Ineligible";
 
   const queueTitle =
     viewFilter === "pending"
@@ -563,8 +591,11 @@ export default function SkeapApplicationsClient({
     [uploadGroups]
   );
 
-  const visibleVerifyDocuments = useMemo(() => {
+  const visibleVerifyDocuments = useMemo<DocumentItem[]>(() => {
     if (verifyUploadGroups.length > 0) {
+      const updatedUploadKeys = selectedStatus === "Resubmitted"
+        ? getLatestSkeapResubmissionUploadKeys(selectedApplication?.messages ?? [])
+        : new Set<string>();
       return CORE_UPLOAD_KEYS.map((key) => {
         const group = verifyUploadGroups.find((groupItem) => groupItem.key === key);
         const groupUrl = group?.url ?? "";
@@ -581,16 +612,18 @@ export default function SkeapApplicationsClient({
         return {
           id: key,
           label: SKEAP_UPLOAD_LABELS[key],
-          type: matchedDoc?.type ?? group?.type ?? "Document",
-          previewUrl: matchedDoc?.previewUrl ?? groupUrl,
+          type: group?.type ?? matchedDoc?.type ?? "Document",
+          previewUrl: groupUrl || matchedDoc?.previewUrl || "",
           verified:
+            group?.verified ??
             matchedDoc?.verified ??
             documentMapByUrl.get(normalizeUrlForMatch(groupUrl))?.verified ??
-            group?.verified ??
             false,
           comment:
             matchedDoc?.comment ?? documentMapByUrl.get(normalizeUrlForMatch(groupUrl))?.comment ?? "",
-          isImage: matchedDoc?.isImage ?? group?.isImage ?? false,
+          isImage: group?.isImage ?? matchedDoc?.isImage ?? false,
+          fileName: group?.name,
+          updated: updatedUploadKeys.has(key),
         };
       });
     }
@@ -607,7 +640,7 @@ export default function SkeapApplicationsClient({
         isImage: doc?.isImage ?? false,
       };
     });
-  }, [verifyUploadGroups, selectedApplication, documentMapByUrl]);
+  }, [verifyUploadGroups, selectedApplication, documentMapByUrl, selectedStatus]);
 
   const verifiedCount = useMemo(
     () => visibleVerifyDocuments.filter((doc) => doc.verified).length,
@@ -634,8 +667,30 @@ export default function SkeapApplicationsClient({
   const unresolvedPreviewUrl = activeReviewFile?.startsWith("url-") ? activeReviewFile.slice(4) : "";
   const activeReviewPreviewUrl = activeReviewDocument?.previewUrl || activeReviewGroup?.url || unresolvedPreviewUrl;
   const activeReviewLabel = activeReviewDocument?.label || activeReviewGroup?.label || (unresolvedPreviewUrl ? extractFileNameFromUrl(unresolvedPreviewUrl) : "Document preview");
+  const activeReviewIsPdf =
+    isPdfUrl(activeReviewPreviewUrl) ||
+    activeReviewDocument?.type.toLowerCase().includes("pdf") === true ||
+    activeReviewGroup?.type.toLowerCase().includes("pdf") === true;
 
-  const activeReviewVerified = activeReviewDocument?.verified ?? activeReviewGroup?.verified ?? false;
+  const persistedReviewVerified = activeReviewGroup?.verified ?? activeReviewDocument?.verified ?? false;
+  const activeReviewVerified =
+    optimisticVerification !== null &&
+    optimisticVerification.applicationId === selectedApplication?.id &&
+    optimisticVerification.reviewFile === activeReviewFile
+      ? optimisticVerification.verified
+      : persistedReviewVerified;
+  const activityMessages = useMemo(
+    () => [...(selectedApplication?.messages ?? [])].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    ),
+    [selectedApplication?.messages]
+  );
+
+  useEffect(() => {
+    if (activeTab !== "activity") return;
+    const container = activityMessagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
+  }, [activeTab, selectedApplication?.id, activityMessages.length]);
 
   const handleRefresh = useCallback(async (
     academicYear = selectedAcademicYear,
@@ -765,45 +820,143 @@ export default function SkeapApplicationsClient({
     );
   }
 
-  function toggleDocumentVerified(documentId: string) {
-    if (!selectedApplication || isApproved) return;
+  async function toggleDocumentVerified(documentId: string) {
+    if (!selectedApplication || isReviewFinalized) return;
     const matchedDocument = findDocumentByReviewKey(selectedApplication, documentId);
     if (!matchedDocument) return;
 
-    const normalizedMatchedUrl = normalizeUrlForMatch(matchedDocument.previewUrl);
-    const matchedDocumentId = matchedDocument.id;
-    const matchedLabel = matchedDocument.label;
+    const uploadGroup = selectedApplication.uploadGroups?.find(
+      (group) => group.key === documentId || normalizeUrlForMatch(group.url) === normalizeUrlForMatch(matchedDocument.previewUrl)
+    );
+    const documentKey = uploadGroup?.key ?? documentId;
+    if (!SKEAP_UPLOAD_ORDER.includes(documentKey as (typeof SKEAP_UPLOAD_ORDER)[number])) return;
 
-    const shouldMatch = (id: string, label: string, url: string) => {
-      const normalizedUrl = normalizeUrlForMatch(url);
-      const isUrlMatch = normalizedUrl && normalizedMatchedUrl && normalizedUrl === normalizedMatchedUrl;
-      const isLabelMatch = areDocumentLabelsEquivalent(label, matchedLabel);
-      const isIdMatch = id === matchedDocumentId || id === documentId;
-      return isIdMatch || isUrlMatch || isLabelMatch;
+    const verified = !activeReviewVerified;
+    const fileUrl = uploadGroup?.url ?? matchedDocument.previewUrl;
+    const optimisticState = {
+      applicationId: selectedApplication.id,
+      reviewFile: documentId,
+      verified,
     };
+    setOptimisticVerification(optimisticState);
+    setIsSavingDocumentVerification(true);
+    setReviewModalError(null);
+    try {
+      const response = await fetch(`/api/admin/skeap-applications/${encodeURIComponent(selectedApplication.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentKey,
+          fileUrl,
+          verified,
+        }),
+      });
+      const result = await response.json() as { verified?: unknown; error?: unknown };
+      if (!response.ok || result.verified !== verified) {
+        throw new Error(typeof result.error === "string" ? result.error : "Failed to update document verification.");
+      }
 
-    updateSelectedApplication((application) => {
-      const updatedDocuments = application.documents.map((document) =>
-        shouldMatch(document.id, document.label, document.previewUrl)
-          ? { ...document, verified: !document.verified }
-          : document
-      );
-
-      const updatedUploadGroups = application.uploadGroups?.map((group) =>
-        shouldMatch(group.key, group.label, group.url)
-          ? { ...group, verified: !(group.verified ?? false) }
-          : group
-      );
-
-      return {
+      const normalizedUrl = normalizeUrlForMatch(fileUrl);
+      updateSelectedApplication((application) => ({
         ...application,
-        documents: updatedDocuments,
-        uploadGroups: updatedUploadGroups,
-      };
-    });
+        documents: application.documents.map((document) =>
+          normalizeUrlForMatch(document.previewUrl) === normalizedUrl
+            ? { ...document, verified }
+            : document
+        ),
+        uploadGroups: application.uploadGroups?.map((group) =>
+          group.key === documentKey
+            ? { ...group, verified }
+            : group
+        ),
+      }));
+      setOptimisticVerification(null);
+    } catch (error) {
+      console.error("Failed to update document verification:", error);
+      setOptimisticVerification(null);
+      setReviewModalError(error instanceof Error ? error.message : "Failed to update document verification.");
+    } finally {
+      setIsSavingDocumentVerification(false);
+    }
   }
 
-  async function saveReviewUpdate(action: "message" | "approve", text: string, attachments: AttachedFileNote[]) {
+  async function handleSaveAndCloseReviewNote() {
+    const note = reviewModalNote.trim();
+    if (!note || !selectedApplication || !activeReviewFile || isSavingReviewNote) return;
+
+    const uploadGroup = selectedApplication.uploadGroups?.find(
+      (group) =>
+        group.key === activeReviewFile ||
+        normalizeUrlForMatch(group.url) === normalizeUrlForMatch(activeReviewFile.startsWith("url-") ? activeReviewFile.slice(4) : findDocumentByReviewKey(selectedApplication, activeReviewFile)?.previewUrl ?? "")
+    );
+    if (!uploadGroup) {
+      setReviewModalError("This document could not be matched to the application. Keep the note open and try again.");
+      return;
+    }
+
+    setIsSavingReviewNote(true);
+    setReviewModalError(null);
+    try {
+      const response = await fetch(`/api/admin/skeap-applications/${encodeURIComponent(selectedApplication.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentKey: uploadGroup.key,
+          fileUrl: uploadGroup.url,
+          adminRemark: note,
+        }),
+      });
+      const result = await response.json() as { adminRemark?: unknown; error?: unknown };
+      if (!response.ok || result.adminRemark !== note) {
+        throw new Error(typeof result.error === "string" ? result.error : "Failed to save the private document remark.");
+      }
+
+      updateSelectedApplication((application) => ({
+        ...application,
+        uploadGroups: application.uploadGroups?.map((group) =>
+          group.key === uploadGroup.key ? { ...group, adminRemark: note } : group
+        ),
+      }));
+      setActiveReviewFile(null);
+      setReviewModalNote("");
+    } catch (error) {
+      console.error(error);
+      setReviewModalError(error instanceof Error ? error.message : "Failed to save the private document remark.");
+    } finally {
+      setIsSavingReviewNote(false);
+    }
+  }
+
+  function openReturnModal() {
+    const documentRemarks = (selectedApplication?.uploadGroups ?? [])
+      .filter((group) => group.adminRemark?.trim())
+      .map((group) => `- ${group.label}: ${group.adminRemark!.trim()}`);
+    const compiledMessage = documentRemarks.length > 0
+      ? `Please review and correct the following documents:\n\n${documentRemarks.join("\n")}`
+      : "";
+
+    setReturnError(null);
+    setReturnMessage(compiledMessage);
+    setShowReturnModal(true);
+  }
+
+  function openDocumentReview(reviewKey: string) {
+    if (!selectedApplication) return;
+
+    const document = findDocumentByReviewKey(selectedApplication, reviewKey);
+    const targetUrl = reviewKey.startsWith("url-") ? reviewKey.slice(4) : document?.previewUrl;
+    const uploadGroup = selectedApplication.uploadGroups?.find(
+      (group) =>
+        group.key === reviewKey ||
+        normalizeUrlForMatch(group.url) === normalizeUrlForMatch(targetUrl ?? "")
+    );
+
+    setReviewModalNote(uploadGroup?.adminRemark ?? "");
+    setReviewModalError(null);
+    setActiveReviewFile(reviewKey);
+  }
+
+  async function saveReviewUpdate(action: "message" | "approve" | "return", text: string, attachments: AttachedFileNote[]) {
     if (!selectedApplication) return;
 
     const payload = {
@@ -827,11 +980,12 @@ export default function SkeapApplicationsClient({
     return {
       reviewThread: body.reviewThread as ApplicationMessage[] | undefined,
       reviewStatus: typeof body.reviewStatus === "string" ? body.reviewStatus : undefined,
+      response: typeof body.response === "string" ? body.response : undefined,
     };
   }
 
   async function handleSendMessage() {
-    if (isApproved) return;
+    if (isReviewFinalized) return;
     if (!messageDraft.trim() && attachedFileNotes.length === 0) return;
     if (!selectedApplication) return;
 
@@ -839,7 +993,7 @@ export default function SkeapApplicationsClient({
         const result = await saveReviewUpdate("message", messageDraft.trim(), attachedFileNotes);
       if (result?.reviewThread) {
         const reviewThread = result.reviewThread;
-        const nextStatus = result.reviewStatus || statusFromReviewText(messageDraft.trim()) || selectedApplication.status;
+        const nextStatus = result.reviewStatus || selectedApplication.status;
         const flaggedFileIds = attachedFileNotes.map((attachment) => attachment.fileId);
 
         updateSelectedApplication((application) => {
@@ -882,7 +1036,7 @@ export default function SkeapApplicationsClient({
   }
 
   async function handleConfirmReject() {
-    if (!selectedApplication || isApproved || !rejectionReason.trim()) return;
+    if (!selectedApplication || isReviewFinalized || !rejectionReason.trim()) return;
 
     setIsRejecting(true);
     setRejectError(null);
@@ -898,7 +1052,7 @@ export default function SkeapApplicationsClient({
             id: `admin-reject-${Date.now()}`,
             role: "admin",
             createdAt: new Date().toISOString(),
-            text: `Application rejected: ${rejectionReason.trim()}`,
+            text: `Reason for rejection: ${rejectionReason.trim()}`,
           },
           ...application.messages,
         ],
@@ -919,25 +1073,54 @@ export default function SkeapApplicationsClient({
   }
 
   function handleApproveClick() {
+    if (isReviewFinalized) return;
     if (!isFullyVerified) {
       setShowApprovalWarning(true);
       return;
     }
-    setShowApprovePreview(true);
+    setApprovalError(null);
+    setApprovalCapacityFull(null);
+    setIsLoadingApprovalPreview(true);
+    void fetch("/api/programs/skeap-scholarship/status", { cache: "no-store" })
+      .then(async (response) => {
+        const result: unknown = await response.json();
+        if (
+          !response.ok ||
+          typeof result !== "object" ||
+          result === null ||
+          !("remainingSlots" in result) ||
+          typeof result.remainingSlots !== "number"
+        ) {
+          const errorMessage =
+            typeof result === "object" && result !== null && "error" in result && typeof result.error === "string"
+              ? result.error
+              : "Unable to check SKEAP slot availability.";
+          throw new Error(errorMessage);
+        }
+        setApprovalCapacityFull(result.remainingSlots <= 0);
+        setShowApprovePreview(true);
+      })
+      .catch((error: unknown) => {
+        setApprovalError(error instanceof Error ? error.message : "Unable to check SKEAP slot availability.");
+      })
+      .finally(() => setIsLoadingApprovalPreview(false));
   }
 
   async function handleApprove() {
-    if (!selectedApplication || isApproved) return;
+    if (!selectedApplication || isReviewFinalized || isApproving) return;
 
+    setIsApproving(true);
+    setApprovalError(null);
     try {
-      const approvalText = "Application approved. The applicant has been routed to the scholarship waitlist for promotion and capacity management.";
+      const approvalText = "Application reviewed for approval.";
       const result = await saveReviewUpdate("approve", approvalText, []);
       router.refresh();
       const reviewThread = result?.reviewThread;
+      const resultingStatus = result?.reviewStatus ?? "Approved";
       if (reviewThread) {
         updateSelectedApplication((application) => ({
           ...application,
-          status: "Approved",
+          status: resultingStatus,
           messages: [
             ...reviewThread,
           ],
@@ -945,23 +1128,63 @@ export default function SkeapApplicationsClient({
       } else {
         updateSelectedApplication((application) => ({
           ...application,
-          status: "Approved",
+          status: resultingStatus,
           messages: [
             {
               id: `msg-${Date.now()}`,
               role: "admin",
               createdAt: new Date().toISOString(),
-              text: approvalText,
+              text: result?.response ?? approvalText,
             },
             ...application.messages,
           ],
         }));
       }
+
       await handleRefresh(selectedAcademicYear, { refreshServerData: false });
     } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : "Unable to approve application.");
       console.error(error);
+    } finally {
+      setIsApproving(false);
+      setShowApprovePreview(false);
     }
-    setShowApprovePreview(false);
+  }
+
+  async function handleConfirmReturn() {
+    const corrections = returnMessage.trim();
+    if (!selectedApplication || !corrections || isReturning) return;
+
+    setIsReturning(true);
+    setReturnError(null);
+    try {
+      const draftAttachments = (selectedApplication.uploadGroups ?? [])
+        .filter((group) => group.adminRemark?.trim())
+        .map((group): AttachedFileNote => ({
+          fileId: group.key,
+          fileName: group.label,
+          fileUrl: group.url,
+          fileType: group.type,
+          adminRemark: group.adminRemark!.trim(),
+        }));
+      const result = await saveReviewUpdate("return", corrections, draftAttachments);
+      if (result?.reviewThread) {
+        updateSelectedApplication((application) => ({
+          ...application,
+          status: result.reviewStatus || "Returned",
+          messages: result.reviewThread || application.messages,
+        }));
+      }
+      setShowReturnModal(false);
+      setReturnMessage("");
+      router.refresh();
+      await handleRefresh(selectedAcademicYear, { refreshServerData: false });
+    } catch (error) {
+      setReturnError(error instanceof Error ? error.message : "Unable to return application for edits.");
+      console.error(error);
+    } finally {
+      setIsReturning(false);
+    }
   }
 
   // Always render the workspace shell. The left column will show a local empty state
@@ -993,7 +1216,7 @@ export default function SkeapApplicationsClient({
             <ApplicationMetricCard
               label="Resubmitted"
               value={stats.resubmitted}
-              subtitle="updated apps"
+              subtitle="updated files"
               icon={RefreshCcw}
               active={viewFilter === "resubmitted"}
               onClick={() => changeViewFilter("resubmitted")}
@@ -1244,7 +1467,9 @@ export default function SkeapApplicationsClient({
                               ? "border-blue-200 bg-blue-50 text-blue-700"
                               : selectedStatus === "Approved"
                               ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : selectedStatus === "Rejected" || selectedStatus === "Ineligible"
+                                : selectedStatus === "Waitlisted"
+                                ? "border-amber-200 bg-amber-50 text-amber-700"
+                                : selectedStatus === "Rejected" || selectedStatus === "Ineligible"
                               ? "border-rose-200 bg-rose-50 text-rose-700"
                               : "border-slate-200 bg-slate-100 text-slate-700"
                           }`}>
@@ -1257,7 +1482,7 @@ export default function SkeapApplicationsClient({
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Verified docs</span>
-                          <span className="text-sm font-semibold text-slate-900">{isApproved ? "5/5" : `${verifiedCount}/${verifyDocumentCount}`}</span>
+                          <span className="text-sm font-semibold text-slate-900">{isReviewFinalized ? "5/5" : `${verifiedCount}/${verifyDocumentCount}`}</span>
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Course / Year</span>
@@ -1320,26 +1545,65 @@ export default function SkeapApplicationsClient({
                           </div>
                         </div>
                       </div>
+                    ) : isWaitlisted ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 shrink-0">
+                            <Clock className="h-5 w-5 text-amber-600" />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <h4 className="text-sm font-bold text-slate-900">Application Waitlisted</h4>
+                            <p className="text-sm leading-relaxed text-slate-600">
+                              All mandatory documents have been verified, but no active scholarship slots were available. This applicant is in the SKEAP waitlist and can be promoted when capacity opens.
+                            </p>
+                            <div className="mt-2">
+                              <Link
+                                href="/admin/skeap-waitlist"
+                                className="group inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 transition-colors hover:text-amber-900"
+                              >
+                                <span>View Scholarship Waitlist</span>
+                                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="mt-8 flex flex-col gap-3 border-t border-slate-100 pt-6">
                         <button
                           type="button"
                           onClick={handleApproveClick}
-                          className="flex w-full items-center justify-center gap-2 rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                          disabled={isLoadingApprovalPreview}
+                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-70"
                         >
                           <CheckCircle2 className="h-4 w-4" />
-                          Approve Application
+                          {isLoadingApprovalPreview ? "Checking slot availability..." : "Approve Application"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRejectError(null);
-                            setShowRejectModal(true);
-                          }}
-                          className="flex w-full items-center justify-center rounded-lg border border-rose-200 bg-white px-4 py-2.5 text-xs font-bold text-rose-600 transition-all hover:bg-rose-50"
-                        >
-                          Reject Application
-                        </button>
+                        {approvalError ? <p role="alert" className="text-sm text-rose-600">{approvalError}</p> : null}
+                        <div className={`grid gap-3 ${canReturnForEdits ? "grid-cols-2" : "grid-cols-1"}`}>
+                          {canReturnForEdits ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                openReturnModal();
+                              }}
+                              className="flex items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-700 transition-colors hover:bg-amber-100"
+                            >
+                              <CornerUpLeft className="h-4 w-4" />
+                              Return for Edits
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectError(null);
+                              setShowRejectModal(true);
+                            }}
+                            className="flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2.5 text-sm font-bold text-rose-600 transition-colors hover:bg-rose-50"
+                          >
+                            Reject Application
+                          </button>
+                        </div>
                       </div>
                     )}
                       </div>
@@ -1362,24 +1626,23 @@ export default function SkeapApplicationsClient({
                         <div className="divide-y divide-slate-200 bg-white">
                           {visibleVerifyDocuments.map((doc) => {
                             const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
-                            const isResubmittedDoc = selectedStatus === "Resubmitted" && docStatus === "Returned";
-                            const badgeClass = isApproved
+                            const isResubmittedDoc = doc.updated || (selectedStatus === "Resubmitted" && docStatus === "Returned");
+                            const badgeClass = isReviewFinalized || doc.verified
                               ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                               : isResubmittedDoc
                               ? "bg-sky-50 text-sky-700 border border-sky-200"
                               : docStatus === "Returned"
                               ? "bg-red-50 text-red-600 border border-red-100"
-                              : doc.verified
-                              ? "bg-emerald-100 text-emerald-700 border border-emerald-100"
                               : "bg-slate-100 text-slate-600 border border-slate-200";
-                            const statusText = isApproved ? "Verified" : isResubmittedDoc ? "Resubmitted" : docStatus;
+                            const statusText = isReviewFinalized || doc.verified ? "Verified" : isResubmittedDoc ? "Pending" : docStatus;
 
                             return (
                               <div key={doc.id} className="w-full">
-                                <div className={`flex items-center gap-3 px-4 py-3 transition ${isApproved ? "" : "hover:bg-slate-50"}`}>
+                                <div className={`flex items-center gap-3 px-4 py-3 transition ${isReviewFinalized ? "" : "hover:bg-slate-50"}`}>
                                   <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
                                     {doc.isImage ? (
                                       <img
+                                        key={doc.previewUrl}
                                         src={doc.previewUrl}
                                         alt={doc.label}
                                         className="h-full w-full object-cover"
@@ -1391,13 +1654,22 @@ export default function SkeapApplicationsClient({
                                     )}
                                   </div>
                                   <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-semibold text-slate-900">{doc.label}</p>
-                                    <p className="truncate text-xs text-slate-500">{doc.type}</p>
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <p className="truncate text-sm font-semibold text-slate-900">{doc.label}</p>
+                                      {doc.updated ? (
+                                        <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-cyan-700 ring-1 ring-inset ring-cyan-200">
+                                          Updated
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="truncate text-xs uppercase tracking-wider text-slate-500">
+                                      {doc.updated && doc.fileName ? doc.fileName : getDocumentFormat(doc)}
+                                    </p>
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() => setActiveReviewFile(doc.id)}
+                                      onClick={() => openDocumentReview(doc.id)}
                                       title="View document"
                                       aria-label={`View ${doc.label}`}
                                       className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-100 p-1.5 text-slate-600 transition hover:bg-slate-200"
@@ -1429,7 +1701,7 @@ export default function SkeapApplicationsClient({
 
                     {activeTab === "activity" && (
                       <div id="application-panel-activity" role="tabpanel" aria-labelledby="application-tab-activity" className="flex flex-col gap-4">
-                    <div className={`flex h-[600px] max-h-[650px] min-h-[480px] flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm ${isApproved ? "pb-4" : ""}`}>
+                    <div className={`flex h-[600px] max-h-[650px] min-h-[480px] flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm ${isReviewFinalized ? "pb-4" : ""}`}>
                       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-100 pb-4">
                         <div>
                           <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Conversation</p>
@@ -1440,15 +1712,18 @@ export default function SkeapApplicationsClient({
                         </span>
                       </div>
 
-                      <div className="custom-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pl-4 pr-2">
+                      <div ref={activityMessagesContainerRef} className="custom-scroll mt-4 min-h-0 flex-1 overflow-y-auto pl-4 pr-2">
                         <div className="relative space-y-8 border-l-2 border-slate-100 pl-6">
-                        {(selectedApplication?.messages || []).map((message) => {
+                        {activityMessages.map((message) => {
                           const urls = extractUrls(message.text);
                           const textWithoutUrls = urls.reduce((text, url) => text.replace(url, ""), message.text).trim();
                           const isUploadEvent = isUploadedFilesSystemMessage(message.text);
+                          const isResubmissionEvent = message.eventType === "RESUBMISSION";
                           const isSubmissionEvent = isSubmissionSystemMessage(message.text);
                           const eventLabel = message.role === "admin"
                             ? "Reviewer Note"
+                            : isResubmissionEvent
+                            ? "Applicant Resubmission"
                             : isUploadEvent
                             ? "Applicant Resubmission"
                             : isSubmissionEvent
@@ -1464,7 +1739,7 @@ export default function SkeapApplicationsClient({
                               <div className="mb-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
                                 <span className="text-xs font-bold text-slate-900">{eventLabel}</span>
                                 <time className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
-                                  {formatDate(message.createdAt)}
+                                  {formatActivityTimestamp(message.createdAt)}
                                 </time>
                               </div>
                               {(textWithoutUrls && !isUploadEvent && !isSubmissionEvent) && (
@@ -1480,7 +1755,7 @@ export default function SkeapApplicationsClient({
                                       <button
                                         key={`${message.id}-url-${urlIndex}`}
                                         type="button"
-                                        onClick={() => setActiveReviewFile(`url-${url}`)}
+                                        onClick={() => openDocumentReview(`url-${url}`)}
                                         title={`Preview ${fileName}`}
                                         aria-label={`Preview ${fileName}`}
                                         className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50"
@@ -1494,13 +1769,31 @@ export default function SkeapApplicationsClient({
                                     <button
                                       key={`${message.id}-${attachment.fileId}-${attachmentIndex}`}
                                       type="button"
-                                      onClick={() => setActiveReviewFile(`url-${attachment.fileUrl}`)}
-                                      title={`Preview ${attachment.fileName}`}
-                                      aria-label={`Preview ${attachment.fileName}`}
-                                      className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                                      onClick={() => openDocumentReview(`url-${attachment.fileUrl}`)}
+                                      title={`Preview ${attachment.documentLabel || attachment.fileName}`}
+                                      aria-label={`Preview replaced document: ${attachment.documentLabel || attachment.fileName}`}
+                                      className={`flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-medium transition ${
+                                        isResubmissionEvent
+                                          ? "border-cyan-200 bg-cyan-50/70 text-cyan-950 hover:bg-cyan-100/70"
+                                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                      }`}
                                     >
                                       <Eye className="h-4 w-4 shrink-0 text-slate-400" />
-                                      <span className="truncate">{attachment.fileName}</span>
+                                      <span className="flex min-w-0 flex-1 flex-col">
+                                        <span className="truncate">
+                                          {attachment.documentLabel || attachment.fileName}
+                                        </span>
+                                        {isResubmissionEvent && attachment.documentLabel ? (
+                                          <span className="truncate text-[10px] font-normal text-slate-500">
+                                            {attachment.fileName}
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                      {isResubmissionEvent ? (
+                                        <span className="shrink-0 rounded-full bg-cyan-700 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                          Replaced
+                                        </span>
+                                      ) : null}
                                     </button>
                                   ))}
                                 </div>
@@ -1508,9 +1801,10 @@ export default function SkeapApplicationsClient({
                             </article>
                           );
                         })}
+                          <div ref={activityMessagesEndRef} aria-hidden="true" />
                         </div>
 
-                      {!isApproved && attachedFileNotes.length > 0 && (
+                      {!isReviewFinalized && attachedFileNotes.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-500">Attached file notes</p>
                           <div className="custom-scroll max-h-32 space-y-2 overflow-y-auto pr-1">
@@ -1552,7 +1846,7 @@ export default function SkeapApplicationsClient({
                       )}
                       </div>
 
-                      {!isApproved && (
+                      {!isReviewFinalized && (
                         <div className="mt-4 shrink-0 border-t border-slate-100 pt-4">
                           <label htmlFor="reviewer-note" className="sr-only">Write a note to the applicant</label>
                           <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-2 transition-all focus-within:border-slate-400 focus-within:bg-white">
@@ -1609,172 +1903,243 @@ export default function SkeapApplicationsClient({
       />
 
       {activeReviewFile ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
-          {activeReviewFile.startsWith("url-") && isImageUrl(activeReviewPreviewUrl) ? (
-            <div className="w-full max-w-2xl rounded-[2rem] bg-white shadow-2xl">
-              <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-6 py-4">
-                <p className="text-sm font-semibold text-slate-900">Image preview</p>
-                <button
-                  type="button"
-                  onClick={() => setActiveReviewFile(null)}
-                  className="rounded-full border border-slate-200 bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="overflow-hidden rounded-b-[2rem]">
-                <img src={activeReviewFile.replace("url-", "")} alt="Preview" className="w-full h-auto max-h-96 object-contain" />
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4 backdrop-blur-sm sm:p-6">
+            <div className="flex h-full max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
               <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-cyan-700">
-                    {isApproved ? "Archived Document Preview" : "Document Review"}
+                    {isApproved ? "Archived Document Preview" : isWaitlisted ? "Waitlisted Document Preview" : "Document Review"}
                   </p>
                   <h2 className="mt-1 text-lg font-black text-slate-900">{activeReviewLabel}</h2>
                 </div>
                 <div className="flex items-center gap-2">
+                  {activeReviewPreviewUrl && isValidPreviewUrl(activeReviewPreviewUrl) ? (
+                    <a
+                      href={activeReviewPreviewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open document in a new tab"
+                      aria-label="Open document in a new tab"
+                      className="rounded-lg bg-slate-50 p-2 text-slate-400 transition-colors hover:text-slate-600"
+                    >
+                      <ArrowUpRight className="h-5 w-5" />
+                    </a>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => {
                       setActiveReviewFile(null);
                       setReviewModalNote("");
+                      setReviewModalError(null);
                     }}
+                    disabled={isSavingReviewNote || isSavingDocumentVerification}
                     title="Close preview"
                     aria-label="Close document preview"
-                    className="ml-1 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                    className="ml-1 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
 
-              <div className={`custom-scroll flex min-h-0 flex-1 flex-col ${isApproved ? "overflow-hidden" : "gap-5 overflow-y-auto p-5"}`}>
-                <div className={`relative overflow-hidden ${isApproved ? "min-h-0 flex-1 bg-slate-100" : "h-[55vh] shrink-0 rounded-xl border border-slate-200 bg-slate-50"}`}>
-                  {activeReviewGroup?.isImage || activeReviewDocument?.isImage || isImageUrl(activeReviewPreviewUrl) ? (
-                    <img
-                      src={activeReviewPreviewUrl}
-                      alt="Document preview"
-                      className={`w-full object-contain ${isApproved ? "h-full p-4" : "h-auto max-h-96"}`}
-                    />
-                  ) : isPdfUrl(activeReviewPreviewUrl) && isValidPreviewUrl(activeReviewPreviewUrl) ? (
-                    <iframe
-                      src={activeReviewPreviewUrl}
-                      title="PDF preview"
-                      className={`w-full border-0 bg-white ${isApproved ? "h-full" : "h-[55vh]"}`}
-                    />
-                  ) : activeReviewPreviewUrl && isValidPreviewUrl(activeReviewPreviewUrl) ? (
-                    <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center text-slate-700">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-100 text-slate-600">
-                        <FileText className="h-6 w-6" />
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100/60 sm:flex-row">
+                <div className="flex min-h-0 min-w-0 flex-1 items-start justify-center overflow-auto p-4 sm:p-8">
+                  <div className="w-full max-w-3xl shrink-0 overflow-hidden rounded-sm bg-white shadow-md ring-1 ring-slate-200">
+                    {activeReviewIsPdf && isValidPreviewUrl(activeReviewPreviewUrl) ? (
+                      <iframe
+                        src={activeReviewPreviewUrl}
+                        title="PDF preview"
+                        className="h-[800px] w-full rounded-sm border-0 bg-white"
+                      />
+                    ) : activeReviewGroup?.isImage || activeReviewDocument?.isImage || isImageUrl(activeReviewPreviewUrl) ? (
+                      <img
+                        src={activeReviewPreviewUrl}
+                        alt="Document preview"
+                        className="h-auto w-full rounded-sm object-contain"
+                      />
+                    ) : activeReviewPreviewUrl && isValidPreviewUrl(activeReviewPreviewUrl) ? (
+                      <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center text-slate-700">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-100 text-slate-600">
+                          <FileText className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">Click to open live preview wrapper</p>
+                          <p className="mt-2 max-w-xl text-xs text-slate-500">
+                            This document cannot be rendered natively in-browser. Use the Office viewer for a richer preview experience.
+                          </p>
+                        </div>
+                        <a
+                          href={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(activeReviewPreviewUrl)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
+                        >
+                          <ArrowUpRight className="h-4 w-4" />
+                          Open live preview
+                        </a>
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">Click to open live preview wrapper</p>
-                        <p className="mt-2 max-w-xl text-xs text-slate-500">
-                          This document cannot be rendered natively in-browser. Use the Office viewer for a richer preview experience.
-                        </p>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center text-slate-700">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-100 text-slate-600">
+                          <FileText className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">Invalid preview URL</p>
+                          <p className="mt-2 max-w-xl text-xs text-slate-500">
+                            This document is not available for preview. Please confirm the uploaded file URL.
+                          </p>
+                        </div>
                       </div>
-                      <a
-                        href={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(activeReviewPreviewUrl)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                      >
-                        <ArrowUpRight className="h-4 w-4" />
-                        Open live preview
-                      </a>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center text-slate-700">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-100 text-slate-600">
-                        <FileText className="h-6 w-6" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">Invalid preview URL</p>
-                        <p className="mt-2 max-w-xl text-xs text-slate-500">
-                          This document is not available for preview. Please confirm the uploaded file URL.
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
-                {!isApproved && (
-                  <div className="space-y-3">
-                    <label className="block text-sm font-semibold text-slate-900">Admin remarks</label>
-                    <textarea
-                      value={reviewModalNote}
-                      onChange={(e) => setReviewModalNote(e.target.value)}
-                      placeholder="Add notes about this document..."
-                      rows={4}
-                      className="w-full rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
-                    />
-                  </div>
-                )}
-
-                {!isApproved && (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (activeReviewFile) toggleDocumentVerified(activeReviewFile);
-                      }}
-                      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
-                        activeReviewVerified
-                          ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      {activeReviewVerified ? "Mark as unverified" : "Mark verified"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (reviewModalNote.trim() && selectedApplication && activeReviewFile) {
-                          const doc = findDocumentByReviewKey(selectedApplication, activeReviewFile);
-                          if (doc) {
-                            const attachedNote: AttachedFileNote = {
-                              fileId: doc.id,
-                              fileName: doc.label,
-                              fileUrl: doc.previewUrl,
-                              fileType: doc.type,
-                              adminRemark: reviewModalNote.trim(),
-                            };
-                            setAttachedFileNotes((prev) => [...prev, attachedNote]);
-                            const prefix = activeReviewVerified ? "" : "[NEEDS REVISION] ";
-                            const noteText = `• ${prefix}${doc.label}: ${reviewModalNote.trim()}`;
-                            setMessageDraft((current) =>
-                              current.trim()
-                                ? `${current.trim()}\n${noteText}`
-                                : noteText
-                            );
-                            setTimeout(() => {
-                              noteTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-                              noteTextareaRef.current?.focus();
-                            }, 0);
-                          }
-                        }
-                        setActiveReviewFile(null);
-                        setReviewModalNote("");
-                      }}
-                      disabled={!reviewModalNote.trim()}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      Save Note & Close
-                    </button>
-                  </div>
+                {!isReviewFinalized && (
+                  <aside className="flex min-h-0 max-h-[48%] w-full shrink-0 flex-col overflow-hidden border-t border-slate-200 bg-white sm:max-h-none sm:w-80 sm:border-l sm:border-t-0 sm:shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.05)]">
+                    <div className="shrink-0 space-y-3 border-b border-slate-100 p-5">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Document status</h4>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activeReviewFile) void toggleDocumentVerified(activeReviewFile);
+                        }}
+                        disabled={isSavingReviewNote || isSavingDocumentVerification}
+                        className={`flex w-full cursor-pointer items-center justify-center gap-2.5 rounded-xl px-4 py-2.5 text-xs font-semibold tracking-wide text-white shadow-sm transition-all duration-200 ease-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70 ${
+                          activeReviewVerified
+                            ? "border border-slate-800 bg-slate-900 shadow-slate-900/10 hover:bg-slate-800 hover:shadow-md"
+                            : "bg-teal-600 shadow-teal-600/20 hover:bg-teal-500 hover:shadow-md hover:shadow-teal-600/30"
+                        }`}
+                      >
+                        <span className={`flex h-5 w-5 items-center justify-center rounded-full ${
+                          activeReviewVerified ? "bg-slate-800 text-slate-300" : "bg-teal-500 text-white"
+                        }`}>
+                          {activeReviewVerified ? (
+                            <X className="h-3 w-3 stroke-[2.5]" />
+                          ) : (
+                            <CheckCircle2 className="h-3 w-3 stroke-[2.5]" />
+                          )}
+                        </span>
+                        <span>{activeReviewVerified ? "Mark as unverified" : "Mark as verified"}</span>
+                      </button>
+                      {reviewModalError ? (
+                        <p role="alert" className="text-xs text-red-600">{reviewModalError}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex min-h-0 flex-1 flex-col gap-2 p-5">
+                      <label htmlFor="document-admin-remarks" className="shrink-0 text-sm font-bold text-slate-900">Admin remarks</label>
+                      <p className="mb-1 shrink-0 text-[11px] text-slate-500">
+                        Saved remarks stay private until you return the application.
+                      </p>
+                      <textarea
+                        id="document-admin-remarks"
+                        value={reviewModalNote}
+                        onChange={(e) => {
+                          setReviewModalNote(e.target.value);
+                          setReviewModalError(null);
+                        }}
+                        disabled={isSavingReviewNote || isSavingDocumentVerification}
+                        placeholder="e.g., Document is blurry, please re-upload..."
+                        className="min-h-0 w-full flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+                      />
+                    </div>
+                    <div className="shrink-0 border-t border-slate-100 bg-slate-50 p-5">
+                      <button
+                        type="button"
+                        onClick={handleSaveAndCloseReviewNote}
+                        disabled={!reviewModalNote.trim() || isSavingReviewNote || isSavingDocumentVerification}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isSavingReviewNote ? "Saving..." : "Save Note & Close"}
+                      </button>
+                    </div>
+                  </aside>
                 )}
               </div>
             </div>
-          )}
         </div>
       ) : null}
 
-      {showRejectModal && !isApproved ? (
+      {showReturnModal && selectedApplication && canReturnForEdits ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="return-application-title"
+            className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl"
+          >
+            <header className="flex items-center justify-between border-b border-slate-100 p-5">
+              <h3 id="return-application-title" className="text-base font-bold text-slate-900">
+                Return Application
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReturnModal(false);
+                  setReturnMessage("");
+                  setReturnError(null);
+                }}
+                disabled={isReturning}
+                className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                aria-label="Close return application dialog"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="space-y-4 p-5">
+              <div className="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                <p className="text-xs leading-relaxed text-amber-800">
+                  Returning the application changes its status to Returned and adds your correction instructions to the Activity Log.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="return-corrections" className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Required Corrections <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  id="return-corrections"
+                  value={returnMessage}
+                  onChange={(event) => setReturnMessage(event.currentTarget.value)}
+                  placeholder="Describe the corrections the applicant needs to make."
+                  className="min-h-[120px] w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                  autoFocus
+                  disabled={isReturning}
+                  aria-invalid={Boolean(returnError)}
+                  aria-describedby={returnError ? "return-corrections-error" : undefined}
+                />
+                {returnError ? (
+                  <p id="return-corrections-error" role="alert" className="text-xs text-rose-600">
+                    {returnError}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <footer className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 p-5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReturnModal(false);
+                  setReturnMessage("");
+                  setReturnError(null);
+                }}
+                disabled={isReturning}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmReturn()}
+                disabled={!returnMessage.trim() || isReturning}
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isReturning ? "Returning..." : "Return Application"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+
+      {showRejectModal && !isReviewFinalized ? (
         <RejectApplicationModal
           applicantName={selectedApplication?.applicantName ?? "Applicant"}
           rejectionReason={rejectionReason}
@@ -1790,7 +2155,7 @@ export default function SkeapApplicationsClient({
         />
       ) : null}
 
-      {showApprovalWarning && !isApproved ? (
+      {showApprovalWarning && !isReviewFinalized ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.14)]">
             <div className="px-6 py-5">
@@ -1812,7 +2177,7 @@ export default function SkeapApplicationsClient({
                 type="button"
                 onClick={() => {
                   setShowApprovalWarning(false);
-                  changeViewFilter(selectedStatus === "Resubmitted" ? "resubmitted" : "pending");
+                  setActiveTab("documents");
                 }}
                 className="inline-flex items-center justify-center rounded-full bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
               >
@@ -1830,7 +2195,7 @@ export default function SkeapApplicationsClient({
         </div>
       ) : null}
 
-      {showApprovePreview && !isApproved ? (
+      {showApprovePreview && selectedApplication && !isReviewFinalized ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           <div className="w-full max-w-2xl rounded-[2rem] bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between gap-4">
@@ -1850,12 +2215,15 @@ export default function SkeapApplicationsClient({
             <div className="mt-8 rounded-[1.5rem] border border-emerald-100 bg-emerald-50 p-6 text-slate-900">
               <div className="flex items-center gap-3 text-sm font-semibold text-emerald-700">
                 <CheckCircle2 className="h-4 w-4" />
-                Acceptance message preview
+                {approvalCapacityFull ? "Waitlist Assignment Preview" : "Active Acceptance Preview"}
               </div>
               <p className="mt-4 leading-7">
-                Dear {selectedApplication.applicantName}, your SKEAP application has been approved and routed to the scholarship waitlist. Promotion and capacity management will be handled there.
+                {approvalCapacityFull
+                  ? `Dear ${selectedApplication.applicantName || "Applicant"}, your SKEAP application has been approved and routed to the scholarship waitlist. Promotion and capacity management will be handled there.`
+                  : `Dear ${selectedApplication.applicantName || "Applicant"}, your SKEAP application has been successfully approved! You have been granted an active scholarship slot for Barangay Pico. Please check your portal for next steps.`}
               </p>
             </div>
+            {approvalError ? <p role="alert" className="mt-4 text-sm text-rose-600">{approvalError}</p> : null}
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
               <button
@@ -1868,10 +2236,11 @@ export default function SkeapApplicationsClient({
               <button
                 type="button"
                 onClick={handleApprove}
-                className="inline-flex items-center justify-center rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition transform hover:bg-emerald-700 hover:shadow-md active:scale-95 active:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                disabled={isApproving}
+                className="inline-flex items-center justify-center gap-2 rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition transform hover:bg-emerald-700 hover:shadow-md active:scale-95 active:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:cursor-wait disabled:opacity-70"
               >
                 <ArrowUpRight className="h-4 w-4" />
-                Confirm approval
+                {isApproving ? "Confirming..." : "Confirm approval"}
               </button>
             </div>
           </div>

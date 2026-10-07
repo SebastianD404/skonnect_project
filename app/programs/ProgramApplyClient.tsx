@@ -315,10 +315,6 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                 <p className="mb-8 max-w-md text-sm leading-relaxed text-slate-500">
                   Your SKEAP application has been securely logged. You can now monitor your review status and track document verification on your dashboard.
                 </p>
-                <div className="mb-8 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5">
-                  <span className="text-xs font-medium text-slate-500">Reference ID:</span>
-                  <span className="select-all font-mono text-xs font-bold text-slate-900">{submittedReference}</span>
-                </div>
                 <div className="flex w-full max-w-sm items-center justify-center gap-4">
                   <Link
                     href={`/applications/${encodeURIComponent(submittedReference)}`}

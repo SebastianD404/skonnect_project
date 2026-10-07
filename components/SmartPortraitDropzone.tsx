@@ -10,7 +10,6 @@ type SmartPortraitDropzoneProps = {
   uploadedName?: string;
   invalid?: boolean;
   onFileSelected: (file: File) => Promise<void>;
-  onPreview?: (previewUrl: string) => void;
 };
 
 export default function SmartPortraitDropzone({
@@ -18,7 +17,6 @@ export default function SmartPortraitDropzone({
   uploadedName,
   invalid = false,
   onFileSelected,
-  onPreview,
 }: SmartPortraitDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
@@ -78,7 +76,7 @@ export default function SmartPortraitDropzone({
 
   return (
     <div
-      className={`space-y-3 rounded-xl border p-4 shadow-sm ${invalid ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-200 bg-white"}`}
+      className="space-y-3"
       role="group"
       aria-label="Portrait photo upload"
       aria-describedby={status === "error" ? "portrait-upload-error" : undefined}
@@ -114,7 +112,7 @@ export default function SmartPortraitDropzone({
           <span className="text-[11px] font-medium text-blue-600">Please wait</span>
         </div>
       ) : previewUrl ? (
-        <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div className={`flex min-w-0 items-center justify-between gap-3 rounded-xl border p-3 ${invalid ? "border-rose-300 bg-rose-50/30" : "border-slate-200 bg-slate-50"}`}>
           <div className="flex min-w-0 items-center gap-3">
             <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-slate-200">
               <img src={previewUrl} alt="Portrait preview" className="h-full w-full object-cover" />
@@ -127,15 +125,17 @@ export default function SmartPortraitDropzone({
                 {selectedFile ? (
                   <span className="text-xs text-slate-500">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</span>
                 ) : null}
-                {onPreview ? (
-                  <button
-                    type="button"
-                    onClick={() => onPreview(previewUrl)}
-                    className="cursor-pointer text-xs font-medium text-blue-600 hover:underline"
-                  >
-                    View file
-                  </button>
-                ) : null}
+                <a
+                  href={uploadedUrl || previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
+                >
+                  View file
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4M14 4h6m0 0v6m0-6-10 10" />
+                  </svg>
+                </a>
               </div>
             </div>
           </div>

@@ -289,7 +289,18 @@ export async function POST(request: NextRequest) {
     }
 
     const rawAppUploadedFiles = body.uploadedFiles ?? body.allUploadedFiles ?? body.documentUploads ?? null;
-    const uploadedFiles = normalizeUploadedFiles(rawAppUploadedFiles);
+    const normalizedUploadedFiles = normalizeUploadedFiles(rawAppUploadedFiles);
+    const uploadedFiles = normalizedUploadedFiles
+      ? Object.fromEntries(
+          Object.entries(normalizedUploadedFiles).map(([key, upload]) => [
+            key,
+            {
+              url: upload.url,
+              ...(upload.name !== undefined ? { name: upload.name } : {}),
+            },
+          ])
+        )
+      : null;
     const educationalBackground = normalizeEducationalBackground(body.educationalBackground);
 
     if (!schoolName || !currentCourse || !yearLevel || !enrollmentFileUrl || !reportCardFileUrl) {

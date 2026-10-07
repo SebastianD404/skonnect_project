@@ -65,6 +65,8 @@ interface SidebarCounts {
   approvedMemberCount: number;
 }
 
+const GRANTEES_LAST_VIEWED_KEY = "admin-grantees-last-viewed";
+
 export default function AdminSidebar({
   openInquiryCount,
   skeapApplicationCount,
@@ -93,13 +95,21 @@ export default function AdminSidebar({
     let mounted = true;
     let controller: AbortController | null = null;
 
+    if (pathname.startsWith("/admin/grantees")) {
+      window.localStorage.setItem(GRANTEES_LAST_VIEWED_KEY, new Date().toISOString());
+    }
+
     async function refreshCounts() {
       if (!mounted || document.visibilityState !== "visible" || countsRequest.current) return;
       countsRequest.current = true;
       controller = new AbortController();
 
       try {
-        const response = await fetch("/api/admin/sidebar-counts", {
+        const granteesLastViewed = window.localStorage.getItem(GRANTEES_LAST_VIEWED_KEY);
+        const query = granteesLastViewed
+          ? `?granteesLastViewed=${encodeURIComponent(granteesLastViewed)}`
+          : "";
+        const response = await fetch(`/api/admin/sidebar-counts${query}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -261,7 +271,7 @@ export default function AdminSidebar({
                     >
                       <Icon className="h-4 w-4" />
                       <span className="flex-1 text-left">{item.label}</span>
-                      {item.badge && item.badge > 0 ? (
+                      {item.badge && item.badge > 0 && !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees")) ? (
                         <span
                           className={`ml-auto flex min-w-[1.25rem] items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold text-center transition-colors duration-150 ${
                             isActive

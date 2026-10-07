@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { getAuditRoleChangeContext } from "@/lib/audit/metadata";
+import { getAuditStartDate, isAuditTimeRange } from "@/lib/audit/time-range";
 import { ensureProfile } from "@/lib/auth";
 
 function csvEscape(value: unknown): string {
@@ -30,8 +31,14 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const query = (searchParams.get("query") || "").trim();
+    const requestedRange = searchParams.get("range") || "30d";
+    if (!isAuditTimeRange(requestedRange)) {
+      return NextResponse.json({ error: "Invalid audit time range." }, { status: 400 });
+    }
+    const startDate = getAuditStartDate(requestedRange);
 
     const audits = await prisma.auditLog.findMany({
+      where: startDate ? { createdAt: { gte: startDate } } : undefined,
       take: 1000,
       orderBy: { createdAt: "desc" },
       select: {

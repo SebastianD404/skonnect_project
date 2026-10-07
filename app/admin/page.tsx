@@ -146,9 +146,9 @@ export default async function SKOfficialDashboardPage() {
       iconName: "Users" as const,
     },
     {
-      label: "Pending Applications",
+      label: "SKEAP Applications",
       value: `${skeapApplicationCount}`,
-      sub: "awaiting review",
+      sub: "pending, returned, resubmitted",
       href: "/admin/skeap-applications",
       accent: "amber" as const,
       iconName: "FileText" as const,

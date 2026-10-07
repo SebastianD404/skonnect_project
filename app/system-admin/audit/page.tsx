@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/prisma";
+import { getAuditStartDate } from "@/lib/audit/time-range";
 import AuditLogsTable from "./AuditLogsTable";
 
 export default async function SystemAdminAuditPage() {
+  const startDate = getAuditStartDate("30d");
   const audits = await prisma.auditLog.findMany({
-    take: 50,
+    where: startDate ? { createdAt: { gte: startDate } } : undefined,
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
