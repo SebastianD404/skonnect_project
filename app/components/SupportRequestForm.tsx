@@ -8,9 +8,10 @@ import { ArrowLeft, Mail, Send } from "lucide-react";
 type SupportRequestFormProps = {
   dashboardPath: string;
   inboxPath: string;
+  cancelPath?: string;
 };
 
-export default function SupportRequestForm({ dashboardPath, inboxPath }: SupportRequestFormProps) {
+export default function SupportRequestForm({ dashboardPath, inboxPath, cancelPath = dashboardPath }: SupportRequestFormProps) {
   const router = useRouter();
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -80,7 +81,7 @@ export default function SupportRequestForm({ dashboardPath, inboxPath }: Support
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm text-slate-500">Your inquiry will appear in Support Inbox.</span>
             <div className="flex items-center gap-3">
-              <Link href={dashboardPath} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">Cancel</Link>
+              <Link href={cancelPath} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">Cancel</Link>
               <button type="submit" disabled={isSubmitting} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-500">
                 <Send className="h-4 w-4" />
                 {isSubmitting ? "Sending..." : "Send inquiry"}

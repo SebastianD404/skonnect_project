@@ -11,8 +11,8 @@ export function HeaderShell() {
   if (
     pathname.startsWith("/admin") ||
     pathname.startsWith("/system-admin") ||
-    pathname.startsWith("/grantee-dashboard") ||
-    pathname.startsWith("/grantee") ||
+    pathname === "/grantee" ||
+    pathname.startsWith("/grantee/") ||
     pathname.startsWith("/youth-dashboard") ||
     pathname.startsWith("/profile") ||
     pathname.startsWith("/settings") ||

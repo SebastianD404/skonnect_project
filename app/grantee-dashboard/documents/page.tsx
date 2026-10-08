@@ -43,8 +43,7 @@ export default async function GranteeDocumentsPage() {
     id: string;
     semester: string;
     status: SubmissionStatus;
-    generalAverage: number | null;
-    gradeRows?: Array<{ subject: string; grade: number }> | null;
+    ocrStatus: "OCR_PENDING" | "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED" | null;
     reviewNotes: string | null;
     flaggedFields: string[];
     submittedAt: Date;
@@ -62,8 +61,7 @@ export default async function GranteeDocumentsPage() {
           id: true,
           semester: true,
           status: true,
-          generalAverage: true,
-          gradeRows: true,
+          ocrStatus: true,
           reviewNotes: true,
           flaggedFields: true,
           submittedAt: true,
@@ -71,32 +69,12 @@ export default async function GranteeDocumentsPage() {
           gradeFileUrl: true,
           coeFileUrl: true,
         },
-      }) as any[];
+      });
 
-      function normalizeGradeRows(rows: unknown): Array<{ subject: string; grade: number }> | null {
-        if (!rows) return null;
-        let parsed: any = rows;
-        if (typeof rows === "string") {
-          try {
-            parsed = JSON.parse(rows);
-          } catch (e) {
-            return null;
-          }
-        }
-        if (!Array.isArray(parsed) || parsed.length === 0) return null;
-        const normalized = parsed
-          .map((r: any) => ({ subject: String(r?.subject ?? "").trim(), grade: Number(r?.grade) }))
-          .filter((r: any) => !Number.isNaN(r.grade) && r.subject.length > 0 && r.grade >= 0 && r.grade <= 100);
-        return normalized.length > 0 ? normalized : null;
-      }
-
-      submissions = raw.map((item) => ({
-        ...item,
-        gradeRows: normalizeGradeRows(item.gradeRows),
-      }));
+      submissions = raw;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!/flaggedFields|does not exist/i.test(message)) {
+      if (!/flaggedFields|ocrStatus|does not exist/i.test(message)) {
         throw error;
       }
 
@@ -107,7 +85,6 @@ export default async function GranteeDocumentsPage() {
           id: true,
           semester: true,
           status: true,
-          generalAverage: true,
           reviewNotes: true,
           submittedAt: true,
           reviewedAt: true,
@@ -116,26 +93,16 @@ export default async function GranteeDocumentsPage() {
         },
       });
 
-      submissions = fallback.map((item) => ({ ...item, flaggedFields: [] }));
+      submissions = fallback.map((item) => ({ ...item, ocrStatus: null, flaggedFields: [] }));
     }
   }
 
   
-
-  function computeAverageFromGradeRows(rows?: Array<{ subject: string; grade: number }> | null): number | null {
-    if (!rows || rows.length === 0) return null;
-    const validGrades = rows
-      .map((row) => Number(row.grade))
-      .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
-    if (validGrades.length === 0) return null;
-    return Number((validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length).toFixed(2));
-  }
-
   const serialized = submissions.map((submission) => ({
     id: submission.id,
     semester: submission.semester,
     status: submission.status,
-    generalAverage: submission.generalAverage ?? computeAverageFromGradeRows(submission.gradeRows),
+    ocrStatus: submission.ocrStatus,
     reviewNotes: submission.reviewNotes,
     flaggedFields: submission.flaggedFields,
     submittedAt: submission.submittedAt.toISOString(),

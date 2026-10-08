@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Inbox } from "lucide-react";
 import { useNotificationState } from "./NotificationProvider";
@@ -40,6 +41,7 @@ function getSupportReplyKey(inquiry: SupportThread) {
 }
 
 export function DashboardHeaderActions({ notifications = [], requiredRole, supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
+  const router = useRouter();
   const {
     readNotificationIds,
     unreadCount: liveUnreadCount,
@@ -224,10 +226,10 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
         try {
           await fetch('/api/auth/signout', { method: 'POST' });
         } catch (e) {}
-        window.location.href = '/login';
+        router.replace("/login");
       })();
     }
-  }, [serverRole, requiredRole]);
+  }, [serverRole, requiredRole, router]);
 
   const initials =
     profileName

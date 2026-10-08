@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       select: {
         id: true,
         action: true,
+        actorId: true,
         targetTable: true,
         targetId: true,
         beforeData: true,
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
       audits: audits.map((audit) => ({
         id: audit.id,
         action: audit.action,
+        actorId: audit.actorId,
         targetTable: audit.targetTable,
         targetId: audit.targetId,
         beforeData: audit.beforeData,

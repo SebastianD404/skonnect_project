@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Clock3, Inbox, Send } from "lucide-react";
@@ -204,10 +203,6 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
             <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">My inquiries</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Track your support requests and continue the conversation with SK officials in one place.</p>
           </div>
-          <Link href={`${basePath}/contact-support`} className="inline-flex items-center justify-center gap-2 rounded-full bg-[#0F3D5C] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#0D2E47]">
-            <Send className="h-4 w-4" />
-            New inquiry
-          </Link>
         </div>
 
         {error && <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}

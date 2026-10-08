@@ -140,6 +140,81 @@ body {
   }
 }
 
+@keyframes granteeDashboardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes granteeDashboardFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes granteeDashboardSkeletonReveal {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes granteeDashboardSkeletonPulse {
+  0%, 100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.grantee-dashboard-enter {
+  animation: granteeDashboardEnter 300ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+.grantee-dashboard-enter-stats {
+  animation-delay: 50ms;
+}
+
+.grantee-dashboard-enter-activity {
+  animation-delay: 100ms;
+}
+
+.grantee-dashboard-skeleton-reveal {
+  opacity: 0;
+  animation: granteeDashboardSkeletonReveal 0ms 150ms forwards;
+}
+
+.grantee-dashboard-skeleton-pulse {
+  animation: granteeDashboardSkeletonPulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grantee-dashboard-enter {
+    animation: granteeDashboardFade 100ms ease-out both;
+  }
+
+  .grantee-dashboard-enter-stats,
+  .grantee-dashboard-enter-activity {
+    animation-delay: 0ms;
+  }
+
+  .grantee-dashboard-skeleton-reveal {
+    animation-delay: 0ms;
+  }
+
+  .grantee-dashboard-skeleton-pulse {
+    animation: none;
+  }
+}
+
 /* Smooth page content transitions */
 html {
   scroll-behavior: smooth;

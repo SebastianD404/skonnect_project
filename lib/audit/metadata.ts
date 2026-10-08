@@ -61,10 +61,17 @@ export function getAuditRoleChangeContext(audit: AuditLike): AuditRoleChangeCont
 export function getAuditActionSummary(audit: AuditLike): string {
   const metadata = parseRecord(audit.metadata);
   const meta = parseRecord(audit.meta);
-  const directReason = getString(metadata, "reason") || getString(meta, "reason");
+  const directReason =
+    getString(metadata, "summary") ||
+    getString(metadata, "reason") ||
+    getString(meta, "summary") ||
+    getString(meta, "reason");
   if (directReason) return directReason;
 
   const action = audit.action;
+  if (action === "ADMIN_OCR_OVERRIDE") {
+    return "Admin manually verified corrected OCR grade rows.";
+  }
   if (action === "FLAG_SUBMISSION_FOR_CORRECTION") {
     return "Submission sent back for correction.";
   }
@@ -138,6 +145,9 @@ export function getAuditHumanSummary(audit: AuditLike, actorLabel?: string): str
   if (audit.action === "FLAG_SUBMISSION_FOR_CORRECTION") {
     return `${actor} flagged a submission for correction for ${target}.`;
   }
+  if (audit.action === "ADMIN_OCR_OVERRIDE") {
+    return `${actor} manually verified corrected OCR grade rows for submission ${audit.targetId}.`;
+  }
 
   const meta = parseRecord(audit.metadata || audit.meta);
   if (meta && Object.keys(meta).length > 0) {
@@ -157,8 +167,18 @@ export function getAuditChanges(audit: AuditLike): { field: string; before: stri
   for (const key of keys) {
     const b = before[key];
     const a = after[key];
-    const bStr = b === undefined || b === null ? "—" : String(b);
-    const aStr = a === undefined || a === null ? "—" : String(a);
+    const bStr =
+      b === undefined || b === null
+        ? "—"
+        : typeof b === "object"
+          ? JSON.stringify(b, null, 2)
+          : String(b);
+    const aStr =
+      a === undefined || a === null
+        ? "—"
+        : typeof a === "object"
+          ? JSON.stringify(a, null, 2)
+          : String(a);
     if (bStr !== aStr) {
       changes.push({ field: key, before: bStr, after: aStr });
     }

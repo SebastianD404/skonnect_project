@@ -61,6 +61,7 @@ describe("getAuditActionSummary", () => {
 
     expect(summary).toBe("Please upload the corrected grade report.");
   });
+
 });
 
 describe("getAuditTargetContext", () => {

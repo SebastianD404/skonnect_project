@@ -106,11 +106,25 @@ model Submission {
   gradesSubmittedAt DateTime?
   gradesApprovedAt  DateTime?
   gradeRows         Json?
+  gradeReportSemester String?
+  ocrRawText        String?          @db.Text
+  ocrParsedRows     Json?
+  ocrGwa            Float?
+  ocrTotalUnits     Float?
+  ocrConfidence     Float?
+  ocrStatus         SubmissionOcrStatus @default(OCR_PENDING)
   grantee           Grantee          @relation(fields: [granteeId], references: [id], onDelete: Cascade)
 
   @@index([coeStatus, submittedAt(sort: Desc)])
   @@index([gradesStatus, gradesSubmittedAt(sort: Desc)])
   @@map("submissions")
+}
+
+enum SubmissionOcrStatus {
+  OCR_PENDING
+  OCR_DONE
+  OCR_NEEDS_REVIEW
+  OCR_FAILED
 }
 
 model SkeapApplication {

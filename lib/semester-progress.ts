@@ -9,18 +9,17 @@ export type SemesterProgressSubmission = {
 const TERM_ORDER: Record<string, number> = {
   "First Semester": 1,
   "Second Semester": 2,
-  "Summer Term": 3,
 };
 
 function parseSemesterLabel(semester: string) {
-  const match = semester.match(/^(\d{4})-(\d{4})\s+(First Semester|Second Semester|Summer Term)$/i);
+  const match = semester.match(/^(\d{4})-(\d{4})\s+(First Semester|Second Semester)$/i);
   if (!match) return null;
 
   const startYear = Number(match[1]);
-  const term = match[3][0].toUpperCase() + match[3].slice(1).toLowerCase();
+  const term = match[3].toLowerCase() === "first semester" ? "First Semester" : "Second Semester";
   const termOrder = TERM_ORDER[term] ?? 0;
 
-  return { startYear, term, termOrder };
+  return { startYear, endYear: Number(match[2]), term, termOrder };
 }
 
 export function getCurrentAcademicSemester(referenceDate = new Date()) {
@@ -35,11 +34,46 @@ export function getCurrentAcademicSemester(referenceDate = new Date()) {
     return `${year}-${year + 1} Second Semester`;
   }
 
-  if (month <= 2) {
-    return `${year - 1}-${year} Second Semester`;
-  }
+  return `${year - 1}-${year} Second Semester`;
+}
 
-  return `${year - 1}-${year} Summer Term`;
+export function isAllowedAcademicSemester(semester: string) {
+  const parsed = parseSemesterLabel(semester.trim());
+  if (!parsed) return false;
+  return parsed.endYear === parsed.startYear + 1;
+}
+
+export function getPreviousAcademicSemester(semester: string) {
+  const parsed = parseSemesterLabel(semester.trim());
+  if (!parsed) return null;
+  return parsed.term === "First Semester"
+    ? `${parsed.startYear - 1}-${parsed.startYear} Second Semester`
+    : `${parsed.startYear}-${parsed.startYear + 1} First Semester`;
+}
+
+export function getDocumentSemesterOptions(
+  existingSemesters: string[],
+  referenceDate = new Date()
+) {
+  const current = getCurrentAcademicSemester(referenceDate);
+  const previous = getPreviousAcademicSemester(current);
+  const currentMatch = current.match(/^(\d{4})-(\d{4})\s+(First|Second) Semester$/);
+  const next =
+    currentMatch?.[3] === "First"
+      ? `${currentMatch[1]}-${currentMatch[2]} Second Semester`
+      : currentMatch
+        ? `${currentMatch[2]}-${Number(currentMatch[2]) + 1} First Semester`
+        : current;
+
+  return Array.from(
+    new Set([...existingSemesters, ...(previous ? [previous] : []), current, next])
+  )
+    .filter((semester) => isAllowedAcademicSemester(semester))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+    .map((value) => ({
+      value,
+      label: value === current ? `${value} (Current)` : value,
+    }));
 }
 
 function pickLatestSubmission(submissions: SemesterProgressSubmission[]) {

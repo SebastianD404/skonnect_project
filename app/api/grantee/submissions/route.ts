@@ -1,33 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { SubmissionStatus } from "@prisma/client";
+import { after, NextRequest, NextResponse } from "next/server";
+import { Prisma, SubmissionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
+import { processSubmissionGradeReportOcr } from "@/lib/ocr/process-submission";
+import { getCurrentAcademicSemester, isAllowedAcademicSemester } from "@/lib/semester-progress";
 
-type GradeRow = {
-  subject?: string;
-  grade?: string | number;
-};
-
-function computeGeneralAverageFromGrades(grades: GradeRow[]): number | null {
-  const validGrades = grades
-    .map((gradeRow) => ({
-      subject: String(gradeRow?.subject ?? "").trim(),
-      value: Number(gradeRow?.grade),
-    }))
-    .filter(
-      ({ subject, value }) =>
-        subject !== "" && !Number.isNaN(value) && value >= 0 && value <= 100
-    )
-    .map(({ value }) => value);
-
-  if (validGrades.length === 0) {
-    return null;
-  }
-
-  const average = validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length;
-  return Number(average.toFixed(2));
-}
+export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
@@ -79,30 +59,10 @@ export async function POST(request: NextRequest) {
     const semester = String(body.semester ?? "").trim();
     const gradeFileUrl = String(body.gradeFileUrl ?? "").trim();
     const coeFileUrl = String(body.coeFileUrl ?? "").trim();
-    const submittedGrades = Array.isArray(body.grades) ? body.grades : [];
-    const averageRaw = body.generalAverage;
-    const generalAverage = averageRaw === "" || averageRaw === null || averageRaw === undefined
-      ? null
-      : Number(averageRaw);
-    const computedAverage = computeGeneralAverageFromGrades(submittedGrades);
 
-    if (!semester) {
+    if (!isAllowedAcademicSemester(semester) || semester !== getCurrentAcademicSemester()) {
       return NextResponse.json(
-        { error: "Semester is required" },
-        { status: 400 }
-      );
-    }
-
-    if (generalAverage !== null && (Number.isNaN(generalAverage) || generalAverage < 0 || generalAverage > 100)) {
-      return NextResponse.json({ error: "General average must be between 0 and 100" }, { status: 400 });
-    }
-
-    if (generalAverage !== null && computedAverage !== null && Math.abs(generalAverage - computedAverage) > 0.1) {
-      return NextResponse.json(
-        {
-          error:
-            "The submitted general average does not match the calculated average from the provided grades. Please correct your grade entries or remove the manual average.",
-        },
+        { error: "Submissions are only accepted for the current academic semester." },
         { status: 400 }
       );
     }
@@ -118,8 +78,6 @@ export async function POST(request: NextRequest) {
         status: true,
         gradeFileUrl: true,
         coeFileUrl: true,
-        gradeRows: true,
-        generalAverage: true,
         flaggedFields: true,
         reviewNotes: true,
       },
@@ -127,31 +85,10 @@ export async function POST(request: NextRequest) {
 
     const mergedGradeFileUrl = gradeFileUrl || existing?.gradeFileUrl || "";
     const mergedCoeFileUrl = coeFileUrl || existing?.coeFileUrl || "";
-    const mergedGeneralAverage =
-      computedAverage !== null
-        ? computedAverage
-        : generalAverage !== null
-        ? generalAverage
-        : existing?.generalAverage ?? null;
-    const mergedGradeRows = submittedGrades.length > 0 ? submittedGrades : existing?.gradeRows ?? null;
 
-    if (!mergedCoeFileUrl) {
-      return NextResponse.json({ error: "Certificate of Enrollment is required." }, { status: 400 });
-    }
-
-    if (gradeFileUrl && !mergedCoeFileUrl) {
+    if (!mergedGradeFileUrl || !mergedCoeFileUrl) {
       return NextResponse.json(
-        { error: "Submit enrollment verification first before uploading grades." },
-        { status: 400 }
-      );
-    }
-
-    if (gradeFileUrl && mergedGeneralAverage === null) {
-      return NextResponse.json(
-        {
-          error:
-            "General weighted average is required when uploading a grade report. Provide a valid average or submit the grade rows so the system can compute it automatically.",
-        },
+        { error: "Both a grade report and Certificate of Enrollment are required." },
         { status: 400 }
       );
     }
@@ -178,19 +115,28 @@ export async function POST(request: NextRequest) {
     const nextFlaggedFields = existing?.status === "RETURNED_FOR_EDIT"
       ? existing.flaggedFields.filter((field) => !resolvedFlaggedFields.has(field))
       : [];
+    const newGradeReport = Boolean(gradeFileUrl && gradeFileUrl !== existing?.gradeFileUrl);
 
     const payload = {
       semester,
       gradeFileUrl: mergedGradeFileUrl,
       coeFileUrl: mergedCoeFileUrl,
-      gradeRows: mergedGradeRows,
-      generalAverage: mergedGeneralAverage,
       status:
         existing?.status === "RETURNED_FOR_EDIT" && nextFlaggedFields.length > 0
           ? SubmissionStatus.RETURNED_FOR_EDIT
           : SubmissionStatus.PENDING,
       reviewNotes: nextFlaggedFields.length > 0 ? existing?.reviewNotes : null,
       flaggedFields: nextFlaggedFields,
+      ...(newGradeReport
+        ? {
+            ocrStatus: "OCR_PENDING" as const,
+            ocrRawText: null,
+            ocrParsedRows: Prisma.DbNull,
+            ocrGwa: null,
+            ocrTotalUnits: null,
+            ocrConfidence: null,
+          }
+        : {}),
       reviewedAt: null,
       submittedAt: new Date(),
     };
@@ -207,7 +153,33 @@ export async function POST(request: NextRequest) {
           },
         });
 
-    return NextResponse.json({ success: true, submission });
+    if (newGradeReport) {
+      after(async () => {
+        await processSubmissionGradeReportOcr(submission.id);
+      });
+    }
+
+    const submissionForGrantee = {
+      id: submission.id,
+      granteeId: submission.granteeId,
+      semester: submission.semester,
+      gradeFileUrl: submission.gradeFileUrl,
+      coeFileUrl: submission.coeFileUrl,
+      status: submission.status,
+      reviewedById: submission.reviewedById,
+      reviewNotes: submission.reviewNotes,
+      submittedAt: submission.submittedAt,
+      reviewedAt: submission.reviewedAt,
+      flaggedFields: submission.flaggedFields,
+      coeStatus: submission.coeStatus,
+      gradesStatus: submission.gradesStatus,
+      coeSubmittedAt: submission.coeSubmittedAt,
+      coeApprovedAt: submission.coeApprovedAt,
+      gradesSubmittedAt: submission.gradesSubmittedAt,
+      gradesApprovedAt: submission.gradesApprovedAt,
+    };
+
+    return NextResponse.json({ success: true, submission: submissionForGrantee });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to submit documents";
     return NextResponse.json({ error: message }, { status: 500 });

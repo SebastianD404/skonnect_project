@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { getCurrentAcademicSemester } from "./semester-progress";
 
 export type GranteeTimelineYear = {
   // start year of the academic year, e.g. 2025 for 2025-2026
@@ -16,8 +17,8 @@ export type GranteeTimeline = {
 };
 
 export type AcademicTerm = {
-  value: string; // stable unique value e.g. "2025-2026-1st" or "2025-2026-summer"
-  label: string; // human-readable label e.g. "2025-2026 First Semester"
+  value: string; // stable unique value e.g. "2025-2026-1st"
+  label: string; // human-readable label e.g. "2025-2026 First Semester (current)"
   startYear: number; // numeric start year
   termIndex: number; // 1-based index within the academic year
   termsInYear: number; // copy of terms for the academic year
@@ -27,22 +28,13 @@ function academicYearLabel(startYear: number) {
   return `${startYear}-${startYear + 1}`;
 }
 
-function termLabelForIndex(termsInYear: number, index: number) {
-  // index is 1-based
-  if (termsInYear === 2) {
-    return index === 1 ? "First Semester" : "Second Semester";
-  }
-  if (termsInYear === 3) {
-    if (index === 1) return "First Semester";
-    if (index === 2) return "Second Semester";
-    return "Summer Term";
-  }
-  // fallback generic naming
+function termLabelForIndex(index: number) {
+  if (index === 1) return "First Semester";
+  if (index === 2) return "Second Semester";
   return `Term ${index}`;
 }
 
 function termValueSuffix(termsInYear: number, index: number) {
-  if (termsInYear === 3 && index === 3) return "summer";
   // ordinal suffix for numeric terms
   const n = index;
   const mod10 = n % 10;
@@ -81,6 +73,7 @@ export function generateAcademicTerms(timeline: GranteeTimeline): AcademicTerm[]
   if (map.size === 0) return [];
 
   const years = Array.from(map.values()).sort((a, b) => a.startYear - b.startYear);
+  const currentSemester = getCurrentAcademicSemester();
 
   // determine current startYear
   let currentStart: number | undefined = timeline.currentYearStart;
@@ -88,12 +81,10 @@ export function generateAcademicTerms(timeline: GranteeTimeline): AcademicTerm[]
     const flagged = years.find((y) => y.isCurrent);
     if (flagged) currentStart = flagged.startYear;
   }
-  // fallback heuristic: choose the latest startYear not greater than the current calendar year
+  // fallback heuristic: use the start year from the shared current-semester helper
   if (!currentStart) {
-    const now = new Date();
-    const thisYear = now.getFullYear();
-    // pick largest startYear <= thisYear, else fall back to last known year
-    const candidates = years.filter((y) => y.startYear <= thisYear);
+    const currentStartFromSemester = Number(currentSemester.slice(0, 4));
+    const candidates = years.filter((y) => y.startYear <= currentStartFromSemester);
     if (candidates.length > 0) currentStart = candidates[candidates.length - 1].startYear;
     else currentStart = years[years.length - 1].startYear;
   }
@@ -124,8 +115,9 @@ export function generateAcademicTerms(timeline: GranteeTimeline): AcademicTerm[]
   const terms: AcademicTerm[] = [];
   for (const y of includedYears) {
     const yearLabel = academicYearLabel(y.startYear);
-    for (let idx = 1; idx <= y.terms; idx++) {
-      const label = `${yearLabel} ${termLabelForIndex(y.terms, idx)}`;
+    for (let idx = 1; idx <= Math.min(y.terms, 2); idx++) {
+      const semesterLabel = `${yearLabel} ${termLabelForIndex(idx)}`;
+      const label = semesterLabel === currentSemester ? `${semesterLabel} (current)` : semesterLabel;
       const suffix = termValueSuffix(y.terms, idx);
       const value = `${y.startYear}-${y.startYear + 1}-${suffix}`;
       terms.push({ value, label, startYear: y.startYear, termIndex: idx, termsInYear: y.terms });

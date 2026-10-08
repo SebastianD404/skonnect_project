@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Download, Filter, ScrollText, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, ScrollText, Search, X } from "lucide-react";
 import {
   getAuditActionSummary,
   getAuditRoleChangeContext,
@@ -16,6 +16,7 @@ import { formatPhilippineTime } from "@/lib/audit/time";
 type AuditItem = {
   id: string;
   action: string;
+  actorId: string;
   targetTable: string;
   targetId: string;
   beforeData?: unknown;
@@ -46,6 +47,7 @@ function isAuditItem(value: unknown): value is AuditItem {
   return (
     typeof audit.id === "string" &&
     typeof audit.action === "string" &&
+    typeof audit.actorId === "string" &&
     typeof audit.targetTable === "string" &&
     typeof audit.targetId === "string" &&
     typeof audit.createdAt === "string" &&
@@ -71,6 +73,7 @@ const actionTone: Record<string, string> = {
   APPROVE_ACADEMIC_SUBMISSION: "bg-emerald-100 text-emerald-700",
   DOCUMENT_REVIEWED: "bg-emerald-100 text-emerald-700",
   DOCUMENT_OVERRIDDEN: "bg-amber-100 text-amber-700",
+  ADMIN_OCR_OVERRIDE: "bg-amber-100 text-amber-700",
   FLAG_SUBMISSION_FOR_CORRECTION: "bg-amber-100 text-amber-700",
   EXPORT_KK_PROFILING_DATA: "bg-violet-100 text-violet-700",
   RECORDS_EXPORTED: "bg-violet-100 text-violet-700",
@@ -86,6 +89,8 @@ const actionTone: Record<string, string> = {
 export default function AuditLogsTable({ audits }: Props) {
   const [query, setQuery] = useState("");
   const [auditItems, setAuditItems] = useState(audits);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [selectedRange, setSelectedRange] = useState<(typeof TIME_RANGES)[number]["value"]>("30d");
   const [isRangeMenuOpen, setIsRangeMenuOpen] = useState(false);
   const [isLoadingRange, setIsLoadingRange] = useState(false);
@@ -152,6 +157,7 @@ export default function AuditLogsTable({ audits }: Props) {
     setRangeError(null);
     setIsLoadingRange(true);
     setSelectedRange(range);
+    setCurrentPage(1);
     setIsRangeMenuOpen(false);
     setSelectedAudit(null);
   }
@@ -212,6 +218,10 @@ export default function AuditLogsTable({ audits }: Props) {
         .includes(value);
     });
   }, [auditItems, query]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const displayedPage = Math.min(currentPage, totalPages);
+  const startIndex = (displayedPage - 1) * pageSize;
+  const currentLogs = filtered.slice(startIndex, startIndex + pageSize);
 
   const selectedAuditMetadata = useMemo(() => {
     if (!selectedAudit) return null;
@@ -275,7 +285,10 @@ export default function AuditLogsTable({ audits }: Props) {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setCurrentPage(1);
+            }}
             placeholder="Search action, actor, or table..."
             className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
           />
@@ -351,7 +364,7 @@ export default function AuditLogsTable({ audits }: Props) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filtered.map((audit) => {
+                  {currentLogs.map((audit) => {
                     const metadata = getAuditRoleChangeContext(audit);
                     const targetContext = getAuditTargetContext(audit);
                     const summaryText = getAuditActionSummary(audit);
@@ -419,7 +432,7 @@ export default function AuditLogsTable({ audits }: Props) {
             </div>
 
             <ul className="divide-y divide-slate-100 lg:hidden">
-              {filtered.map((audit) => {
+              {currentLogs.map((audit) => {
                 const metadata = getAuditRoleChangeContext(audit);
                 const targetContext = getAuditTargetContext(audit);
                 const summaryText = getAuditActionSummary(audit);
@@ -482,6 +495,58 @@ export default function AuditLogsTable({ audits }: Props) {
             </ul>
           </>
         )}
+        <div className="mt-auto flex flex-col items-center justify-between gap-4 border-t border-slate-200/80 bg-slate-50/50 px-4 py-4 sm:flex-row sm:px-6">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+            <p className="text-xs font-medium text-slate-500">
+              Showing{" "}
+              <span className="font-bold text-slate-900">{filtered.length > 0 ? startIndex + 1 : 0}</span>
+              {" "}to{" "}
+              <span className="font-bold text-slate-900">{Math.min(startIndex + pageSize, filtered.length)}</span>
+              {" "}of{" "}
+              <span className="font-bold text-slate-900">{filtered.length}</span> entries
+            </p>
+            <label className="flex items-center gap-1.5 border-l border-slate-200 pl-4 text-[11px] font-medium text-slate-400">
+              <span>Show</span>
+              <select
+                aria-label="Rows per page"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setCurrentPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
+              >
+                <option value={10}>10 rows</option>
+                <option value={20}>20 rows</option>
+                <option value={50}>50 rows</option>
+              </select>
+            </label>
+          </div>
+
+          <nav aria-label="Audit log pagination" className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage(Math.max(displayedPage - 1, 1))}
+              disabled={displayedPage === 1 || filtered.length === 0}
+              className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              Previous
+            </button>
+            <span aria-live="polite" className="px-2 text-xs font-bold text-slate-700">
+              Page {filtered.length === 0 ? 0 : displayedPage} of {filtered.length === 0 ? 0 : totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage(Math.min(displayedPage + 1, totalPages))}
+              disabled={displayedPage === totalPages || filtered.length === 0}
+              className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </nav>
+        </div>
       </div>
 
       {selectedAudit ? (
@@ -517,6 +582,9 @@ export default function AuditLogsTable({ audits }: Props) {
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Actor</p>
                 <p className="mt-2 text-sm font-medium text-slate-900">{selectedAudit.actorFullName}</p>
                 <p className="mt-1 text-sm text-slate-500">{selectedAudit.actorEmail}</p>
+                <p className="mt-1 truncate font-mono text-xs text-slate-500" title={selectedAudit.actorId}>
+                  ID: {shortAuditId(selectedAudit.actorId)}
+                </p>
               </div>
               <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Target</p>

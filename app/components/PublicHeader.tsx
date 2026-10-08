@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { DashboardHeaderActions } from "./DashboardHeaderActions";
 import { useAuth } from "./AuthProvider";
@@ -15,19 +15,44 @@ function navLinkClass(activePath: string, href: string) {
 
 export function PublicHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user: sessionUser, loading: authLoading } = useAuth();
+  const isGranteeNavigation =
+    sessionUser?.role === "GRANTEE" || pathname.startsWith("/grantee-dashboard");
+  const homeHref = isGranteeNavigation ? "/grantee-dashboard" : "/";
+  const aboutHref = isGranteeNavigation ? "/about?from=dashboard" : "/about";
+  const applicationsHref = isGranteeNavigation
+    ? "/applications?from=dashboard"
+    : "/applications";
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
   const [activeHash, setActiveHash] = useState("");
   const [isProgramsSectionVisible, setIsProgramsSectionVisible] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const handleLogoClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (pathname === "/") {
+    if (pathname === "/" && homeHref === "/") {
       event.preventDefault();
       window.scrollTo({ top: 0, behavior: "smooth" });
       window.history.replaceState(null, "", "/");
       setActiveHash("");
     }
+  };
+
+  const handleHomeClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (
+      homeHref === pathname &&
+      homeHref !== "/" &&
+      event.button === 0 &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey &&
+      !event.altKey
+    ) {
+      event.preventDefault();
+      return;
+    }
+
+    handleLogoClick(event);
   };
 
   useEffect(() => {
@@ -93,7 +118,7 @@ export function PublicHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href="/" onClick={handleLogoClick} className="flex items-center gap-3" aria-label="Go to SKonnect home" title="Go to home">
+        <Link href={homeHref} prefetch onClick={handleHomeClick} className="flex items-center gap-3" aria-label="Go to SKonnect home" title="Go to home">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
             SK
           </div>
@@ -101,10 +126,10 @@ export function PublicHeader() {
         </Link>
 
         <nav className="hidden items-center gap-1 text-sm md:flex relative">
-          <Link href="/" onClick={handleLogoClick} className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
-          <Link href="/about" className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 opacity-100`}>About</Link>
+          <Link href={homeHref} prefetch onClick={handleHomeClick} className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
+          <Link href={aboutHref} className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 opacity-100`}>About</Link>
           <Link
-            href="/applications"
+            href={applicationsHref}
             className={`${navLinkClass(activePath, "/applications")} transition-opacity duration-200 opacity-100`}
           >
             Applications
@@ -200,7 +225,7 @@ export function PublicHeader() {
                         onClick={async () => {
                           setOpenPanel("none");
                           await fetch("/api/auth/signout", { method: "POST", headers: { "Content-Type": "application/json" } });
-                          window.location.href = "/login";
+                          router.replace("/login");
                         }}
                         className="w-full text-left px-4 py-3 text-sm text-slate-700 transition hover:bg-slate-50"
                       >

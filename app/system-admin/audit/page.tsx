@@ -10,6 +10,7 @@ export default async function SystemAdminAuditPage() {
     select: {
       id: true,
       action: true,
+      actorId: true,
       targetTable: true,
       targetId: true,
       beforeData: true,
@@ -46,6 +47,7 @@ export default async function SystemAdminAuditPage() {
         audits={audits.map((audit) => ({
           id: audit.id,
           action: audit.action,
+          actorId: audit.actorId,
           targetTable: audit.targetTable,
           targetId: audit.targetId,
           beforeData: audit.beforeData,

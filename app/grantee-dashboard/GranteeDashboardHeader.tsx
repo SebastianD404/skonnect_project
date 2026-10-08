@@ -5,7 +5,9 @@ import { usePathname } from "next/navigation";
 import { DashboardHeaderActions } from "@/app/components/DashboardHeaderActions";
 
 function navClass(pathname: string, href: string) {
-  const isActive = pathname === href || pathname.startsWith(`${href}/`);
+  const isActive = href === "/grantee-dashboard"
+    ? pathname === href
+    : pathname === href || pathname.startsWith(`${href}/`);
   return (
     "px-4 py-2 font-semibold rounded-lg transition-colors duration-200 " +
     (isActive
@@ -16,11 +18,30 @@ function navClass(pathname: string, href: string) {
 
 export default function GranteeDashboardHeader({ requiredRole = "GRANTEE" }: { requiredRole?: string | null }) {
   const pathname = usePathname();
+  const handleHomeClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (
+      pathname === "/grantee-dashboard" &&
+      event.button === 0 &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey &&
+      !event.altKey
+    ) {
+      event.preventDefault();
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href="/grantee-dashboard" className="flex items-center gap-3" aria-label="Go to the grantee dashboard" title="Go to dashboard">
+        <Link
+          href="/grantee-dashboard"
+          prefetch
+          onClick={handleHomeClick}
+          className="flex items-center gap-3"
+          aria-label="Go to the grantee dashboard"
+          title="Go to dashboard"
+        >
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
             SK
           </div>
@@ -28,7 +49,15 @@ export default function GranteeDashboardHeader({ requiredRole = "GRANTEE" }: { r
         </Link>
 
         <nav className="hidden items-center gap-1 text-sm md:flex">
-          <Link href="/?from=dashboard" className={navClass(pathname, "/")}>Home</Link>
+          <Link
+            href="/grantee-dashboard"
+            prefetch
+            onClick={handleHomeClick}
+            className={navClass(pathname, "/grantee-dashboard")}
+            aria-current={pathname === "/grantee-dashboard" ? "page" : undefined}
+          >
+            Home
+          </Link>
           <Link href="/about?from=dashboard" className={navClass(pathname, "/about")}>About</Link>
           <Link href="/applications" className={navClass(pathname, "/applications")}>Applications</Link>
         </nav>

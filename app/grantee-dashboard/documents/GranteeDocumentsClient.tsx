@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -9,19 +9,22 @@ import {
   Clock,
   FileText,
   Image as ImageIcon,
+  Lock,
   ShieldCheck,
-  Sparkles,
   Upload,
   X,
 } from "lucide-react";
-import { buildSemesterTracker } from "@/lib/semester-progress";
+import {
+  buildSemesterTracker,
+  getCurrentAcademicSemester,
+} from "@/lib/semester-progress";
 import type { SubmissionStatus } from "@prisma/client";
 
 type SubmissionItem = {
   id: string;
   semester: string;
   status: SubmissionStatus;
-  generalAverage: number | null;
+  ocrStatus: "OCR_PENDING" | "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED" | null;
   reviewNotes: string | null;
   flaggedFields?: string[];
   submittedAt: string;
@@ -35,25 +38,12 @@ type Props = {
   canSubmit: boolean;
 };
 
-type GradeRow = {
-  id: string;
-  subject: string;
-  grade: string;
-};
-
 type UploadState = {
   gradeFile: File | null;
   coeFile: File | null;
   gradeFileUrl: string;
   coeFileUrl: string;
   semester: string;
-  generalAverage: string;
-  grades: GradeRow[];
-};
-
-type PendingSnapshot = {
-  semester: string;
-  generalAverage: string;
 };
 
 const INITIAL_FORM: UploadState = {
@@ -61,19 +51,33 @@ const INITIAL_FORM: UploadState = {
   coeFile: null,
   gradeFileUrl: "",
   coeFileUrl: "",
-  semester: "",
-  generalAverage: "",
-  grades: [],
+  semester: getCurrentAcademicSemester(),
 };
 
 const BRAND = "#0F3D5C";
 const BRAND_DARK = "#0A2A40";
 
 
-function statusLabel(status: SubmissionItem["status"]) {
-  if (status === "APPROVED") return "Approved";
-  if (status === "REJECTED" || status === "RETURNED_FOR_EDIT") return "Needs editing";
-  return "Pending review";
+function ocrStatusBadge(status: SubmissionItem["ocrStatus"]) {
+  if (status === "OCR_PENDING") {
+    return {
+      label: "Processing Document...",
+      className: "bg-slate-100 text-slate-600 ring-1 ring-slate-200 motion-safe:animate-pulse motion-reduce:animate-none",
+    };
+  }
+  if (status === "OCR_DONE") {
+    return {
+      label: "Document Verified",
+      className: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100",
+    };
+  }
+  if (status === "OCR_NEEDS_REVIEW" || status === "OCR_FAILED") {
+    return {
+      label: "Pending SK Review",
+      className: "bg-amber-50 text-amber-700 ring-1 ring-amber-100",
+    };
+  }
+  return null;
 }
 
 function getSubmissionDisplayStatus(submission: SubmissionItem) {
@@ -105,7 +109,7 @@ function getSubmissionDisplayStatus(submission: SubmissionItem) {
 
   if (hasCoe && !hasGradeReport) {
     return {
-      label: "Pending grades",
+      label: "Pending review",
       tone: {
         bar: "bg-amber-500/70",
         chip: "bg-amber-50 text-amber-800 ring-1 ring-amber-100",
@@ -121,30 +125,6 @@ function getSubmissionDisplayStatus(submission: SubmissionItem) {
       chip: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
       icon: <Clock className="h-3.5 w-3.5" />,
     },
-  };
-}
-
-function statusTone(status: SubmissionItem["status"]) {
-  if (status === "APPROVED") {
-    return {
-      bar: "bg-emerald-600/70",
-      chip: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100",
-      icon: <CheckCircle2 className="h-3.5 w-3.5" />,
-    };
-  }
-
-  if (status === "REJECTED" || status === "RETURNED_FOR_EDIT") {
-    return {
-      bar: "bg-rose-900/60",
-      chip: "bg-rose-50 text-rose-900 ring-1 ring-rose-100",
-      icon: <AlertCircle className="h-3.5 w-3.5" />,
-    };
-  }
-
-  return {
-    bar: "bg-slate-400",
-    chip: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
-    icon: <Clock className="h-3.5 w-3.5" />,
   };
 }
 
@@ -168,21 +148,10 @@ function getFilenameFromUrl(url: string) {
 
 export default function GranteeDocumentsClient({ submissions, canSubmit }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState<UploadState>(() => ({
-    ...INITIAL_FORM,
-    grades: [
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        subject: "",
-        grade: "",
-      },
-    ],
-  }));
-  const hydratedSubmissionIdRef = useRef<string | null>(null);
+  const [form, setForm] = useState<UploadState>(() => ({ ...INITIAL_FORM }));
   const [submitting, setSubmitting] = useState(false);
   const [uploadingGrade, setUploadingGrade] = useState(false);
   const [uploadingCoe, setUploadingCoe] = useState(false);
-  const [optimisticPending, setOptimisticPending] = useState<PendingSnapshot | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
 
@@ -216,9 +185,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
 
   const hasReturnedSubmission = currentSubmission?.status === "RETURNED_FOR_EDIT";
 
-  const gradePhaseUnlocked = currentSubmission?.status === "APPROVED";
-  const gradeUploadAllowed = gradePhaseUnlocked || (hasReturnedSubmission && isGradeReportFlagged);
-
   // When a submission for the selected semester is already approved and both files are present and not flagged,
   // treat the form as closed/read-only for that term.
   const isSubmissionClosed =
@@ -227,185 +193,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     hasExistingCoe &&
     !isGradeReportFlagged &&
     !isCoeFlagged;
-
-  const submitButtonLabel =
-    currentSubmission?.status === "RETURNED_FOR_EDIT"
-      ? "Update submission"
-      : gradeUploadAllowed
-      ? "Submit Grade Report"
-      : "Submit Enrollment Verification";
-
-  const pendingSnapshot = useMemo(() => {
-    if (optimisticPending) return optimisticPending;
-
-    const latestPending = submissions.find((submission) => submission.status === "PENDING");
-    if (!latestPending) return null;
-
-    return {
-      semester: latestPending.semester,
-      generalAverage:
-        latestPending.generalAverage !== null && latestPending.generalAverage !== undefined
-          ? latestPending.generalAverage.toFixed(2)
-          : "",
-    };
-  }, [optimisticPending, submissions]);
-
-  const computedGwa = useMemo(() => {
-    const validGrades = form.grades
-      .map((gradeRow) => ({
-        input: gradeRow.grade,
-        value: Number(gradeRow.grade),
-      }))
-      .filter(
-        (grade) =>
-          grade.input.trim() !== "" &&
-          !Number.isNaN(grade.value) &&
-          grade.value >= 0 &&
-          grade.value <= 100
-      )
-      .map((grade) => grade.value);
-
-    if (validGrades.length === 0) {
-      return "";
-    }
-
-    const average = validGrades.reduce((sum, value) => sum + value, 0) / validGrades.length;
-    return average.toFixed(2);
-  }, [form.grades]);
-
-  function addGradeRow() {
-    setForm((prev) => ({
-      ...prev,
-      grades: [
-        ...prev.grades,
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          subject: "",
-          grade: "",
-        },
-      ],
-    }));
-  }
-
-  function updateGrade(id: string, field: "subject" | "grade", value: string) {
-    setForm((prev) => ({
-      ...prev,
-      grades: prev.grades.map((gradeRow) =>
-        gradeRow.id === id ? { ...gradeRow, [field]: value } : gradeRow
-      ),
-    }));
-  }
-
-  function removeGradeRow(id: string) {
-    setForm((prev) => ({
-      ...prev,
-      grades: prev.grades.filter((gradeRow) => gradeRow.id !== id),
-    }));
-  }
-
-  const showPendingLockView = Boolean(canSubmit && pendingSnapshot && !hasReturnedSubmission);
-
-  useEffect(() => {
-    const fetchedSubmissionData =
-      submissions.find((submission) => submission.status === "RETURNED_FOR_EDIT") ?? submissions[0] ?? null;
-
-    if (!fetchedSubmissionData) {
-      return;
-    }
-
-    if (hydratedSubmissionIdRef.current === fetchedSubmissionData.id) {
-      return;
-    }
-
-    setForm((current) => {
-      const hasUserInput =
-        Boolean(current.semester) ||
-        Boolean(current.generalAverage) ||
-        Boolean(current.gradeFile) ||
-        Boolean(current.coeFile) ||
-        Boolean(current.gradeFileUrl) ||
-        Boolean(current.coeFileUrl);
-
-      if (hasUserInput) {
-        return current;
-      }
-
-      hydratedSubmissionIdRef.current = fetchedSubmissionData.id;
-      return {
-        ...current,
-        semester: fetchedSubmissionData.semester || "",
-        generalAverage:
-          fetchedSubmissionData.generalAverage !== null && fetchedSubmissionData.generalAverage !== undefined
-            ? String(fetchedSubmissionData.generalAverage)
-            : "",
-      };
-    });
-  }, [submissions]);
-
-  // Reset or initialize the form when the selected semester changes.
-  useEffect(() => {
-    const sub = submissions.find((s) => s.semester === form.semester) ?? null;
-
-    // If there's no submission for the selected semester, reset to an empty, editable form.
-    if (!sub && form.semester) {
-      setForm({
-        ...INITIAL_FORM,
-        semester: form.semester,
-        grades: [
-          {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            subject: "",
-            grade: "",
-          },
-        ],
-      });
-      return;
-    }
-
-    // If a submission exists for the selected semester and the user hasn't entered data yet,
-    // prefill the general average (but keep file inputs empty so existing uploads are shown as retained).
-    if (sub) {
-      setForm((current) => {
-        const hasUserInput =
-          Boolean(current.generalAverage) ||
-          Boolean(current.gradeFile) ||
-          Boolean(current.coeFile) ||
-          Boolean(current.gradeFileUrl) ||
-          Boolean(current.coeFileUrl) ||
-          current.grades.some((g) => g.subject.trim() !== "" || g.grade.trim() !== "");
-
-        if (hasUserInput) return current;
-
-        return {
-          ...current,
-          semester: sub.semester || "",
-          generalAverage:
-            sub.generalAverage !== null && sub.generalAverage !== undefined ? String(sub.generalAverage) : "",
-          grades: [
-            {
-              id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              subject: "",
-              grade: "",
-            },
-          ],
-        };
-      });
-    }
-  }, [form.semester, submissions]);
-
-  const semesterOptions = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const currentAcademicYear = `${year - 1}-${year}`;
-    const nextAcademicYear = `${year}-${year + 1}`;
-
-    return [
-      `${currentAcademicYear} First Semester`,
-      `${currentAcademicYear} Second Semester`,
-      `${currentAcademicYear} Summer Term`,
-      `${nextAcademicYear} First Semester`,
-    ];
-  }, []);
 
   // Semester filter for the "Fully Cleared" submissions view
   const [fullyClearedSemesterFilter, setFullyClearedSemesterFilter] = useState<string>("all");
@@ -427,10 +214,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
   }, [fullyClearedRows]);
 
   // Reset filter when the underlying submissions change (e.g., on tab change or data reload)
-  useEffect(() => {
-    setFullyClearedSemesterFilter("all");
-  }, [submissions]);
-
   // Apply the semester filter only to fully-cleared rows; leave other status rows unaffected.
   const displayedSubmissions = useMemo(() => {
     if (fullyClearedSemesterFilter === "all") return submissions;
@@ -459,6 +242,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
   async function uploadFile(file: File, kind: "grade" | "coe") {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("kind", kind);
 
     const response = await fetch("/api/grantee/submissions/upload", {
       method: "POST",
@@ -471,9 +255,9 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
     }
 
     if (kind === "grade") {
-      setForm((prev) => ({ ...prev, gradeFile: file, gradeFileUrl: result.url }));
+      setForm((prev) => ({ ...prev, gradeFile: file, gradeFileUrl: result.path }));
     } else {
-      setForm((prev) => ({ ...prev, coeFile: file, coeFileUrl: result.url }));
+      setForm((prev) => ({ ...prev, coeFile: file, coeFileUrl: result.path }));
     }
   }
 
@@ -513,8 +297,8 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
       return;
     }
 
-    if (!form.semester) {
-      setMessage({ type: "error", text: "Please select a semester before submitting." });
+    if (!form.semester || /summer/i.test(form.semester)) {
+      setMessage({ type: "error", text: "Please select a supported academic semester." });
       return;
     }
 
@@ -528,60 +312,16 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
       form.coeFileUrl ||
       (referenceSubmission && !referenceFlags.has("COE") ? referenceSubmission.coeFileUrl : "");
 
-    const hasExistingGradeDocument =
-      Boolean(form.gradeFileUrl) ||
-      Boolean(referenceSubmission && !referenceFlags.has("GRADE_REPORT") && referenceSubmission.gradeFileUrl);
-
-    const requiresGradeSubmission = Boolean(
-      referenceFlags.has("GRADE_REPORT") ||
-      form.gradeFileUrl ||
-      (gradePhaseUnlocked && !hasExistingGradeDocument)
-    );
-
-    const gradeRowsAreComplete = form.grades.every((gradeRow) => {
-      const subject = gradeRow.subject.trim();
-      const grade = gradeRow.grade.trim();
-
-      if (!subject || !grade) {
-        return false;
-      }
-
-      const numericGrade = Number(grade);
-      return !Number.isNaN(numericGrade) && numericGrade >= 0 && numericGrade <= 100;
-    });
-
-    if (requiresGradeSubmission && !gradeRowsAreComplete) {
+    if (!finalGradeFileUrl || !finalCoeFileUrl) {
       setMessage({
         type: "error",
-        text: "Please complete every subject and grade field before submitting the grade report.",
-      });
-      return;
-    }
-
-    if (!finalCoeFileUrl) {
-      setMessage({ type: "error", text: "Please complete the Certificate of Enrollment upload before submitting." });
-      return;
-    }
-
-    if (requiresGradeSubmission && !finalGradeFileUrl) {
-      setMessage({
-        type: "error",
-        text:
-          referenceSubmission?.status === "RETURNED_FOR_EDIT"
-            ? "Please upload each document flagged for correction before submitting."
-            : "Please upload your grade report to complete this term.",
+        text: "Please upload both your grade report and Certificate of Enrollment before submitting.",
       });
       return;
     }
 
     setSubmitting(true);
     try {
-      const generalAverageValue = computedGwa !== ""
-        ? Number(computedGwa)
-        : form.generalAverage === ""
-        ? null
-        : Number(form.generalAverage);
-
       const response = await fetch("/api/grantee/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -589,8 +329,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
           semester: form.semester,
           gradeFileUrl: finalGradeFileUrl,
           coeFileUrl: finalCoeFileUrl,
-          generalAverage: generalAverageValue,
-          grades: form.grades,
         }),
       });
 
@@ -599,10 +337,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
         throw new Error(result?.error || "Failed to submit documents");
       }
 
-      setOptimisticPending({
-        semester: form.semester,
-        generalAverage: computedGwa || form.generalAverage,
-      });
       setForm((current) => ({
         ...current,
         gradeFile: null,
@@ -620,212 +354,71 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
   }
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto min-h-screen max-w-7xl space-y-6 bg-slate-50/40 p-4 sm:p-6 lg:p-8">
       <header
-        className="relative overflow-hidden rounded-3xl p-8 text-white sm:p-10"
-        style={{ background: `linear-gradient(135deg, ${BRAND} 0%, ${BRAND_DARK} 100%)` }}
+        className="relative overflow-hidden rounded-2xl bg-[#0a1f33] p-6 text-white shadow-sm sm:p-8"
       >
-        <div
-          className="absolute -right-24 -top-28 h-80 w-80 rounded-full opacity-20"
-          style={{ background: "radial-gradient(circle, rgba(255,255,255,0.8) 0%, transparent 70%)" }}
-        />
-        <div
-          className="absolute -bottom-20 -left-16 h-72 w-72 rounded-full opacity-10"
-          style={{ background: "radial-gradient(circle, rgba(255,255,255,1) 0%, transparent 70%)" }}
-        />
-        <div className="relative">
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">
-            <Sparkles className="h-3.5 w-3.5" />
-            SKEAP Grantee
-          </div>
-          <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">My Requirements</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/80 sm:text-base">
-            Upload your Certificate of Enrollment and Semester Grades to keep your grantee status active.
+        <div className="space-y-2">
+          <h1 className="text-2xl font-bold tracking-tight">My Requirements</h1>
+          <p className="max-w-2xl text-xs leading-relaxed text-slate-300 sm:text-sm">
+            Upload your Certificate of Enrollment and Grade Report to keep your grantee status active. Grade reports
+            are scanned automatically and routed for SK review.
           </p>
         </div>
       </header>
 
       <SemesterTracker term={tracker.current} approved={tracker.approved} total={tracker.total} pct={tracker.pct} />
 
-      <div className="grid gap-4 lg:grid-cols-5">
-        <section className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm lg:col-span-3">
-          <div
-            className="px-6 py-3 text-white"
-            style={{ background: `linear-gradient(135deg, ${BRAND} 0%, ${BRAND_DARK} 100%)` }}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/15">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold">Submit a Requirement</h2>
-                  <p className="text-xs text-white/75">Upload complete files for SK/admin verification</p>
-                </div>
-              </div>
-
-            </div>
+      <div className="grid grid-cols-1 items-stretch overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm lg:grid-cols-12">
+        <section className="border-b border-slate-200/80 p-5 sm:p-8 lg:col-span-8 lg:border-b-0 lg:border-r">
+          <div className="mb-6 space-y-1 border-b border-slate-100 pb-6">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">Submit Requirements</h2>
+            <p className="text-xs text-slate-500">
+              Upload your verification documents for automated OCR analysis and SK review.
+            </p>
           </div>
-
-          <div className="space-y-0 p-3">
+          <div className="space-y-0">
             {!canSubmit ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
                 Submissions are temporarily unavailable because your grantee profile is incomplete. Please update your school and year level in Profile settings. You can still view your requirement history.
               </div>
             ) : null}
 
-            <div className="space-y-0">
-              {message ? (
-                <div
-                  className={`rounded-xl border px-4 py-2.5 text-sm transition-all duration-300 ${
-                    message.type === "success"
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-rose-200 bg-rose-50 text-rose-700"
-                  }`}
-                >
-                  {message.text}
-                </div>
-              ) : null}
-
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm leading-relaxed text-slate-600">
-                <p className="font-semibold text-slate-900">Submission phases</p>
-                <p className="mt-2">
-                  Phase 1: upload your Certificate of Enrollment. Phase 2: grade report upload unlocks once enrollment verification is accepted or when grades are explicitly requested for correction.
-                </p>
+            {message ? (
+              <div
+                role={message.type === "error" ? "alert" : "status"}
+                className={`mb-4 rounded-xl border px-4 py-2.5 text-sm ${
+                  message.type === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-rose-200 bg-rose-50 text-rose-700"
+                }`}
+              >
+                {message.text}
               </div>
-            </div>
+            ) : null}
 
-            {showPendingLockView ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-6 transition-all duration-300">
-                <div className="mx-auto flex max-w-md flex-col items-center gap-4 py-4 text-center">
-                  <div className="grid h-16 w-16 place-items-center rounded-2xl border border-slate-200 bg-white text-indigo-600 shadow-sm">
-                    <Clock className="h-8 w-8" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="text-base font-bold text-slate-900">Verification in Progress</h3>
-                    <p className="text-xs leading-relaxed text-slate-500">
-                      Your submission is locked and currently being evaluated by the review team.
-                    </p>
-                  </div>
-                  <div className="grid w-full grid-cols-2 gap-2 pt-2">
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-left">
-                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Term</span>
-                      <span className="text-xs font-semibold text-slate-800">{pendingSnapshot?.semester || "Not selected"}</span>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-left">
-                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">GWA Passed</span>
-                      <span className="text-xs font-semibold text-slate-800">{pendingSnapshot?.generalAverage || "Not provided"}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="mt-4 grid gap-3 sm:grid-cols-[1.4fr_1fr]">
-                  <Field label="Academic Term">
-                    <select
-                      value={form.semester}
-                      onChange={(e) => setForm((prev) => ({ ...prev, semester: e.target.value }))}
-                      disabled={!canSubmit}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm outline-none transition duration-100 ease-in-out hover:border-[#0F3D5C] hover:bg-white/80 hover:shadow-sm focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
-                      required
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="mt-4 space-y-2">
+                  <Field label="Active Academic Term">
+                    <div
+                      aria-label={`Active academic term: ${form.semester}. Locked for submission.`}
+                      className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-800 sm:flex-row sm:items-center"
                     >
-                      <option value="">Select semester</option>
-                      {semesterOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
+                      <span>{form.semester} (Current Active Term)</span>
+                      <span className="inline-flex w-fit items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
+                        <Lock className="h-3 w-3" aria-hidden="true" />
+                        Locked for Submission
+                      </span>
+                    </div>
                   </Field>
-
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">General Weighted Average</div>
-                        <p className="text-xs text-slate-500">Computed from entered subject grades.</p>
-                      </div>
-                              <div className="rounded-3xl bg-white px-4 py-3 text-lg font-semibold text-slate-900 shadow-sm">
-                          {computedGwa || form.generalAverage || (currentSubmission?.generalAverage !== null && currentSubmission?.generalAverage !== undefined ? currentSubmission.generalAverage.toFixed(2) : "") || "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                <div className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-sm font-semibold text-slate-900">Grades</h2>
-                        {isSubmissionClosed ? (
-                          <span className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[12px] font-semibold text-emerald-700">Verified</span>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 text-sm text-slate-500">Add each subject and its numeric grade. GWA is calculated automatically.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addGradeRow}
-                      className={`inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                        gradeUploadAllowed && !isSubmissionClosed
-                          ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                          : "bg-slate-100 text-slate-400"
-                      }`}
-                      disabled={!canSubmit || !gradeUploadAllowed || isSubmissionClosed}
-                      title={
-                        isSubmissionClosed
-                          ? `Submission for ${form.semester || "this term"} is closed and verified.`
-                          : !gradeUploadAllowed
-                          ? "Grades input is locked until enrollment verification is accepted."
-                          : "Add a subject to the grade list"
-                      }
-                    >
-                      Add subject
-                    </button>
-                  </div>
-
-                  <div className="mt-2 space-y-2">
-                    {form.grades.map((gradeRow) => (
-                      <div key={gradeRow.id} className="grid gap-2 sm:grid-cols-[1fr_96px_36px]">
-                        <input
-                          value={gradeRow.subject}
-                          onChange={(e) => updateGrade(gradeRow.id, "subject", e.target.value)}
-                          placeholder="Subject"
-                          className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10"
-                          disabled={!canSubmit || !gradeUploadAllowed || isSubmissionClosed}
-                        />
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={gradeRow.grade}
-                          onChange={(e) => updateGrade(gradeRow.id, "grade", e.target.value)}
-                          placeholder="Grade"
-                          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-4 focus:ring-[#0F3D5C]/10"
-                          disabled={!canSubmit || !gradeUploadAllowed || isSubmissionClosed}
-                        />
-                        {!isSubmissionClosed ? (
-                          <button
-                            type="button"
-                            onClick={() => removeGradeRow(gradeRow.id)}
-                            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
-                            aria-label="Remove subject"
-                            disabled={!canSubmit || !gradeUploadAllowed || form.grades.length === 1}
-                          >
-                            ×
-                          </button>
-                        ) : (
-                          <div />
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Requirements are evaluated against the active academic period.
+                  </p>
                 </div>
 
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-4 pt-1 md:grid-cols-2">
                 <Field label="Upload Grade Report">
-                  {gradeUploadAllowed ? (
-                    hasExistingGradeReport && !isGradeReportFlagged && !form.gradeFile ? (
+                  {hasExistingGradeReport && !isGradeReportFlagged && !form.gradeFile ? (
                       <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/60 bg-slate-50/80 p-5 shadow-xs">
                         <div className="flex min-w-0 items-center gap-3">
                           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-emerald-600">
@@ -844,21 +437,14 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                       <FileDrop
                         file={form.gradeFile}
                         uploading={uploadingGrade}
-                        emptyTitle="Click to upload"
-                        emptySubtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                        emptyTitle="Choose a file or drag it here"
+                        emptySubtitle="Our OCR will read the report for SK/admin verification."
                         subtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                        accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
                         onChange={(file) => handleFileChange(file, "grade")}
                         onRemoveFile={() => setForm((prev) => ({ ...prev, gradeFile: null, gradeFileUrl: "" }))}
-                        disabled={!canSubmit || !gradeUploadAllowed || submitting || uploadingGrade || isSubmissionClosed}
+                        disabled={!canSubmit || submitting || uploadingGrade || isSubmissionClosed}
                       />
-                    )
-                  ) : (
-                    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                      <div className="font-semibold text-slate-900">Unlocks at the end of the term</div>
-                      <p className="mt-2 text-slate-500">
-                        Grade report upload becomes available after your enrollment verification has been approved.
-                      </p>
-                    </div>
                   )}
                   {hasReturnedSubmission && isGradeReportFlagged && !form.gradeFile ? (
                     <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
@@ -867,7 +453,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                   ) : null}
                 </Field>
 
-                <Field label="Upload Certificate of Enrollment">
+                <Field label="Certificate of Enrollment">
                   {hasExistingCoe && !isCoeFlagged && !form.coeFile ? (
                     <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/60 bg-slate-50/80 p-5 shadow-xs">
                       <div className="flex min-w-0 items-center gap-3">
@@ -888,8 +474,9 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                       file={form.coeFile}
                       uploading={uploadingCoe}
                       emptyTitle="Click to upload"
-                      emptySubtitle="PDF, JPG, PNG, WEBP - max 10MB"
-                      subtitle="PDF, JPG, PNG, WEBP - max 10MB"
+                      emptySubtitle="PDF, DOC, DOCX, JPG, PNG, or WEBP - max 10MB"
+                      subtitle="PDF, DOC, DOCX, JPG, PNG, WEBP - max 10MB"
+                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp"
                       onChange={(file) => handleFileChange(file, "coe")}
                       onRemoveFile={() => setForm((prev) => ({ ...prev, coeFile: null, coeFileUrl: "" }))}
                       disabled={!canSubmit || submitting || uploadingCoe || isSubmissionClosed}
@@ -909,11 +496,11 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                 </div>
               ) : (
                 <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
-                  <span className="font-semibold text-slate-700">Heads up:</span> Please upload readable files. SK/admin will review the latest semester submission for approval.
+                  <span className="font-semibold text-slate-700">Automated document review:</span> Upload clear, readable files. Unclear scans will be routed to SK/admin for manual review.
                 </div>
               )}
 
-              <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+              <div className="sticky bottom-0 z-10 -mx-3 flex flex-col gap-3 border-t border-slate-100 bg-white/95 px-3 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <ShieldCheck className="h-4 w-4 text-emerald-600" />
                   Encrypted and securely stored
@@ -933,34 +520,35 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                     className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
                     style={{ backgroundColor: BRAND }}
                   >
-                    {submitting ? "Submitting..." : submitButtonLabel}
+                    {submitting ? "Submitting..." : hasReturnedSubmission ? "Update Requirements" : "Submit Requirements"}
                   </button>
                 )}
               </div>
-              </form>
-            )}
+            </form>
           </div>
         </section>
 
-        <section className="space-y-5 lg:col-span-2">
-          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-            <MetricCard label="Pending" value={stats.pending.toString()} tone="pending" />
-            <MetricCard label="Approved" value={stats.approved.toString()} tone="approved" />
-            <MetricCard label="Needs editing" value={stats.needsEdit.toString()} tone="revision" />
-          </div>
+        <aside className="flex flex-col gap-8 bg-white p-5 sm:p-8 lg:col-span-4">
+          <section className="space-y-4">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900">Status Breakdown</h2>
+            <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-100 bg-white">
+              <StatusRow label="Pending" value={stats.pending} tone="pending" />
+              <StatusRow label="Approved" value={stats.approved} tone="approved" />
+              <StatusRow label="Review" value={stats.needsEdit} tone="revision" />
+            </div>
+          </section>
 
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">My Submissions</h2>
-          </div>
+          <section className="flex flex-1 flex-col gap-4">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900">Recent Submissions</h2>
 
           {fullyClearedRows.length > 0 && (
-            <div className="mt-3 mb-2 flex items-center justify-start gap-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
               <label htmlFor="fully-cleared-semester" className="sr-only">Filter fully cleared by semester</label>
               <select
                 id="fully-cleared-semester"
                 value={fullyClearedSemesterFilter}
                 onChange={(e) => setFullyClearedSemesterFilter(e.target.value)}
-                className="min-w-[220px] rounded-lg border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                className="min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
               >
                 {fullyClearedSemesterOptions.map((opt) => (
                   <option key={opt} value={opt}>
@@ -969,15 +557,19 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
                 ))}
               </select>
 
-              <div className="text-sm text-slate-500">
+              <div className="text-xs text-slate-500">
                 {fullyClearedRows.filter((r) => fullyClearedSemesterFilter === "all" || r.semester === fullyClearedSemesterFilter).length} fully cleared
               </div>
             </div>
           )}
 
           {submissions.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
-              No submissions yet. Start by uploading your first semester requirement.
+            <div className="flex flex-1 flex-col items-center justify-center space-y-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/30 p-8 text-center">
+              <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                <FileText className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <p className="text-xs font-semibold text-slate-800">No submissions recorded yet.</p>
+              <p className="max-w-[200px] text-[11px] leading-relaxed text-slate-400">Upload your term files above to begin.</p>
             </div>
           ) : (
             groupedSubmissions.map(([year, items]) => (
@@ -988,7 +580,8 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
               </YearGroup>
             ))
           )}
-        </section>
+          </section>
+        </aside>
       </div>
     </div>
   );
@@ -1002,10 +595,10 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
+    <div className="block">
       <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">{label}</span>
       {children}
-    </label>
+    </div>
   );
 }
 
@@ -1015,6 +608,7 @@ function FileDrop({
   emptyTitle,
   emptySubtitle,
   subtitle,
+  accept,
   onChange,
   onRemoveFile,
   disabled,
@@ -1024,6 +618,7 @@ function FileDrop({
   emptyTitle: string;
   emptySubtitle: string;
   subtitle: string;
+  accept: string;
   onChange: (file: File | null) => void;
   onRemoveFile: () => void;
   disabled?: boolean;
@@ -1112,7 +707,7 @@ function FileDrop({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`block rounded-2xl border-2 border-dashed p-6 text-center transition ${
+      className={`block rounded-2xl border-2 border-dashed p-6 text-center transition motion-safe:duration-150 focus-within:ring-4 focus-within:ring-[#0F3D5C]/10 ${
         disabled
           ? "cursor-not-allowed border-slate-200 bg-slate-100/80"
           : isDragging
@@ -1128,8 +723,9 @@ function FileDrop({
       <input
         ref={inputRef}
         type="file"
-        accept="application/pdf,image/png,image/jpeg,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.doc,.docx"
-        className="hidden"
+        accept={accept}
+        aria-label={emptyTitle}
+        className="sr-only"
         disabled={disabled}
         onChange={(e) => {
           onChange(e.target.files?.[0] ?? null);
@@ -1152,54 +748,59 @@ function SemesterTracker({
   pct: number;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-100 bg-white px-6 py-5 shadow-sm">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-4">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl" style={{ backgroundColor: `${BRAND}14`, color: BRAND }}>
+    <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-900 text-white shadow-sm">
             <Calendar className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Current Semester</p>
-            <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">
-              {term} - {approved} of {total} Approved
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Current semester</p>
+            <p className="text-sm font-bold text-slate-900">
+              {term}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4 sm:w-[55%]">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+        <div className="w-full space-y-1.5 md:w-80">
+          <div className="flex justify-between text-xs font-medium text-slate-600">
+            <span className="text-slate-400">Requirement Progress</span>
+            <span className="font-bold text-slate-900">{approved} of {total} Approved</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full rounded-full transition-all"
+              className="h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500"
               style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${BRAND}, ${BRAND_DARK})` }}
             />
           </div>
-          <span className="w-10 text-right text-sm font-semibold tabular-nums text-slate-700">{pct}%</span>
         </div>
       </div>
     </section>
   );
 }
 
-function MetricCard({
+function StatusRow({
   label,
   value,
   tone,
 }: {
   label: string;
-  value: string;
+  value: number;
   tone: "pending" | "approved" | "revision";
 }) {
-  const styles =
-    tone === "approved"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : tone === "revision"
-      ? "border-rose-200 bg-rose-50 text-rose-700"
-      : "border-slate-200 bg-slate-50 text-slate-700";
+  const styles = {
+    pending: { dot: "bg-amber-500", value: "text-amber-600" },
+    approved: { dot: "bg-emerald-500", value: "text-emerald-600" },
+    revision: { dot: "bg-rose-500", value: "text-rose-600" },
+  }[tone];
 
   return (
-    <div className={`rounded-2xl border p-4 ${styles}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">{label}</p>
-      <p className="mt-2 text-2xl font-black">{value}</p>
+    <div className="flex items-center justify-between p-3.5 text-xs">
+      <div className="flex items-center gap-2">
+        <span aria-hidden="true" className={`h-2 w-2 rounded-full ${styles.dot}`} />
+        <span className="font-medium text-slate-700">{label}</span>
+      </div>
+      <span className={`font-bold ${styles.value}`}>{value}</span>
     </div>
   );
 }
@@ -1220,8 +821,9 @@ function HistoryItem({ submission }: { submission: SubmissionItem }) {
   const displayStatus = getSubmissionDisplayStatus(submission);
   const hasGradeReport = Boolean(submission.gradeFileUrl);
   const hasCoe = Boolean(submission.coeFileUrl);
+  const ocrBadge = hasGradeReport ? ocrStatusBadge(submission.ocrStatus) : null;
   return (
-    <article className="relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition hover:shadow-md">
+    <article className="relative overflow-hidden rounded-2xl border border-slate-100 bg-white transition-shadow motion-safe:duration-150 hover:shadow-md">
       <span className={`absolute left-0 top-0 h-full w-1 ${displayStatus.tone.bar}`} />
       <div className="p-5 pl-6">
         <div className="flex items-start justify-between gap-3">
@@ -1231,7 +833,7 @@ function HistoryItem({ submission }: { submission: SubmissionItem }) {
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {hasGradeReport ? (
                 <a
-                  href={submission.gradeFileUrl}
+                  href={`/api/submissions/${submission.id}/file?kind=grade`}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
@@ -1242,7 +844,7 @@ function HistoryItem({ submission }: { submission: SubmissionItem }) {
               ) : null}
               {hasCoe ? (
                 <a
-                  href={submission.coeFileUrl}
+                  href={`/api/submissions/${submission.id}/file?kind=coe`}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100"
@@ -1252,6 +854,14 @@ function HistoryItem({ submission }: { submission: SubmissionItem }) {
                 </a>
               ) : null}
             </div>
+            {ocrBadge ? (
+              <span
+                className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${ocrBadge.className}`}
+                role="status"
+              >
+                {ocrBadge.label}
+              </span>
+            ) : null}
             {submission.reviewNotes ? (
               <p className="mt-2 text-xs leading-relaxed text-rose-700">Admin note: {submission.reviewNotes}</p>
             ) : null}

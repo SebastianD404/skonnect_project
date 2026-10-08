@@ -5,6 +5,7 @@ import type { SubmissionStatus } from "@prisma/client";
 import { ArrowUpRight, CheckCircle2, FileCheck2, FileText, Loader2, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import OcrVerificationPanel from "./OcrVerificationPanel";
 
 interface SubmissionRow {
   id: string;
@@ -395,7 +396,7 @@ export default function SubmissionReviewTable() {
                                       <div>
                                         <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Certificate of Enrollment</h3>
                                         <a
-                                          href={submission.coeFileUrl}
+                                          href={`/api/submissions/${submission.id}/file?kind=coe`}
                                           target="_blank"
                                           rel="noreferrer"
                                           className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-[#0B192C] transition-all hover:underline"
@@ -481,7 +482,7 @@ export default function SubmissionReviewTable() {
                                         <div>
                                           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Grade Report</h3>
                                           <a
-                                            href={submission.gradeFileUrl}
+                                            href={`/api/submissions/${submission.id}/file?kind=grade`}
                                             target="_blank"
                                             rel="noreferrer"
                                             className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-[#0B192C] transition-all hover:underline"
@@ -501,6 +502,8 @@ export default function SubmissionReviewTable() {
                                         </span>
                                       )}
                                     </div>
+
+                                    <OcrVerificationPanel submissionId={submission.id} />
 
                                     {!gradesIsApproved && (
                                       <div className="mt-4 space-y-3">
