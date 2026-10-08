@@ -1,4 +1,4 @@
-import { createCanvas } from "@napi-rs/canvas";
+import { createRequire } from "node:module";
 import sharp from "sharp";
 import Tesseract from "tesseract.js";
 import { parseGradeReportText } from "@/lib/grade-report-parser";
@@ -13,6 +13,11 @@ const MIN_OCR_CONFIDENCE = 65;
 const MAX_IMAGE_WIDTH = 3600;
 const MAX_IMAGE_HEIGHT = 5000;
 const DEFAULT_IMAGE_WIDTH = 2600;
+const require = createRequire(`${process.cwd()}/package.json`);
+
+function loadCanvas() {
+  return require("@napi-rs/canvas") as typeof import("@napi-rs/canvas");
+}
 
 export type GradeReportOcrStatus = "OCR_DONE" | "OCR_NEEDS_REVIEW";
 
@@ -88,6 +93,7 @@ async function rasterizePdf(pdfBuffer: Buffer) {
         MAX_IMAGE_HEIGHT / originalViewport.height
       );
       const viewport = page.getViewport({ scale });
+      const { createCanvas } = loadCanvas();
       const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
       const context = canvas.getContext("2d");
       await page.render({
