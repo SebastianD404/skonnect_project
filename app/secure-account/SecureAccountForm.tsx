@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { useActionState } from "react";
 import { secureAccount } from "./actions";
+import { useAuth } from "@/app/components/AuthProvider";
 
 export default function SecureAccountForm({
   suggestedUsername,
@@ -23,6 +25,8 @@ export default function SecureAccountForm({
   redirect?: string | null;
   redirectLabel?: string | null;
 }) {
+  const router = useRouter();
+  const { refresh: refreshAuth } = useAuth();
   const [state, formAction, pending] = useActionState(secureAccount, null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -45,6 +49,24 @@ export default function SecureAccountForm({
   const passwordStrengthLabel =
     matchedChecks <= 1 ? "Needs work" : matchedChecks === 2 ? "Getting there" : matchedChecks === 3 ? "Strong" : "Excellent";
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
+
+  useEffect(() => {
+    if (!state?.redirectTo) return;
+
+    const destination = state.redirectTo;
+    let cancelled = false;
+    async function finishAccountSetup() {
+      await refreshAuth();
+      if (cancelled) return;
+      router.replace(destination);
+      router.refresh();
+    }
+
+    void finishAccountSetup();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshAuth, router, state?.redirectTo]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(15,61,92,0.10),_transparent_32%),linear-gradient(180deg,#f8fbff_0%,#f6f9fc_100%)] text-slate-900">
@@ -121,6 +143,11 @@ export default function SecureAccountForm({
                     </div>
                   </div>
                 </div>
+              ) : null}
+              {state?.redirectTo ? (
+                <p role="status" aria-live="polite" className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                  Account secured. Redirecting you now...
+                </p>
               ) : null}
 
               <form action={formAction} className="mt-6 space-y-5">

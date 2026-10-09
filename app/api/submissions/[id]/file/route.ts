@@ -52,9 +52,67 @@ export async function GET(
       storedFile,
       submission.grantee.user.authId
     );
-    return NextResponse.redirect(signedUrl);
+    const isMetadataRequest = request.nextUrl.searchParams.get("metadata") === "true";
+    const fileResponse = await fetch(signedUrl, {
+      cache: "no-store",
+      method: isMetadataRequest ? "HEAD" : "GET",
+    });
+    if (!fileResponse.ok) {
+      const upstreamError = await fileResponse.text().catch(() => "");
+      if (fileResponse.status === 404 || /object not found|not_found/i.test(upstreamError)) {
+        return NextResponse.json(
+          { code: "FILE_NOT_FOUND", error: "The uploaded document could not be found in storage." },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json({ error: "Could not retrieve submission file." }, { status: 502 });
+    }
+    if (!fileResponse.body) {
+      if (isMetadataRequest && fileResponse.ok) {
+        const extension = storedFile.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() ?? "";
+        return NextResponse.json({
+          contentType: fileResponse.headers.get("content-type")?.split(";")[0].toLowerCase() ?? null,
+          extension,
+        });
+      }
+      return NextResponse.json({ error: "Could not retrieve submission file." }, { status: 502 });
+    }
+
+    const upstreamContentType = fileResponse.headers.get("content-type")?.split(";")[0].toLowerCase();
+    if (isMetadataRequest) {
+      const extension = storedFile.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() ?? "";
+      return NextResponse.json({ contentType: upstreamContentType ?? null, extension });
+    }
+
+    const inlineTypes = new Set(["application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp"]);
+    const isDownload = request.nextUrl.searchParams.get("download") === "true";
+    if (!isDownload && (!upstreamContentType || !inlineTypes.has(upstreamContentType))) {
+      return NextResponse.redirect(
+        new URL(`/admin/submissions/${id}/document?kind=${kind}`, request.url)
+      );
+    }
+
+    const extension = storedFile.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase();
+    const safeExtension = extension && /^[a-z0-9]{1,10}$/.test(extension) ? `.${extension}` : "";
+    const headers = new Headers({
+      "Content-Type": upstreamContentType || "application/octet-stream",
+      "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${kind === "coe" ? "certificate-of-enrollment" : "grade-report"}${safeExtension}"`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    const contentLength = fileResponse.headers.get("content-length");
+    if (contentLength) headers.set("Content-Length", contentLength);
+
+    return new NextResponse(fileResponse.body, { headers });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not access submission file.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const message = error instanceof Error ? error.message : "";
+    if (/object not found|not found/i.test(message)) {
+      return NextResponse.json(
+        { code: "FILE_NOT_FOUND", error: "The uploaded document could not be found in storage." },
+        { status: 404 }
+      );
+    }
+    console.error("Could not access submission file:", error);
+    return NextResponse.json({ error: "Could not access submission file." }, { status: 500 });
   }
 }

@@ -7,32 +7,25 @@ import { createClient } from "@/lib/supabase/server";
 const PAGE_SIZE_DEFAULT = 10;
 const PAGE_SIZE_MAX = 50;
 
-const PHASES = ["pending-coe", "active-scholars", "pending-grades", "completed"] as const;
-type Phase = (typeof PHASES)[number];
+const STATUS_FILTERS = ["pending", "returned", "cleared"] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-function getPhaseWhere(phase: Phase): Prisma.SubmissionWhereInput {
-  const hasCoe = { not: "" };
-  const hasGrades = { not: "" };
+function getStatusWhere(status: StatusFilter): Prisma.SubmissionWhereInput {
+  const hasBothDocuments = {
+    coeFileUrl: { not: "" },
+    gradeFileUrl: { not: "" },
+  };
 
-  switch (phase) {
-    case "pending-coe":
+  switch (status) {
+    case "pending":
+      return { ...hasBothDocuments, status: "PENDING" };
+    case "returned":
       return {
-        OR: [
-          { status: "PENDING", coeFileUrl: hasCoe, gradeFileUrl: "" },
-          { status: "RETURNED_FOR_EDIT", gradeFileUrl: "" },
-        ],
+        ...hasBothDocuments,
+        status: { in: ["RETURNED_FOR_EDIT", "REJECTED"] },
       };
-    case "active-scholars":
-      return { status: "APPROVED", coeFileUrl: hasCoe, gradeFileUrl: "" };
-    case "pending-grades":
-      return {
-        OR: [
-          { status: "PENDING", gradeFileUrl: hasGrades },
-          { status: "RETURNED_FOR_EDIT", gradeFileUrl: hasGrades },
-        ],
-      };
-    case "completed":
-      return { status: "APPROVED", coeFileUrl: hasCoe, gradeFileUrl: hasGrades };
+    case "cleared":
+      return { ...hasBothDocuments, status: "APPROVED" };
   }
 }
 
@@ -84,12 +77,12 @@ export async function GET(request: NextRequest) {
   }
 
   const params = request.nextUrl.searchParams;
-  const phaseValue = params.get("status") ?? "pending-coe";
-  if (!PHASES.includes(phaseValue as Phase)) {
+  const statusValue = params.get("status") ?? "pending";
+  if (!STATUS_FILTERS.includes(statusValue as StatusFilter)) {
     return NextResponse.json({ error: "Invalid submissions status filter." }, { status: 400 });
   }
 
-  const phase = phaseValue as Phase;
+  const statusFilter = statusValue as StatusFilter;
   const requestedPage = Number.parseInt(params.get("page") ?? "1", 10);
   const requestedLimit = Number.parseInt(params.get("limit") ?? String(PAGE_SIZE_DEFAULT), 10);
   const pageSize = Number.isFinite(requestedLimit)
@@ -101,24 +94,23 @@ export async function GET(request: NextRequest) {
   const searchWhere = buildSearchWhere(search);
   const currentWhere: Prisma.SubmissionWhereInput = {
     AND: [
-      getPhaseWhere(phase),
-      ...(semester && semester !== "all" ? [{ semester }] : []),
+      getStatusWhere(statusFilter),
+      ...(statusFilter === "cleared" && semester && semester !== "all" ? [{ semester }] : []),
       ...(searchWhere ? [searchWhere] : []),
     ],
   };
 
-  const countWhere = (phaseToCount: Phase): Prisma.SubmissionWhereInput => getPhaseWhere(phaseToCount);
+  const countWhere = (statusToCount: StatusFilter): Prisma.SubmissionWhereInput => getStatusWhere(statusToCount);
 
   try {
-    const [totalCount, pendingCoeCount, activeScholarsCount, pendingGradesCount, completedCount, semesterRows] = await Promise.all([
+    const [totalCount, pendingReviewCount, returnedForEditsCount, fullyClearedCount, semesterRows] = await Promise.all([
       prisma.submission.count({ where: currentWhere }),
-      prisma.submission.count({ where: countWhere("pending-coe") }),
-      prisma.submission.count({ where: countWhere("active-scholars") }),
-      prisma.submission.count({ where: countWhere("pending-grades") }),
-      prisma.submission.count({ where: countWhere("completed") }),
-      phase === "completed"
+      prisma.submission.count({ where: countWhere("pending") }),
+      prisma.submission.count({ where: countWhere("returned") }),
+      prisma.submission.count({ where: countWhere("cleared") }),
+      statusFilter === "cleared"
         ? prisma.submission.findMany({
-            where: getPhaseWhere("completed"),
+            where: getStatusWhere("cleared"),
             distinct: ["semester"],
             orderBy: { semester: "asc" },
             select: { semester: true },
@@ -136,6 +128,8 @@ export async function GET(request: NextRequest) {
       gradeRows: true,
       generalAverage: true,
       status: true,
+      coeStatus: true,
+      gradesStatus: true,
       reviewNotes: true,
       ...(includeFlaggedFields ? { flaggedFields: true } : {}),
       submittedAt: true,
@@ -186,10 +180,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       rows,
       counts: {
-        "pending-coe": pendingCoeCount,
-        "active-scholars": activeScholarsCount,
-        "pending-grades": pendingGradesCount,
-        completed: completedCount,
+        pending: pendingReviewCount,
+        returned: returnedForEditsCount,
+        cleared: fullyClearedCount,
       },
       totalCount,
       page,

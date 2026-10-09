@@ -50,8 +50,38 @@ describe("processSubmissionGradeReportOcr", () => {
       where: {
         id: "submission-1",
         gradeFileUrl: "grantee-submissions/user/file.pdf",
+        ocrStatus: "OCR_PENDING",
       },
-      data: { ocrStatus: "OCR_FAILED" },
+      data: {
+        ocrStatus: "OCR_FAILED",
+        ocrGwa: null,
+        ocrTotalUnits: null,
+        ocrConfidence: null,
+      },
     });
+  });
+
+  it("marks OCR as failed when processing exceeds 30 seconds", async () => {
+    vi.useFakeTimers();
+    mocks.processGradeReportOcr.mockReturnValue(new Promise(() => {}));
+
+    const processing = processSubmissionGradeReportOcr("submission-1");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await processing;
+
+    expect(mocks.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "submission-1",
+        gradeFileUrl: "grantee-submissions/user/file.pdf",
+        ocrStatus: "OCR_PENDING",
+      },
+      data: {
+        ocrStatus: "OCR_FAILED",
+        ocrGwa: null,
+        ocrTotalUnits: null,
+        ocrConfidence: null,
+      },
+    });
+    vi.useRealTimers();
   });
 });

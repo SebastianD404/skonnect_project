@@ -38,7 +38,7 @@ async function getReminderSettings() {
 
   return {
     skeapReminderOffsets: skeapOffsets.length > 0 ? skeapOffsets.join(", ") : DEFAULT_SETTINGS.skeapReminderOffsets,
-    skeapDeadline: skeap?.deadline ? skeap.deadline.toISOString().slice(0, 10) : null,
+    skeapDeadline: skeap?.deadline?.toISOString() ?? null,
   };
 }
 
@@ -46,18 +46,18 @@ async function upsertReminderSetting(
   client: Prisma.TransactionClient,
   type: ReminderType,
   offsets: number[],
-  deadline?: string | null
+  deadline: Date | null
 ) {
   return client.reminderSetting.upsert({
     where: { type },
     create: {
       type,
       offsets,
-      deadline: deadline ? new Date(`${deadline}T00:00:00.000Z`) : null,
+      deadline,
     },
     update: {
       offsets,
-      deadline: deadline ? new Date(`${deadline}T00:00:00.000Z`) : null,
+      deadline,
     },
   });
 }
@@ -114,6 +114,17 @@ export async function POST(request: Request) {
     skeapDeadline,
   } = payload;
 
+  let parsedDeadline: Date | null = null;
+  if (skeapDeadline !== null && skeapDeadline !== undefined && skeapDeadline !== "") {
+    if (typeof skeapDeadline !== "string") {
+      return NextResponse.json({ error: "Invalid SKEAP deadline." }, { status: 400 });
+    }
+    parsedDeadline = new Date(skeapDeadline);
+    if (Number.isNaN(parsedDeadline.getTime())) {
+      return NextResponse.json({ error: "Invalid SKEAP deadline." }, { status: 400 });
+    }
+  }
+
   if (!fullName || !email) {
     return NextResponse.json({ error: "Name and email are required." }, { status: 400 });
   }
@@ -158,7 +169,7 @@ export async function POST(request: Request) {
         tx,
         ReminderType.SKEAP_APPLICATION,
         parseReminderOffsets(String(skeapReminderOffsets ?? "")),
-        typeof skeapDeadline === "string" ? skeapDeadline : null
+        parsedDeadline
       );
 
       await writeAuditLog(tx, {
@@ -186,12 +197,12 @@ export async function POST(request: Request) {
         beforeData: previousSettings,
         afterData: {
           skeapReminderOffsets,
-          skeapDeadline,
+          skeapDeadline: parsedDeadline?.toISOString() ?? null,
         },
         metadata: {
           target: appUser.fullName,
           targetId: appUser.id,
-          skeapDeadline,
+          skeapDeadline: parsedDeadline?.toISOString() ?? null,
         },
       });
     });

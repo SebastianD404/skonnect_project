@@ -85,7 +85,19 @@ interface InquiriesPageClientProps {
   pendingSubmissionCount: number;
   statsByPeriod: Record<TimePeriod, StatItem[]>;
   inquiries: InquiryRow[];
+  inquiryCounts: Record<"ALL" | "OPEN" | "RESOLVED", number>;
+  operationalStats: {
+    activeBacklog: number;
+    receivedToday: number;
+    receivedYesterday: number;
+    resolvedThisMonth: number;
+    resolvedLastMonth: number;
+    averageResponseTime: number | null;
+    previousAverageResponseTime: number | null;
+  };
 }
+
+const INQUIRY_PAGE_SIZE = 15;
 
 const INQUIRY_FILTERS: Array<{ label: string; value: "ALL" | "OPEN" | "RESOLVED" }> = [
   { label: "All", value: "ALL" },
@@ -95,6 +107,8 @@ const INQUIRY_FILTERS: Array<{ label: string; value: "ALL" | "OPEN" | "RESOLVED"
 
 export default function InquiriesPageClient({
   inquiries,
+  inquiryCounts,
+  operationalStats,
 }: InquiriesPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -104,6 +118,9 @@ export default function InquiriesPageClient({
   const [selectedInquiryId, setSelectedInquiryId] = useState<string | null>(inquiries[0]?.id ?? null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [localInquiries, setLocalInquiries] = useState(inquiries);
+  const [counts, setCounts] = useState(inquiryCounts);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const conversationContainerRef = useRef<HTMLDivElement>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
@@ -113,22 +130,54 @@ export default function InquiriesPageClient({
   const appliedDeepLinkId = useRef<string | null>(null);
 
   useEffect(() => {
-    setLocalInquiries(inquiries);
-  }, [inquiries]);
+    setLocalInquiries((current) => {
+      const firstPageIds = new Set(inquiries.map((inquiry) => inquiry.id));
+      return [...inquiries, ...current.filter((inquiry) => !firstPageIds.has(inquiry.id))];
+    });
+    setCounts(inquiryCounts);
+  }, [inquiries, inquiryCounts]);
 
   useEffect(() => {
-    if (
-      !targetInquiryId ||
-      appliedDeepLinkId.current === targetInquiryId ||
-      !localInquiries.some((inquiry) => inquiry.id === targetInquiryId)
-    ) {
-      return;
+    if (!targetInquiryId || appliedDeepLinkId.current === targetInquiryId) return;
+    const targetId = targetInquiryId;
+    let active = true;
+    appliedDeepLinkId.current = targetId;
+
+    async function selectTargetInquiry() {
+      let target = localInquiries.find((inquiry) => inquiry.id === targetId);
+      if (!target) {
+        try {
+          const response = await fetch(`/api/admin/inquiries?id=${encodeURIComponent(targetId)}`, {
+            cache: "no-store",
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error ?? "Unable to load the selected inquiry.");
+          const fetchedTarget: InquiryRow | undefined = Array.isArray(payload.inquiries)
+            ? payload.inquiries[0]
+            : undefined;
+          target = fetchedTarget;
+          if (fetchedTarget && active) {
+            setLocalInquiries((current) => current.some((inquiry) => inquiry.id === fetchedTarget.id)
+              ? current
+              : [...current, fetchedTarget]);
+          }
+        } catch (error) {
+          if (active) {
+            setLoadMoreError(error instanceof Error ? error.message : "Unable to load the selected inquiry.");
+          }
+          return;
+        }
+      }
+      if (!target || !active) return;
+      setSelectedInquiryId(targetId);
+      setStatusFilter("ALL");
+      setSearchQuery("");
     }
 
-    appliedDeepLinkId.current = targetInquiryId;
-    setSelectedInquiryId(targetInquiryId);
-    setStatusFilter("ALL");
-    setSearchQuery("");
+    void selectTargetInquiry();
+    return () => {
+      active = false;
+    };
   }, [localInquiries, setSearchQuery, targetInquiryId]);
 
   useEffect(() => {
@@ -141,7 +190,7 @@ export default function InquiriesPageClient({
       if (document.visibilityState === "visible") refreshInquiries();
     };
 
-    const intervalId = window.setInterval(refreshInquiries, 20_000);
+    const intervalId = window.setInterval(refreshInquiries, 10_000);
     window.addEventListener("focus", refreshInquiries);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -174,6 +223,11 @@ export default function InquiriesPageClient({
   }, [localInquiries, searchQuery, statusFilter]);
 
   const selectedInquiry = filteredInquiries.find((item) => item.id === selectedInquiryId) ?? null;
+  const statusLoadedCount = localInquiries.filter((inquiry) =>
+    statusFilter === "ALL" ||
+    (statusFilter === "OPEN" ? !inquiry.isResolved : inquiry.isResolved)
+  ).length;
+  const activeTotalCount = counts[statusFilter];
   const selectedConversationKey = useMemo(() => {
     return selectedInquiry
       ? getConversationMessages(selectedInquiry)
@@ -189,70 +243,22 @@ export default function InquiriesPageClient({
   }, [selectedInquiryId, selectedConversationKey]);
 
   const operationalMetrics = useMemo(() => {
-    const now = new Date();
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfYesterday = new Date(startOfToday);
-    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-    const startOfThisMonth = new Date(startOfToday);
-    startOfThisMonth.setDate(startOfThisMonth.getDate() - 30);
-    const startOfLastMonth = new Date(startOfThisMonth);
-    startOfLastMonth.setDate(startOfLastMonth.getDate() - 30);
-    const nowTimestamp = now.getTime();
-    const startOfTodayTimestamp = startOfToday.getTime();
-    const startOfYesterdayTimestamp = startOfYesterday.getTime();
-    const startOfThisMonthTimestamp = startOfThisMonth.getTime();
-    const startOfLastMonthTimestamp = startOfLastMonth.getTime();
-
-    const activeBacklog = localInquiries.filter((inquiry) => !inquiry.isResolved).length;
-    const receivedToday = localInquiries.filter((inquiry) => {
-      const createdAt = Date.parse(inquiry.createdAt);
-      return createdAt >= startOfTodayTimestamp && createdAt <= nowTimestamp;
-    }).length;
-    const receivedYesterday = localInquiries.filter((inquiry) => {
-      const createdAt = Date.parse(inquiry.createdAt);
-      return createdAt >= startOfYesterdayTimestamp && createdAt < startOfTodayTimestamp;
-    }).length;
-    const resolvedThisMonth = localInquiries.filter((inquiry) => {
-      if (!inquiry.isResolved || !inquiry.respondedAt) return false;
-      const respondedAt = Date.parse(inquiry.respondedAt);
-      return respondedAt >= startOfThisMonthTimestamp && respondedAt <= nowTimestamp;
-    }).length;
-    const resolvedLastMonth = localInquiries.filter((inquiry) => {
-      if (!inquiry.isResolved || !inquiry.respondedAt) return false;
-      const respondedAt = Date.parse(inquiry.respondedAt);
-      return respondedAt >= startOfLastMonthTimestamp && respondedAt < startOfThisMonthTimestamp;
-    }).length;
-
-    const currentMonthResponseTimes: number[] = [];
-    const lastMonthResponseTimes: number[] = [];
-    for (const inquiry of localInquiries) {
-      const firstAdminReply = getConversationMessages(inquiry).find((item) => item.role === "admin");
-      const createdTimestamp = Date.parse(inquiry.createdAt);
-      const firstReplyTimestamp = Date.parse(firstAdminReply?.createdAt ?? "");
-      const latestResponseTimestamp = Date.parse(inquiry.respondedAt ?? "");
-      const responseTimestamp = Number.isFinite(firstReplyTimestamp) && firstReplyTimestamp >= createdTimestamp
-        ? firstReplyTimestamp
-        : latestResponseTimestamp;
-      const duration = responseTimestamp - createdTimestamp;
-      if (!Number.isFinite(duration) || duration < 0) continue;
-      const activityTimestamp = Number.isFinite(latestResponseTimestamp) ? latestResponseTimestamp : responseTimestamp;
-      if (activityTimestamp >= startOfThisMonthTimestamp && activityTimestamp <= nowTimestamp) {
-        currentMonthResponseTimes.push(duration);
-      } else if (activityTimestamp >= startOfLastMonthTimestamp && activityTimestamp < startOfThisMonthTimestamp) {
-        lastMonthResponseTimes.push(duration);
-      }
-    }
-
-    const average = (values: number[]) => values.length
-      ? values.reduce((total, value) => total + value, 0) / values.length
-      : null;
-    const averageResponseTime = average(currentMonthResponseTimes);
-    const previousAverageResponseTime = average(lastMonthResponseTimes);
+    const {
+      activeBacklog,
+      receivedToday,
+      receivedYesterday,
+      resolvedThisMonth,
+      resolvedLastMonth,
+      averageResponseTime,
+      previousAverageResponseTime,
+    } = operationalStats;
     const formatDuration = (milliseconds: number | null) => {
       if (milliseconds === null) return "N/A";
       const minutes = Math.round(milliseconds / 60_000);
-      return minutes >= 60 ? `${(minutes / 60).toFixed(1)}h` : `${minutes}m`;
+      if (minutes < 60) return `${minutes}m`;
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${remainingMinutes}m`;
     };
     const receivedChange = receivedYesterday === 0
       ? receivedToday === 0 ? "0% vs yesterday" : `+${receivedToday} vs yesterday`
@@ -295,7 +301,7 @@ export default function InquiriesPageClient({
       {
         label: "Avg Response Time",
         value: averageResponseTime === null ? "No replies yet" : formatDuration(averageResponseTime),
-        description: "speed to first reply",
+        description: "average submission-to-reply time",
         trend: responseTimeChange,
         icon: Clock,
         tone: averageResponseTime !== null && (previousAverageResponseTime !== null
@@ -310,7 +316,71 @@ export default function InquiriesPageClient({
           : previousAverageResponseTime !== null && averageResponseTime !== null ? TrendingUp : null,
       },
     ];
-  }, [localInquiries]);
+  }, [operationalStats]);
+
+  async function loadMoreInquiries() {
+    if (isLoadingMore || statusLoadedCount === 0 || statusLoadedCount >= activeTotalCount) return;
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const nextPage = Math.floor(statusLoadedCount / INQUIRY_PAGE_SIZE) + 1;
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        limit: String(INQUIRY_PAGE_SIZE),
+        status: statusFilter,
+      });
+      const response = await fetch(`/api/admin/inquiries?${params}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Unable to load older inquiries.");
+
+      const nextInquiries: InquiryRow[] = Array.isArray(payload.inquiries) ? payload.inquiries : [];
+      setLocalInquiries((current) => {
+        const existingIds = new Set(current.map((inquiry) => inquiry.id));
+        return [...current, ...nextInquiries.filter((inquiry) => !existingIds.has(inquiry.id))];
+      });
+      if (typeof payload.totalCount === "number") {
+        setCounts((current) => ({ ...current, [statusFilter]: payload.totalCount }));
+      }
+    } catch (loadError) {
+      setLoadMoreError(loadError instanceof Error ? loadError.message : "Unable to load older inquiries.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
+
+  async function handleStatusFilterChange(nextFilter: "ALL" | "OPEN" | "RESOLVED") {
+    setStatusFilter(nextFilter);
+    setLoadMoreError(null);
+    const hasLoadedMatchingInquiry = localInquiries.some((inquiry) =>
+      nextFilter === "ALL" ||
+      (nextFilter === "OPEN" ? !inquiry.isResolved : inquiry.isResolved)
+    );
+    if (nextFilter === "ALL" || hasLoadedMatchingInquiry || counts[nextFilter] === 0 || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const params = new URLSearchParams({
+        page: "1",
+        limit: String(INQUIRY_PAGE_SIZE),
+        status: nextFilter,
+      });
+      const response = await fetch(`/api/admin/inquiries?${params}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Unable to load inquiries.");
+      const matchingInquiries: InquiryRow[] = Array.isArray(payload.inquiries) ? payload.inquiries : [];
+      setLocalInquiries((current) => {
+        const existingIds = new Set(current.map((inquiry) => inquiry.id));
+        return [...current, ...matchingInquiries.filter((inquiry) => !existingIds.has(inquiry.id))];
+      });
+      if (typeof payload.totalCount === "number") {
+        setCounts((current) => ({ ...current, [nextFilter]: payload.totalCount }));
+      }
+    } catch (error) {
+      setLoadMoreError(error instanceof Error ? error.message : "Unable to load inquiries.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
 
   async function handleSendReply(inquiryId: string) {
     const text = (replyText[inquiryId] ?? "").trim();
@@ -511,7 +581,7 @@ export default function InquiriesPageClient({
                 <button
                   key={filter.value}
                   type="button"
-                  onClick={() => setStatusFilter(filter.value)}
+                  onClick={() => void handleStatusFilterChange(filter.value)}
                   aria-pressed={statusFilter === filter.value}
                   className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-all ${
                     statusFilter === filter.value
@@ -557,10 +627,24 @@ export default function InquiriesPageClient({
                 </div>
               </button>
             )) : (
-              <p className="px-4 py-10 text-center text-xs text-slate-500">
-                No inquiries match the current search or filter.
-              </p>
+              <div className="px-4 py-10 text-center">
+                <p className="text-xs text-slate-500">No inquiries match the current search or filter.</p>
+                {loadMoreError ? <p role="alert" className="mt-3 text-xs text-rose-600">{loadMoreError}</p> : null}
+              </div>
             )}
+            {filteredInquiries.length > 0 && statusLoadedCount < activeTotalCount ? (
+              <div className="space-y-2 p-3">
+                {loadMoreError ? <p role="alert" className="text-xs text-rose-600">{loadMoreError}</p> : null}
+                <button
+                  type="button"
+                  onClick={() => void loadMoreInquiries()}
+                  disabled={isLoadingMore}
+                  className="w-full py-2.5 mt-4 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl border border-slate-200 transition-all disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isLoadingMore ? "Loading..." : "Load older inquiries"}
+                </button>
+              </div>
+            ) : null}
           </div>
         </aside>
 
@@ -603,10 +687,10 @@ export default function InquiriesPageClient({
                     type="button"
                     onClick={() => handleResolve(selectedInquiry.id)}
                     disabled={resolvingInquiryId === selectedInquiry.id || sendingReplyId === selectedInquiry.id}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-300 bg-white px-3.5 py-1.5 text-xs font-bold text-emerald-700 shadow-sm transition-all hover:scale-[1.02] hover:border-emerald-400 hover:bg-emerald-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                    {resolvingInquiryId === selectedInquiry.id ? "Resolving..." : "Resolve"}
+                    {resolvingInquiryId === selectedInquiry.id ? "Resolving..." : "Mark as Resolved"}
                   </button>
                 )}
               </header>
@@ -851,10 +935,10 @@ export default function InquiriesPageClient({
                                         onClick={() => handleResolve(inquiry.id)}
                                         disabled={resolvingInquiryId === inquiry.id || sendingReplyId === inquiry.id}
                                         title="Close this inquiry"
-                                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                                        className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-white px-3.5 py-1.5 text-xs font-bold text-emerald-700 shadow-sm transition-all hover:scale-[1.02] hover:border-emerald-400 hover:bg-emerald-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
                                       >
                                         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                                        {resolvingInquiryId === inquiry.id ? "Resolving..." : "Mark as resolved"}
+                                        {resolvingInquiryId === inquiry.id ? "Resolving..." : "Mark as Resolved"}
                                       </button>
                                     )}
                                   </div>

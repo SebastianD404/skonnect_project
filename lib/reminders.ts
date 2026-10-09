@@ -5,6 +5,12 @@ export interface ReminderMessage {
   body: string;
 }
 
+export type MessageTemplateValues = Record<string, string>;
+
+export function renderMessageTemplate(template: string, values: MessageTemplateValues): string {
+  return template.replace(/\{\{([a-z_]+)\}\}/g, (tag, key: string) => values[key] ?? tag);
+}
+
 export function parseReminderOffsets(value: string | null | undefined): ReminderOffset[] {
   if (!value) return [];
 

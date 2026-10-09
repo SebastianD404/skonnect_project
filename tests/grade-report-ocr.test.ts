@@ -11,6 +11,7 @@ describe("grade report OCR", () => {
     expect(decideGradeReportOcrStatus(2, 1, 99)).toBe("OCR_NEEDS_REVIEW");
     expect(decideGradeReportOcrStatus(2, 0, 64)).toBe("OCR_NEEDS_REVIEW");
     expect(decideGradeReportOcrStatus(2, 0, 65)).toBe("OCR_DONE");
+    expect(decideGradeReportOcrStatus(2, 0, 99, false)).toBe("OCR_NEEDS_REVIEW");
   });
 
   it("checks supported file signatures and enforces the upload limit", () => {

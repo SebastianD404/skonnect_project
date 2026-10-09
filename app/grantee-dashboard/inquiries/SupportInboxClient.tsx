@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Clock3, Inbox, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, Inbox, MessageSquarePlus, Send, X } from "lucide-react";
+import SupportRequestForm from "@/app/components/SupportRequestForm";
 
 type InquirySummary = {
   id: string;
@@ -30,21 +31,31 @@ type SupportInboxClientProps = {
   showSubmittedToast: boolean;
 };
 
+const INQUIRY_PAGE_SIZE = 15;
+
 function getStatus(inquiry: InquirySummary) {
   if (inquiry.isResolved) {
-    return { label: "Resolved", className: "bg-slate-100 text-slate-700", icon: CheckCircle2 };
+    return {
+      label: "Resolved",
+      className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      icon: CheckCircle2,
+    };
   }
 
-  if (inquiry.response) {
-    return { label: "Answered", className: "bg-emerald-100 text-emerald-800", icon: CheckCircle2 };
-  }
-
-  return { label: "Awaiting reply", className: "bg-amber-100 text-amber-800", icon: Clock3 };
+  return {
+    label: "Open",
+    className: "bg-amber-50 text-amber-700 border-amber-200/80",
+    icon: Clock3,
+  };
 }
 
 export default function SupportInboxClient({ basePath, initialInquiryId, showSubmittedToast }: SupportInboxClientProps) {
   const router = useRouter();
   const [inquiries, setInquiries] = useState<InquirySummary[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState(initialInquiryId);
   const [selectedInquiry, setSelectedInquiry] = useState<InquiryDetail | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -54,36 +65,111 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
   const [isSendingReply, setIsSendingReply] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(showSubmittedToast);
+  const [isNewInquiryModalOpen, setIsNewInquiryModalOpen] = useState(false);
+  const newInquiryButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const refreshRoute = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    const intervalId = window.setInterval(refreshRoute, 5_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [router]);
+
+  useEffect(() => {
+    if (!isNewInquiryModalOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const trigger = newInquiryButtonRef.current;
+    document.body.style.overflow = "hidden";
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsNewInquiryModalOpen(false);
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+      trigger?.focus();
+    };
+  }, [isNewInquiryModalOpen]);
 
   useEffect(() => {
     let active = true;
+    let hasLoadedInitially = false;
+    let requestPending = false;
 
     async function loadInquiries() {
-      setIsLoadingList(true);
+      if (requestPending) return;
+      requestPending = true;
+      if (!hasLoadedInitially) setIsLoadingList(true);
       try {
-        const response = await fetch("/api/my/inquiries", { cache: "no-store" });
+        const response = await fetch(`/api/my/inquiries?page=1&limit=${INQUIRY_PAGE_SIZE}`, { cache: "no-store" });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Unable to load inquiries.");
         if (!active) return;
 
         const nextInquiries = Array.isArray(data.inquiries) ? data.inquiries : [];
-        setInquiries(nextInquiries);
-        setSelectedId((current) => {
-          if (current && nextInquiries.some((inquiry: InquirySummary) => inquiry.id === current)) return current;
-          return nextInquiries[0]?.id ?? null;
+        setTotalCount(typeof data.totalCount === "number" ? data.totalCount : nextInquiries.length);
+        setInquiries((current) => {
+          const firstPageIds = new Set(nextInquiries.map((inquiry: InquirySummary) => inquiry.id));
+          return [
+            ...nextInquiries,
+            ...current.filter((inquiry) => !firstPageIds.has(inquiry.id)),
+          ];
         });
+        setSelectedId((selected) => selected ?? nextInquiries[0]?.id ?? null);
       } catch (loadError) {
-        if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load inquiries.");
+        if (active && !hasLoadedInitially) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load inquiries.");
+        }
       } finally {
-        if (active) setIsLoadingList(false);
+        requestPending = false;
+        if (active && !hasLoadedInitially) {
+          hasLoadedInitially = true;
+          setIsLoadingList(false);
+        }
       }
     }
 
     void loadInquiries();
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadInquiries();
+    }, 5_000);
+
     return () => {
       active = false;
+      window.clearInterval(intervalId);
     };
   }, []);
+
+  async function loadMoreInquiries() {
+    if (isLoadingMore || inquiries.length >= totalCount) return;
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const nextPage = page + 1;
+      const response = await fetch(`/api/my/inquiries?page=${nextPage}&limit=${INQUIRY_PAGE_SIZE}`, {
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Unable to load older inquiries.");
+
+      const nextInquiries: InquirySummary[] = Array.isArray(data.inquiries) ? data.inquiries : [];
+      setInquiries((current) => {
+        const existingIds = new Set(current.map((inquiry) => inquiry.id));
+        return [...current, ...nextInquiries.filter((inquiry) => !existingIds.has(inquiry.id))];
+      });
+      setTotalCount(typeof data.totalCount === "number" ? data.totalCount : totalCount);
+      setPage(nextPage);
+    } catch (loadError) {
+      setLoadMoreError(loadError instanceof Error ? loadError.message : "Unable to load older inquiries.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedId) return;
@@ -117,7 +203,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
       if (document.visibilityState === "visible") void loadThread();
     };
     void loadThread(true);
-    const intervalId = window.setInterval(refreshThread, 15_000);
+    const intervalId = window.setInterval(refreshThread, 5_000);
     window.addEventListener("focus", refreshThread);
     document.addEventListener("visibilitychange", refreshThread);
 
@@ -132,6 +218,8 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
   const conversationVersion = selectedInquiry?.thread
     .map((message) => `${message.id}:${message.createdAt}:${message.text}`)
     .join("|") ?? "";
+  const selectedStatus = selectedInquiry ? getStatus(selectedInquiry) : null;
+  const SelectedStatusIcon = selectedStatus?.icon;
 
   useEffect(() => {
     if (selectedInquiry?.id === selectedId && conversationRef.current) {
@@ -155,6 +243,28 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
     setError(null);
     setSelectedId(id);
     router.replace(`${basePath}/inquiries?inquiry=${id}`);
+  }
+
+  function handleNewInquirySubmitted(inquiry: { id: string; subject: string }) {
+    const createdAt = new Date().toISOString();
+    setInquiries((current) => [
+      {
+        id: inquiry.id,
+        subject: inquiry.subject,
+        createdAt,
+        isResolved: false,
+        response: null,
+      },
+      ...current.filter((item) => item.id !== inquiry.id),
+    ].slice(0, page * INQUIRY_PAGE_SIZE));
+    setTotalCount((current) => current + 1);
+    setSelectedInquiry(null);
+    setIsLoadingThread(true);
+    setSelectedId(inquiry.id);
+    setIsNewInquiryModalOpen(false);
+    setToastVisible(true);
+    setError(null);
+    router.replace(`${basePath}/inquiries?inquiry=${inquiry.id}`);
   }
 
   async function sendReply(event: React.FormEvent<HTMLFormElement>) {
@@ -203,6 +313,15 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
             <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">My inquiries</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Track your support requests and continue the conversation with SK officials in one place.</p>
           </div>
+          <button
+            ref={newInquiryButtonRef}
+            type="button"
+            onClick={() => setIsNewInquiryModalOpen(true)}
+            className="inline-flex shrink-0 items-center gap-2 self-start rounded-xl bg-[#0a1f33] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#122e48] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a1f33] focus-visible:ring-offset-2 sm:self-auto"
+          >
+            <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
+            New Inquiry
+          </button>
         </div>
 
         {error && <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
@@ -213,7 +332,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <Inbox className="h-4 w-4 text-[#0F3D5C]" />
                 All inquiries
-                <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">{inquiries.length}</span>
+                <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">{totalCount}</span>
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -229,18 +348,56 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
                 <div className="space-y-2">
                   {inquiries.map((inquiry) => {
                     const status = getStatus(inquiry);
-                    const StatusIcon = status.icon;
                     return (
-                      <button key={inquiry.id} type="button" onClick={() => selectInquiry(inquiry.id)} className={`w-full rounded-2xl p-4 text-left transition ${selectedId === inquiry.id ? "bg-white shadow-sm ring-1 ring-slate-200" : "hover:bg-white/80"}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <p className="line-clamp-2 text-sm font-semibold text-slate-900">{inquiry.subject}</p>
-                          <StatusIcon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                      <button
+                        key={inquiry.id}
+                        type="button"
+                        onClick={() => selectInquiry(inquiry.id)}
+                        className={`group w-full rounded-2xl border p-4 text-left transition-all duration-200 ${
+                          selectedId === inquiry.id
+                            ? "border-[#0a1f33] bg-white shadow-sm ring-1 ring-[#0a1f33]/10"
+                            : "border-slate-200/80 bg-slate-50/50 hover:border-slate-300 hover:bg-white hover:shadow-sm"
+                        }`}
+                      >
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <p className={`min-w-0 flex-1 truncate text-sm font-bold transition-colors ${
+                            selectedId === inquiry.id
+                              ? "text-[#0a1f33]"
+                              : "text-slate-800 group-hover:text-slate-900"
+                          }`}>
+                            {inquiry.subject}
+                          </p>
+                          <span className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold shadow-sm ${status.className}`}>
+                            {inquiry.isResolved ? (
+                              <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                            ) : (
+                              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                            )}
+                            {status.label}
+                          </span>
                         </div>
-                        <p className="mt-2 text-xs text-slate-500">{new Date(inquiry.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" })}</p>
-                        <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${status.className}`}>{status.label}</span>
+                        <div className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+                          <Clock3 className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+                          <span>
+                            {new Date(inquiry.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" })}
+                          </span>
+                        </div>
                       </button>
                     );
                   })}
+                  {inquiries.length < totalCount ? (
+                    <div className="space-y-2 pt-1">
+                      {loadMoreError ? <p role="alert" className="px-1 text-xs text-rose-600">{loadMoreError}</p> : null}
+                      <button
+                        type="button"
+                        onClick={() => void loadMoreInquiries()}
+                        disabled={isLoadingMore}
+                        className="w-full py-2.5 mt-4 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl border border-slate-200 transition-all disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {isLoadingMore ? "Loading..." : "Load older inquiries"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -260,7 +417,12 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
                     <h2 className="mt-2 text-xl font-bold text-slate-900">{selectedInquiry.subject}</h2>
                     <p className="mt-1 text-xs text-slate-500">Submitted {new Date(selectedInquiry.createdAt).toLocaleString()}</p>
                   </div>
-                  <span className={`ml-auto shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${getStatus(selectedInquiry).className}`}>{getStatus(selectedInquiry).label}</span>
+                  {selectedStatus && SelectedStatusIcon ? (
+                    <span className={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${selectedStatus.className}`}>
+                      <SelectedStatusIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                      {selectedStatus.label}
+                    </span>
+                  ) : null}
                 </div>
 
                 <div ref={conversationRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto bg-slate-50/50 px-5 py-6 sm:px-8">
@@ -297,6 +459,45 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
             )}
           </section>
         </div>
+
+        {isNewInquiryModalOpen ? (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setIsNewInquiryModalOpen(false);
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="new-inquiry-title"
+              className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-7"
+            >
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0F3D5C]">Support inbox</p>
+                  <h2 id="new-inquiry-title" className="mt-1 text-xl font-bold text-slate-900">Create New Inquiry</h2>
+                  <p className="mt-1 text-sm text-slate-500">Send a support request to SK officials.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsNewInquiryModalOpen(false)}
+                  className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+                  aria-label="Close new inquiry form"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <SupportRequestForm
+                dashboardPath={basePath}
+                inboxPath={`${basePath}/inquiries`}
+                embedded
+                onCancel={() => setIsNewInquiryModalOpen(false)}
+                onSubmitted={handleNewInquirySubmitted}
+              />
+            </section>
+          </div>
+        ) : null}
       </div>
     </main>
   );

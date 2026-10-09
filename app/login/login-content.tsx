@@ -10,6 +10,7 @@ import { Eye, EyeOff, Mail, Lock, ShieldCheck, ArrowRight } from "lucide-react";
 function LoginForm() {
   const [state, formAction, submitting] = useActionState(login, null);
   const search = useSearchParams();
+  const [email, setEmail] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const next = search.get("next") ?? "";
   const kkProfilingHref = `/programs/kk-profiling${next ? `?redirect=${encodeURIComponent(next)}` : ""}`;
@@ -55,6 +56,8 @@ function LoginForm() {
                   autoComplete="username"
                   required
                   placeholder="you@example.com"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
                 />
               </div>

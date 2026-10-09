@@ -18,6 +18,22 @@ const DEFAULT_STATE = {
 const INPUT_CLASSES =
   "w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/20 disabled:cursor-wait disabled:bg-slate-100";
 
+function toDateTimeLocal(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function toDeadlineIso(value: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error("Enter a valid SKEAP submission deadline.");
+  return date.toISOString();
+}
+
 export default function SettingsPageClient({ dateLabel }: { dateLabel: string }) {
   const [formState, setFormState] = useState(DEFAULT_STATE);
   const [savedState, setSavedState] = useState(DEFAULT_STATE);
@@ -50,7 +66,7 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
           inquiryAlerts: data.settings?.inquiryAlerts ?? DEFAULT_STATE.inquiryAlerts,
           submissionAlerts: data.settings?.submissionAlerts ?? DEFAULT_STATE.submissionAlerts,
           skeapReminderOffsets: data.reminderSettings?.skeapReminderOffsets ?? DEFAULT_STATE.skeapReminderOffsets,
-          skeapDeadline: data.reminderSettings?.skeapDeadline ?? DEFAULT_STATE.skeapDeadline,
+          skeapDeadline: toDateTimeLocal(data.reminderSettings?.skeapDeadline),
         };
         setFormState(loadedState);
         setSavedState(loadedState);
@@ -82,7 +98,7 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formState,
-          skeapDeadline: formState.skeapDeadline || null,
+          skeapDeadline: toDeadlineIso(formState.skeapDeadline),
         }),
       });
       const data = await response.json();
@@ -256,7 +272,7 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
               <label className="flex flex-col gap-1.5 text-xs font-bold text-slate-700">
                 SKEAP submission deadline
                 <input
-                  type="date"
+                  type="datetime-local"
                   value={formState.skeapDeadline}
                   onChange={(event) => handleChange("skeapDeadline", event.target.value)}
                   disabled={loading}

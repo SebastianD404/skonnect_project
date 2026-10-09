@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { ensureProfile, getRoleHomePath } from "@/lib/auth";
 
-type SecureState = { error?: string; success?: string } | null;
+type SecureState = { error?: string; redirectTo?: string } | null;
 
 function strongPassword(value: string) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(value);
@@ -100,5 +100,5 @@ export async function secureAccount(
   });
 
   const destination = redirectParam || getRoleHomePath(appUser.role) || "/";
-  redirect(destination);
+  return { redirectTo: destination };
 }

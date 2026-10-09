@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Inbox } from "lucide-react";
 import { useNotificationState } from "./NotificationProvider";
@@ -41,6 +41,7 @@ function getSupportReplyKey(inquiry: SupportThread) {
 }
 
 export function DashboardHeaderActions({ notifications = [], requiredRole, supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
+  const pathname = usePathname();
   const router = useRouter();
   const {
     readNotificationIds,
@@ -66,6 +67,8 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
   const STORAGE_KEY_BASE = "skonnect-dashboard-badge-state";
   const wrapperRef = useRef<HTMLDivElement>(null);
   const hasRequestedRead = useRef(false);
+  const isSupportInboxActive =
+    pathname === supportInboxPath || pathname.startsWith(`${supportInboxPath}/`);
 
   const formatRelativeTime = (createdAt?: string) => {
     if (!createdAt) return "";
@@ -524,9 +527,14 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
       <Link
         href={supportInboxPath}
         onClick={markSupportInboxViewed}
-        className="relative inline-flex rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/40 hover:bg-[#0F3D5C]/5 hover:text-[#0F3D5C]"
+        className={`relative inline-flex rounded-2xl border p-3 shadow-sm transition ${
+          isSupportInboxActive
+            ? "border-slate-300/90 bg-slate-200/90 text-slate-900"
+            : "border-slate-200 bg-white/95 text-slate-600 hover:border-[#0F3D5C]/40 hover:bg-[#0F3D5C]/5 hover:text-[#0F3D5C]"
+        }`}
         aria-label={inquiryReplyCount > 0 ? `Support Inbox, ${inquiryReplyCount} replies` : "Support Inbox"}
         title="Support Inbox"
+        aria-current={isSupportInboxActive ? "page" : undefined}
       >
         <Inbox className="h-5 w-5" aria-hidden="true" />
         {inquiryReplyCount > 0 && (

@@ -332,6 +332,19 @@ model ReminderLog {
   @@map("reminder_logs")
 }
 
+model MessageTemplate {
+  id        String                 @id @default(uuid())
+  type      MessageTemplateType
+  channel   MessageTemplateChannel
+  subject   String                 @default("")
+  body      String                 @db.Text
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  @@unique([type, channel])
+  @@map("message_templates")
+}
+
 model AuditLog {
   id          String   @id @default(uuid())
   actorId     String
@@ -430,6 +443,16 @@ model registrations {
 enum ReminderType {
   SKEAP_APPLICATION
   EVENT_REGISTRATION
+}
+
+enum MessageTemplateType {
+  DEADLINE_REMINDER
+  PAYOUT_ASSEMBLY
+}
+
+enum MessageTemplateChannel {
+  EMAIL
+  SMS
 }
 
 enum Role {

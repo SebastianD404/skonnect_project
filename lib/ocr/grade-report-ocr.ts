@@ -31,9 +31,11 @@ export type GradeReportOcrResult = {
 export function decideGradeReportOcrStatus(
   rowCount: number,
   unrecognizedRowCount: number,
-  confidence: number
+  confidence: number,
+  hasValidGrades = rowCount > 0
 ): GradeReportOcrStatus {
-  return rowCount === 0 ||
+  return !hasValidGrades ||
+    rowCount === 0 ||
     unrecognizedRowCount > 0 ||
     confidence < MIN_OCR_CONFIDENCE
     ? "OCR_NEEDS_REVIEW"
@@ -153,7 +155,8 @@ export async function processGradeReportOcr(
       status: decideGradeReportOcrStatus(
         parsed.rows.length,
         parsed.unrecognizedRows.length,
-        confidence
+        confidence,
+        parsed.gwa !== null
       ),
       rawText,
       parsed,

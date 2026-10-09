@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCircle2, Loader2, Send, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, FileText, Loader2, Send, X } from "lucide-react";
 
 type Grantee = { id: string; fullName: string; email: string };
 type AudienceType = "ALL" | "CUSTOM";
@@ -13,6 +13,47 @@ type BroadcastDraft = {
 };
 
 const BROADCAST_DRAFT_KEY = "skonnect.admin.broadcast.draft";
+
+const QUICK_TEMPLATES = [
+  {
+    label: "Load Deadline Notice",
+    subject: "SKEAP Requirement Submission Deadline",
+    body: `Greetings, SKEAP Scholars!
+
+Please submit your requirements:
+• LAST SEMESTER grades ([LAST SEMESTER NAME])
+• Certificate of Enrollment THIS SEMESTER ([CURRENT SEMESTER NAME])
+
+From [START DATE] - [END DATE] ([START TIME] - [END TIME])
+
+Failure to do so will result in removal from the list.
+These documents are required to facilitate your scholarship benefits.
+
+If you have any questions or concerns, feel free to reach out.
+
+Best regards,
+SK Pico`,
+  },
+  {
+    label: "Load Payout Assembly",
+    subject: "SK Educational Assistance Payout Notice",
+    body: `Greetings, SKEAP Scholars!
+
+Event: [1ST/2ND/3RD] Katipunan ng Kabataan Assembly
+Date & Time: [ASSEMBLY DATE] @ [ASSEMBLY TIME]
+Location: [LOCATION]
+
+Your payout will be distributed during this event.
+
+Reminder: Please don't forget to photocopy your student ID with 3 signatures.
+NO ID, NO PAY OUT
+
+We look forward to seeing you at the assembly.
+
+Best Regards,
+SK Pico`,
+  },
+] as const;
 
 async function readJsonResponse(response: Response) {
   const text = await response.text();
@@ -30,6 +71,7 @@ async function readJsonResponse(response: Response) {
 export default function BroadcastPage() {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const [activeTemplate, setActiveTemplate] = useState<"deadline" | "payout" | null>(null);
   const [audienceType, setAudienceType] = useState<AudienceType>("ALL");
   const [grantees, setGrantees] = useState<Grantee[]>([]);
   const [selectedGranteeIds, setSelectedGranteeIds] = useState<string[]>([]);
@@ -119,6 +161,14 @@ export default function BroadcastPage() {
   }, [granteeSearch, grantees]);
 
   const selectedGrantees = grantees.filter((grantee) => selectedGranteeIds.includes(grantee.id));
+  const hasMessageContent = Boolean(subject.trim() || message.trim());
+
+  function loadTemplate(type: "deadline" | "payout") {
+    const template = QUICK_TEMPLATES[type === "deadline" ? 0 : 1];
+    setActiveTemplate(type);
+    setSubject(template.subject);
+    setMessage(template.body);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -328,29 +378,87 @@ export default function BroadcastPage() {
 
             <hr className="border-slate-100" />
 
-            <div className="flex flex-col gap-5">
-              <div className="flex flex-col gap-2">
-                <label htmlFor="broadcast-subject" className="text-xs font-bold uppercase tracking-widest text-slate-400">Subject Line</label>
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label htmlFor="broadcast-subject" className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Subject Line
+                </label>
                 <input
                   id="broadcast-subject"
                   type="text"
                   value={subject}
-                  onChange={(event) => setSubject(event.target.value)}
+                  onChange={(event) => {
+                    setSubject(event.target.value);
+                    setActiveTemplate(null);
+                  }}
                   placeholder="e.g., Important: Semester 2 Requirements"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-500/10"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 transition-all placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                   disabled={submitting}
                 />
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label htmlFor="broadcast-message" className="text-xs font-bold uppercase tracking-widest text-slate-400">Message Body</label>
+              <div className="space-y-2">
+                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                  <label htmlFor="broadcast-message" className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Message Body
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Insert Template:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => loadTemplate("deadline")}
+                      disabled={submitting}
+                      aria-pressed={activeTemplate === "deadline"}
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+                        activeTemplate === "deadline"
+                          ? "border-sky-700 bg-sky-700 text-white"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
+                      }`}
+                    >
+                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                      Deadline Notice
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => loadTemplate("payout")}
+                      disabled={submitting}
+                      aria-pressed={activeTemplate === "payout"}
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+                        activeTemplate === "payout"
+                          ? "border-emerald-700 bg-emerald-700 text-white"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                      }`}
+                    >
+                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                      Payout Assembly
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubject("");
+                        setMessage("");
+                        setActiveTemplate(null);
+                      }}
+                      disabled={submitting || !hasMessageContent}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      Clear message
+                    </button>
+                  </div>
+                </div>
                 <textarea
                   id="broadcast-message"
                   value={message}
-                  onChange={(event) => setMessage(event.target.value)}
+                  onChange={(event) => {
+                    setMessage(event.target.value);
+                    setActiveTemplate(null);
+                  }}
                   placeholder="Write your announcement here..."
-                  rows={8}
-                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-500/10"
+                  rows={12}
+                  className="min-h-[320px] w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 transition-all placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                   disabled={submitting}
                 />
               </div>

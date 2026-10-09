@@ -84,6 +84,8 @@ export async function POST(
         gradeRows: true,
         flaggedFields: true,
         status: true,
+        coeStatus: true,
+        gradesStatus: true,
         generalAverage: true,
         grantee: {
           select: {
@@ -104,53 +106,49 @@ export async function POST(
     let flaggedFields: string[] = Array.isArray(existing.flaggedFields)
       ? (existing.flaggedFields as string[])
       : [];
-    let newStatus: Prisma.SubmissionUpdateInput["status"] = existing.status as Prisma.SubmissionUpdateInput["status"];
-    let newReviewNotes = existing.status === "RETURNED_FOR_EDIT" ? null : reviewNotes;
+    let coeStatus = existing.coeStatus;
+    let gradesStatus = existing.gradesStatus;
+    const reviewedAt = new Date();
+    const newReviewNotes = action === "RETURN_FOR_UPDATE" ? reviewNotes : null;
 
     if (documentType === "coe") {
       if (action === "APPROVE") {
-        // Remove COE from flagged fields when approved
         flaggedFields = flaggedFields.filter((field) => field !== "COE");
-        // Determine new status: if grades exist and pending, stay PENDING; otherwise APPROVED
-        if (existing.gradeFileUrl) {
-          newStatus = "PENDING";
-        } else {
-          newStatus = "APPROVED";
-        }
-        newReviewNotes = null;
+        coeStatus = "APPROVED";
       } else {
-        // Return COE for correction
         if (!flaggedFields.includes("COE")) {
           flaggedFields = [...flaggedFields, "COE"];
         }
-        newStatus = "RETURNED_FOR_EDIT";
-        newReviewNotes = reviewNotes;
+        coeStatus = "RETURNED_FOR_EDIT";
       }
     } else if (documentType === "grades") {
       if (action === "APPROVE") {
-        // Remove GRADE_REPORT from flagged fields when approved
         flaggedFields = flaggedFields.filter((field) => field !== "GRADE_REPORT");
-        // If no other flagged fields remain, mark entire submission as APPROVED
-        if (flaggedFields.length === 0) {
-          newStatus = "APPROVED";
-        }
-        newReviewNotes = null;
+        gradesStatus = "APPROVED";
       } else {
-        // Return GRADE_REPORT for correction
         if (!flaggedFields.includes("GRADE_REPORT")) {
           flaggedFields = [...flaggedFields, "GRADE_REPORT"];
         }
-        newStatus = "RETURNED_FOR_EDIT";
-        newReviewNotes = reviewNotes;
+        gradesStatus = "RETURNED_FOR_EDIT";
       }
     }
 
-    // If we're approving a grade submission and the submission becomes fully approved, ensure a generalAverage is persisted.
+    const newStatus: Prisma.SubmissionUpdateInput["status"] =
+      coeStatus === "APPROVED" && gradesStatus === "APPROVED"
+        ? "APPROVED"
+        : coeStatus === "RETURNED_FOR_EDIT" || gradesStatus === "RETURNED_FOR_EDIT"
+          ? "RETURNED_FOR_EDIT"
+          : "PENDING";
+
     const updateData: Prisma.SubmissionUpdateInput = {
       status: newStatus,
+      coeStatus,
+      gradesStatus,
+      ...(documentType === "coe" ? { coeApprovedAt: action === "APPROVE" ? reviewedAt : null } : {}),
+      ...(documentType === "grades" ? { gradesApprovedAt: action === "APPROVE" ? reviewedAt : null } : {}),
       reviewNotes: newReviewNotes,
       flaggedFields,
-      reviewedAt: new Date(),
+      reviewedAt,
       reviewedById: appUser.id,
     };
 
@@ -178,7 +176,7 @@ export async function POST(
       });
       if (current?.grantee.status === "GRADUATED") throw new Error("GRADUATED_SUBMISSION_ARCHIVED");
 
-      const saved = await (tx as any).submission.update({
+      const saved = await tx.submission.update({
         where: { id },
         data: updateData,
       });
@@ -188,7 +186,7 @@ export async function POST(
         Array.isArray(existing.flaggedFields) &&
         existing.flaggedFields.includes(flaggedField);
 
-      await writeAuditLog(tx as any, {
+      await writeAuditLog(tx, {
         action: manualOverride
           ? "DOCUMENT_OVERRIDDEN"
           : action === "APPROVE"

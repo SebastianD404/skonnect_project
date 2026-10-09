@@ -9,7 +9,6 @@ import {
   Clock,
   FileText,
   Image as ImageIcon,
-  Lock,
   ShieldCheck,
   Upload,
   X,
@@ -398,24 +397,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit }: Props
             ) : null}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="mt-4 space-y-2">
-                  <Field label="Active Academic Term">
-                    <div
-                      aria-label={`Active academic term: ${form.semester}. Locked for submission.`}
-                      className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-800 sm:flex-row sm:items-center"
-                    >
-                      <span>{form.semester} (Current Active Term)</span>
-                      <span className="inline-flex w-fit items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-                        <Lock className="h-3 w-3" aria-hidden="true" />
-                        Locked for Submission
-                      </span>
-                    </div>
-                  </Field>
-                  <p className="text-[11px] text-slate-400">
-                    Requirements are evaluated against the active academic period.
-                  </p>
-                </div>
-
               <div className="grid gap-4 pt-1 md:grid-cols-2">
                 <Field label="Upload Grade Report">
                   {hasExistingGradeReport && !isGradeReportFlagged && !form.gradeFile ? (

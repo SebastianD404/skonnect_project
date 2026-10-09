@@ -65,7 +65,7 @@ export async function createSignedSubmissionFileUrl(filePathOrUrl: string, authI
   const object = getSubmissionStorageObject(filePathOrUrl, authId);
   const { data, error } = await createAdminClient()
     .storage.from(object.bucket)
-    .createSignedUrl(object.path, 5 * 60);
+    .createSignedUrl(object.path, 5 * 60, { download: false });
   if (error) throw error;
   if (!data.signedUrl) {
     throw new Error("Could not create a secure file link.");

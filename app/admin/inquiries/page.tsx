@@ -20,6 +20,8 @@ type InquiryThreadMessage = {
   text: string;
 };
 
+const INQUIRY_PAGE_SIZE = 15;
+
 function normalizeReviewThread(value: Prisma.JsonValue): InquiryThreadMessage[] {
   if (!Array.isArray(value)) return [];
 
@@ -97,6 +99,8 @@ export default async function AdminInquiriesPage() {
     openInquiryCount,
     pendingSubmissionCount,
     inquiries,
+    totalInquiryCount,
+    responseTimeRows,
     openToday,
     openYesterday,
     openThisWeek,
@@ -126,7 +130,8 @@ export default async function AdminInquiriesPage() {
     prisma.submission.count({ where: { status: "PENDING" } }),
     prisma.inquiry.findMany({
       where: supportInquiryFilter,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: INQUIRY_PAGE_SIZE,
       include: {
         user: {
           select: {
@@ -135,6 +140,14 @@ export default async function AdminInquiriesPage() {
           },
         },
       },
+    }),
+    prisma.inquiry.count({ where: supportInquiryFilter }),
+    prisma.inquiry.findMany({
+      where: {
+        ...supportInquiryFilter,
+        respondedAt: { gte: prevMonth },
+      },
+      select: { createdAt: true, reviewThread: true },
     }),
     prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfToday } } }),
     prisma.inquiry.count({
@@ -218,6 +231,41 @@ export default async function AdminInquiriesPage() {
     Week: formatDelta(responseRate.Week, totalLastWeek === 0 ? 0 : Math.round((resolvedLastWeek / totalLastWeek) * 100)),
     Month: formatDelta(responseRate.Month, totalLastMonth === 0 ? 0 : Math.round((resolvedLastMonth / totalLastMonth) * 100)),
     Quarter: formatDelta(responseRate.Quarter, totalLastQuarter === 0 ? 0 : Math.round((resolvedLastQuarter / totalLastQuarter) * 100)),
+  };
+
+  const maximumResponseTimeMs = 72 * 60 * 60 * 1000;
+  const responseDurations = responseTimeRows.flatMap((inquiry) => {
+    if (!Array.isArray(inquiry.reviewThread)) return [];
+
+    const firstAdminReply = inquiry.reviewThread
+      .flatMap((entry) => {
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+        const message = entry as Prisma.JsonObject;
+        if (message.role !== "admin" || typeof message.createdAt !== "string") return [];
+        const timestamp = Date.parse(message.createdAt);
+        return Number.isFinite(timestamp) ? [timestamp] : [];
+      })
+      .sort((left, right) => left - right)[0];
+
+    if (firstAdminReply === undefined) return [];
+    const duration = firstAdminReply - inquiry.createdAt.getTime();
+    if (duration < 0 || duration > maximumResponseTimeMs) return [];
+    return [{ duration, repliedAt: firstAdminReply }];
+  });
+  const averageDuration = (from: Date, to: Date) => {
+    const values = responseDurations
+      .filter((item) => item.repliedAt >= from.getTime() && item.repliedAt < to.getTime())
+      .map((item) => item.duration);
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  };
+  const operationalStats = {
+    activeBacklog: openInquiryCount,
+    receivedToday: totalToday,
+    receivedYesterday: totalYesterday,
+    resolvedThisMonth,
+    resolvedLastMonth,
+    averageResponseTime: averageDuration(startOfMonth, now),
+    previousAverageResponseTime: averageDuration(prevMonth, startOfMonth),
   };
 
   const statsByPeriod: Record<TimePeriod, StatItem[]> = {
@@ -371,6 +419,12 @@ export default async function AdminInquiriesPage() {
       openInquiryCount={openInquiryCount}
       pendingSubmissionCount={pendingSubmissionCount}
       statsByPeriod={statsByPeriod}
+      inquiryCounts={{
+        ALL: totalInquiryCount,
+        OPEN: openInquiryCount,
+        RESOLVED: totalInquiryCount - openInquiryCount,
+      }}
+      operationalStats={operationalStats}
       inquiries={inquiries.map((inquiry) => ({
         ...inquiry,
         createdAt: inquiry.createdAt.toISOString(),

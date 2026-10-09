@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { DashboardHeaderActions } from "./DashboardHeaderActions";
 import { useAuth } from "./AuthProvider";
 
-function navLinkClass(activePath: string, href: string) {
+function navLinkClass(activePath: string | null, href: string) {
   const base = "inline-flex items-center justify-center px-4 py-2 font-semibold rounded-lg transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C]/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
   return activePath === href
     ? `${base} text-[#0F3D5C] bg-[#0F3D5C]/10`
@@ -102,7 +102,9 @@ export function PublicHeader() {
     ? "/about"
     : pathname === "/" && activeHash === "#programs" && isProgramsSectionVisible
     ? "/programs"
-    : "/";
+    : pathname === homeHref
+    ? "/"
+    : null;
 
   const initials = sessionUser?.fullName
     ? sessionUser.fullName

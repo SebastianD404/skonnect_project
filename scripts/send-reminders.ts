@@ -3,10 +3,11 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
   buildSkeapReminderMessage,
-  formatUtcDate,
   getReminderDates,
+  renderMessageTemplate,
   shouldSendReminder,
 } from "../lib/reminders";
+import { getCurrentAcademicSemester, getPreviousAcademicSemester } from "../lib/semester-progress";
 
 const EMAIL_CHANNEL = "email";
 const IN_APP_CHANNEL = "in-app";
@@ -17,10 +18,6 @@ type ReminderType = typeof REMINDER_TYPE_SKEAP_APPLICATION;
 function normalizeDate(value: Date | string | null | undefined): Date | null {
   if (!value) return null;
   return value instanceof Date ? value : new Date(`${String(value)}T00:00:00.000Z`);
-}
-
-function isPastDate(date: Date, now: Date) {
-  return date.getTime() < now.getTime();
 }
 
 export async function sendReminderLogs(
@@ -40,7 +37,7 @@ export async function sendReminderLogs(
       targetId,
       triggerDate,
       channel,
-      metadata: metadata as any,
+      metadata,
       success: true,
     },
   });
@@ -53,12 +50,23 @@ async function getGranteesWithSkeapAccess() {
   });
 }
 
-async function loadReminderSettings() {
-  const skeapSetting = await prisma.reminderSetting.findUnique({ where: { type: REMINDER_TYPE_SKEAP_APPLICATION } });
+async function loadReminderSettings(): Promise<{
+  skeapOffsets: number[];
+  skeapDeadline: Date | null;
+  messageTemplate?: { subject: string; body: string } | null;
+}> {
+  const [skeapSetting, messageTemplate] = await Promise.all([
+    prisma.reminderSetting.findUnique({ where: { type: REMINDER_TYPE_SKEAP_APPLICATION } }),
+    prisma.messageTemplate.findUnique({
+      where: { type_channel: { type: "DEADLINE_REMINDER", channel: "EMAIL" } },
+      select: { subject: true, body: true },
+    }),
+  ]);
 
   return {
     skeapOffsets: skeapSetting?.offsets ?? [],
     skeapDeadline: normalizeDate(skeapSetting?.deadline),
+    messageTemplate,
   };
 }
 
@@ -83,7 +91,29 @@ export async function processSkeapReminders(settings: Awaited<ReturnType<typeof 
       if (!grantee.email) return;
       for (const offset of dueOffsets) {
         const reminderDate = getReminderDates(settings.skeapDeadline!, [offset])[0];
-        const message = buildSkeapReminderMessage(offset, settings.skeapDeadline!);
+        const fallbackMessage = buildSkeapReminderMessage(offset, settings.skeapDeadline!);
+        const deadlineDate = new Intl.DateTimeFormat("en-PH", {
+          timeZone: "Asia/Manila",
+          dateStyle: "long",
+        }).format(settings.skeapDeadline!);
+        const deadlineTime = new Intl.DateTimeFormat("en-PH", {
+          timeZone: "Asia/Manila",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(settings.skeapDeadline!);
+        const currentSemester = getCurrentAcademicSemester(now);
+        const values = {
+          deadline_date: deadlineDate,
+          deadline_time: deadlineTime,
+          current_semester: currentSemester,
+          last_semester: getPreviousAcademicSemester(currentSemester) ?? "",
+        };
+        const message = settings.messageTemplate
+          ? {
+              subject: renderMessageTemplate(settings.messageTemplate.subject, values),
+              body: renderMessageTemplate(settings.messageTemplate.body, values),
+            }
+          : fallbackMessage;
         await sendEmailStub(grantee.email, message.subject, message.body);
         await sendReminderLogs(
           grantee.id,

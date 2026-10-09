@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createSignedSubmissionFileUrl } from "@/lib/ocr/storage";
 import { getOcrAdminActor } from "@/lib/ocr/admin-access";
 
 export async function GET(
@@ -26,7 +25,6 @@ export async function GET(
       ocrGwa: true,
       ocrTotalUnits: true,
       ocrConfidence: true,
-      grantee: { select: { user: { select: { authId: true } } } },
     },
   });
   if (!submission) {
@@ -36,25 +34,17 @@ export async function GET(
     return NextResponse.json({ error: "Submission has no grade report." }, { status: 404 });
   }
 
-  try {
-    const fileUrl = await createSignedSubmissionFileUrl(
-      submission.gradeFileUrl,
-      submission.grantee.user.authId
-    );
-    return NextResponse.json({
-      id: submission.id,
-      semester: submission.semester,
-      gradeReportSemester: submission.gradeReportSemester,
-      ocrStatus: submission.ocrStatus,
-      ocrRawText: submission.ocrRawText,
-      ocrParsedRows: submission.ocrParsedRows,
-      ocrGwa: submission.ocrGwa,
-      ocrTotalUnits: submission.ocrTotalUnits,
-      ocrConfidence: submission.ocrConfidence,
-      fileUrl,
-    });
-  } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Could not create secure file URL.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  return NextResponse.json({
+    id: submission.id,
+    semester: submission.semester,
+    gradeReportSemester: submission.gradeReportSemester,
+    ocrStatus: submission.ocrStatus,
+    ocrRawText: submission.ocrRawText,
+    ocrParsedRows: submission.ocrParsedRows,
+    ocrGwa: submission.ocrGwa,
+    ocrTotalUnits: submission.ocrTotalUnits,
+    ocrConfidence: submission.ocrConfidence,
+    fileUrl: `/api/submissions/${submission.id}/file?kind=grade`,
+    fileExtension: submission.gradeFileUrl.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() ?? "",
+  });
 }
