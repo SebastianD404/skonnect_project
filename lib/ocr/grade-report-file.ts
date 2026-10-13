@@ -8,6 +8,12 @@ export const GRADE_REPORT_MIME_TYPES = new Set([
   "image/webp",
 ]);
 
+export const COE_MIME_TYPES = new Set([
+  ...GRADE_REPORT_MIME_TYPES,
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+
 export function hasGradeReportSignature(bytes: Uint8Array, contentType: string) {
   if (contentType === "application/pdf") {
     return bytes.length >= 5 && new TextDecoder().decode(bytes.subarray(0, 5)) === "%PDF-";

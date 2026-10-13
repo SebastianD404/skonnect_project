@@ -675,13 +675,9 @@ export default function SubmissionReviewTable() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
-          <span>
-            Showing <strong className="text-slate-800">{pageRangeStart}–{pageRangeEnd}</strong> of{" "}
-            <strong className="text-slate-800">{responseData.totalCount}</strong> {activeTabRecordLabel}
-          </span>
-          {activeTab === "cleared" ? (
-            <label className="flex items-center gap-2">
+        {activeTab === "cleared" ? (
+          <div className="flex justify-end">
+            <label className="flex items-center gap-2 text-xs text-slate-500">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Semester</span>
               <select
                 value={completedSemesterFilter}
@@ -698,8 +694,8 @@ export default function SubmissionReviewTable() {
                 ))}
               </select>
             </label>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-3 p-4 sm:p-5" aria-busy={isLoading}>
@@ -726,15 +722,15 @@ export default function SubmissionReviewTable() {
 
         {isLoading ? <SubmissionsSkeleton /> : (
         <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-12">
-          <aside className="flex min-h-[550px] flex-col rounded-2xl border border-slate-200/80 bg-slate-50/60 md:col-span-4">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+          <aside className="flex min-h-[550px] flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs md:col-span-4">
+            <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-extrabold text-slate-900">{QUEUE_TITLES[activeTab]}</h2>
                 <p className="mt-0.5 text-[11px] text-slate-500">{responseData.totalCount} packages</p>
               </div>
             </div>
 
-            <div className="space-y-2 p-3">
+            <div className="flex-1 space-y-2 overflow-y-auto">
               {responseData.rows.length === 0 ? (
                 <div className="px-3 py-12 text-center">
                   <FileText className="mx-auto h-8 w-8 text-slate-300" />
@@ -772,47 +768,52 @@ export default function SubmissionReviewTable() {
               ))}
             </div>
 
-            {responseData.totalPages > 1 ? (
-              <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-white p-3">
-                <label className="flex items-center gap-2 text-[11px] text-slate-500">
-                  <span>Rows</span>
-                  <select
-                    aria-label="Rows per page"
-                    value={pageSize}
-                    onChange={(event) => {
-                      setPageSize(Number(event.target.value));
-                      setPage(1);
-                      setSelectedSubmissionId(null);
-                      setIsLoading(true);
-                    }}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-700"
-                  >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                  </select>
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isLoading || page <= 1}
-                    onClick={() => { setPage((current) => current - 1); setIsLoading(true); }}
-                    className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
-                  <span className="whitespace-nowrap text-[10px] text-slate-500">{page} / {responseData.totalPages}</span>
-                  <button
-                    type="button"
-                    disabled={isLoading || page >= responseData.totalPages}
-                    onClick={() => { setPage((current) => current + 1); setIsLoading(true); }}
-                    className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    Next
-                  </button>
+            <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+              <span className="text-xs font-medium text-slate-500">
+                Showing {pageRangeStart}–{pageRangeEnd} of {responseData.totalCount} {activeTabRecordLabel}
+              </span>
+              {responseData.totalPages > 1 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 text-[11px] text-slate-500">
+                    <span>Rows</span>
+                    <select
+                      aria-label="Rows per page"
+                      value={pageSize}
+                      onChange={(event) => {
+                        setPageSize(Number(event.target.value));
+                        setPage(1);
+                        setSelectedSubmissionId(null);
+                        setIsLoading(true);
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-700"
+                    >
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                    </select>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isLoading || page <= 1}
+                      onClick={() => { setPage((current) => current - 1); setIsLoading(true); }}
+                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      Previous
+                    </button>
+                    <span className="whitespace-nowrap text-[10px] text-slate-500">{page} / {responseData.totalPages}</span>
+                    <button
+                      type="button"
+                      disabled={isLoading || page >= responseData.totalPages}
+                      onClick={() => { setPage((current) => current + 1); setIsLoading(true); }}
+                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </aside>
 
           <section className="bg-transparent md:col-span-8">

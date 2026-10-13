@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
   updateMany: vi.fn(),
   download: vi.fn(),
+  extractDocumentOcr: vi.fn(),
   processGradeReportOcr: vi.fn(),
 }));
 
@@ -18,6 +19,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 
 vi.mock("@/lib/ocr/grade-report-ocr", () => ({
+  extractDocumentOcr: mocks.extractDocumentOcr,
   processGradeReportOcr: mocks.processGradeReportOcr,
 }));
 
@@ -33,6 +35,7 @@ describe("processSubmissionGradeReportOcr", () => {
     mocks.findUnique.mockResolvedValue({
       id: "submission-1",
       gradeFileUrl: "grantee-submissions/user/file.pdf",
+      coeFileUrl: "grantee-submissions/user/coe.pdf",
       grantee: { user: { authId: "user-1" } },
     });
     mocks.download.mockResolvedValue({
@@ -40,6 +43,10 @@ describe("processSubmissionGradeReportOcr", () => {
       error: null,
     });
     mocks.processGradeReportOcr.mockRejectedValue(new Error("OCR engine unavailable"));
+    mocks.extractDocumentOcr.mockResolvedValue({
+      rawText: "Certificate of Enrollment, Semester Schedule",
+      confidence: 99,
+    });
     mocks.updateMany.mockResolvedValue({ count: 1 });
   });
 
@@ -50,6 +57,7 @@ describe("processSubmissionGradeReportOcr", () => {
       where: {
         id: "submission-1",
         gradeFileUrl: "grantee-submissions/user/file.pdf",
+        coeFileUrl: "grantee-submissions/user/coe.pdf",
         ocrStatus: "OCR_PENDING",
       },
       data: {
@@ -73,6 +81,7 @@ describe("processSubmissionGradeReportOcr", () => {
       where: {
         id: "submission-1",
         gradeFileUrl: "grantee-submissions/user/file.pdf",
+        coeFileUrl: "grantee-submissions/user/coe.pdf",
         ocrStatus: "OCR_PENDING",
       },
       data: {
@@ -83,5 +92,105 @@ describe("processSubmissionGradeReportOcr", () => {
       },
     });
     vi.useRealTimers();
+  });
+
+  it("requires manual review when either document does not match its claimed type", async () => {
+    mocks.extractDocumentOcr.mockResolvedValue({
+      rawText: "Certificate of Enrollment, Student Semester Schedule",
+      confidence: 99,
+    });
+    mocks.processGradeReportOcr.mockResolvedValue({
+      status: "OCR_DONE",
+      rawText: "SUBJ101 Computing 3 1.25",
+      parsed: {
+        rows: [{ subjectCode: "SUBJ101", subjectName: "Computing", units: 3, grade: 1.25, flag: null }],
+        unrecognizedRows: [],
+        gwa: 1.25,
+        totalUnits: 3,
+      },
+      confidence: 99,
+    });
+
+    await processSubmissionGradeReportOcr("submission-1");
+
+    expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: "submission-1",
+        gradeFileUrl: "grantee-submissions/user/file.pdf",
+        coeFileUrl: "grantee-submissions/user/coe.pdf",
+        ocrStatus: "OCR_PENDING",
+      },
+      data: expect.objectContaining({
+        ocrStatus: "OCR_NEEDS_REVIEW",
+        ocrGwa: 1.25,
+        ocrParsedRows: expect.objectContaining({
+          documentValidation: {
+            certificateOfEnrollment: true,
+            gradeReport: false,
+          },
+        }),
+      }),
+    }));
+  });
+
+  it("saves the parsed weighted GWA when both document types validate", async () => {
+    mocks.extractDocumentOcr.mockResolvedValue({
+      rawText: "Certificate of Enrollment and Academic Schedule",
+      confidence: 99,
+    });
+    mocks.processGradeReportOcr.mockResolvedValue({
+      status: "OCR_DONE",
+      rawText: "Transcript of Grade and Rating\nSUBJ101 Computing 3 1.25",
+      parsed: {
+        rows: [{ subjectCode: "SUBJ101", subjectName: "Computing", units: 3, grade: 1.25, flag: null }],
+        unrecognizedRows: [],
+        gwa: 1.25,
+        totalUnits: 3,
+      },
+      confidence: 99,
+    });
+
+    await processSubmissionGradeReportOcr("submission-1");
+
+    expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        ocrStatus: "OCR_DONE",
+        ocrGwa: 1.25,
+        ocrTotalUnits: 3,
+        ocrParsedRows: expect.objectContaining({
+          documentValidation: {
+            certificateOfEnrollment: true,
+            gradeReport: true,
+          },
+        }),
+      }),
+    }));
+  });
+
+  it("requires manual review when the Certificate of Enrollment keywords do not match", async () => {
+    mocks.extractDocumentOcr.mockResolvedValue({
+      rawText: "Personal letter without enrollment details",
+      confidence: 99,
+    });
+    mocks.processGradeReportOcr.mockResolvedValue({
+      status: "OCR_DONE",
+      rawText: "Transcript of Grade and Rating",
+      parsed: { rows: [], unrecognizedRows: [], gwa: 2, totalUnits: 3 },
+      confidence: 99,
+    });
+
+    await processSubmissionGradeReportOcr("submission-1");
+
+    expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        ocrStatus: "OCR_NEEDS_REVIEW",
+        ocrParsedRows: expect.objectContaining({
+          documentValidation: {
+            certificateOfEnrollment: false,
+            gradeReport: true,
+          },
+        }),
+      }),
+    }));
   });
 });

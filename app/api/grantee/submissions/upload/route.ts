@@ -2,21 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import {
+  COE_MIME_TYPES,
   GRADE_REPORT_MIME_TYPES,
   hasGradeReportSignature,
   MAX_GRADE_REPORT_BYTES,
 } from "@/lib/ocr/grade-report-file";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-const ALLOWED_COE_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-]);
 
 export async function POST(request: NextRequest) {
   try {
@@ -53,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     const contentType = file.type.toLowerCase();
-    const allowedTypes = kind === "grade" ? GRADE_REPORT_MIME_TYPES : ALLOWED_COE_TYPES;
+    const allowedTypes = kind === "grade" ? GRADE_REPORT_MIME_TYPES : COE_MIME_TYPES;
     if (!allowedTypes.has(contentType)) {
       return NextResponse.json(
         {

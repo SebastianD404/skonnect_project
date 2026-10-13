@@ -1,9 +1,9 @@
-import { after, NextRequest, NextResponse } from "next/server";
-import { Prisma, SubmissionStatus } from "@prisma/client";
+import { NextRequest, NextResponse } from "next/server";
+import { SubmissionOcrStatus, SubmissionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
-import { processSubmissionGradeReportOcr } from "@/lib/ocr/process-submission";
+import { analyzeSubmissionOcr } from "@/lib/ocr/process-submission";
 import { getCurrentAcademicSemester, isAllowedAcademicSemester } from "@/lib/semester-progress";
 
 export const runtime = "nodejs";
@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
     const semester = String(body.semester ?? "").trim();
     const gradeFileUrl = String(body.gradeFileUrl ?? "").trim();
     const coeFileUrl = String(body.coeFileUrl ?? "").trim();
+    const forceSubmit = body.forceSubmit === true;
 
     if (!isAllowedAcademicSemester(semester) || semester !== getCurrentAcademicSemester()) {
       return NextResponse.json(
@@ -101,6 +102,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const ocrAnalysis = await analyzeSubmissionOcr(
+      mergedGradeFileUrl,
+      mergedCoeFileUrl,
+      user.id
+    );
+    if (
+      !forceSubmit &&
+      (!ocrAnalysis.documentValidation.certificateOfEnrollment ||
+        !ocrAnalysis.documentValidation.gradeReport)
+    ) {
+      return NextResponse.json(
+        {
+          requiresOverride: true,
+          error:
+            "We couldn't detect the required academic information in your documents. Please check that both files are clear and correct. You can still proceed for manual review.",
+        },
+        { status: 422 }
+      );
+    }
+
     const resolvedFlaggedFields = new Set<string>();
 
     if (existing?.status === "RETURNED_FOR_EDIT") {
@@ -115,8 +136,6 @@ export async function POST(request: NextRequest) {
     const nextFlaggedFields = existing?.status === "RETURNED_FOR_EDIT"
       ? existing.flaggedFields.filter((field) => !resolvedFlaggedFields.has(field))
       : [];
-    const newGradeReport = Boolean(gradeFileUrl && gradeFileUrl !== existing?.gradeFileUrl);
-
     const payload = {
       semester,
       gradeFileUrl: mergedGradeFileUrl,
@@ -127,16 +146,17 @@ export async function POST(request: NextRequest) {
           : SubmissionStatus.PENDING,
       reviewNotes: nextFlaggedFields.length > 0 ? existing?.reviewNotes : null,
       flaggedFields: nextFlaggedFields,
-      ...(newGradeReport
-        ? {
-            ocrStatus: "OCR_PENDING" as const,
-            ocrRawText: null,
-            ocrParsedRows: Prisma.DbNull,
-            ocrGwa: null,
-            ocrTotalUnits: null,
-            ocrConfidence: null,
-          }
-        : {}),
+      ocrStatus: forceSubmit ? SubmissionOcrStatus.OCR_NEEDS_REVIEW : ocrAnalysis.status,
+      ocrRawText: ocrAnalysis.rawText,
+      ocrParsedRows: {
+        rows: ocrAnalysis.parsed.rows,
+        unrecognizedRows: ocrAnalysis.parsed.unrecognizedRows,
+        documentValidation: ocrAnalysis.documentValidation,
+        forcedManualReview: forceSubmit,
+      },
+      ocrGwa: ocrAnalysis.parsed.gwa,
+      ocrTotalUnits: ocrAnalysis.parsed.totalUnits,
+      ocrConfidence: ocrAnalysis.confidence,
       reviewedAt: null,
       submittedAt: new Date(),
     };
@@ -152,12 +172,6 @@ export async function POST(request: NextRequest) {
             granteeId: appUser.grantee.id,
           },
         });
-
-    if (newGradeReport) {
-      after(async () => {
-        await processSubmissionGradeReportOcr(submission.id);
-      });
-    }
 
     const submissionForGrantee = {
       id: submission.id,

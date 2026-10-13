@@ -2,8 +2,9 @@ import { createRequire } from "node:module";
 import sharp from "sharp";
 import Tesseract from "tesseract.js";
 import { parseGradeReportText } from "@/lib/grade-report-parser";
+import { extractDocxTextFromBuffer } from "@/lib/skeap-document-keywords";
 import {
-  GRADE_REPORT_MIME_TYPES,
+  COE_MIME_TYPES,
   hasGradeReportSignature,
   MAX_GRADE_REPORT_BYTES,
 } from "@/lib/ocr/grade-report-file";
@@ -25,6 +26,11 @@ export type GradeReportOcrResult = {
   status: GradeReportOcrStatus;
   rawText: string;
   parsed: ReturnType<typeof parseGradeReportText>;
+  confidence: number;
+};
+
+export type ExtractedDocumentOcr = {
+  rawText: string;
   confidence: number;
 };
 
@@ -112,19 +118,32 @@ async function rasterizePdf(pdfBuffer: Buffer) {
   }
 }
 
-export async function processGradeReportOcr(
+export async function extractDocumentOcr(
   input: Buffer,
   contentType: string
-): Promise<GradeReportOcrResult> {
+): Promise<ExtractedDocumentOcr> {
   const normalizedContentType = contentType.toLowerCase().split(";")[0].trim();
-  if (!GRADE_REPORT_MIME_TYPES.has(normalizedContentType)) {
-    throw new Error("Grade reports must be PDF, JPG, PNG, or WEBP files.");
+  if (!COE_MIME_TYPES.has(normalizedContentType)) {
+    throw new Error("Submission documents must be PDF, JPG, PNG, or WEBP files.");
   }
   if (input.byteLength === 0 || input.byteLength > MAX_GRADE_REPORT_BYTES) {
-    throw new Error("The grade report is empty or exceeds the 10 MB limit.");
+    throw new Error("The submission document is empty or exceeds the 10 MB limit.");
   }
-  if (!hasGradeReportSignature(input, normalizedContentType)) {
+  const isOfficeDocument =
+    normalizedContentType === "application/msword" ||
+    normalizedContentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (!isOfficeDocument && !hasGradeReportSignature(input, normalizedContentType)) {
     throw new Error("The uploaded file does not match its declared file type.");
+  }
+  if (
+    normalizedContentType ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    const rawText = extractDocxTextFromBuffer(input);
+    return { rawText, confidence: rawText ? 100 : 0 };
+  }
+  if (normalizedContentType === "application/msword") {
+    return { rawText: "", confidence: 0 };
   }
 
   const sourcePages = isPdf(input) ? await rasterizePdf(input) : [input];
@@ -140,8 +159,6 @@ export async function processGradeReportOcr(
       pageConfidences.push(result.data.confidence);
     }
 
-    const rawText = textPages.join("\n");
-    const parsed = parseGradeReportText(rawText);
     const confidence = pageConfidences.length
       ? Number(
           (
@@ -151,18 +168,28 @@ export async function processGradeReportOcr(
         )
       : 0;
 
-    return {
-      status: decideGradeReportOcrStatus(
-        parsed.rows.length,
-        parsed.unrecognizedRows.length,
-        confidence,
-        parsed.gwa !== null
-      ),
-      rawText,
-      parsed,
-      confidence,
-    };
+    return { rawText: textPages.join("\n"), confidence };
   } finally {
     await worker.terminate();
   }
+}
+
+export async function processGradeReportOcr(
+  input: Buffer,
+  contentType: string
+): Promise<GradeReportOcrResult> {
+  const { rawText, confidence } = await extractDocumentOcr(input, contentType);
+  const parsed = parseGradeReportText(rawText);
+
+  return {
+    status: decideGradeReportOcrStatus(
+      parsed.rows.length,
+      parsed.unrecognizedRows.length,
+      confidence,
+      parsed.gwa !== null
+    ),
+    rawText,
+    parsed,
+    confidence,
+  };
 }
