@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { parseVerifiedGwa } from "@/lib/grade-report-review";
 
 type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE";
 type DocumentType = "coe" | "grades";
@@ -28,6 +29,11 @@ type ReviewBody = {
   action?: ReviewAction;
   reviewNotes?: string;
   flaggedFields?: string[];
+  verifiedNoFailingGrades?: boolean;
+  verifiedNoFailingGradesCheck?: boolean;
+  verifiedNoIncGrades?: boolean;
+  verifiedNoDroppedSubjects?: boolean;
+  verifiedGwa?: string | number;
 };
 
 
@@ -68,6 +74,30 @@ export async function POST(
       return NextResponse.json({ error: "Invalid document type" }, { status: 400 });
     }
 
+    const verifiedGwa =
+      documentType === "grades" && action === "APPROVE"
+        ? parseVerifiedGwa(String(body.verifiedGwa ?? ""))
+        : null;
+    if (documentType === "grades" && action === "APPROVE") {
+      if (
+        body.verifiedNoFailingGrades !== true ||
+        body.verifiedNoFailingGradesCheck !== true ||
+        body.verifiedNoIncGrades !== true ||
+        body.verifiedNoDroppedSubjects !== true
+      ) {
+        return NextResponse.json(
+          { error: "Confirm that you verified there are no failing, incomplete, or dropped subjects." },
+          { status: 400 }
+        );
+      }
+      if (verifiedGwa === null) {
+        return NextResponse.json(
+          { error: "Enter a valid verified GWA (1.00–3.00 or 75–100)." },
+          { status: 400 }
+        );
+      }
+    }
+
     if (action === "RETURN_FOR_UPDATE" && !reviewNotes) {
       return NextResponse.json(
         { error: "Review notes are required when returning a document for correction." },
@@ -101,6 +131,14 @@ export async function POST(
     }
     if (existing.grantee?.status === "GRADUATED") {
       return NextResponse.json({ error: "Graduated scholar submissions are locked for statutory retention." }, { status: 409 });
+    }
+    const existingDocumentStatus =
+      documentType === "coe" ? existing.coeStatus : existing.gradesStatus;
+    if (existingDocumentStatus === "APPROVED") {
+      return NextResponse.json(
+        { error: "This document has already been approved and cannot be changed." },
+        { status: 409 }
+      );
     }
 
     let flaggedFields: string[] = Array.isArray(existing.flaggedFields)
@@ -150,10 +188,18 @@ export async function POST(
       flaggedFields,
       reviewedAt,
       reviewedById: appUser.id,
+      ...(documentType === "grades" && action === "APPROVE" && verifiedGwa !== null
+        ? { generalAverage: verifiedGwa }
+        : {}),
     };
 
     const hasGradeReport = Boolean(existing.gradeFileUrl);
-    if (newStatus === "APPROVED" && hasGradeReport && (existing.generalAverage === null || existing.generalAverage === undefined)) {
+    if (
+      newStatus === "APPROVED" &&
+      hasGradeReport &&
+      updateData.generalAverage === undefined &&
+      (existing.generalAverage === null || existing.generalAverage === undefined)
+    ) {
       const computedAverage = computeAverageFromGradeRows(existing.gradeRows as unknown);
       const fallback = computedAverage ?? existing.grantee?.generalAverage ?? null;
       if (fallback !== null && fallback !== undefined) {
@@ -209,6 +255,15 @@ export async function POST(
           documentType,
           manualOverride,
           systemFlagged: manualOverride,
+          ...(documentType === "grades" && action === "APPROVE"
+            ? {
+                verifiedNoFailingGrades: true,
+                verifiedNoFailingGradesCheck: true,
+                verifiedNoIncGrades: true,
+                verifiedNoDroppedSubjects: true,
+                verifiedGwa,
+              }
+            : {}),
           reviewResult: action,
           reason: action === "RETURN_FOR_UPDATE" ? reviewNotes : undefined,
           target: existing.grantee ? `Submission ${id}` : `Submission ${id}`,
@@ -217,6 +272,15 @@ export async function POST(
         },
         meta: {
           documentType,
+          ...(documentType === "grades" && action === "APPROVE"
+            ? {
+                verifiedNoFailingGrades: true,
+                verifiedNoFailingGradesCheck: true,
+                verifiedNoIncGrades: true,
+                verifiedNoDroppedSubjects: true,
+                verifiedGwa,
+              }
+            : {}),
           reason: action === "RETURN_FOR_UPDATE" ? reviewNotes : undefined,
           target: `Submission ${id}`,
           targetId: id,

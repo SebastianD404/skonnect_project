@@ -52,6 +52,7 @@ export async function GET(
       storedFile,
       submission.grantee.user.authId
     );
+    const extension = storedFile.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() ?? "";
     const isMetadataRequest = request.nextUrl.searchParams.get("metadata") === "true";
     const fileResponse = await fetch(signedUrl, {
       cache: "no-store",
@@ -71,31 +72,36 @@ export async function GET(
       if (isMetadataRequest && fileResponse.ok) {
         const extension = storedFile.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() ?? "";
         return NextResponse.json({
-          contentType: fileResponse.headers.get("content-type")?.split(";")[0].toLowerCase() ?? null,
+          contentType:
+            getInlineContentType(fileResponse.headers.get("content-type"), extension) ??
+            fileResponse.headers.get("content-type")?.split(";")[0].toLowerCase() ??
+            null,
           extension,
+          signedUrl,
         });
       }
       return NextResponse.json({ error: "Could not retrieve submission file." }, { status: 502 });
     }
 
-    const upstreamContentType = fileResponse.headers.get("content-type")?.split(";")[0].toLowerCase();
+    const upstreamContentType =
+      fileResponse.headers.get("content-type")?.split(";")[0].toLowerCase() ?? null;
+    const contentType =
+      getInlineContentType(upstreamContentType, extension) ?? upstreamContentType;
     if (isMetadataRequest) {
-      const extension = storedFile.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() ?? "";
-      return NextResponse.json({ contentType: upstreamContentType ?? null, extension });
+      return NextResponse.json({ contentType: contentType ?? null, extension, signedUrl });
     }
 
     const inlineTypes = new Set(["application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp"]);
     const isDownload = request.nextUrl.searchParams.get("download") === "true";
-    if (!isDownload && (!upstreamContentType || !inlineTypes.has(upstreamContentType))) {
+    if (!isDownload && (!contentType || !inlineTypes.has(contentType))) {
       return NextResponse.redirect(
         new URL(`/admin/submissions/${id}/document?kind=${kind}`, request.url)
       );
     }
 
-    const extension = storedFile.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase();
     const safeExtension = extension && /^[a-z0-9]{1,10}$/.test(extension) ? `.${extension}` : "";
     const headers = new Headers({
-      "Content-Type": upstreamContentType || "application/octet-stream",
+      "Content-Type": contentType || "application/octet-stream",
       "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${kind === "coe" ? "certificate-of-enrollment" : "grade-report"}${safeExtension}"`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
@@ -115,4 +121,21 @@ export async function GET(
     console.error("Could not access submission file:", error);
     return NextResponse.json({ error: "Could not access submission file." }, { status: 500 });
   }
+}
+
+function getInlineContentType(contentType: string | null, extension: string) {
+  const normalizedType = contentType?.split(";")[0].toLowerCase();
+  if (
+    normalizedType &&
+    ["application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp"].includes(normalizedType)
+  ) {
+    return normalizedType;
+  }
+
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "gif") return "image/gif";
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "png") return "image/png";
+  if (extension === "webp") return "image/webp";
+  return null;
 }

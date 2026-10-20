@@ -8,6 +8,8 @@ import {
   MAX_GRADE_REPORT_BYTES,
 } from "@/lib/ocr/grade-report-file";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { SubmissionStatus } from "@prisma/client";
+import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     const appUser = await prisma.user.findFirst({
       where: { OR: [{ authId: user.id }, { email: user.email ?? "" }] },
-      select: { role: true, grantee: { select: { status: true } } },
+      select: { role: true, grantee: { select: { id: true, status: true } } },
     });
     if (!appUser || appUser.role !== "GRANTEE" || !appUser.grantee) {
       return NextResponse.json({ error: "Only grantee accounts can upload submission documents." }, { status: 403 });
@@ -34,6 +36,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const kind = formData.get("kind");
+    const semester = String(formData.get("semester") ?? "").trim();
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -41,6 +44,25 @@ export async function POST(request: NextRequest) {
 
     if (kind !== "grade" && kind !== "coe") {
       return NextResponse.json({ error: "Document kind must be grade or coe." }, { status: 400 });
+    }
+
+    const [termState, existing] = await Promise.all([
+      getAcademicTermScheduleState(),
+      prisma.submission.findFirst({
+        where: { granteeId: appUser.grantee.id, semester },
+        select: { status: true, flaggedFields: true },
+      }),
+    ]);
+    const canUploadForOpenTerm =
+      termState.window.status === "OPEN" && semester === termState.window.semester;
+    const canUploadReturnedCorrection =
+      existing?.status === SubmissionStatus.RETURNED_FOR_EDIT &&
+      existing.flaggedFields.length > 0;
+    if (!canUploadForOpenTerm && !canUploadReturnedCorrection) {
+      return NextResponse.json(
+        { error: "Document uploads are only available during the scheduled submission window or for requested corrections." },
+        { status: 400 }
+      );
     }
 
     const contentType = file.type.toLowerCase();
@@ -51,7 +73,7 @@ export async function POST(request: NextRequest) {
           error:
             kind === "grade"
               ? "Grade reports must be PDF, JPG, PNG, or WEBP files."
-              : "Only PDF, DOC/DOCX, PNG, JPG, and WEBP files are allowed.",
+              : "Certificates of Enrollment must be PDF, JPG, PNG, or WEBP files.",
         },
         { status: 400 }
       );

@@ -53,26 +53,15 @@ export function getPreviousAcademicSemester(semester: string) {
 
 export function getDocumentSemesterOptions(
   existingSemesters: string[],
-  referenceDate = new Date()
+  scheduledSemester?: string,
+  scheduledLabel = "Open"
 ) {
-  const current = getCurrentAcademicSemester(referenceDate);
-  const previous = getPreviousAcademicSemester(current);
-  const currentMatch = current.match(/^(\d{4})-(\d{4})\s+(First|Second) Semester$/);
-  const next =
-    currentMatch?.[3] === "First"
-      ? `${currentMatch[1]}-${currentMatch[2]} Second Semester`
-      : currentMatch
-        ? `${currentMatch[2]}-${Number(currentMatch[2]) + 1} First Semester`
-        : current;
-
-  return Array.from(
-    new Set([...existingSemesters, ...(previous ? [previous] : []), current, next])
-  )
+  return Array.from(new Set([...existingSemesters, ...(scheduledSemester ? [scheduledSemester] : [])]))
     .filter((semester) => isAllowedAcademicSemester(semester))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
     .map((value) => ({
       value,
-      label: value === current ? `${value} (Current)` : value,
+      label: value === scheduledSemester ? `${value} (${scheduledLabel})` : value,
     }));
 }
 

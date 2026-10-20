@@ -3,16 +3,11 @@ export const MAX_GRADE_REPORT_BYTES = 10 * 1024 * 1024;
 export const GRADE_REPORT_MIME_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
-  "image/jpg",
   "image/png",
   "image/webp",
 ]);
 
-export const COE_MIME_TYPES = new Set([
-  ...GRADE_REPORT_MIME_TYPES,
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
+export const COE_MIME_TYPES = new Set(GRADE_REPORT_MIME_TYPES);
 
 export function hasGradeReportSignature(bytes: Uint8Array, contentType: string) {
   if (contentType === "application/pdf") {

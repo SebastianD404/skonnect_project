@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 
 const PAGE_SIZE_DEFAULT = 10;
 const PAGE_SIZE_MAX = 50;
@@ -103,7 +104,14 @@ export async function GET(request: NextRequest) {
   const countWhere = (statusToCount: StatusFilter): Prisma.SubmissionWhereInput => getStatusWhere(statusToCount);
 
   try {
-    const [totalCount, pendingReviewCount, returnedForEditsCount, fullyClearedCount, semesterRows] = await Promise.all([
+    const [
+      totalCount,
+      pendingReviewCount,
+      returnedForEditsCount,
+      fullyClearedCount,
+      semesterRows,
+      academicTermState,
+    ] = await Promise.all([
       prisma.submission.count({ where: currentWhere }),
       prisma.submission.count({ where: countWhere("pending") }),
       prisma.submission.count({ where: countWhere("returned") }),
@@ -116,17 +124,19 @@ export async function GET(request: NextRequest) {
             select: { semester: true },
           })
         : Promise.resolve([]),
+      getAcademicTermScheduleState(),
     ]);
 
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
     const page = Math.min(pageNumber, totalPages);
-    const selectSubmission = (includeFlaggedFields: boolean) => ({
+    const selectSubmission = (includeFlaggedFields: boolean, includeStrictManualReview: boolean) => ({
       id: true,
       semester: true,
       gradeFileUrl: true,
       coeFileUrl: true,
       gradeRows: true,
       generalAverage: true,
+      ...(includeStrictManualReview ? { requiresStrictManualReview: true } : {}),
       status: true,
       coeStatus: true,
       gradesStatus: true,
@@ -150,18 +160,24 @@ export async function GET(request: NextRequest) {
         orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: selectSubmission(true),
+        select: selectSubmission(true, true),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!/flaggedFields|column .* does not exist/i.test(message)) throw error;
+      const missingFlaggedFields = /flaggedFields/i.test(message);
+      const missingStrictManualReview = /requiresStrictManualReview/i.test(message);
+      if (!missingFlaggedFields && !missingStrictManualReview) throw error;
 
+      console.warn("Admin submissions query is using a legacy Prisma field selection.", {
+        missingFlaggedFields,
+        missingStrictManualReview,
+      });
       submissions = await prisma.submission.findMany({
         where: currentWhere,
         orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: selectSubmission(false),
+        select: selectSubmission(!missingFlaggedFields, !missingStrictManualReview),
       });
     }
 
@@ -170,7 +186,12 @@ export async function GET(request: NextRequest) {
       return {
         ...submission,
         gradeRows,
+        verifiedGwa: submission.generalAverage,
         flaggedFields: "flaggedFields" in submission ? submission.flaggedFields ?? [] : [],
+        requiresStrictManualReview:
+          "requiresStrictManualReview" in submission
+            ? submission.requiresStrictManualReview
+            : false,
         generalAverage:
           submission.generalAverage ?? computeAverage(gradeRows) ?? submission.grantee.generalAverage ?? null,
         submittedAt: submission.submittedAt.toISOString(),
@@ -189,6 +210,7 @@ export async function GET(request: NextRequest) {
       pageSize,
       totalPages,
       semesters: semesterRows.map((row) => row.semester),
+      academicTermWindow: academicTermState.window,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load submissions.";

@@ -23,15 +23,17 @@ describe("generateAcademicTerms", () => {
     expect(terms.map((term) => term.label)).toContain("2025-2026 Second Semester (current)");
   });
 
-  it("labels the current document term and excludes Summer", () => {
+  it("only offers existing terms and the scheduled term, excluding Summer and unscheduled future terms", () => {
     const options = getDocumentSemesterOptions(
       ["2025-2026 Summer Term", "2024-2025 First Semester"],
-      new Date(2026, 1, 15)
+      "2025-2026 Second Semester",
+      "Scheduled"
     );
 
     expect(options.map((option) => option.label)).toContain(
-      "2025-2026 Second Semester (Current)"
+      "2025-2026 Second Semester (Scheduled)"
     );
     expect(options.some((option) => /summer/i.test(option.label))).toBe(false);
+    expect(options.some((option) => option.value === "2026-2027 First Semester")).toBe(false);
   });
 });

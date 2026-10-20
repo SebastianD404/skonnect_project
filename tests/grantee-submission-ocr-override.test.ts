@@ -6,12 +6,15 @@ const mocks = vi.hoisted(() => ({
   submissionFindFirst: vi.fn(),
   submissionCreate: vi.fn(),
   submissionUpdate: vi.fn(),
-  analyzeSubmissionOcr: vi.fn(),
+  academicTermScheduleFindMany: vi.fn(),
+  processSubmissionGradeReportOcr: vi.fn(),
+  after: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findFirst: mocks.userFindFirst, update: mocks.userUpdate },
+    academicTermSchedule: { findMany: mocks.academicTermScheduleFindMany },
     submission: {
       findFirst: mocks.submissionFindFirst,
       create: mocks.submissionCreate,
@@ -31,8 +34,13 @@ vi.mock("@/lib/grantee-profile", () => ({
 }));
 
 vi.mock("@/lib/ocr/process-submission", () => ({
-  analyzeSubmissionOcr: mocks.analyzeSubmissionOcr,
+  processSubmissionGradeReportOcr: mocks.processSubmissionGradeReportOcr,
 }));
+
+vi.mock("next/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/server")>();
+  return { ...actual, after: mocks.after };
+});
 
 vi.mock("@/lib/semester-progress", () => ({
   getCurrentAcademicSemester: () => "2026-2027 First Semester",
@@ -41,22 +49,6 @@ vi.mock("@/lib/semester-progress", () => ({
 
 import { NextRequest } from "next/server";
 import { POST } from "../app/api/grantee/submissions/route";
-
-const OCR_ANALYSIS = {
-  status: "OCR_DONE",
-  rawText: "Transcript of Grade and Rating",
-  parsed: {
-    rows: [],
-    unrecognizedRows: [],
-    gwa: 1.75,
-    totalUnits: 3,
-  },
-  confidence: 98,
-  documentValidation: {
-    certificateOfEnrollment: true,
-    gradeReport: true,
-  },
-};
 
 function createRequest(forceSubmit = false) {
   return new NextRequest("http://localhost/api/grantee/submissions", {
@@ -71,7 +63,7 @@ function createRequest(forceSubmit = false) {
   });
 }
 
-describe("grantee submission OCR override", () => {
+describe("grantee requirement submission", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.userFindFirst.mockResolvedValue({
@@ -81,6 +73,12 @@ describe("grantee submission OCR override", () => {
       grantee: { id: "grantee-1", status: "ACTIVE" },
     });
     mocks.submissionFindFirst.mockResolvedValue(null);
+    mocks.academicTermScheduleFindMany.mockResolvedValue([{
+      id: "schedule-1",
+      semester: "2026-2027 First Semester",
+      opensAt: new Date(Date.now() - 60_000),
+      closesAt: new Date(Date.now() + 60_000),
+    }]);
     mocks.submissionCreate.mockImplementation(async ({ data }) => ({
       id: "submission-1",
       granteeId: data.granteeId,
@@ -100,44 +98,61 @@ describe("grantee submission OCR override", () => {
       gradesSubmittedAt: null,
       gradesApprovedAt: null,
     }));
-    mocks.analyzeSubmissionOcr.mockResolvedValue(OCR_ANALYSIS);
+    mocks.after.mockImplementation((callback: () => Promise<void>) => {
+      void callback();
+    });
   });
 
-  it("returns an override warning without saving when document keywords fail", async () => {
-    mocks.analyzeSubmissionOcr.mockResolvedValue({
-      ...OCR_ANALYSIS,
-      status: "OCR_NEEDS_REVIEW",
-      documentValidation: {
-        certificateOfEnrollment: false,
-        gradeReport: true,
-      },
-    });
+  it("saves a regular submission before scheduling document checks", async () => {
+    mocks.processSubmissionGradeReportOcr.mockReturnValue(new Promise<void>(() => {}));
 
     const response = await POST(createRequest());
 
-    expect(response.status).toBe(422);
-    await expect(response.json()).resolves.toMatchObject({ requiresOverride: true });
-    expect(mocks.submissionCreate).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.submissionCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        ocrStatus: "OCR_PENDING",
+        ocrRawText: "",
+        ocrGwa: null,
+        ocrTotalUnits: null,
+        ocrConfidence: null,
+        ocrParsedRows: expect.objectContaining({
+          forcedManualReview: false,
+        }),
+      }),
+    }));
+    expect(mocks.after).toHaveBeenCalledOnce();
+    expect(mocks.processSubmissionGradeReportOcr).toHaveBeenCalledWith("submission-1", {
+      manualReviewRequired: false,
+    });
+    expect(mocks.submissionCreate.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.after.mock.invocationCallOrder[0]);
   });
 
-  it("saves a forced submission in the manual-review OCR state", async () => {
-    mocks.analyzeSubmissionOcr.mockResolvedValue({
-      ...OCR_ANALYSIS,
-      status: "OCR_NEEDS_REVIEW",
-      documentValidation: {
-        certificateOfEnrollment: false,
-        gradeReport: true,
-      },
-    });
-
+  it("saves a forced submission and schedules it for admin review", async () => {
     const response = await POST(createRequest(true));
 
     expect(response.status).toBe(200);
     expect(mocks.submissionCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
-        ocrStatus: "OCR_NEEDS_REVIEW",
-        ocrParsedRows: expect.objectContaining({ forcedManualReview: true }),
+        ocrStatus: "OCR_PENDING",
+        ocrRawText: "",
+        ocrGwa: null,
+        ocrTotalUnits: null,
+        ocrConfidence: null,
+        ocrParsedRows: {
+          rows: [],
+          unrecognizedRows: [],
+          documentValidation: {
+            certificateOfEnrollment: false,
+            gradeReport: false,
+          },
+          forcedManualReview: true,
+        },
       }),
     }));
+    expect(mocks.processSubmissionGradeReportOcr).toHaveBeenCalledWith("submission-1", {
+      manualReviewRequired: true,
+    });
   });
 });

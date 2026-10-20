@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { SubmissionOcrStatus, SubmissionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
-import { analyzeSubmissionOcr } from "@/lib/ocr/process-submission";
-import { getCurrentAcademicSemester, isAllowedAcademicSemester } from "@/lib/semester-progress";
+import { processSubmissionGradeReportOcr } from "@/lib/ocr/process-submission";
+import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
+import { isAllowedAcademicSemester } from "@/lib/semester-progress";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -60,10 +61,11 @@ export async function POST(request: NextRequest) {
     const gradeFileUrl = String(body.gradeFileUrl ?? "").trim();
     const coeFileUrl = String(body.coeFileUrl ?? "").trim();
     const forceSubmit = body.forceSubmit === true;
+    const clientRequiresStrictManualReview = body.requiresStrictManualReview === true;
 
-    if (!isAllowedAcademicSemester(semester) || semester !== getCurrentAcademicSemester()) {
+    if (!isAllowedAcademicSemester(semester)) {
       return NextResponse.json(
-        { error: "Submissions are only accepted for the current academic semester." },
+        { error: "Select a valid academic semester." },
         { status: 400 }
       );
     }
@@ -76,13 +78,35 @@ export async function POST(request: NextRequest) {
       orderBy: { submittedAt: "desc" },
       select: {
         id: true,
+        semester: true,
         status: true,
         gradeFileUrl: true,
         coeFileUrl: true,
         flaggedFields: true,
+        resubmittedFields: true,
         reviewNotes: true,
+        requiresStrictManualReview: true,
       },
     });
+
+    const { window: termWindow } = await getAcademicTermScheduleState();
+    const canSubmitInOpenWindow = termWindow.status === "OPEN" && semester === termWindow.semester;
+    const canCorrectReturnedSubmission =
+      existing?.semester === semester &&
+      existing.status === SubmissionStatus.RETURNED_FOR_EDIT &&
+      existing.flaggedFields.length > 0;
+
+    if (!canSubmitInOpenWindow && !canCorrectReturnedSubmission) {
+      const error =
+        termWindow.status === "UNCONFIGURED"
+          ? "Academic document submissions are not scheduled yet. Please check back later."
+          : termWindow.status === "UPCOMING"
+            ? `Submissions for ${termWindow.semester} open at the scheduled time.`
+            : termWindow.status === "CLOSED"
+              ? `The submission window for ${termWindow.semester} is closed.`
+              : "Submissions are only accepted for the currently open academic term.";
+      return NextResponse.json({ error }, { status: 400 });
+    }
 
     const mergedGradeFileUrl = gradeFileUrl || existing?.gradeFileUrl || "";
     const mergedCoeFileUrl = coeFileUrl || existing?.coeFileUrl || "";
@@ -102,25 +126,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ocrAnalysis = await analyzeSubmissionOcr(
-      mergedGradeFileUrl,
-      mergedCoeFileUrl,
-      user.id
-    );
-    if (
-      !forceSubmit &&
-      (!ocrAnalysis.documentValidation.certificateOfEnrollment ||
-        !ocrAnalysis.documentValidation.gradeReport)
-    ) {
-      return NextResponse.json(
-        {
-          requiresOverride: true,
-          error:
-            "We couldn't detect the required academic information in your documents. Please check that both files are clear and correct. You can still proceed for manual review.",
-        },
-        { status: 422 }
-      );
-    }
+    const gradeFileChanged = !existing || mergedGradeFileUrl !== existing.gradeFileUrl;
+    const requiresStrictManualReview = gradeFileChanged
+      ? clientRequiresStrictManualReview
+      : existing.requiresStrictManualReview ||
+        clientRequiresStrictManualReview;
 
     const resolvedFlaggedFields = new Set<string>();
 
@@ -136,6 +146,9 @@ export async function POST(request: NextRequest) {
     const nextFlaggedFields = existing?.status === "RETURNED_FOR_EDIT"
       ? existing.flaggedFields.filter((field) => !resolvedFlaggedFields.has(field))
       : [];
+    const nextResubmittedFields = Array.from(
+      new Set([...(existing?.resubmittedFields ?? []), ...resolvedFlaggedFields])
+    );
     const payload = {
       semester,
       gradeFileUrl: mergedGradeFileUrl,
@@ -146,17 +159,24 @@ export async function POST(request: NextRequest) {
           : SubmissionStatus.PENDING,
       reviewNotes: nextFlaggedFields.length > 0 ? existing?.reviewNotes : null,
       flaggedFields: nextFlaggedFields,
-      ocrStatus: forceSubmit ? SubmissionOcrStatus.OCR_NEEDS_REVIEW : ocrAnalysis.status,
-      ocrRawText: ocrAnalysis.rawText,
+      resubmittedFields: nextResubmittedFields,
+      ...(resolvedFlaggedFields.has("COE") ? { coeStatus: SubmissionStatus.PENDING } : {}),
+      ...(resolvedFlaggedFields.has("GRADE_REPORT") ? { gradesStatus: SubmissionStatus.PENDING } : {}),
+      ocrStatus: SubmissionOcrStatus.OCR_PENDING,
+      ocrRawText: "",
       ocrParsedRows: {
-        rows: ocrAnalysis.parsed.rows,
-        unrecognizedRows: ocrAnalysis.parsed.unrecognizedRows,
-        documentValidation: ocrAnalysis.documentValidation,
+        rows: [],
+        unrecognizedRows: [],
+        documentValidation: {
+          certificateOfEnrollment: false,
+          gradeReport: false,
+        },
         forcedManualReview: forceSubmit,
       },
-      ocrGwa: ocrAnalysis.parsed.gwa,
-      ocrTotalUnits: ocrAnalysis.parsed.totalUnits,
-      ocrConfidence: ocrAnalysis.confidence,
+      ocrGwa: null,
+      ocrTotalUnits: null,
+      ocrConfidence: null,
+      requiresStrictManualReview,
       reviewedAt: null,
       submittedAt: new Date(),
     };
@@ -172,6 +192,10 @@ export async function POST(request: NextRequest) {
             granteeId: appUser.grantee.id,
           },
         });
+
+    after(async () => {
+      await processSubmissionGradeReportOcr(submission.id, { manualReviewRequired: forceSubmit });
+    });
 
     const submissionForGrantee = {
       id: submission.id,
@@ -195,7 +219,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, submission: submissionForGrantee });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to submit documents";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Grantee document submission failed:", error);
+    return NextResponse.json(
+      { error: "We couldn't submit your requirements right now. Please try again." },
+      { status: 500 }
+    );
   }
 }

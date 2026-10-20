@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, X } from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
 import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-profile-client";
 import { useAuth } from "@/app/components/AuthProvider";
 import { isSkeapTestAccount } from "@/lib/skeap-test-access";
+import { createBrowserClient } from "@/lib/supabase/browser";
 
 type Props = {
   slug: string;
@@ -64,6 +66,7 @@ function prefetchProgramStatus(slug: string) {
 }
 
 export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
+  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [open, setOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<KKProfile | null>(null);
@@ -84,6 +87,29 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   }
 
   async function openApplyFlow(skipKkCheck = false) {
+    try {
+      const supabase = createBrowserClient();
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error("Unable to check authentication before SKEAP application:", error);
+        router.push("/programs/kk-profiling");
+        return;
+      }
+
+      if (!session) {
+        router.push("/programs/kk-profiling");
+        return;
+      }
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      router.push("/programs/kk-profiling");
+      return;
+    }
+
     setCheckingKkProfile(true);
     setKkCheckError(null);
     const isTestAccount = isSkeapTestAccount(user?.email);

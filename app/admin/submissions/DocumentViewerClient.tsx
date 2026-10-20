@@ -6,7 +6,6 @@ import { Download, FileText, Loader2 } from "lucide-react";
 type PreviewType = "pdf" | "image" | "unsupported";
 
 const IMAGE_CONTENT_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
-const INLINE_CONTENT_TYPES = new Set(["application/pdf", ...IMAGE_CONTENT_TYPES]);
 
 export default function DocumentViewerClient({
   submissionId,
@@ -17,39 +16,68 @@ export default function DocumentViewerClient({
 }) {
   const fileUrl = `/api/submissions/${submissionId}/file?kind=${kind}`;
   const [previewType, setPreviewType] = useState<PreviewType | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${fileUrl}&metadata=true`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const body = await response.json();
-        if (response.status === 404 && body?.code === "FILE_NOT_FOUND") {
-          throw new Error("The uploaded document could not be found in storage. Ask the grantee to re-upload it.");
+    let objectUrl: string | null = null;
+
+    async function loadPreview() {
+      try {
+        const metadataResponse = await fetch(`${fileUrl}&metadata=true`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const metadata = await metadataResponse.json();
+        if (!metadataResponse.ok) {
+          throw new Error(metadata.error || "Could not inspect this document.");
         }
-        if (!response.ok) throw new Error(body.error || "Could not load this document.");
-        return body as { contentType: string | null; extension: string };
-      })
-      .then(({ contentType, extension }) => {
+
+        const { contentType, extension } = metadata as {
+          contentType: string | null;
+          extension: string;
+        };
+        let type: PreviewType = "unsupported";
         if (contentType === "application/pdf" || (!contentType && extension === "pdf")) {
-          setPreviewType("pdf");
+          type = "pdf";
         } else if (
           (contentType && IMAGE_CONTENT_TYPES.has(contentType)) ||
           (!contentType && ["gif", "jpeg", "jpg", "png", "webp"].includes(extension))
         ) {
-          setPreviewType("image");
-        } else if (contentType && INLINE_CONTENT_TYPES.has(contentType)) {
-          setPreviewType("unsupported");
-        } else {
-          setPreviewType("unsupported");
+          type = "image";
         }
-      })
-      .catch((caught: unknown) => {
+
+        if (type === "unsupported") {
+          setPreviewType(type);
+          return;
+        }
+
+        const fileResponse = await fetch(fileUrl, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!fileResponse.ok) {
+          const body = await fileResponse.json().catch(() => ({}));
+          throw new Error(body.error || "Could not load this document.");
+        }
+        const fileBlob = await fileResponse.blob();
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(fileBlob);
+        setPreviewUrl(objectUrl);
+        setPreviewType(type);
+      } catch (caught: unknown) {
         if (controller.signal.aborted) return;
         setError(caught instanceof Error ? caught.message : "Could not load this document.");
-      });
+      }
+    }
 
-    return () => controller.abort();
+    void loadPreview();
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [fileUrl]);
 
   const title = kind === "coe" ? "Certificate of Enrollment" : "Grade Report";
@@ -83,14 +111,14 @@ export default function DocumentViewerClient({
             <p role="alert" className="px-6 text-center text-sm text-rose-700">{error}</p>
           ) : previewType === "pdf" ? (
             <iframe
-              src={`${fileUrl}#toolbar=1&view=FitH`}
+              src={`${previewUrl}#toolbar=1&view=FitH`}
               title={title}
               className="h-full w-full border-0"
             />
           ) : previewType === "image" ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={fileUrl}
+              src={previewUrl ?? ""}
               alt={title}
               className="h-full w-full bg-slate-50 object-contain"
             />

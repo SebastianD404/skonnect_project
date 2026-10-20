@@ -139,6 +139,7 @@ export default function AdminSidebar({
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("admin-inquiries-updated", handleFocus);
+    window.addEventListener("admin-submissions-updated", handleFocus);
     void refreshCounts();
 
     return () => {
@@ -149,6 +150,7 @@ export default function AdminSidebar({
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("admin-inquiries-updated", handleFocus);
+      window.removeEventListener("admin-submissions-updated", handleFocus);
     };
   }, [pathname]);
 

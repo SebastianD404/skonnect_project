@@ -1,0 +1,2 @@
+ALTER TABLE "submissions"
+ADD COLUMN IF NOT EXISTS "resubmittedFields" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

@@ -11,6 +11,7 @@ import {
   validateGradeReport,
 } from "@/lib/ocr/document-validation";
 import { getSubmissionStorageObject } from "@/lib/ocr/storage";
+import { hasFailingGradeIndicators } from "@/lib/ocr/failing-grade-indicators";
 
 const OCR_TIMEOUT_MS = 30_000;
 
@@ -47,7 +48,8 @@ export async function analyzeSubmissionOcr(
 
     const coeResult = await extractDocumentOcr(
       Buffer.from(await coeDownload.data.arrayBuffer()),
-      coeDownload.data.type
+      coeDownload.data.type,
+      "Certificate of Enrollment"
     );
     const gradeReportResult = await processGradeReportOcr(
       Buffer.from(await gradeReportDownload.data.arrayBuffer()),
@@ -80,7 +82,10 @@ export async function analyzeSubmissionOcr(
   }
 }
 
-export async function processSubmissionGradeReportOcr(submissionId: string) {
+export async function processSubmissionGradeReportOcr(
+  submissionId: string,
+  { manualReviewRequired = false }: { manualReviewRequired?: boolean } = {}
+) {
   let gradeReportUrl: string | null = null;
   let certificateOfEnrollmentUrl: string | null = null;
 
@@ -91,6 +96,7 @@ export async function processSubmissionGradeReportOcr(submissionId: string) {
         id: true,
         gradeFileUrl: true,
         coeFileUrl: true,
+        requiresStrictManualReview: true,
         grantee: { select: { user: { select: { authId: true } } } },
       },
     });
@@ -116,16 +122,21 @@ export async function processSubmissionGradeReportOcr(submissionId: string) {
           ocrStatus: SubmissionOcrStatus.OCR_PENDING,
         },
         data: {
-          ocrStatus: result.status,
+          ocrStatus: manualReviewRequired
+            ? SubmissionOcrStatus.OCR_NEEDS_REVIEW
+            : result.status,
           ocrRawText: result.rawText,
           ocrParsedRows: {
             rows: result.parsed.rows,
             unrecognizedRows: result.parsed.unrecognizedRows,
             documentValidation: result.documentValidation,
+            ...(manualReviewRequired ? { forcedManualReview: true } : {}),
           },
           ocrGwa: result.parsed.gwa,
           ocrTotalUnits: result.parsed.totalUnits,
           ocrConfidence: result.confidence,
+          requiresStrictManualReview:
+            submission.requiresStrictManualReview || hasFailingGradeIndicators(result.rawText),
         },
       });
     };

@@ -36,6 +36,7 @@ describe("processSubmissionGradeReportOcr", () => {
       id: "submission-1",
       gradeFileUrl: "grantee-submissions/user/file.pdf",
       coeFileUrl: "grantee-submissions/user/coe.pdf",
+      requiresStrictManualReview: false,
       grantee: { user: { authId: "user-1" } },
     });
     mocks.download.mockResolvedValue({
@@ -163,6 +164,63 @@ describe("processSubmissionGradeReportOcr", () => {
             gradeReport: true,
           },
         }),
+      }),
+    }));
+  });
+
+  it("keeps forced submissions in manual review while saving the extracted GWA", async () => {
+    mocks.extractDocumentOcr.mockResolvedValue({
+      rawText: "Certificate of Enrollment and Academic Schedule",
+      confidence: 99,
+    });
+    mocks.processGradeReportOcr.mockResolvedValue({
+      status: "OCR_DONE",
+      rawText: "Transcript of Grade and Rating\nSUBJ101 Computing 3 1.25",
+      parsed: {
+        rows: [{ subjectCode: "SUBJ101", subjectName: "Computing", units: 3, grade: 1.25, flag: null }],
+        unrecognizedRows: [],
+        gwa: 1.25,
+        totalUnits: 3,
+      },
+      confidence: 99,
+    });
+
+    await processSubmissionGradeReportOcr("submission-1", { manualReviewRequired: true });
+
+    expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        ocrStatus: "OCR_NEEDS_REVIEW",
+        ocrGwa: 1.25,
+        ocrTotalUnits: 3,
+        ocrParsedRows: expect.objectContaining({
+          forcedManualReview: true,
+        }),
+      }),
+    }));
+  });
+
+  it("persists a failing-grade warning detected by server OCR", async () => {
+    mocks.extractDocumentOcr.mockResolvedValue({
+      rawText: "Certificate of Enrollment and Academic Schedule",
+      confidence: 99,
+    });
+    mocks.processGradeReportOcr.mockResolvedValue({
+      status: "OCR_DONE",
+      rawText: "Transcript of Grades\nMATH 101 3 74",
+      parsed: {
+        rows: [{ subjectCode: "MATH101", subjectName: "Math", units: 3, grade: 74, flag: "FAIL" }],
+        unrecognizedRows: [],
+        gwa: 74,
+        totalUnits: 3,
+      },
+      confidence: 99,
+    });
+
+    await processSubmissionGradeReportOcr("submission-1");
+
+    expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        requiresStrictManualReview: true,
       }),
     }));
   });

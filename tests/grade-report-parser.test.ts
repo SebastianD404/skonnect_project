@@ -50,4 +50,34 @@ describe("parseGradeReportText", () => {
     expect(result.totalUnits).toBe(3);
     expect(result.unrecognizedRows).toEqual([]);
   });
+
+  it("uses an explicit GWA when subject rows are not readable", () => {
+    const result = parseGradeReportText("GENERAL WEIGHTED AVERAGE: 1.75");
+
+    expect(result.gwa).toBe(1.75);
+    expect(result.totalUnits).toBe(0);
+  });
+
+  it.each([
+    ["GWA\n1.25", 1.25],
+    ["GPA = 2,50", 2.5],
+    ["Weighted Average:\n 1.875", 1.88],
+    ["Term Average 85.5", 85.5],
+    ["Average: 75", 75],
+  ])("extracts a labeled average despite OCR spacing: %s", (text, expected) => {
+    expect(parseGradeReportText(text).gwa).toBe(expected);
+  });
+
+  it.each(["GWA: 74.99", "GPA: 3.25", "Average: 4.00", "GWA: 3 units"])(
+    "rejects out-of-range or unrelated numeric values: %s",
+    (text) => {
+      expect(parseGradeReportText(text).gwa).toBeNull();
+    }
+  );
+
+  it("prefers a computed weighted average over an explicit GWA", () => {
+    const result = parseGradeReportText(`${fixtures.clean}\nGWA: 2.00`);
+
+    expect(result.gwa).toBe(1.5);
+  });
 });

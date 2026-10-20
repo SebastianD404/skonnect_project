@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import GranteeDocumentsClient from "./GranteeDocumentsClient";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
+import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import type { SubmissionStatus } from "@prisma/client";
 
 export default async function GranteeDocumentsPage() {
@@ -43,9 +44,12 @@ export default async function GranteeDocumentsPage() {
     id: string;
     semester: string;
     status: SubmissionStatus;
+    coeStatus: SubmissionStatus;
+    gradesStatus: SubmissionStatus;
     ocrStatus: "OCR_PENDING" | "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED" | null;
     reviewNotes: string | null;
     flaggedFields: string[];
+    resubmittedFields: string[];
     submittedAt: Date;
     reviewedAt: Date | null;
     gradeFileUrl: string;
@@ -61,9 +65,12 @@ export default async function GranteeDocumentsPage() {
           id: true,
           semester: true,
           status: true,
+          coeStatus: true,
+          gradesStatus: true,
           ocrStatus: true,
           reviewNotes: true,
           flaggedFields: true,
+          resubmittedFields: true,
           submittedAt: true,
           reviewedAt: true,
           gradeFileUrl: true,
@@ -74,7 +81,7 @@ export default async function GranteeDocumentsPage() {
       submissions = raw;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!/flaggedFields|ocrStatus|does not exist/i.test(message)) {
+      if (!/flaggedFields|resubmittedFields|ocrStatus|does not exist/i.test(message)) {
         throw error;
       }
 
@@ -85,6 +92,8 @@ export default async function GranteeDocumentsPage() {
           id: true,
           semester: true,
           status: true,
+          coeStatus: true,
+          gradesStatus: true,
           reviewNotes: true,
           submittedAt: true,
           reviewedAt: true,
@@ -93,7 +102,12 @@ export default async function GranteeDocumentsPage() {
         },
       });
 
-      submissions = fallback.map((item) => ({ ...item, ocrStatus: null, flaggedFields: [] }));
+      submissions = fallback.map((item) => ({
+        ...item,
+        ocrStatus: null,
+        flaggedFields: [],
+        resubmittedFields: [],
+      }));
     }
   }
 
@@ -102,9 +116,12 @@ export default async function GranteeDocumentsPage() {
     id: submission.id,
     semester: submission.semester,
     status: submission.status,
+    coeStatus: submission.coeStatus,
+    gradesStatus: submission.gradesStatus,
     ocrStatus: submission.ocrStatus,
     reviewNotes: submission.reviewNotes,
     flaggedFields: submission.flaggedFields,
+    resubmittedFields: submission.resubmittedFields,
     submittedAt: submission.submittedAt.toISOString(),
     reviewedAt: submission.reviewedAt ? submission.reviewedAt.toISOString() : null,
     gradeFileUrl: submission.gradeFileUrl,
@@ -112,11 +129,17 @@ export default async function GranteeDocumentsPage() {
   }));
 
   const canSubmit = isGranteeProfileComplete(appUser.grantee);
+  const { window: academicTermWindow } = await getAcademicTermScheduleState();
 
   return (
-    <main className="px-6 pb-20 pt-12">
-      <div className="mx-auto max-w-7xl">
-        <GranteeDocumentsClient submissions={serialized} canSubmit={canSubmit} />
+    <main className="px-4 pb-20 pt-12 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
+        <GranteeDocumentsClient
+          key={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}`}
+          submissions={serialized}
+          canSubmit={canSubmit}
+          academicTermWindow={academicTermWindow}
+        />
       </div>
     </main>
   );

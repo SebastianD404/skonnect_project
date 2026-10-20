@@ -5,6 +5,8 @@ import { prisma } from "../../../lib/prisma";
 import { ensureProfile } from "../../../lib/auth";
 import { parseReminderOffsets } from "../../../lib/reminders";
 import { writeAuditLog } from "../../../lib/audit/logger";
+import { getAcademicTermScheduleState, parseManilaDateTime } from "@/lib/academic-term-schedule";
+import { isAllowedAcademicSemester } from "@/lib/semester-progress";
 
 const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
@@ -63,28 +65,41 @@ async function upsertReminderSetting(
 }
 
 export async function GET() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const appUser = await getAppUser(user);
+    if (!appUser || (appUser.role !== Role.SK_OFFICIAL && appUser.role !== Role.SUPER_ADMIN)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const reminderSettings = await getReminderSettings();
+    const { schedules: academicTermSchedules, window: academicTermWindow } =
+      await getAcademicTermScheduleState();
+
+    return NextResponse.json({
+      fullName: appUser.fullName ?? "",
+      email: appUser.email,
+      settings: appUser.settings ?? DEFAULT_SETTINGS,
+      reminderSettings,
+      academicTermSchedules: academicTermSchedules.map((schedule) => ({
+        ...schedule,
+        opensAt: schedule.opensAt.toISOString(),
+        closesAt: schedule.closesAt.toISOString(),
+      })),
+      academicTermWindow,
+    });
+  } catch (error) {
+    console.error("Failed to load admin and academic term settings:", error);
+    return NextResponse.json({ error: "Unable to load settings. Please try again." }, { status: 500 });
   }
-
-  const appUser = await getAppUser(user);
-  if (!appUser || (appUser.role !== Role.SK_OFFICIAL && appUser.role !== Role.SUPER_ADMIN)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const reminderSettings = await getReminderSettings();
-
-  return NextResponse.json({
-    fullName: appUser.fullName ?? "",
-    email: appUser.email,
-    settings: appUser.settings ?? DEFAULT_SETTINGS,
-    reminderSettings,
-  });
 }
 
 export async function POST(request: Request) {
@@ -102,7 +117,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const payload = await request.json();
+  const payload = await request.json().catch(() => null);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return NextResponse.json({ error: "Invalid settings request." }, { status: 400 });
+  }
   const {
     fullName,
     email,
@@ -112,7 +130,95 @@ export async function POST(request: Request) {
     submissionAlerts,
     skeapReminderOffsets,
     skeapDeadline,
+    academicTermSchedules,
+    deletedAcademicTermScheduleIds,
   } = payload;
+
+  let parsedAcademicTermSchedules:
+    | Array<{ id?: string; semester: string; opensAt: Date; closesAt: Date }>
+    | undefined;
+  if (academicTermSchedules !== undefined) {
+    if (!Array.isArray(academicTermSchedules) || academicTermSchedules.length > 30) {
+      return NextResponse.json({ error: "Provide a valid academic term schedule list." }, { status: 400 });
+    }
+    parsedAcademicTermSchedules = [];
+    const semesterNames = new Set<string>();
+    for (const item of academicTermSchedules) {
+      const semester = typeof item?.semester === "string" ? item.semester.trim() : "";
+      const opensAt = parseManilaDateTime(item?.opensAt);
+      const closesAt = parseManilaDateTime(item?.closesAt);
+      if (!isAllowedAcademicSemester(semester) || !opensAt || !closesAt || opensAt >= closesAt) {
+        return NextResponse.json(
+          { error: "Each schedule needs a valid academic term, opening date, and later deadline. Times use Asia/Manila." },
+          { status: 400 }
+        );
+      }
+      if (semesterNames.has(semester)) {
+        return NextResponse.json({ error: `A schedule already exists for ${semester}.` }, { status: 400 });
+      }
+      semesterNames.add(semester);
+      parsedAcademicTermSchedules.push({
+        ...(typeof item.id === "string" ? { id: item.id } : {}),
+        semester,
+        opensAt,
+        closesAt,
+      });
+    }
+    if (
+      deletedAcademicTermScheduleIds !== undefined &&
+      (!Array.isArray(deletedAcademicTermScheduleIds) ||
+        deletedAcademicTermScheduleIds.some((id) => typeof id !== "string"))
+    ) {
+      return NextResponse.json({ error: "Invalid academic schedule removal list." }, { status: 400 });
+    }
+    const parsedSchedules = parsedAcademicTermSchedules ?? [];
+    const deletedIds = (deletedAcademicTermScheduleIds ?? []) as string[];
+    if (
+      new Set(deletedIds).size !== deletedIds.length ||
+      deletedIds.some((id) => parsedSchedules.some((schedule) => schedule.id === id))
+    ) {
+      return NextResponse.json({ error: "An academic schedule cannot be edited and removed at the same time." }, { status: 400 });
+    }
+    const existingSchedules = await prisma.academicTermSchedule.findMany({
+      select: { id: true, semester: true, opensAt: true, closesAt: true },
+    });
+    const existingById = new Map(existingSchedules.map((schedule) => [schedule.id, schedule]));
+    if (
+      deletedIds.some((id) => !existingById.has(id)) ||
+      parsedSchedules.some((schedule) => schedule.id && existingById.get(schedule.id)?.semester !== schedule.semester)
+    ) {
+      return NextResponse.json({ error: "An academic term schedule changed. Reload settings and try again." }, { status: 409 });
+    }
+    const persistedBySemester = new Set(existingSchedules.map((schedule) => schedule.semester));
+    if (
+      parsedSchedules.some(
+        (schedule) => !schedule.id && persistedBySemester.has(schedule.semester) && !deletedIds.some((id) => existingById.get(id)?.semester === schedule.semester)
+      )
+    ) {
+      return NextResponse.json({ error: "A schedule already exists for this academic term." }, { status: 409 });
+    }
+    const editedIds = new Set(parsedSchedules.flatMap((schedule) => schedule.id ? [schedule.id] : []));
+    const removedIds = new Set(deletedIds);
+    const newSemesters = new Set(parsedSchedules.filter((schedule) => !schedule.id).map((schedule) => schedule.semester));
+    const untouchedSchedules = existingSchedules.filter(
+      (schedule) =>
+        !editedIds.has(schedule.id) &&
+        !removedIds.has(schedule.id) &&
+        !newSemesters.has(schedule.semester)
+    );
+    const allSchedules = [
+      ...untouchedSchedules,
+      ...parsedSchedules.map(({ semester, opensAt, closesAt }) => ({ semester, opensAt, closesAt })),
+    ].sort((a, b) => a.opensAt.getTime() - b.opensAt.getTime());
+    for (let index = 1; index < allSchedules.length; index += 1) {
+      if (allSchedules[index].opensAt <= allSchedules[index - 1].closesAt) {
+        return NextResponse.json(
+          { error: "Academic submission windows cannot overlap. Adjust the opening date or deadline." },
+          { status: 400 }
+        );
+      }
+    }
+  }
 
   let parsedDeadline: Date | null = null;
   if (skeapDeadline !== null && skeapDeadline !== undefined && skeapDeadline !== "") {
@@ -172,6 +278,62 @@ export async function POST(request: Request) {
         parsedDeadline
       );
 
+      if (parsedAcademicTermSchedules) {
+        const deletedScheduleIds = deletedAcademicTermScheduleIds as string[] | undefined;
+        if (deletedScheduleIds?.length) {
+          const removedSchedules = await tx.academicTermSchedule.findMany({
+            where: { id: { in: deletedScheduleIds } },
+          });
+          await tx.academicTermSchedule.deleteMany({ where: { id: { in: deletedScheduleIds } } });
+          for (const schedule of removedSchedules) {
+            await writeAuditLog(tx, {
+              action: "DELETE_ACADEMIC_TERM_SCHEDULE",
+              actorId: appUser.id,
+              targetTable: "academic_term_schedules",
+              targetId: schedule.id,
+              beforeData: schedule,
+              afterData: null,
+              metadata: { target: schedule.semester },
+            });
+          }
+        }
+
+        for (const schedule of parsedAcademicTermSchedules) {
+          const before = schedule.id
+            ? await tx.academicTermSchedule.findUnique({ where: { id: schedule.id } })
+            : await tx.academicTermSchedule.findUnique({ where: { semester: schedule.semester } });
+          if (schedule.id && (!before || before.semester !== schedule.semester)) {
+            throw new Error("An academic term schedule could not be found.");
+          }
+          const saved = schedule.id
+            ? await tx.academicTermSchedule.update({
+                where: { id: schedule.id },
+                data: { opensAt: schedule.opensAt, closesAt: schedule.closesAt },
+              })
+            : await tx.academicTermSchedule.upsert({
+                where: { semester: schedule.semester },
+                create: {
+                  semester: schedule.semester,
+                  opensAt: schedule.opensAt,
+                  closesAt: schedule.closesAt,
+                },
+                update: {
+                  opensAt: schedule.opensAt,
+                  closesAt: schedule.closesAt,
+                },
+              });
+          await writeAuditLog(tx, {
+            action: "UPDATE_ACADEMIC_TERM_SCHEDULE",
+            actorId: appUser.id,
+            targetTable: "academic_term_schedules",
+            targetId: saved.id,
+            beforeData: before,
+            afterData: saved,
+            metadata: { target: schedule.semester },
+          });
+        }
+      }
+
       await writeAuditLog(tx, {
         action: "UPDATE_ADMIN_PROFILE_SETTINGS",
         actorId: appUser.id,
@@ -207,8 +369,19 @@ export async function POST(request: Request) {
       });
     });
 
-    return NextResponse.json({ success: true });
-  } catch {
+    const { schedules: savedSchedules, window: academicTermWindow } =
+      await getAcademicTermScheduleState();
+    return NextResponse.json({
+      success: true,
+      academicTermSchedules: savedSchedules.map((schedule) => ({
+        ...schedule,
+        opensAt: schedule.opensAt.toISOString(),
+        closesAt: schedule.closesAt.toISOString(),
+      })),
+      academicTermWindow,
+    });
+  } catch (error) {
+    console.error("Failed to update admin and academic term settings:", error);
     return NextResponse.json({ error: "Failed to update settings." }, { status: 500 });
   }
 }

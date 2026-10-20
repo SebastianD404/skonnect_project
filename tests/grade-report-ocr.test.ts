@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { decideGradeReportOcrStatus } from "../lib/ocr/grade-report-ocr";
 import {
+  decideGradeReportOcrStatus,
+  extractDocumentOcr,
+} from "../lib/ocr/grade-report-ocr";
+import {
+  COE_MIME_TYPES,
+  GRADE_REPORT_MIME_TYPES,
   hasGradeReportSignature,
   MAX_GRADE_REPORT_BYTES,
 } from "../lib/ocr/grade-report-file";
@@ -28,5 +33,33 @@ describe("grade report OCR", () => {
       )
     ).toBe(false);
     expect(MAX_GRADE_REPORT_BYTES).toBe(10 * 1024 * 1024);
+  });
+
+  it("allows only PDF and image formats for both upload types", () => {
+    expect(GRADE_REPORT_MIME_TYPES.has("application/msword")).toBe(false);
+    expect(
+      GRADE_REPORT_MIME_TYPES.has(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      )
+    ).toBe(false);
+    expect(COE_MIME_TYPES.has("application/msword")).toBe(false);
+    expect(
+      COE_MIME_TYPES.has(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      )
+    ).toBe(false);
+    expect([...COE_MIME_TYPES]).toEqual([...GRADE_REPORT_MIME_TYPES]);
+  });
+
+  it("rejects DOC and DOCX before OCR processing", async () => {
+    await expect(
+      extractDocumentOcr(Buffer.from("Word document"), "application/msword")
+    ).rejects.toThrow("Submission documents must be PDF, JPG, PNG, or WEBP files.");
+    await expect(
+      extractDocumentOcr(
+        Buffer.from("Word document"),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      )
+    ).rejects.toThrow("Submission documents must be PDF, JPG, PNG, or WEBP files.");
   });
 });

@@ -11,15 +11,68 @@ const COE_CONTEXT_INDICATORS = [
   "schedule",
 ];
 
-const GRADE_REPORT_KEYWORDS = [
-  "grade",
+const GRADE_REPORT_NEGATIVE_KEYWORDS = [
+  "application form",
+  "scholarship application",
+  "abstract",
+  "issn",
+  "methodology",
+  "references",
+  "journal",
+  "chapter 1",
+  "article info",
+  "patient",
+  "vital signs",
+  "intake",
+  "output",
+  "blood pressure",
+  "mmhg",
+  "spo2",
+  "bpm",
+  "ivf",
+];
+
+const COE_NEGATIVE_KEYWORDS = [
+  "patient",
+  "vital signs",
+  "intake",
+  "output",
+  "blood pressure",
+  "mmhg",
+  "spo2",
+  "bpm",
+  "ivf",
+];
+
+const PRIMARY_GRADE_KEYWORDS = [
+  "gwa",
   "transcript",
-  "rating",
-  "average",
+  "form 138",
+  "report card",
+  "final grade",
+  "general weighted average",
+  "grading system",
+  "grade point average",
+  "cgpa",
+];
+
+const SECONDARY_GRADE_KEYWORDS = [
+  "units",
   "semester",
-  "course",
   "subject",
-  "unit",
+  "instructor",
+  "marks",
+  "term",
+  "course",
+  "rating",
+  "student no",
+  "student number",
+  "grade",
+  "grades",
+  "year",
+  "remarks",
+  "prerequisites",
+  "credited",
 ];
 
 function containsKeyword(text: string, keyword: string) {
@@ -28,14 +81,12 @@ function containsKeyword(text: string, keyword: string) {
   return new RegExp(`\\b${pattern}\\b`).test(text);
 }
 
-function containsEnoughKeywords(text: string, keywords: string[]) {
-  const normalizedText = text.toLowerCase();
-  return keywords.filter((keyword) => containsKeyword(normalizedText, keyword)).length >= 2;
-}
-
 export function validateCertificateOfEnrollment(text: string) {
   const normalizedText = text.toLowerCase();
-  if (/\b(application form|scholarship application)\b/.test(normalizedText)) {
+  if (
+    /\b(application form|scholarship application)\b/.test(normalizedText) ||
+    COE_NEGATIVE_KEYWORDS.some((keyword) => containsKeyword(normalizedText, keyword))
+  ) {
     return false;
   }
 
@@ -53,5 +104,17 @@ export function validateCertificateOfEnrollment(text: string) {
 }
 
 export function validateGradeReport(text: string) {
-  return containsEnoughKeywords(text, GRADE_REPORT_KEYWORDS);
+  const normalizedText = text.toLowerCase();
+  if (GRADE_REPORT_NEGATIVE_KEYWORDS.some((keyword) => containsKeyword(normalizedText, keyword))) {
+    return false;
+  }
+
+  const hasPrimaryKeyword = PRIMARY_GRADE_KEYWORDS.some((keyword) =>
+    containsKeyword(normalizedText, keyword)
+  );
+  const secondaryMatchCount = SECONDARY_GRADE_KEYWORDS.filter((keyword) =>
+    containsKeyword(normalizedText, keyword)
+  ).length;
+
+  return hasPrimaryKeyword || secondaryMatchCount >= 3;
 }

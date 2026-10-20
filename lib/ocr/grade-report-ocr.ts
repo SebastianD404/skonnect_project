@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import sharp from "sharp";
 import Tesseract from "tesseract.js";
 import { parseGradeReportText } from "@/lib/grade-report-parser";
-import { extractDocxTextFromBuffer } from "@/lib/skeap-document-keywords";
 import {
   COE_MIME_TYPES,
   hasGradeReportSignature,
@@ -77,8 +77,11 @@ async function preprocessImage(image: Buffer) {
     .toBuffer();
 }
 
-async function rasterizePdf(pdfBuffer: Buffer) {
+async function rasterizePdf(pdfBuffer: Buffer, documentLabel: string) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
+    require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")
+  ).href;
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(pdfBuffer),
     useSystemFonts: true,
@@ -88,7 +91,9 @@ async function rasterizePdf(pdfBuffer: Buffer) {
 
   try {
     if (document.numPages > MAX_PDF_PAGES) {
-      throw new Error(`PDFs are limited to ${MAX_PDF_PAGES} pages for OCR processing.`);
+      throw new Error(
+        `${documentLabel} PDF has ${document.numPages} pages. Please upload one with ${MAX_PDF_PAGES} pages or fewer.`
+      );
     }
 
     const pages: Buffer[] = [];
@@ -120,7 +125,8 @@ async function rasterizePdf(pdfBuffer: Buffer) {
 
 export async function extractDocumentOcr(
   input: Buffer,
-  contentType: string
+  contentType: string,
+  documentLabel = "Document"
 ): Promise<ExtractedDocumentOcr> {
   const normalizedContentType = contentType.toLowerCase().split(";")[0].trim();
   if (!COE_MIME_TYPES.has(normalizedContentType)) {
@@ -129,24 +135,11 @@ export async function extractDocumentOcr(
   if (input.byteLength === 0 || input.byteLength > MAX_GRADE_REPORT_BYTES) {
     throw new Error("The submission document is empty or exceeds the 10 MB limit.");
   }
-  const isOfficeDocument =
-    normalizedContentType === "application/msword" ||
-    normalizedContentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  if (!isOfficeDocument && !hasGradeReportSignature(input, normalizedContentType)) {
+  if (!hasGradeReportSignature(input, normalizedContentType)) {
     throw new Error("The uploaded file does not match its declared file type.");
   }
-  if (
-    normalizedContentType ===
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  ) {
-    const rawText = extractDocxTextFromBuffer(input);
-    return { rawText, confidence: rawText ? 100 : 0 };
-  }
-  if (normalizedContentType === "application/msword") {
-    return { rawText: "", confidence: 0 };
-  }
 
-  const sourcePages = isPdf(input) ? await rasterizePdf(input) : [input];
+  const sourcePages = isPdf(input) ? await rasterizePdf(input, documentLabel) : [input];
   const worker = await Tesseract.createWorker("eng");
 
   try {
@@ -178,7 +171,7 @@ export async function processGradeReportOcr(
   input: Buffer,
   contentType: string
 ): Promise<GradeReportOcrResult> {
-  const { rawText, confidence } = await extractDocumentOcr(input, contentType);
+  const { rawText, confidence } = await extractDocumentOcr(input, contentType, "Grade Report");
   const parsed = parseGradeReportText(rawText);
 
   return {
