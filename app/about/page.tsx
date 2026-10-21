@@ -1,92 +1,94 @@
 import Link from "next/link";
+import { Check } from "lucide-react";
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-slate-900">
-      <main className="mx-auto max-w-6xl px-6 py-16">
-        <div className="space-y-6 rounded-[2rem] border border-slate-200 bg-white p-10 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50/50 to-slate-100/50 text-slate-900">
+      <main className="mx-auto max-w-5xl space-y-16 px-6 py-12 md:py-16">
+        <section className="max-w-2xl space-y-4">
+          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+            About SKonnect
+          </span>
+          <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl">
+            Youth services for Pico
+          </h1>
+          <p className="text-base leading-relaxed text-slate-600">
+            SKonnect helps Pico youth access scholarship programs, stay informed about local SK policies and resolutions, and understand the barangay ordinances that guide youth organizations and funding priorities.
+          </p>
+        </section>
+
+        <section className="grid items-start gap-12 border-t border-slate-100 pt-8 md:grid-cols-2">
           <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#0F3D5C]/20 bg-[#0F3D5C]/8 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0F3D5C]">
-              <span className="w-2 h-2 bg-[#0F3D5C] rounded-full"></span>
-              About SKonnect
-            </div>
-            <h1 className="text-5xl md:text-6xl font-black tracking-tight text-[#0F3D5C]">Youth services for Pico</h1>
-            <p className="text-lg leading-8 text-slate-600">
-              SKonnect is designed to help Pico youth access scholarship programs, stay informed about local SK policies and resolutions, and follow the barangay ordinances that guide youth organizations and funding priorities.
+            <h2 className="text-xl font-bold text-slate-900">What is SKonnect?</h2>
+            <p className="text-sm leading-relaxed text-slate-600">
+              SKonnect helps youth of Barangay Pico navigate scholarship programs, register for community events, and stay up to date with SK guidance.
+            </p>
+            <ul className="space-y-2.5 pt-2 text-sm text-slate-700">
+              {[
+                "Track scholarship status and requirements",
+                "Register for youth events online",
+                "Access ordinance and resolution summaries",
+                "Get clearer youth organization guidance",
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="space-y-4 rounded-3xl bg-slate-900 p-8 text-white shadow-xl">
+            <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">Why this matters</span>
+            <h3 className="text-xl font-bold">Simpler youth support</h3>
+            <p className="text-sm leading-relaxed text-slate-300">
+              SKonnect makes it easier for youth groups, students, and families to understand what is required and where to get help. Follow announcements, event dates, registration deadlines, and program priorities in one place.
+            </p>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-10 border-t border-slate-100 pt-8 md:grid-cols-3 md:gap-8">
+          <div className="space-y-2 border-t-2 border-emerald-500/50 pt-4">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">SK Ordinance</span>
+            <h3 className="text-base font-bold text-slate-900">Priority funding</h3>
+            <p className="text-xs leading-relaxed text-slate-600">
+              Registered youth organizations are first in line for SK funds as long as programs follow existing laws and regulations.
             </p>
           </div>
 
-          <section className="grid gap-8 lg:grid-cols-2">
-            <div className="space-y-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
-              <h2 className="text-2xl font-semibold text-slate-900">What is SKonnect?</h2>
-              <p className="text-slate-600 leading-7">
-                SKonnect helps youth of Barangay Pico navigate scholarship programs, register for community events, and stay up to date with SK guidance.
-              </p>
-              <ul className="mt-4 grid gap-3 text-slate-600 leading-7 sm:grid-cols-2">
-                <li className="list-disc list-inside">Track scholarship status and requirements</li>
-                <li className="list-disc list-inside">Register for youth events online</li>
-                <li className="list-disc list-inside">Access ordinance and resolution summaries</li>
-                <li className="list-disc list-inside">Get clearer youth organization guidance</li>
-              </ul>
-            </div>
-
-            <div className="grid gap-4">
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.35em] text-teal-600">Why this matters</p>
-                <h3 className="mt-3 text-xl font-semibold text-slate-900">Simpler youth support</h3>
-                <p className="mt-2 text-slate-600 leading-7">
-                  SKonnect makes it easier for youth groups, students, and families to understand what is required and where to get help.
-                </p>
-              </div>
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.35em] text-teal-600">What you can do</p>
-                <h3 className="mt-3 text-xl font-semibold text-slate-900">Stay connected</h3>
-                <p className="mt-2 text-slate-600 leading-7">
-                  Use SKonnect to follow SK announcements, upcoming events, registration deadlines, and youth program priorities without guesswork.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="grid gap-8 lg:grid-cols-3">
-            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.35em] text-teal-600">SK Ordinance</p>
-              <h3 className="mt-3 text-xl font-semibold text-slate-900">Priority funding</h3>
-              <p className="mt-2 text-slate-600 leading-7">
-                Registered youth organizations are first in line for SK funds as long as programs follow existing laws and regulations.
-              </p>
-            </div>
-            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.35em] text-teal-600">Youth governance</p>
-              <h3 className="mt-3 text-xl font-semibold text-slate-900">SK resolutions</h3>
-              <p className="mt-2 text-slate-600 leading-7">
-                SK resolutions define how youth programs are implemented. SKonnect makes it easier to see how those resolutions affect scholarships, events, and local community support.
-              </p>
-            </div>
-            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.35em] text-teal-600">Community rules</p>
-              <h3 className="mt-3 text-xl font-semibold text-slate-900">Procedure & compliance</h3>
-              <p className="mt-2 text-slate-600 leading-7">
-                When a rules change is needed, SKonnect helps youth leaders keep documents up to date and submit the required paperwork correctly.
-              </p>
-            </div>
-          </section>
-
-          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-2xl font-semibold text-slate-900">Need to learn more?</h2>
-            <p className="mt-3 text-slate-600 leading-7">
-              If you want detailed ordinance or SK resolution text, the SK Council office in Barangay Pico can provide the latest official documents and help you complete the registration process.
+          <div className="space-y-2 border-t-2 border-emerald-500/50 pt-4">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Youth governance</span>
+            <h3 className="text-base font-bold text-slate-900">SK resolutions</h3>
+            <p className="text-xs leading-relaxed text-slate-600">
+              SK resolutions define how youth programs are implemented, connecting scholarships and events to local community support.
             </p>
-            <div className="mt-6 flex flex-col sm:flex-row gap-3">
-              <Link href="/" className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100 transition">
-                Back home
-              </Link>
-              <Link href="/signup" className="inline-flex items-center justify-center rounded-full bg-[#0F3D5C] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0D2E47] transition">
-                Register now
-              </Link>
-            </div>
           </div>
-        </div>
+
+          <div className="space-y-2 border-t-2 border-emerald-500/50 pt-4">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Community rules</span>
+            <h3 className="text-base font-bold text-slate-900">Procedure &amp; compliance</h3>
+            <p className="text-xs leading-relaxed text-slate-600">
+              When rules change, SKonnect helps youth leaders keep documents up to date and submit required paperwork correctly.
+            </p>
+          </div>
+        </section>
+
+        <section className="flex flex-col items-center justify-between gap-6 rounded-3xl border border-slate-200/80 bg-slate-50 p-6 md:flex-row md:p-8">
+          <div className="space-y-1 text-center md:text-left">
+            <h2 className="text-base font-bold text-slate-900">Need to learn more?</h2>
+            <p className="max-w-lg text-xs leading-relaxed text-slate-500">
+              For detailed ordinance or SK resolution text, the SK Council office in Barangay Pico can provide the latest official documents and help with registration.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <Link href="/" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100">
+              Back home
+            </Link>
+            <Link href="/signup" className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800">
+              Register now
+            </Link>
+          </div>
+        </section>
       </main>
     </div>
   );
