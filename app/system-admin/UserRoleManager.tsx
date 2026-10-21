@@ -13,6 +13,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 type UserItem = {
   id: string;
@@ -276,15 +277,11 @@ export default function UserRoleManager({ users }: Props) {
   return (
     <>
       {message ? (
-        <div
-          className={`mb-5 rounded-xl border px-4 py-3 text-sm ${
-            message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-rose-200 bg-rose-50 text-rose-700"
-          }`}
-        >
-          {message.text}
-        </div>
+        <FloatingFeedback
+          message={message.text}
+          type={message.type}
+          onDismiss={() => setMessage(null)}
+        />
       ) : null}
 
       <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 sm:flex sm:items-center sm:justify-between">

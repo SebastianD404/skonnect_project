@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 interface CancelApplicationButtonProps {
   applicationId: string;
@@ -11,7 +12,7 @@ interface CancelApplicationButtonProps {
 export default function CancelApplicationButton({ applicationId, disabled }: CancelApplicationButtonProps) {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const router = useRouter();
 
   async function handleCancel() {
@@ -19,7 +20,7 @@ export default function CancelApplicationButton({ applicationId, disabled }: Can
     setMessage(null);
 
     if (!applicationId) {
-      setMessage("Missing application id");
+      setMessage({ text: "Missing application id", type: "error" });
       setIsCancelling(false);
       console.error("CancelApplicationButton: missing applicationId prop");
       return;
@@ -55,7 +56,7 @@ export default function CancelApplicationButton({ applicationId, disabled }: Can
         throw new Error(errMsg);
       }
 
-      setMessage("Application cancelled successfully.");
+      setMessage({ text: "Application cancelled successfully.", type: "success" });
       setIsConfirmOpen(false);
       // Refresh server data and navigate away so the UI reflects the cancelled state
         // Wait 1s so user sees success message, then redirect to home
@@ -69,7 +70,7 @@ export default function CancelApplicationButton({ applicationId, disabled }: Can
           }
         }, 1000);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to cancel application");
+      setMessage({ text: error instanceof Error ? error.message : "Unable to cancel application", type: "error" });
     } finally {
       setIsCancelling(false);
     }
@@ -90,7 +91,6 @@ export default function CancelApplicationButton({ applicationId, disabled }: Can
         <div className="absolute right-0 z-50 mt-2 w-[calc(100vw-2rem)] max-w-sm rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl sm:w-96">
           <p className="text-sm font-semibold text-slate-900">Cancel your application?</p>
           <p className="mt-3 text-sm text-slate-600">Are you sure you want to cancel your application? This action cannot be undone.</p>
-          {message ? <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm text-rose-700">{message}</p> : null}
           <div className="mt-4 flex flex-wrap gap-3">
             <button
               type="button"
@@ -109,6 +109,14 @@ export default function CancelApplicationButton({ applicationId, disabled }: Can
             </button>
           </div>
         </div>
+      ) : null}
+      {message ? (
+        <FloatingFeedback
+          message={message.text}
+          type={message.type}
+          autoDismissMs={message.type === "success" ? 0 : undefined}
+          onDismiss={() => setMessage(null)}
+        />
       ) : null}
     </div>
   );

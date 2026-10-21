@@ -3,6 +3,7 @@
 import { useDeferredValue, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Search } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
 import type { KKProfilingRegistration } from "./types";
 import { useAdminSearch } from "../AdminSearchContext";
@@ -140,11 +141,7 @@ export function KKProfilingRegistrationsTable({
 
   return (
     <div className="space-y-4">
-      {error && (
-        <div className="rounded-3xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error ? <FloatingFeedback message={error} type="error" onDismiss={() => setError(null)} /> : null}
       <div className={flat ? "relative" : "relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"}>
         {!pageSearch && (
           <div className="flex flex-col items-stretch justify-between gap-3 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row sm:items-center">

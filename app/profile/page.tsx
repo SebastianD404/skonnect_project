@@ -44,6 +44,12 @@ export default async function ProfilePage({ searchParams }: { searchParams?: Pro
     redirect("/login");
   }
 
+  const latestSkeapApplication = await db.skeapApplication.findFirst({
+    where: { userId: baseProfile.id },
+    orderBy: { submittedAt: "desc" },
+    select: { currentCourse: true },
+  });
+
   const needsGranteeProfile =
     appUser.role === "GRANTEE" && !isGranteeProfileComplete(appUser.grantee);
   const confirmationParams = searchParams ? await searchParams : undefined;
@@ -52,19 +58,13 @@ export default async function ProfilePage({ searchParams }: { searchParams?: Pro
   return (
     <SettingsShell
       title="Personal Details"
+      headerTitle="Edit your personal details"
       description="Edit your personal details, contact information, and profile photo."
       profileName={appUser.fullName}
       profileEmail={appUser.email}
       profileAvatar={baseProfile.avatarUrl ?? ""}
+      contentClassName="flex flex-1 flex-col p-0"
     >
-      <div className="space-y-3 border-b border-slate-200 pb-5">
-        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#0F3D5C]">Personal Details</p>
-        <h2 className="text-4xl font-black tracking-tight text-[#0F3D5C]">Edit your personal details</h2>
-        <p className="max-w-2xl text-sm leading-6 text-slate-600">
-          Update the name shown across the portal, contact information, academic details, and profile picture.
-        </p>
-      </div>
-
       <ProfileSettingsForm
         fullName={appUser.fullName}
         email={appUser.email}
@@ -72,6 +72,7 @@ export default async function ProfilePage({ searchParams }: { searchParams?: Pro
         role={appUser.role}
         school={normalizeSkeapSchoolName(appUser.grantee?.school ?? "")}
         yearLevel={appUser.grantee?.yearLevel ?? ""}
+        course={latestSkeapApplication?.currentCourse ?? ""}
         needsGranteeProfile={needsGranteeProfile}
         emailConfirmation={confirmationParams?.email_confirmation}
         emailConfirmationReason={confirmationParams?.reason}

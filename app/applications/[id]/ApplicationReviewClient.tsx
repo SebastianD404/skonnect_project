@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inbox, Info, MessageCircle, Trash2, Upload, UserRound, X } from "lucide-react";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
@@ -274,6 +275,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const [stagedReplacements, setStagedReplacements] = useState<StagedReplacement[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showApplicationForm, setShowApplicationForm] = useState(false);
@@ -398,6 +400,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     }
 
     setError(null);
+    setActionError(null);
     const existing = stagedMap[slotId];
     if (existing?.previewUrl) URL.revokeObjectURL(existing.previewUrl);
 
@@ -421,7 +424,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     } catch (uploadError) {
       URL.revokeObjectURL(previewUrl);
       setStagedReplacements((current) => current.filter((replacement) => replacement.slotId !== slotId));
-      setError(uploadError instanceof Error ? uploadError.message : "Unable to save replacement file.");
+      setActionError(uploadError instanceof Error ? uploadError.message : "Unable to save replacement file.");
     }
   };
 
@@ -442,6 +445,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
 
     setSubmitting(true);
     setError(null);
+    setActionError(null);
     setSuccess(null);
 
     try {
@@ -500,7 +504,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
       router.refresh();
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to resubmit application.");
+      setActionError(err instanceof Error ? err.message : "Unable to resubmit application.");
     } finally {
       setSubmitting(false);
     }
@@ -510,6 +514,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     if (deleting) return;
     setDeleting(true);
     setError(null);
+    setActionError(null);
     try {
       const response = await fetch(`/api/applications/${application.id}/delete`, {
         method: "POST",
@@ -532,7 +537,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         // ignore refresh errors
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete application.");
+      setActionError(err instanceof Error ? err.message : "Unable to delete application.");
     } finally {
       setDeleting(false);
       setShowDeleteConfirm(false);
@@ -1041,11 +1046,10 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         </section>
       ) : null}
 
-      {error ? (
-        <div className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
-      ) : null}
+      {error ? <div role="alert" className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div> : null}
+      {actionError ? <FloatingFeedback message={actionError} type="error" onDismiss={() => setActionError(null)} /> : null}
       {success ? (
-        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</div>
+        <FloatingFeedback message={success} type="success" autoDismissMs={0} onDismiss={() => setSuccess(null)} />
       ) : null}
 
       {showDeleteConfirm ? (

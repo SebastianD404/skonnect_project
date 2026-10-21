@@ -1,19 +1,30 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useActionState } from "react";
 import { login } from "@/app/actions/auth";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff, Mail, Lock, ShieldCheck, ArrowRight } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Mail, Lock, ShieldCheck, ArrowRight } from "lucide-react";
 
 function LoginForm() {
   const [state, formAction, submitting] = useActionState(login, null);
   const search = useSearchParams();
   const [email, setEmail] = useState("");
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const next = search.get("next") ?? "";
   const kkProfilingHref = `/programs/kk-profiling${next ? `?redirect=${encodeURIComponent(next)}` : ""}`;
+
+  useEffect(() => {
+    if (!state?.error) return;
+
+    const timer = window.setTimeout(() => {
+      setDismissedError(state.error ?? null);
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,61,92,0.08),_transparent_35%),linear-gradient(180deg,#f7f9fc_0%,#f4f7fb_100%)] px-4 py-10 text-slate-900">
@@ -34,13 +45,16 @@ function LoginForm() {
             <p className="mt-2 text-sm text-slate-500">Sign in to access your SKonnect account</p>
           </div>
 
-          {state?.error ? (
-            <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {state.error}
-            </div>
-          ) : null}
-
           <form action={formAction} className="mt-6 space-y-5">
+            {state?.error && state.error !== dismissedError ? (
+              <div
+                role="alert"
+                className="mb-5 flex items-center gap-2.5 rounded-xl border border-rose-200/80 bg-rose-50/80 p-3.5 text-xs font-medium text-rose-800 shadow-2xs animate-in fade-in slide-in-from-top-1 duration-200"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" aria-hidden="true" />
+                <span className="leading-tight">{state.error}</span>
+              </div>
+            ) : null}
             {next ? <input type="hidden" name="next" value={next} /> : null}
 
             <div>
@@ -57,7 +71,10 @@ function LoginForm() {
                   required
                   placeholder="you@example.com"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => {
+                    setDismissedError(state?.error ?? null);
+                    setEmail(event.target.value);
+                  }}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
                 />
               </div>
@@ -76,6 +93,7 @@ function LoginForm() {
                   autoComplete="current-password"
                   required
                   placeholder="Enter your password"
+                  onChange={() => setDismissedError(state?.error ?? null)}
                   className="secure-login-password w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
                 />
                 <button

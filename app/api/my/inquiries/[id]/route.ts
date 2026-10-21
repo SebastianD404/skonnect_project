@@ -86,3 +86,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const appUser = await getCurrentUser();
+    if (!appUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { id } = await params;
+    const result = await db.inquiry.deleteMany({ where: { id, userId: appUser.id } });
+    if (result.count === 0) return NextResponse.json({ error: "Inquiry not found." }, { status: 404 });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete inquiry.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

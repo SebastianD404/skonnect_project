@@ -13,10 +13,15 @@ import {
   Mail,
   PencilLine,
   Sparkles,
+  UserCheck,
+  Wallet,
 } from "lucide-react";
 import ReturnedForEditCard from "./ReturnedForEditCard";
 import GranteeWelcomeGate from "./GranteeWelcomeGate";
 import { buildSemesterTracker } from "@/lib/semester-progress";
+import { getApprovedSemesterCount } from "@/lib/academic-journey";
+import AcademicJourneyMap from "@/app/components/AcademicJourneyMap";
+import { getAcademicTermScheduleState, getAcademicTermDeadlineTarget } from "@/lib/academic-term-schedule";
 
 export default async function GranteeDashboardContent() {
   const db = prisma;
@@ -65,23 +70,30 @@ export default async function GranteeDashboardContent() {
   const needsEditCount = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
 
   const tracker = buildSemesterTracker(submissions);
-  const deadlineSetting = await db.reminderSetting.findUnique({
-    where: { type: "SKEAP_APPLICATION" },
-    select: { deadline: true },
-  });
-  const deadlineLabel = deadlineSetting?.deadline
-    ? new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" }).format(deadlineSetting.deadline)
-    : "Deadline not set";
+  const completedJourneySemesters = getApprovedSemesterCount(submissions);
+  const { schedules } = await getAcademicTermScheduleState();
+  const now = new Date();
+  const targetTerm = getAcademicTermDeadlineTarget(schedules, now);
+  const isTermOpen = Boolean(
+    targetTerm && targetTerm.opensAt <= now && targetTerm.closesAt >= now
+  );
+  const targetDateLabel = targetTerm
+    ? new Intl.DateTimeFormat("en-PH", {
+        dateStyle: "long",
+        timeStyle: "short",
+        timeZone: "Asia/Manila",
+      }).format(isTermOpen ? targetTerm.closesAt : targetTerm.opensAt)
+    : "—";
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50/50 to-slate-100/50 text-slate-900">
       <GranteeWelcomeGate initialShouldShow={!appUser.hasSeenOnboarding} />
       <div className="mx-auto max-w-7xl px-6 py-10 lg:px-10 lg:py-14">
-        <section className="grantee-dashboard-enter relative overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_24px_60px_-30px_rgba(15,23,42,0.18)]">
+        <section className="grantee-dashboard-enter relative">
           <div className="pointer-events-none absolute -right-32 -top-32 h-80 w-80 rounded-full bg-gradient-to-br from-sky-400/30 via-cyan-300/20 to-transparent blur-3xl" />
           <div className="pointer-events-none absolute -bottom-32 -left-20 h-72 w-72 rounded-full bg-gradient-to-tr from-indigo-400/20 via-blue-300/10 to-transparent blur-3xl" />
 
-          <div className="relative grid grid-cols-1 gap-8 p-8 lg:grid-cols-[1.4fr_1fr] lg:gap-12 lg:p-12">
+          <div className="relative grid grid-cols-1 gap-8 py-5 lg:grid-cols-[1.4fr_1fr] lg:gap-12 lg:py-8">
             <div className="flex flex-col justify-center">
               <div className="inline-flex w-fit items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 backdrop-blur">
                 <span className="relative flex h-1.5 w-1.5">
@@ -120,24 +132,34 @@ export default async function GranteeDashboardContent() {
                 <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-sky-500/20 blur-3xl" />
                 <div className="absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl" />
                 <div className="relative">
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100 ring-1 ring-inset ring-white/15">
+                  <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ring-1 ring-inset ${
+                    isTermOpen
+                      ? "bg-rose-500/20 text-rose-200 ring-rose-200/20"
+                      : "bg-white/10 text-cyan-100 ring-white/15"
+                  }`}>
                     <Sparkles className="h-3 w-3" />
-                    NEXT UP
+                    {targetTerm ? (isTermOpen ? "ACTION REQUIRED" : "NEXT UP") : "NEXT UP"}
                   </div>
                   <h3 className="mt-4 text-2xl font-semibold tracking-tight">
-                    Next Submission Deadline
+                    {targetTerm
+                      ? `${targetTerm.semester} ${isTermOpen ? "Deadline" : "Upcoming"}`
+                      : "No Upcoming Submissions"}
                   </h3>
                   <p className="mt-2 text-sm text-slate-300">
-                    Prepare your Certificate of Enrollment and Last Semester grades.
+                    {targetTerm
+                      ? isTermOpen
+                        ? `Prepare and submit your requirements for ${targetTerm.semester} before the deadline.`
+                        : `Gather your requirements for ${targetTerm.semester}. The submission window opens soon.`
+                      : "There are currently no active or scheduled submission windows."}
                   </p>
 
                   <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur">
                     <div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        DEADLINE DATE &amp; TIME
+                        {targetTerm && !isTermOpen ? "SUBMISSIONS OPEN ON" : "DEADLINE DATE & TIME"}
                       </div>
                       <div className="mt-0.5 text-sm font-medium text-white">
-                        {deadlineLabel}
+                        {targetDateLabel}
                       </div>
                     </div>
                   </div>
@@ -147,35 +169,43 @@ export default async function GranteeDashboardContent() {
           </div>
         </section>
 
-        <section className="grantee-dashboard-enter grantee-dashboard-enter-stats mt-8 grid min-h-[160px] grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            icon={<Clock3 className="h-4 w-4" />}
-            label="Pending review"
-            value={pendingCount}
-            note="Waiting for SK/admin verification"
-            accent="from-amber-400 to-orange-500"
-            tint="bg-amber-50 text-amber-700 ring-amber-200"
-          />
-          <StatCard
-            icon={<CheckCircle2 className="h-4 w-4" />}
-            label="Approved"
-            value={approvedCount}
-            note="Successfully validated semesters"
-            accent="from-emerald-400 to-teal-500"
-            tint="bg-emerald-50 text-emerald-700 ring-emerald-200"
-          />
-          <ProgressCard
-            icon={<CalendarCheck className="h-4 w-4" />}
-            label="Current semester progress"
-            approved={tracker.approved}
-            total={tracker.total}
-            pct={tracker.pct}
-          />
-          <ReturnedForEditCard count={needsEditCount} />
+        <section className="grantee-dashboard-enter grantee-dashboard-enter-stats mt-8 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="grid grid-cols-1 divide-y divide-slate-100 md:grid-cols-4 md:divide-x md:divide-y-0">
+            <StatCard
+              icon={<Clock3 className="h-4 w-4" />}
+              label="Pending review"
+              value={pendingCount}
+              note="Waiting for SK/admin verification"
+              tint="bg-amber-50 text-amber-700 ring-amber-200"
+            />
+            <StatCard
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              label="Approved"
+              value={approvedCount}
+              note="Successfully validated semesters"
+              tint="bg-emerald-50 text-emerald-700 ring-emerald-200"
+            />
+            <ProgressCard
+              icon={<CalendarCheck className="h-4 w-4" />}
+              label="Current semester progress"
+              approved={tracker.approved}
+              total={tracker.total}
+              pct={tracker.pct}
+            />
+            <ReturnedForEditCard count={needsEditCount} className="h-full" />
+          </div>
         </section>
 
-        <section className="grantee-dashboard-enter grantee-dashboard-enter-activity mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr]">
-          <div className="min-h-[320px] rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm">
+        <section className="grantee-dashboard-enter grantee-dashboard-enter-activity mt-8">
+          <AcademicJourneyMap
+            studentName={appUser.fullName}
+            photoUrl={appUser.avatarUrl ?? undefined}
+            currentSemesterIndex={completedJourneySemesters}
+          />
+        </section>
+
+        <section className="grantee-dashboard-enter grantee-dashboard-enter-activity mt-8 grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[1.2fr_1fr]">
+          <div className="flex h-full flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold tracking-tight text-slate-900">Quick actions</h2>
@@ -185,66 +215,119 @@ export default async function GranteeDashboardContent() {
                 Workspace
               </span>
             </div>
-            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <ActionTile
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-4">
+              <Link
+                className="flex items-start gap-3 p-3.5 border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all group"
                 href="/grantee-dashboard/documents"
-                icon={<FileText className="h-4 w-4" />}
-                title="Submit requirements"
-                description="Upload semester files and track approvals."
-              />
-              <ActionTile
-                href="/grantee-dashboard/inquiries"
-                icon={<Mail className="h-4 w-4" />}
-                title="Contact support"
-                description="Review your support requests and replies."
-              />
+              >
+                <div className="w-8 h-8 rounded-lg bg-sky-700 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                  <FileText className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <h4 className="text-xs font-bold text-slate-900 truncate">Submit requirements</h4>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 shrink-0" />
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight line-clamp-2">Upload files and track approvals.</p>
+                </div>
+              </Link>
+
+              <Link
+                className="flex items-start gap-3 p-3.5 border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all group"
+                href="/grantee-dashboard/payouts"
+              >
+                <div className="w-8 h-8 rounded-lg bg-emerald-700 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                  <Wallet className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <h4 className="text-xs font-bold text-slate-900 truncate">Payout status</h4>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 shrink-0" />
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight line-clamp-2">Check allowance eligibility and schedule.</p>
+                </div>
+              </Link>
+
+              <Link
+                className="flex items-start gap-3 p-3.5 border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all group"
+                href="/grantee-dashboard/profile"
+              >
+                <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                  <UserCheck className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <h4 className="text-xs font-bold text-slate-900 truncate">Update Profile</h4>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 shrink-0" />
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight line-clamp-2">Keep your profiling data current.</p>
+                </div>
+              </Link>
+
+              <Link
+                className="flex items-start gap-3 p-3.5 border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all group"
+                href="/grantee-dashboard/support"
+              >
+                <div className="w-8 h-8 rounded-lg bg-indigo-700 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                  <Mail className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <h4 className="text-xs font-bold text-slate-900 truncate">Contact support</h4>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 shrink-0" />
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight line-clamp-2">Review your requests and replies.</p>
+                </div>
+              </Link>
             </div>
           </div>
 
-          <div className="min-h-[296px] rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm">
+          <div className="flex h-full flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold tracking-tight text-slate-900">Recent activity</h2>
               <Link href="/grantee-dashboard/documents" className="text-xs font-medium text-slate-500 hover:text-slate-900">
                 View all {"->"}
               </Link>
             </div>
-            <ol className="mt-6 space-y-4">
-              {submissions.slice(0, 4).map((s, i, arr) => {
-                const tone = s.status === "APPROVED" ? "approved" : s.status === "REJECTED" ? "edit" : "event";
-                return (
-                  <li key={s.id} className="flex gap-3">
-                    <div className="relative flex flex-col items-center">
-                      <div
-                        className={
-                          "flex h-8 w-8 items-center justify-center rounded-full ring-4 ring-white " +
-                          (tone === "approved"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : tone === "edit"
-                            ? "bg-rose-100 text-rose-700"
-                            : "bg-sky-100 text-sky-700")
-                        }
-                      >
-                        {tone === "approved" ? (
-                          <CheckCircle2 className="h-4 w-4" />
-                        ) : tone === "edit" ? (
-                          <PencilLine className="h-4 w-4" />
-                        ) : (
-                          <Clock3 className="h-4 w-4" />
-                        )}
+            <div className="mt-1 flex flex-1 flex-col justify-start">
+              <ol className="space-y-4">
+                {submissions.slice(0, 4).map((s, i, arr) => {
+                  const tone = s.status === "APPROVED" ? "approved" : s.status === "REJECTED" ? "edit" : "event";
+                  return (
+                    <li key={s.id} className="flex gap-3">
+                      <div className="relative flex flex-col items-center">
+                        <div
+                          className={
+                            "flex h-8 w-8 items-center justify-center rounded-full ring-4 ring-white " +
+                            (tone === "approved"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : tone === "edit"
+                              ? "bg-rose-100 text-rose-700"
+                              : "bg-sky-100 text-sky-700")
+                          }
+                        >
+                          {tone === "approved" ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : tone === "edit" ? (
+                            <PencilLine className="h-4 w-4" />
+                          ) : (
+                            <Clock3 className="h-4 w-4" />
+                          )}
+                        </div>
+                        {i < arr.length - 1 && <div className="mt-1 h-full w-px flex-1 bg-slate-200" />}
                       </div>
-                      {i < arr.length - 1 && <div className="mt-1 h-full w-px flex-1 bg-slate-200" />}
-                    </div>
-                    <div className="pb-2">
-                      <div className="text-sm font-medium text-slate-900">Submission · {s.status.toLowerCase()}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{new Date(s.submittedAt).toLocaleDateString()}</div>
-                    </div>
-                  </li>
-                );
-              })}
-              {submissions.length === 0 && (
-                <li className="text-sm text-slate-500">No activity yet. Start by submitting your first requirement.</li>
-              )}
-            </ol>
+                      <div className="pb-2">
+                        <div className="text-sm font-medium text-slate-900">Submission · {s.status.toLowerCase()}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{new Date(s.submittedAt).toLocaleDateString()}</div>
+                      </div>
+                    </li>
+                  );
+                })}
+                {submissions.length === 0 && (
+                  <li className="text-sm text-slate-500">No activity yet. Start by submitting your first requirement.</li>
+                )}
+              </ol>
+            </div>
           </div>
         </section>
       </div>
@@ -266,19 +349,16 @@ function StatCard({
   label,
   value,
   note,
-  accent,
   tint,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number;
   note: string;
-  accent: string;
   tint: string;
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow-md">
-      <div className={`absolute -right-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br ${accent} opacity-10 blur-2xl transition group-hover:opacity-20`} />
+    <div className="relative min-h-[160px] p-5">
       <div className="relative flex items-center justify-between">
         <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-inset ${tint}`}>{icon}</span>
         <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
@@ -303,8 +383,7 @@ function ProgressCard({
   pct: number;
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow-md">
-      <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 opacity-10 blur-2xl transition group-hover:opacity-20" />
+    <div className="relative min-h-[160px] p-5">
       <div className="relative flex items-center justify-between">
         <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-900">{icon}</span>
         <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
@@ -322,30 +401,5 @@ function ProgressCard({
         </div>
       </div>
     </div>
-  );
-}
-
-function ActionTile({
-  href,
-  icon,
-  title,
-  description,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
-  return (
-    <Link href={href} className="group relative flex items-start gap-3 overflow-hidden rounded-2xl border border-[#0F3D5C]/15 bg-gradient-to-br from-white to-[#F6FBFF] p-4 transition hover:border-[#0F3D5C]/35 hover:from-[#F9FCFF] hover:to-white hover:shadow-md">
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#00B4E5] text-white shadow-sm">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-          <ArrowUpRight className="h-3.5 w-3.5 text-[#0F3D5C]/45 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[#0F3D5C]" />
-        </div>
-        <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{description}</p>
-      </div>
-    </Link>
   );
 }

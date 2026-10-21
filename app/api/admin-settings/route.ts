@@ -6,13 +6,13 @@ import { ensureProfile } from "../../../lib/auth";
 import { parseReminderOffsets } from "../../../lib/reminders";
 import { writeAuditLog } from "../../../lib/audit/logger";
 import { getAcademicTermScheduleState, parseManilaDateTime } from "@/lib/academic-term-schedule";
+import { MAX_SCHEDULED_TERMS } from "@/lib/academic-term-schedule-constants";
 import { isAllowedAcademicSemester } from "@/lib/semester-progress";
 
 const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
   submissionAlerts: true,
   skeapReminderOffsets: "7, 3, 1",
-  skeapDeadline: null,
 };
 
 type AppUserWithSettings = {
@@ -34,32 +34,31 @@ async function getAppUser(authUser: { id?: string; user?: { id?: string } }): Pr
 async function getReminderSettings() {
   const skeap = await prisma.reminderSetting.findUnique({
     where: { type: ReminderType.SKEAP_APPLICATION },
+    select: { offsets: true },
   });
 
   const skeapOffsets = Array.isArray(skeap?.offsets) ? skeap.offsets : [];
 
   return {
     skeapReminderOffsets: skeapOffsets.length > 0 ? skeapOffsets.join(", ") : DEFAULT_SETTINGS.skeapReminderOffsets,
-    skeapDeadline: skeap?.deadline?.toISOString() ?? null,
   };
 }
 
 async function upsertReminderSetting(
   client: Prisma.TransactionClient,
   type: ReminderType,
-  offsets: number[],
-  deadline: Date | null
+  offsets: number[]
 ) {
   return client.reminderSetting.upsert({
     where: { type },
     create: {
       type,
       offsets,
-      deadline,
+      deadline: null,
     },
     update: {
       offsets,
-      deadline,
+      deadline: null,
     },
   });
 }
@@ -129,7 +128,6 @@ export async function POST(request: Request) {
     inquiryAlerts,
     submissionAlerts,
     skeapReminderOffsets,
-    skeapDeadline,
     academicTermSchedules,
     deletedAcademicTermScheduleIds,
   } = payload;
@@ -210,6 +208,12 @@ export async function POST(request: Request) {
       ...untouchedSchedules,
       ...parsedSchedules.map(({ semester, opensAt, closesAt }) => ({ semester, opensAt, closesAt })),
     ].sort((a, b) => a.opensAt.getTime() - b.opensAt.getTime());
+    if (allSchedules.length > MAX_SCHEDULED_TERMS) {
+      return NextResponse.json(
+        { error: `Maximum limit reached (${MAX_SCHEDULED_TERMS} terms).` },
+        { status: 400 }
+      );
+    }
     for (let index = 1; index < allSchedules.length; index += 1) {
       if (allSchedules[index].opensAt <= allSchedules[index - 1].closesAt) {
         return NextResponse.json(
@@ -217,17 +221,6 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
-    }
-  }
-
-  let parsedDeadline: Date | null = null;
-  if (skeapDeadline !== null && skeapDeadline !== undefined && skeapDeadline !== "") {
-    if (typeof skeapDeadline !== "string") {
-      return NextResponse.json({ error: "Invalid SKEAP deadline." }, { status: 400 });
-    }
-    parsedDeadline = new Date(skeapDeadline);
-    if (Number.isNaN(parsedDeadline.getTime())) {
-      return NextResponse.json({ error: "Invalid SKEAP deadline." }, { status: 400 });
     }
   }
 
@@ -274,8 +267,7 @@ export async function POST(request: Request) {
       await upsertReminderSetting(
         tx,
         ReminderType.SKEAP_APPLICATION,
-        parseReminderOffsets(String(skeapReminderOffsets ?? "")),
-        parsedDeadline
+        parseReminderOffsets(String(skeapReminderOffsets ?? ""))
       );
 
       if (parsedAcademicTermSchedules) {
@@ -359,12 +351,10 @@ export async function POST(request: Request) {
         beforeData: previousSettings,
         afterData: {
           skeapReminderOffsets,
-          skeapDeadline: parsedDeadline?.toISOString() ?? null,
         },
         metadata: {
           target: appUser.fullName,
           targetId: appUser.id,
-          skeapDeadline: parsedDeadline?.toISOString() ?? null,
         },
       });
     });

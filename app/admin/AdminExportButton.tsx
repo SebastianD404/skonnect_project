@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 interface AdminExportButtonProps {
   href: string;
@@ -81,23 +82,33 @@ export default function AdminExportButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleExport}
-      disabled={exportState === "exporting"}
-      aria-busy={exportState === "exporting"}
-      aria-live="polite"
-      title={errorMessage ?? label}
-      className={`${className} disabled:cursor-wait disabled:opacity-70`}
-    >
-      {exportState === "exporting" ? (
-        <Loader2 aria-hidden="true" className={`${iconClassName} animate-spin`} />
-      ) : (
-        <Download aria-hidden="true" className={iconClassName} />
-      )}
-      <span>
-        {exportState === "exporting" ? "Exporting..." : exportState === "error" ? "Export failed" : label}
-      </span>
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleExport}
+        disabled={exportState === "exporting"}
+        aria-busy={exportState === "exporting"}
+        aria-live="polite"
+        title={errorMessage ?? label}
+        className={`${className} disabled:cursor-wait disabled:opacity-70`}
+      >
+        {exportState === "exporting" ? (
+          <Loader2 aria-hidden="true" className={`${iconClassName} animate-spin`} />
+        ) : (
+          <Download aria-hidden="true" className={iconClassName} />
+        )}
+        <span>
+          {exportState === "exporting" ? "Exporting..." : exportState === "error" ? "Export failed" : label}
+        </span>
+      </button>
+      {errorMessage ? (
+        <FloatingFeedback
+          message={errorMessage}
+          type="error"
+          autoDismissMs={4000}
+          onDismiss={() => setErrorMessage(null)}
+        />
+      ) : null}
+    </>
   );
 }

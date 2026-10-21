@@ -2,11 +2,12 @@ import "dotenv/config";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
-  buildSkeapReminderMessage,
+  buildAcademicTermReminderMessage,
   getReminderDates,
   renderMessageTemplate,
   shouldSendReminder,
 } from "../lib/reminders";
+import { getAcademicTermDeadlineTarget } from "../lib/academic-term-schedule";
 import { getCurrentAcademicSemester, getPreviousAcademicSemester } from "../lib/semester-progress";
 
 const EMAIL_CHANNEL = "email";
@@ -14,11 +15,12 @@ const IN_APP_CHANNEL = "in-app";
 const REMINDER_TYPE_SKEAP_APPLICATION = "SKEAP_APPLICATION" as const;
 
 type ReminderType = typeof REMINDER_TYPE_SKEAP_APPLICATION;
-
-function normalizeDate(value: Date | string | null | undefined): Date | null {
-  if (!value) return null;
-  return value instanceof Date ? value : new Date(`${String(value)}T00:00:00.000Z`);
-}
+type ReminderTerm = {
+  id: string;
+  semester: string;
+  opensAt: Date;
+  closesAt: Date;
+};
 
 export async function sendReminderLogs(
   userId: string,
@@ -52,7 +54,6 @@ async function getGranteesWithSkeapAccess() {
 
 async function loadReminderSettings(): Promise<{
   skeapOffsets: number[];
-  skeapDeadline: Date | null;
   messageTemplate?: { subject: string; body: string } | null;
 }> {
   const [skeapSetting, messageTemplate] = await Promise.all([
@@ -65,7 +66,6 @@ async function loadReminderSettings(): Promise<{
 
   return {
     skeapOffsets: skeapSetting?.offsets ?? [],
-    skeapDeadline: normalizeDate(skeapSetting?.deadline),
     messageTemplate,
   };
 }
@@ -77,11 +77,18 @@ async function sendEmailStub(email: string, subject: string, body: string) {
 }
 
 export async function processSkeapReminders(settings: Awaited<ReturnType<typeof loadReminderSettings>>, now: Date) {
-  if (!settings.skeapDeadline || settings.skeapOffsets.length === 0) {
+  if (settings.skeapOffsets.length === 0) {
     return;
   }
 
-  const reminderDates = getReminderDates(settings.skeapDeadline, settings.skeapOffsets);
+  const schedules = await prisma.academicTermSchedule.findMany({
+    orderBy: { opensAt: "asc" },
+    select: { id: true, semester: true, opensAt: true, closesAt: true },
+  }) as ReminderTerm[];
+  const targetTerm = getAcademicTermDeadlineTarget(schedules, now);
+  if (!targetTerm) return;
+
+  const reminderDates = getReminderDates(targetTerm.closesAt, settings.skeapOffsets);
   const dueOffsets = settings.skeapOffsets.filter((offset, index) => shouldSendReminder(reminderDates[index], now));
   if (dueOffsets.length === 0) return;
 
@@ -90,18 +97,18 @@ export async function processSkeapReminders(settings: Awaited<ReturnType<typeof 
     grantees.map(async (grantee) => {
       if (!grantee.email) return;
       for (const offset of dueOffsets) {
-        const reminderDate = getReminderDates(settings.skeapDeadline!, [offset])[0];
-        const fallbackMessage = buildSkeapReminderMessage(offset, settings.skeapDeadline!);
+        const reminderDate = getReminderDates(targetTerm.closesAt, [offset])[0];
+        const fallbackMessage = buildAcademicTermReminderMessage(offset, targetTerm.semester, targetTerm.closesAt);
         const deadlineDate = new Intl.DateTimeFormat("en-PH", {
           timeZone: "Asia/Manila",
           dateStyle: "long",
-        }).format(settings.skeapDeadline!);
+        }).format(targetTerm.closesAt);
         const deadlineTime = new Intl.DateTimeFormat("en-PH", {
           timeZone: "Asia/Manila",
           hour: "numeric",
           minute: "2-digit",
-        }).format(settings.skeapDeadline!);
-        const currentSemester = getCurrentAcademicSemester(now);
+        }).format(targetTerm.closesAt);
+        const currentSemester = targetTerm.semester || getCurrentAcademicSemester(now);
         const values = {
           deadline_date: deadlineDate,
           deadline_time: deadlineTime,
@@ -118,8 +125,8 @@ export async function processSkeapReminders(settings: Awaited<ReturnType<typeof 
         await sendReminderLogs(
           grantee.id,
           REMINDER_TYPE_SKEAP_APPLICATION,
-          "SKEAP_APPLICATION_DEADLINE",
-          null,
+          "ACADEMIC_TERM_DEADLINE",
+          targetTerm.id,
           EMAIL_CHANNEL,
           reminderDate,
           { subject: message.subject, body: message.body }
@@ -127,8 +134,8 @@ export async function processSkeapReminders(settings: Awaited<ReturnType<typeof 
         await sendReminderLogs(
           grantee.id,
           REMINDER_TYPE_SKEAP_APPLICATION,
-          "SKEAP_APPLICATION_DEADLINE",
-          null,
+          "ACADEMIC_TERM_DEADLINE",
+          targetTerm.id,
           IN_APP_CHANNEL,
           reminderDate,
           { subject: message.subject, body: message.body }

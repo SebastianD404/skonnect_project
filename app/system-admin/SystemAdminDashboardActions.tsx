@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, RefreshCw } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 type SyncFeedback = {
   message: string;
@@ -82,12 +83,11 @@ export default function SystemAdminDashboardActions() {
         </button>
       </div>
       {feedback ? (
-        <p
-          role={feedback.type === "error" ? "alert" : "status"}
-          className={`max-w-sm text-xs sm:text-right ${feedback.type === "error" ? "text-rose-700" : "text-emerald-700"}`}
-        >
-          {feedback.message}
-        </p>
+        <FloatingFeedback
+          message={feedback.message}
+          type={feedback.type}
+          onDismiss={() => setFeedback(null)}
+        />
       ) : null}
     </div>
   );

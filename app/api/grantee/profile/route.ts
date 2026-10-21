@@ -9,7 +9,7 @@ export async function POST(request: Request) {
 
     console.log("Profile email payload:", submittedEmail);
 
-    for (const field of ["fullName", "email", "phoneNumber", "school", "yearLevel", "currentPassword", "newPassword", "confirmPassword"]) {
+    for (const field of ["fullName", "email", "phoneNumber", "school", "yearLevel", "course", "currentPassword", "newPassword", "confirmPassword"]) {
       const value = payload[field];
       if (typeof value === "string") {
         formData.set(field, value);

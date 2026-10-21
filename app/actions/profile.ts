@@ -33,6 +33,7 @@ export async function updateProfileName(
   const phoneNumber = String(formData.get("phoneNumber") ?? "").trim();
   const school = String(formData.get("school") ?? "").trim();
   const yearLevel = String(formData.get("yearLevel") ?? "").trim();
+  const course = String(formData.get("course") ?? "").trim();
   const currentPassword = String(formData.get("currentPassword") ?? "");
   const newPassword = String(formData.get("newPassword") ?? "");
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
@@ -72,6 +73,18 @@ export async function updateProfileName(
 
   if (!profile) {
     return { error: "We could not find your SKonnect profile." };
+  }
+
+  const latestSkeapApplication = profile.role === "GRANTEE" && course
+    ? await db.skeapApplication.findFirst({
+        where: { userId: profile.id },
+        orderBy: { submittedAt: "desc" },
+        select: { id: true },
+      })
+    : null;
+
+  if (profile.role === "GRANTEE" && course && !latestSkeapApplication) {
+    return { error: "We could not find a SKEAP application to update your course." };
   }
 
   const sessionEmail = normalizeEmail(user.email ?? profile.email);
@@ -152,6 +165,13 @@ export async function updateProfileName(
           contactNumber: phoneNumber,
         },
       });
+
+      if (latestSkeapApplication) {
+        await tx.skeapApplication.update({
+          where: { id: latestSkeapApplication.id },
+          data: { currentCourse: course },
+        });
+      }
 
       if (profile.role === "GRANTEE") {
         await tx.grantee.upsert({

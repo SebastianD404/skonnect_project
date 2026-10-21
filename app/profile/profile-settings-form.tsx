@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -14,6 +15,7 @@ type ProfileSettingsFormProps = {
   phoneNumber: string | null;
   school: string;
   yearLevel: string;
+  course: string;
   needsGranteeProfile: boolean;
   emailConfirmation?: string;
   emailConfirmationReason?: string;
@@ -60,6 +62,7 @@ export function ProfileSettingsForm({
   phoneNumber,
   school,
   yearLevel,
+  course,
   needsGranteeProfile,
   emailConfirmation,
   emailConfirmationReason,
@@ -81,6 +84,7 @@ export function ProfileSettingsForm({
     phoneNumber: phoneNumber ?? "",
     school: school === GRANTEE_PLACEHOLDER_SCHOOL ? "" : school,
     yearLevel: yearLevel === GRANTEE_PLACEHOLDER_YEAR_LEVEL ? "" : yearLevel,
+    course,
   }));
 
   useEffect(() => {
@@ -180,6 +184,7 @@ export function ProfileSettingsForm({
       phoneNumber: formData.phoneNumber.trim(),
       school: formData.school.trim(),
       yearLevel: formData.yearLevel.trim(),
+      course: formData.course.trim(),
     };
 
     if (!isValidEmail(submittedForm.email)) {
@@ -199,6 +204,7 @@ export function ProfileSettingsForm({
           phoneNumber: submittedForm.phoneNumber,
           school: submittedForm.school,
           yearLevel: submittedForm.yearLevel,
+          course: submittedForm.course,
         }),
       });
       const result = (await response.json()) as { error?: string; message?: string };
@@ -211,10 +217,11 @@ export function ProfileSettingsForm({
   }
 
   return (
-    <div className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]">Preview</p>
-        <div className="mt-6 flex flex-col items-center gap-4 text-center">
+    <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
+      <div className="grid flex-1 grid-cols-1 items-start gap-8 p-6 lg:grid-cols-2 lg:gap-12">
+      <section className="flex flex-col">
+        <p className="mb-6 text-[10px] font-bold uppercase tracking-wider text-slate-400">Preview</p>
+        <div className="flex flex-col items-center gap-4 text-center">
           <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100">
             {avatarPreview ? (
               <img src={avatarPreview} alt="Profile preview" className="h-full w-full object-cover" />
@@ -247,10 +254,10 @@ export function ProfileSettingsForm({
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#0F3D5C]">Personal details</p>
+      <section className="flex flex-col">
+        <p className="mb-6 text-[10px] font-bold uppercase tracking-wider text-slate-400">Personal details</p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+        <div className="space-y-5">
           {pendingEmail ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
               An email change to {pendingEmail} is currently pending. Please check your inbox.
@@ -263,20 +270,17 @@ export function ProfileSettingsForm({
             </div>
           ) : null}
 
-          <div>
-            <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 mb-2">
-              Full name
-            </label>
-            <input
-              id="fullName"
-              name="fullName"
-              value={formData.fullName}
-              onChange={(event) => setFormData((current) => ({ ...current, fullName: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 mb-2">Full name</label>
+              <input
+                id="fullName"
+                name="fullName"
+                value={formData.fullName}
+                onChange={(event) => setFormData((current) => ({ ...current, fullName: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
+              />
+            </div>
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-2">Email</label>
               <input
@@ -290,7 +294,9 @@ export function ProfileSettingsForm({
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
               />
               {formData.email.trim() && !isValidEmail(formData.email) ? (
-                <p className="mt-2 text-xs text-red-600" role="alert">Enter a valid email address.</p>
+                <p className="mt-2 text-xs text-red-600" role="alert">
+                  {state?.error === "Please enter a valid email address." ? state.error : "Enter a valid email address."}
+                </p>
               ) : null}
             </div>
             <div>
@@ -309,16 +315,15 @@ export function ProfileSettingsForm({
           </div>
 
           {role === "GRANTEE" ? (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <label htmlFor="school" className="block text-sm font-medium text-slate-700 mb-2">School</label>
+                <label htmlFor="course" className="block text-sm font-medium text-slate-700 mb-2">Course</label>
                 <input
-                  id="school"
-                  name="school"
-                  value={formData.school}
-                  onChange={(event) => setFormData((current) => ({ ...current, school: event.target.value }))}
-                  placeholder="Enter your school"
-                  required
+                  id="course"
+                  name="course"
+                  value={formData.course}
+                  onChange={(event) => setFormData((current) => ({ ...current, course: event.target.value }))}
+                  placeholder="e.g. BS Information Technology"
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
                 />
               </div>
@@ -334,30 +339,39 @@ export function ProfileSettingsForm({
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
                 />
               </div>
+              <div className="sm:col-span-2">
+                <label htmlFor="school" className="block text-sm font-medium text-slate-700 mb-2">School</label>
+                <input
+                  id="school"
+                  name="school"
+                  value={formData.school}
+                  onChange={(event) => setFormData((current) => ({ ...current, school: event.target.value }))}
+                  placeholder="Enter your school"
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/10"
+                />
+              </div>
             </div>
           ) : null}
 
-          {state?.error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-              {state.error}
-            </div>
-          )}
-
-          {state?.message && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status">
-              {state.message}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isPending}
-            className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {isPending ? "Saving..." : "Save changes"}
-          </button>
-        </form>
+        </div>
       </section>
-    </div>
+      </div>
+      <div className="mt-auto flex items-center justify-end border-t border-slate-100 px-6 pb-6 pt-4">
+        <button
+          type="submit"
+          disabled={isPending}
+          className="h-9 cursor-pointer rounded-lg bg-slate-900 px-5 text-xs font-bold text-white shadow-sm transition-all hover:bg-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {isPending ? "Saving..." : "Save changes"}
+        </button>
+      </div>
+      {state?.error && state.error !== "Please enter a valid email address." ? (
+        <p role="alert" className="px-6 text-sm font-medium text-rose-600">{state.error}</p>
+      ) : null}
+      {state?.message ? (
+        <FloatingFeedback message={state.message} type="success" onDismiss={() => setState(null)} />
+      ) : null}
+    </form>
   );
 }

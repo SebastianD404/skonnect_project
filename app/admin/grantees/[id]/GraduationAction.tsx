@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { GraduationCap } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 export default function GraduationAction({
   granteeId,
@@ -74,7 +75,6 @@ export default function GraduationAction({
                 This will archive <span className="font-bold text-slate-900">{granteeName}</span>&apos;s account, free up <span className="font-bold text-slate-900">1 active slot</span>, and notify the waitlist queue.
               </p>
             </div>
-            {error ? <p role="alert" className="text-sm text-rose-700">{error}</p> : null}
             <div className="grid w-full grid-cols-2 gap-2.5">
               <button
                 type="button"
@@ -96,6 +96,7 @@ export default function GraduationAction({
           </div>
         </div>
       ) : null}
+      {error ? <FloatingFeedback message={error} type="error" onDismiss={() => setError(null)} /> : null}
     </>
   );
 }

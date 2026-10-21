@@ -52,7 +52,7 @@ export default function RejectApplicationModal({
               placeholder="Specify the exact reason(s) for rejection (e.g., income threshold exceeded, document falsification)..."
               className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-rose-500"
             />
-            {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+            {error ? <p role="alert" className="text-sm font-medium text-rose-600">{error}</p> : null}
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">

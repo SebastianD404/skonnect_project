@@ -2,17 +2,40 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Bell, LockKeyhole, UserCircle } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 
+const settingsNavItems = [
+	{
+		href: "/profile",
+		label: "Personal Details",
+		description: "Manage identity and academic details.",
+		icon: UserCircle,
+	},
+	{
+		href: "/settings/security",
+		label: "Password & Security",
+		description: "Update password and security options.",
+		icon: LockKeyhole,
+	},
+	{
+		href: "/settings/notifications",
+		label: "Notifications",
+		description: "Configure alerts and event updates.",
+		icon: Bell,
+	},
+];
+
 type SettingsShellProps = {
 	title: string;
-	description: string;
+	description?: string;
+	headerTitle?: string;
 	children: React.ReactNode;
 	profileName?: string;
 	profileEmail?: string;
 	profileAvatar?: string;
+	contentClassName?: string;
 };
 
 function looksLikeEmail(value: string) {
@@ -41,12 +64,13 @@ function toDisplayName(name: string, email: string) {
 export function SettingsShell({
 	title,
 	description,
+	headerTitle,
 	children,
 	profileName: profileNameFromServer,
 	profileEmail: profileEmailFromServer,
 	profileAvatar: profileAvatarFromServer,
+	contentClassName = "p-4 sm:p-6 lg:p-8",
 }: SettingsShellProps) {
-	const router = useRouter();
 	const pathname = usePathname();
 	const { user: authUser } = useAuth();
 	const [profileName, setProfileName] = useState(profileNameFromServer ?? "Your account");
@@ -143,14 +167,13 @@ export function SettingsShell({
 		<main className="min-h-screen bg-[#F0F2F5] text-slate-900">
 			<div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 lg:px-6">
 				<div className="mb-4 flex items-center justify-between rounded-[2rem] border border-slate-200 bg-white px-4 py-3 shadow-sm">
-					<button
-						type="button"
-						onClick={() => router.back()}
-						className="inline-flex items-center gap-2 rounded-full bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+					<Link
+						href="/grantee-dashboard"
+						className="inline-flex h-9 items-center gap-2 rounded-full bg-[#0F3D5C] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.98]"
 					>
 						<span aria-hidden="true">←</span>
-						Back
-					</button>
+						Back to Home
+					</Link>
 
 					<div className="text-right">
 						<p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#0F3D5C]">Settings</p>
@@ -158,8 +181,8 @@ export function SettingsShell({
 					</div>
 				</div>
 
-				<div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-					<aside className="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
+				<div className="grid items-stretch gap-4 lg:grid-cols-[320px_1fr]">
+					<aside className="flex h-full flex-col gap-3 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
 						<div className="flex items-center gap-3 rounded-[1.5rem] bg-slate-50 px-4 py-4">
 							<div className="inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-base font-bold text-white shadow-sm">
 								{sharedProfileAvatar ? <img src={sharedProfileAvatar} alt={sharedProfileName} className="h-full w-full object-cover" /> : initials}
@@ -171,48 +194,43 @@ export function SettingsShell({
 							</div>
 						</div>
 
-						<div className="rounded-[1.5rem] bg-[#0F3D5C] px-5 py-5 text-white shadow-lg">
+						<div className="flex min-h-[104px] flex-col justify-center rounded-[1.5rem] bg-[#0F3D5C] p-4 text-white shadow-lg">
 							<p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">Settings</p>
-							<h1 className="mt-3 text-2xl font-black leading-tight">{title}</h1>
-							<p className="mt-2 text-sm leading-6 text-white/80">{description}</p>
+							<h1 className="mt-1 text-base font-bold leading-tight">{title}</h1>
+							<p className="mt-1 line-clamp-1 text-[11px] leading-tight text-white/80">{description}</p>
 						</div>
 
-						<nav className="mt-4 space-y-2">
-							<Link
-								href="/profile"
-								className={pathname === "/profile"
-									? "block rounded-r-lg border-l-4 border-blue-600 bg-blue-50 px-4 py-4 text-blue-700 transition-colors"
-									: "block rounded-lg px-4 py-4 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"}
-							>
-								<UserCircle className="mr-3 inline-block h-5 w-5 align-middle" aria-hidden="true" />
-								<p className="text-sm font-semibold">Personal Details</p>
-								<p className="mt-1 text-sm leading-6 opacity-75">Edit your identity and academic details.</p>
-							</Link>
-							{[
-								{ href: "/settings/security", label: "Password & Security", description: "Change your password securely.", icon: LockKeyhole },
-								{ href: "/settings/notifications", label: "Notifications", description: "Manage alerts and assembly schedules.", icon: Bell },
-							].map(({ href, label, description: itemDescription, icon: Icon }) => (
+						<nav className="mt-0 flex flex-1 flex-col gap-1.5">
+							{settingsNavItems.map(({ href, label, description: itemDescription, icon: Icon }) => {
+								const isActive = pathname === href || pathname.startsWith(`${href}/`);
+								return (
 								<Link
 									key={href}
 									href={href}
-									className={pathname === href
-										? "block rounded-r-lg border-l-4 border-blue-600 bg-blue-50 px-4 py-4 text-blue-700 transition-colors"
-										: "block rounded-lg px-4 py-4 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"}
+									className={`flex w-full items-center gap-3 rounded-xl border-l-4 p-3.5 transition-all ${
+										isActive
+											? "border-slate-900 bg-slate-100 font-bold text-slate-900 shadow-2xs"
+											: "border-transparent bg-transparent text-slate-600 hover:bg-slate-50"
+									}`}
 								>
-									<Icon className="mr-3 inline-block h-5 w-5 align-middle" aria-hidden="true" />
-									<p className="inline align-middle text-sm font-semibold">{label}</p>
-									<p className="mt-1 text-sm leading-6 opacity-75">{itemDescription}</p>
+									<Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-slate-900" : "text-slate-400"}`} aria-hidden="true" />
+									<div className="min-w-0 flex-1">
+										<p className={`text-xs ${isActive ? "font-bold text-slate-900" : "font-semibold text-slate-700"}`}>{label}</p>
+										<p className="mt-0.5 truncate whitespace-nowrap text-[10px] leading-none text-slate-500">{itemDescription}</p>
+									</div>
 								</Link>
-								))}
+								);
+							})}
 						</nav>
 					</aside>
 
-					<section className="min-w-0 rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-						<div className="border-b border-slate-200 px-4 py-4 sm:px-6 lg:px-8">
-							<p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#0F3D5C]">{title}</p>
-							<p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
+					<section className="flex h-full min-w-0 flex-col justify-between overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+						<div className="border-b border-slate-100 p-6">
+							<p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</p>
+							{headerTitle ? <h2 className="text-xl font-bold text-slate-900">{headerTitle}</h2> : null}
+							{description ? <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p> : null}
 						</div>
-						<div className="p-4 sm:p-6 lg:p-8">{children}</div>
+						<div className={contentClassName}>{children}</div>
 					</section>
 				</div>
 			</div>

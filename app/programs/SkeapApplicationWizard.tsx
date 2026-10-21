@@ -490,6 +490,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
   const [showGlobalError, setShowGlobalError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const previewObjectUrlsRef = useRef(new Set<string>());
 
   useEffect(() => () => {
@@ -853,6 +854,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
     setShowGlobalError(false);
     setSubmitting(true);
     setMessage(null);
+    setActionError(null);
 
     try {
       const doneUrls = files.filter((f) => f.status === "done").map((f) => f.url).filter(Boolean) as string[];
@@ -953,14 +955,14 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
 
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMessage(body?.error || "Failed to submit SKEAP application.");
+        setActionError(body?.error || "Failed to submit SKEAP application.");
         return;
       }
 
       const reference = String(body.inquiryId || body.applicationId || "");
       onSubmitted(reference);
     } catch {
-      setMessage("Network error while submitting application.");
+      setActionError("Network error while submitting application.");
     } finally {
       setSubmitting(false);
     }
@@ -968,6 +970,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
 
   return (
     <div className="grid gap-5">
+      {actionError ? <p role="alert" className="text-sm font-medium text-rose-600">{actionError}</p> : null}
       <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

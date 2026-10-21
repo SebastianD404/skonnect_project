@@ -304,9 +304,31 @@ body {
   outline-offset: 1px;
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-12px); }
+@keyframes levitate {
+  0%, 100% {
+    translate: 0 0;
+    filter: drop-shadow(0 4px 6px rgb(16 185 129 / 0.2));
+  }
+  50% {
+    translate: 0 -12px;
+    filter: drop-shadow(0 12px 15px rgb(16 185 129 / 0.4));
+  }
+}
+
+.animate-levitate {
+  animation: levitate 2.6s ease-in-out infinite;
+  will-change: translate, filter;
+}
+
+@keyframes levitateReduced {
+  0%, 100% {
+    translate: 0 0;
+    filter: drop-shadow(0 4px 6px rgb(16 185 129 / 0.2));
+  }
+  50% {
+    translate: 0 -4px;
+    filter: drop-shadow(0 7px 9px rgb(16 185 129 / 0.28));
+  }
 }
 
 @keyframes fadeIn {
@@ -386,6 +408,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-levitate {
+    animation-name: levitateReduced;
+    animation-duration: 4s;
+  }
+
   .grantee-dashboard-enter {
     animation: granteeDashboardFade 100ms ease-out both;
   }

@@ -15,10 +15,11 @@ export default async function SecuritySettingsPage() {
   return (
     <SettingsShell
       title="Password & Security"
-      description="Manage your password and account security."
+      headerTitle="Manage account security"
       profileName={profile.fullName}
       profileEmail={profile.email}
       profileAvatar={profile.avatarUrl ?? ""}
+      contentClassName="flex flex-1 flex-col p-0"
     >
       <PasswordSecurityForm />
     </SettingsShell>

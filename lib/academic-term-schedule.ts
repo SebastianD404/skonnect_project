@@ -14,6 +14,17 @@ export type AcademicTermWindow = {
   closesAt: string | null;
 };
 
+export function getAcademicTermDeadlineTarget<T extends AcademicTermScheduleRecord>(
+  schedules: T[],
+  now = new Date()
+) {
+  const ordered = [...schedules].sort((a, b) => a.opensAt.getTime() - b.opensAt.getTime());
+  const active = ordered.find(
+    (schedule) => schedule.opensAt.getTime() <= now.getTime() && schedule.closesAt.getTime() >= now.getTime()
+  );
+  return active ?? ordered.find((schedule) => schedule.opensAt.getTime() > now.getTime()) ?? null;
+}
+
 export function resolveAcademicTermWindow(
   schedules: AcademicTermScheduleRecord[],
   now = new Date()

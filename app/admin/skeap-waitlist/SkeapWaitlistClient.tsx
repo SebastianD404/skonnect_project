@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw, Search } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
@@ -41,6 +42,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const [capacityWarning, setCapacityWarning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [capacity, setCapacity] = useState<CapacityState>({
     activeCount: initialData.activeCount,
     maxSlots: initialData.maxSlots,
@@ -88,6 +90,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
     setSavingCapacity(true);
     setToastMessage(null);
     setError(null);
+    setActionError(null);
     try {
       const response = await fetch("/api/admin/settings/slots", {
         method: "PATCH",
@@ -102,9 +105,8 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
       setSlotLimitDraft(String(maxSlots));
       setEditingCapacity(false);
       setToastMessage("SKEAP slot limit updated successfully.");
-      window.setTimeout(() => setToastMessage(null), 3000);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to update the slot limit.");
+      setActionError(saveError instanceof Error ? saveError.message : "Unable to update the slot limit.");
     } finally {
       setSavingCapacity(false);
     }
@@ -113,7 +115,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   async function promoteApplication(application: SkeapWaitlistApplication) {
     setPromotingId(application.id);
     setToastMessage(null);
-    setError(null);
+    setActionError(null);
     try {
       const response = await fetch(`/api/admin/applications/${application.id}/promote`, { method: "POST" });
       const body = await readJsonResponse(response);
@@ -133,7 +135,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
     } catch (promoteError) {
       setIsPromoteModalOpen(false);
       setSelectedApplicant(null);
-      setError(promoteError instanceof Error ? promoteError.message : "Unable to promote applicant.");
+      setActionError(promoteError instanceof Error ? promoteError.message : "Unable to promote applicant.");
     } finally {
       setPromotingId(null);
     }
@@ -197,13 +199,11 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
         </div>
       </header>
 
-      {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-semibold text-rose-800">{error}</div> : null}
-
-      {toastMessage ? (
-        <div className="fixed bottom-6 right-6 z-50 flex max-w-sm items-center gap-3 rounded-xl border border-slate-200 border-l-4 border-l-emerald-500 bg-white px-4 py-3 text-sm font-semibold text-slate-800 opacity-100 shadow-lg transition-all duration-300">
-          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" aria-hidden="true" />
-          <span>{toastMessage}</span>
-        </div>
+      {error ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-semibold text-rose-800">{error}</div> : null}
+      {actionError ? (
+        <FloatingFeedback message={actionError} type="error" onDismiss={() => setActionError(null)} />
+      ) : toastMessage ? (
+        <FloatingFeedback message={toastMessage} type="success" autoDismissMs={3000} onDismiss={() => setToastMessage(null)} />
       ) : null}
 
       <section className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">

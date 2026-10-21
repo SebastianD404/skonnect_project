@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Wallet, Search, Download, LoaderCircle } from "lucide-react";
 import { getRecentSemesters } from "@/lib/semester";
 import { formatDate } from "@/lib/utils";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 // If you have shadcn/ui components installed, replace the native select below
 // with shadcn's `Select` imports, e.g.:
 // import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -38,6 +39,7 @@ export default function AdminAccountingPage() {
   const remainingBudget = useMemo(() => (totalBudget ?? 0) - claimedCount * GRANT_AMOUNT, [totalBudget, claimedCount]);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -119,7 +121,7 @@ export default function AdminAccountingPage() {
 
     async function load() {
       setLoading(true);
-      setErrorMessage(null);
+      setLoadError(null);
 
       try {
         const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
@@ -179,7 +181,7 @@ export default function AdminAccountingPage() {
         }
       } catch (err) {
         setGrantees([]);
-        setErrorMessage(err instanceof Error ? err.message : String(err));
+        setLoadError(err instanceof Error ? err.message : String(err));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -193,7 +195,7 @@ export default function AdminAccountingPage() {
 
   async function handleSaveBudget() {
     if (isSaving) return;
-    if (totalBudget == null) return setErrorMessage('Total budget is required');
+    if (totalBudget == null) return setValidationError('Total budget is required');
     // Validate: must be greater than zero
     if (totalBudget <= 0) {
       const msg = 'Please enter a valid budget amount greater than zero.';
@@ -351,6 +353,8 @@ export default function AdminAccountingPage() {
 
   return (
     <main className="px-6 pb-12 pt-8">
+      {loadError ? <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
+      {errorMessage ? <FloatingFeedback message={errorMessage} type="error" onDismiss={() => setErrorMessage(null)} /> : null}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Accounting • Cash Disbursements</h1>
@@ -451,7 +455,6 @@ export default function AdminAccountingPage() {
                     aria-label="Total budget"
                   />
                   {validationError ? <div className="mt-1 text-sm text-red-500">{validationError}</div> : null}
-                  {errorMessage ? <div role="alert" className="mt-1 text-sm text-rose-600">{errorMessage}</div> : null}
                 </div>
 
                 <div className="text-sm text-slate-600">Grant amount: {formatter.format(GRANT_AMOUNT)}</div>
@@ -575,61 +578,61 @@ export default function AdminAccountingPage() {
                 <div className="p-6 text-sm text-slate-500">No active grantees found for this semester.</div>
                 ) : (
                   <>
-                  <table className="w-full table-auto min-w-full">
-                    <thead>
-                      <tr className="text-left text-xs text-slate-500 border-b border-slate-100 sticky top-0 z-10 bg-white">
-                        <th className="py-4 w-14 text-center align-top"> </th>
-                        <th className="py-4 align-top text-left">Student name</th>
-                        <th className="py-4 align-top pl-10 w-96 text-left">Semester</th>
-                        <th className="py-4 text-center w-48 align-top">Submission status</th>
-                        <th className="py-4 text-center w-40 align-top">Payout status</th>
-                        <th className="py-4 pr-6 text-right w-64 align-top">Claimed at</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
+                  <div role="table" aria-label="Disbursement list" className="min-w-[960px]">
+                    <div role="row" className="sticky top-0 z-10 grid grid-cols-12 items-center border-b border-slate-100 bg-slate-50/80 px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      <div role="columnheader" className="col-span-3 flex items-center gap-3">
+                        <span className="whitespace-nowrap">Student name</span>
+                      </div>
+                      <div role="columnheader" className="col-span-3 whitespace-nowrap">Semester</div>
+                      <div role="columnheader" className="col-span-2 whitespace-nowrap">Submission status</div>
+                      <div role="columnheader" className="col-span-2 whitespace-nowrap">Payout status</div>
+                      <div role="columnheader" className="col-span-2 whitespace-nowrap">Claimed at</div>
+                    </div>
+                    <div role="rowgroup" className="divide-y divide-slate-100">
                       {pagedRows.map((g, idx) => (
-                      <tr key={g.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'} align-top`}> 
-                        <td className="py-4 align-middle text-sm text-slate-900 text-center w-14">
-                          <label className="flex items-center justify-center h-full">
+                        <div
+                          key={g.id}
+                          role="row"
+                          className={`grid grid-cols-12 items-center px-6 py-4 text-xs text-slate-700 transition-colors hover:bg-slate-50/50 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}
+                        >
+                          <div role="cell" className="col-span-3 flex min-w-0 items-center gap-3 pr-2">
                             <input
                               type="checkbox"
                               checked={g.status === "Claimed"}
                               onChange={() => toggleClaimed(g.id)}
+                              aria-label={`Mark ${g.name} as ${g.status === "Claimed" ? "pending" : "claimed"}`}
                               aria-busy={processingIds[g.id] ? true : undefined}
-                              className="h-4 w-4 rounded border-slate-200 accent-emerald-300 focus:ring-emerald-100 hover:opacity-100 transition-none"
+                              className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                             />
-                          </label>
-                        </td>
-                        <td className="py-4 align-top text-sm text-slate-900">
-                          <div className="flex items-center gap-3">
-                            <div className="h-9 w-9 rounded-full bg-sky-700 text-white text-xs font-semibold flex items-center justify-center shrink-0">{g.name.split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase()}</div>
-                            <div>{g.name}</div>
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                              {g.name.split(" ").map((namePart) => namePart[0]).slice(0, 2).join("").toUpperCase()}
+                            </div>
+                            <span className="truncate font-bold text-slate-900">{g.name}</span>
                           </div>
-                        </td>
-                        <td className="py-4 align-top text-sm text-slate-600 pl-10 w-96">{g.semester}</td>
-                        <td className="py-4 align-top text-sm text-slate-700 text-center">
-                          {g.submissionState === 'Approved' ? (
-                            <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Approved</span>
-                          ) : g.submissionState === 'Pending review' ? (
-                            <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending review</span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Not submitted</span>
-                          )}
-                        </td>
-                        <td className="py-4 align-top text-center">
-                          {g.status === "Claimed" ? (
-                            <span className="inline-flex items-center rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700">Received</span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending</span>
-                          )}
-                        </td>
-                        <td className="py-4 align-top text-sm text-slate-700 text-right pr-6 whitespace-nowrap">
-                          {formatDate(g.claimedAt)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  </table>
+                          <div role="cell" className="col-span-3 truncate pr-2 text-slate-600">{g.semester}</div>
+                          <div role="cell" className="col-span-2">
+                            {g.submissionState === "Approved" ? (
+                              <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Approved</span>
+                            ) : g.submissionState === "Pending review" ? (
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending review</span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Not submitted</span>
+                            )}
+                          </div>
+                          <div role="cell" className="col-span-2">
+                            {g.status === "Claimed" ? (
+                              <span className="inline-flex items-center rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700">Received</span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending</span>
+                            )}
+                          </div>
+                          <div role="cell" className="col-span-2 whitespace-nowrap font-medium text-slate-500">
+                            {formatDate(g.claimedAt)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
                   <div className="px-6 py-3 flex items-center justify-between">
                     <div className="text-sm text-slate-600">

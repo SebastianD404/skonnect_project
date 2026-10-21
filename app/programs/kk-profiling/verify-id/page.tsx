@@ -2,6 +2,7 @@
 
 import type { ChangeEvent, FormEvent } from "react";
 import { useEffect, useState } from "react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 type SelectedFiles = {
   front?: File | null;
@@ -25,6 +26,7 @@ export default function KKProfilingVerifyIdPage() {
   const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({ front: null, back: null, residency: null });
   const [previewUrls, setPreviewUrls] = useState<PreviewUrls>({});
   const [message, setMessage] = useState<string | null>(null);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -53,6 +55,7 @@ export default function KKProfilingVerifyIdPage() {
 
   function resetFiles() {
     setMessage(null);
+    setValidationMessage(null);
     setSuccess(null);
     setSelectedFiles({ front: null, back: null, residency: null });
   }
@@ -127,14 +130,15 @@ export default function KKProfilingVerifyIdPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setMessage(null);
+    setValidationMessage(null);
     setSuccess(null);
 
     if (!selectedFiles.front || !selectedFiles.back) {
-      setMessage("Please upload both the front and back of your ID.");
+      setValidationMessage("Please upload both the front and back of your ID.");
       return;
     }
     if (!selectedFiles.residency) {
-      setMessage("Please upload your Certificate of Residency.");
+      setValidationMessage("Please upload your Certificate of Residency.");
       return;
     }
     // No residency checkbox required when a residency file is uploaded.
@@ -156,8 +160,8 @@ export default function KKProfilingVerifyIdPage() {
       if (!response.ok) {
         setMessage(body.error || "Unable to upload your documents. Please try again.");
       } else {
-        setSuccess("Your documents were uploaded successfully.");
         resetFiles();
+        setSuccess("Your documents were uploaded successfully.");
       }
     } catch (error) {
       console.error(error);
@@ -221,12 +225,9 @@ export default function KKProfilingVerifyIdPage() {
                   {renderPreview("residency", selectedFiles.residency ?? null)}
                   </label>
               </div>
-            {message ? (
-              <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{message}</div>
-            ) : null}
-            {success ? (
-              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div>
-            ) : null}
+            {validationMessage ? <div role="alert" className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationMessage}</div> : null}
+            {message ? <p role="alert" className="text-sm font-medium text-rose-600">{message}</p> : null}
+            {success ? <FloatingFeedback message={success} type="success" onDismiss={() => setSuccess(null)} /> : null}
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <button

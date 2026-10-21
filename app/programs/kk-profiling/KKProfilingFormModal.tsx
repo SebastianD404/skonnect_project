@@ -346,11 +346,13 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
   const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({ front: null, back: null, single: null });
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(getEditFormValues(registration));
     setSelectedFiles({ front: null, back: null, single: null });
     setMessage(null);
+    setValidationMessage(null);
   }, [registration]);
 
   if (!isOpen) {
@@ -403,9 +405,10 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
   async function handleSave() {
     setMessage(null);
+    setValidationMessage(null);
     const validationError = validate();
     if (validationError) {
-      setMessage(validationError);
+      setValidationMessage(validationError);
       return;
     }
 
@@ -492,11 +495,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
           </button>
         </div>
         <div className="kk-profiling-edit-form min-h-0 flex-1 space-y-4 overflow-y-auto p-6 sm:p-8 [&_.grid]:gap-y-4 [&_label]:gap-1.5">
-          {message ? (
-            <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {message}
-            </div>
-          ) : null}
+          {validationMessage ? <div role="alert" className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationMessage}</div> : null}
+          {message ? <p role="alert" className="text-sm font-medium text-rose-600">{message}</p> : null}
 
           <div>
             <h3 className="mb-4 text-lg font-semibold text-slate-950">PART I: Profile</h3>

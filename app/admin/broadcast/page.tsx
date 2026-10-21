@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCircle2, FileText, Loader2, Send, X } from "lucide-react";
+import { AlertCircle, Check, FileText, Loader2, Send, X } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 type Grantee = { id: string; fullName: string; email: string };
 type AudienceType = "ALL" | "CUSTOM";
@@ -80,6 +81,8 @@ export default function BroadcastPage() {
   const [loadingGrantees, setLoadingGrantees] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const granteeSearchInputRef = useRef<HTMLInputElement>(null);
@@ -127,16 +130,6 @@ export default function BroadcastPage() {
   }, []);
 
   useEffect(() => {
-    if (!success) return;
-
-    const dismissTimer = window.setTimeout(() => {
-      setSuccess(null);
-    }, 3000);
-
-    return () => window.clearTimeout(dismissTimer);
-  }, [success]);
-
-  useEffect(() => {
     async function loadGrantees() {
       setLoadingGrantees(true);
       try {
@@ -145,7 +138,7 @@ export default function BroadcastPage() {
         if (!response.ok) throw new Error(data.error || "Failed to load grantees.");
         setGrantees(data.grantees ?? []);
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to load grantees.");
+        setLoadError(loadError instanceof Error ? loadError.message : "Failed to load grantees.");
       } finally {
         setLoadingGrantees(false);
       }
@@ -174,9 +167,10 @@ export default function BroadcastPage() {
     event.preventDefault();
     setError(null);
     setSuccess(null);
+    setValidationError(null);
 
     if (!subject.trim() || !message.trim()) {
-      setError("Subject and message content are required.");
+      setValidationError("Subject and message content are required.");
       return;
     }
 
@@ -245,22 +239,18 @@ export default function BroadcastPage() {
         </p>
       </div>
 
-      {error ? (
+      {loadError ? (
         <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">
           <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" aria-hidden="true" />
-          <span>{error}</span>
+          <span>{loadError}</span>
         </div>
       ) : null}
-
-      {success ? (
-        <div className="fixed right-6 top-20 z-[60] flex max-w-[calc(100vw-3rem)] items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4 text-sm text-emerald-800 shadow-lg sm:max-w-md" role="status">
-          <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" aria-hidden="true" />
-          <span className="min-w-0 break-words">{success}</span>
-        </div>
-      ) : null}
+      {success ? <FloatingFeedback message={success} type="success" autoDismissMs={3000} onDismiss={() => setSuccess(null)} /> : null}
 
       <div className="flex flex-col rounded-3xl border border-slate-200/80 bg-white shadow-sm">
         <form onSubmit={handleSubmit}>
+          {error ? <p role="alert" className="mx-6 mt-6 text-sm font-medium text-rose-600 sm:mx-8">{error}</p> : null}
+          {validationError ? <p role="alert" className="mx-6 mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:mx-8">{validationError}</p> : null}
           <div className="flex flex-col gap-8 p-6 sm:p-8">
             <div className="flex flex-col gap-3">
               <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Target Audience</span>

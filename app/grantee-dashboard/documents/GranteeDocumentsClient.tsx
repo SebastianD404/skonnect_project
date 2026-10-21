@@ -34,6 +34,7 @@ import { extractDocxTextFromBuffer } from "@/lib/skeap-document-keywords";
 import { hasFailingGradeIndicators } from "@/lib/ocr/failing-grade-indicators";
 import {
   buildSemesterTracker,
+  getCurrentAcademicSemester,
   getDocumentSemesterOptions,
 } from "@/lib/semester-progress";
 import type { SubmissionStatus } from "@prisma/client";
@@ -59,6 +60,11 @@ type Props = {
   submissions: SubmissionItem[];
   canSubmit: boolean;
   academicTermWindow: AcademicTermWindow;
+  academicTermSchedules: Array<{
+    semester: string;
+    opensAt: string;
+    closesAt: string;
+  }>;
 };
 
 type UploadState = {
@@ -89,6 +95,38 @@ function formatTermWindowDate(value: string | null) {
     timeStyle: "short",
     timeZone: "Asia/Manila",
   }).format(new Date(value));
+}
+
+function getInitialSelectedSemester(
+  schedules: Props["academicTermSchedules"],
+  submissions: SubmissionItem[],
+  academicTermWindow: AcademicTermWindow
+) {
+  const now = Date.now();
+  const currentAcademicSemester = getCurrentAcademicSemester(new Date(now));
+  if (
+    schedules.some((schedule) => schedule.semester === currentAcademicSemester) ||
+    submissions.some((submission) => submission.semester === currentAcademicSemester)
+  ) {
+    return currentAcademicSemester;
+  }
+
+  const openSchedule = schedules.find(
+    (schedule) => new Date(schedule.opensAt).getTime() <= now && new Date(schedule.closesAt).getTime() >= now
+  );
+  if (openSchedule) return openSchedule.semester;
+
+  const latestClosedSchedule = [...schedules]
+    .filter((schedule) => new Date(schedule.closesAt).getTime() < now)
+    .sort((a, b) => new Date(b.closesAt).getTime() - new Date(a.closesAt).getTime())[0];
+  if (latestClosedSchedule) return latestClosedSchedule.semester;
+
+  const earliestUpcomingSchedule = [...schedules]
+    .filter((schedule) => new Date(schedule.opensAt).getTime() > now)
+    .sort((a, b) => new Date(a.opensAt).getTime() - new Date(b.opensAt).getTime())[0];
+  if (earliestUpcomingSchedule) return earliestUpcomingSchedule.semester;
+
+  return submissions[0]?.semester ?? academicTermWindow.semester ?? "";
 }
 
 async function openSubmissionFile(viewerUrl: string) {
@@ -243,11 +281,17 @@ async function extractSelectedFileText(file: File): Promise<string> {
   }
 }
 
-export default function GranteeDocumentsClient({ submissions, canSubmit, academicTermWindow }: Props) {
+export default function GranteeDocumentsClient({
+  submissions,
+  canSubmit,
+  academicTermWindow,
+  academicTermSchedules,
+}: Props) {
   const router = useRouter();
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [form, setForm] = useState<UploadState>(() => ({
     ...INITIAL_FORM,
-    semester: academicTermWindow.semester ?? submissions[0]?.semester ?? "",
+    semester: getInitialSelectedSemester(academicTermSchedules, submissions, academicTermWindow),
   }));
   const [gradeOcrStatus, setGradeOcrStatus] = useState<OcrStatus>("IDLE");
   const [coeOcrStatus, setCoeOcrStatus] = useState<OcrStatus>("IDLE");
@@ -274,10 +318,9 @@ export default function GranteeDocumentsClient({ submissions, canSubmit, academi
   }, [submitNotice]);
 
   useEffect(() => {
-    if (!submitError) return;
-    const timeout = window.setTimeout(() => setSubmitError(null), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [submitError]);
+    const interval = window.setInterval(() => setCurrentTime(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (
@@ -306,18 +349,28 @@ export default function GranteeDocumentsClient({ submissions, canSubmit, academi
     };
   }, [academicTermWindow, router]);
 
-  const semesterOptions = useMemo(
-    () => getDocumentSemesterOptions(
-      submissions.map((submission) => submission.semester),
-      academicTermWindow.semester ?? undefined,
-      academicTermWindow.status === "OPEN"
-        ? "Open"
-        : academicTermWindow.status === "UPCOMING"
-          ? "Scheduled"
-          : "Closed"
-    ),
-    [submissions, academicTermWindow]
-  );
+  const semesterOptions = useMemo(() => {
+    const currentSemester = getCurrentAcademicSemester(new Date(currentTime));
+    const options = getDocumentSemesterOptions(
+      [
+        ...submissions.map((submission) => submission.semester),
+        ...academicTermSchedules.map((schedule) => schedule.semester),
+        currentSemester,
+      ],
+      academicTermWindow.semester ?? undefined
+    );
+    const currentIndex = options.findIndex((option) => option.value === currentSemester);
+    const nextSemester = currentIndex >= 0 ? options[currentIndex + 1]?.value : undefined;
+
+    return options.map((option) => ({
+      ...option,
+      label: option.value === currentSemester
+        ? `${option.value} (Current)`
+        : option.value === nextSemester
+          ? `${option.value} (Next)`
+          : option.value,
+    }));
+  }, [submissions, academicTermSchedules, academicTermWindow, currentTime]);
 
   const stats = useMemo(() => {
     const pending = submissions.filter((s) => s.status === "PENDING").length;
@@ -419,11 +472,22 @@ export default function GranteeDocumentsClient({ submissions, canSubmit, academi
   }, [displayedSubmissions]);
 
   const tracker = useMemo(
-    () => academicTermWindow.semester
-      ? buildSemesterTracker(submissions, academicTermWindow.semester)
+    () => form.semester
+      ? buildSemesterTracker(submissions, form.semester)
       : { current: "Not scheduled", approved: 0, total: 2, pct: 0 },
-    [submissions, academicTermWindow.semester]
+    [submissions, form.semester]
   );
+  const selectedTermSchedule = academicTermSchedules.find((schedule) => schedule.semester === form.semester);
+  const selectedTermStatus: AcademicTermWindow["status"] = selectedTermSchedule
+    ? currentTime < new Date(selectedTermSchedule.opensAt).getTime()
+      ? "UPCOMING"
+      : currentTime <= new Date(selectedTermSchedule.closesAt).getTime()
+        ? "OPEN"
+        : "CLOSED"
+    : form.semester
+      ? "CLOSED"
+      : "UNCONFIGURED";
+  const isSelectedCurrentTerm = form.semester === getCurrentAcademicSemester(new Date(currentTime));
 
   async function uploadFile(
     file: File,
@@ -727,24 +791,6 @@ export default function GranteeDocumentsClient({ submissions, canSubmit, academi
           </button>
         </div>
       ) : null}
-      {submitError ? (
-        <div
-          role="alert"
-          aria-live="assertive"
-          className="fixed bottom-5 right-4 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-lg sm:right-6"
-        >
-          <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" aria-hidden="true" />
-          <span>{submitError}</span>
-          <button
-            type="button"
-            onClick={() => setSubmitError(null)}
-            className="ml-2 rounded p-1 text-slate-400 transition-colors hover:text-slate-700"
-            aria-label="Dismiss notification"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-      ) : null}
       <header
         className="relative overflow-hidden rounded-2xl bg-[#0a1f33] p-6 text-white shadow-sm sm:p-8"
       >
@@ -762,9 +808,10 @@ export default function GranteeDocumentsClient({ submissions, canSubmit, academi
         approved={tracker.approved}
         total={tracker.total}
         pct={tracker.pct}
-        windowStatus={academicTermWindow.status}
-        opensAt={academicTermWindow.opensAt}
-        closesAt={academicTermWindow.closesAt}
+        windowStatus={selectedTermStatus}
+        isCurrentTerm={isSelectedCurrentTerm}
+        opensAt={selectedTermSchedule?.opensAt ?? null}
+        closesAt={selectedTermSchedule?.closesAt ?? null}
       />
 
       <div className="grid grid-cols-1 items-stretch overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm lg:grid-cols-12">
@@ -783,6 +830,7 @@ export default function GranteeDocumentsClient({ submissions, canSubmit, academi
             ) : null}
 
             <form onSubmit={(event) => void handleSubmit(event)} className="space-y-0">
+              {submitError ? <p role="alert" className="mb-4 text-sm font-medium text-rose-600">{submitError}</p> : null}
               <div className="space-y-1.5">
                 <label htmlFor="submission-semester" className="block text-xs font-medium text-slate-700">
                   Academic term
@@ -1560,6 +1608,7 @@ function SemesterTracker({
   total,
   pct,
   windowStatus,
+  isCurrentTerm,
   opensAt,
   closesAt,
 }: {
@@ -1568,6 +1617,7 @@ function SemesterTracker({
   total: number;
   pct: number;
   windowStatus: AcademicTermWindow["status"];
+  isCurrentTerm: boolean;
   opensAt: string | null;
   closesAt: string | null;
 }) {
@@ -1589,13 +1639,13 @@ function SemesterTracker({
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Academic term</p>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                windowStatus === "OPEN"
+                isCurrentTerm || windowStatus === "OPEN"
                   ? "bg-emerald-50 text-emerald-700"
                   : windowStatus === "UPCOMING"
                     ? "bg-sky-50 text-sky-700"
                     : "bg-slate-100 text-slate-600"
               }`}>
-                {windowStatus === "OPEN" ? "Open" : windowStatus === "UPCOMING" ? "Scheduled" : windowStatus === "CLOSED" ? "Closed" : "Not scheduled"}
+                {isCurrentTerm || windowStatus === "OPEN" ? "Current" : windowStatus === "UPCOMING" ? "Next" : windowStatus === "CLOSED" ? "Closed" : "Not scheduled"}
               </span>
             </div>
             <p className="text-sm font-bold text-slate-900">{term}</p>
@@ -1607,14 +1657,14 @@ function SemesterTracker({
           <div className="flex justify-between text-xs font-medium text-slate-600">
             <span className="text-slate-400">{windowStatus === "OPEN" ? "Requirement Progress" : "Term status"}</span>
             <span className="font-bold text-slate-900">
-              {windowStatus === "OPEN" ? `${approved} of ${total} Approved` : windowStatus === "UPCOMING" ? "Not open yet" : "View submission history"}
+              {windowStatus === "UPCOMING" ? "Not open yet" : `${approved} of ${total} Approved`}
             </span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500"
               style={{
-                width: `${windowStatus === "OPEN" ? pct : 0}%`,
+                width: `${pct}%`,
                 background: `linear-gradient(90deg, ${BRAND}, ${BRAND_DARK})`,
               }}
             />

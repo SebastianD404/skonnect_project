@@ -27,13 +27,15 @@ export default function SupportRequestForm({
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setValidationError(null);
 
     if (!subject.trim() || !message.trim()) {
-      setError("Please fill out both fields.");
+      setValidationError("Please fill out both fields.");
       return;
     }
 
@@ -84,7 +86,8 @@ export default function SupportRequestForm({
         ) : null}
 
         <form onSubmit={handleSubmit} className={`${embedded ? "" : "mt-8"} space-y-6`}>
-          {error && <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+          {validationError ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</div> : null}
+          {error ? <p role="alert" className="text-sm font-medium text-rose-600">{error}</p> : null}
 
           <div>
             <label htmlFor={embedded ? "new-inquiry-subject" : "subject"} className="text-sm font-medium text-slate-700">Subject</label>

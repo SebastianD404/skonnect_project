@@ -44,3 +44,15 @@ export function buildSkeapReminderMessage(offset: ReminderOffset, deadline: Date
     body: `Your SKEAP submission deadline is ${deadlineDate}. Please submit your required documents ${offset === 1 ? "by tomorrow" : `in ${offset} days`} to stay on track.`,
   };
 }
+
+export function buildAcademicTermReminderMessage(
+  offset: ReminderOffset,
+  semester: string,
+  deadline: Date
+): ReminderMessage {
+  const deadlineDate = formatUtcDate(deadline);
+  return {
+    subject: `${semester} submission deadline in ${offset} day${offset === 1 ? "" : "s"}`,
+    body: `The submission deadline for ${semester} is ${deadlineDate}. Please submit your required documents ${offset === 1 ? "by tomorrow" : `in ${offset} days`}.`,
+  };
+}

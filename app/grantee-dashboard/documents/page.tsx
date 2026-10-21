@@ -129,7 +129,12 @@ export default async function GranteeDocumentsPage() {
   }));
 
   const canSubmit = isGranteeProfileComplete(appUser.grantee);
-  const { window: academicTermWindow } = await getAcademicTermScheduleState();
+  const { schedules, window: academicTermWindow } = await getAcademicTermScheduleState();
+  const serializedAcademicTermSchedules = schedules.map((schedule) => ({
+    semester: schedule.semester,
+    opensAt: schedule.opensAt.toISOString(),
+    closesAt: schedule.closesAt.toISOString(),
+  }));
 
   return (
     <main className="px-4 pb-20 pt-12 sm:px-6 lg:px-8">
@@ -139,6 +144,7 @@ export default async function GranteeDocumentsPage() {
           submissions={serialized}
           canSubmit={canSubmit}
           academicTermWindow={academicTermWindow}
+          academicTermSchedules={serializedAcademicTermSchedules}
         />
       </div>
     </main>

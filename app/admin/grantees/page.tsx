@@ -10,6 +10,7 @@ import {
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
 } from "@/lib/grantee-profile";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { getApprovedSemesterCount } from "@/lib/academic-journey";
 
 const PAGE_SIZES = [10, 20, 50] as const;
 
@@ -96,10 +97,10 @@ export default async function AdminGranteesPage({ searchParams }: {
         updatedAt: true,
         submissions: {
           orderBy: { submittedAt: "desc" },
-          where: { generalAverage: { not: null } },
-          take: 1,
           select: {
             generalAverage: true,
+            semester: true,
+            status: true,
           },
         },
         user: {
@@ -183,7 +184,7 @@ export default async function AdminGranteesPage({ searchParams }: {
 
   const granteeRows: GranteeTableRow[] = grantees.map((grantee) => {
     const latestInquiry = grantee.user.inquiries?.[0] ?? null;
-    const latestSubmission = grantee.submissions?.[0] ?? null;
+    const latestSubmission = grantee.submissions?.find((submission) => submission.generalAverage !== null) ?? null;
     const application = latestInquiry?.application
       ? {
           currentCourse: latestInquiry.application.currentCourse ?? undefined,
@@ -215,6 +216,7 @@ export default async function AdminGranteesPage({ searchParams }: {
       email: grantee.user.email,
       school: normalizeSkeapSchoolName(grantee.school),
       yearLevel: grantee.yearLevel,
+      completedJourneySemesters: getApprovedSemesterCount(grantee.submissions),
       status: grantee.status,
       generalAverage:
         latestSubmission?.generalAverage ?? latestInquiry?.application?.gwa ?? grantee.generalAverage,
@@ -236,6 +238,7 @@ export default async function AdminGranteesPage({ searchParams }: {
     email: user.email,
     school: GRANTEE_PLACEHOLDER_SCHOOL,
     yearLevel: GRANTEE_PLACEHOLDER_YEAR_LEVEL,
+    completedJourneySemesters: 0,
     status: "PROBATIONARY",
     generalAverage: null,
     dateEnrolled: user.createdAt.toISOString(),

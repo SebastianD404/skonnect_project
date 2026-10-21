@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Clock3, Inbox, MessageSquarePlus, Send, X } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Inbox, MessageSquarePlus, Send, Trash2, X } from "lucide-react";
 import SupportRequestForm from "@/app/components/SupportRequestForm";
 
 type InquirySummary = {
@@ -64,6 +65,11 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
   const [replyText, setReplyText] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [selectedForDelete, setSelectedForDelete] = useState<InquirySummary | null>(null);
+  const [deletingInquiryIds, setDeletingInquiryIds] = useState<Set<string>>(new Set());
+  const [deletedInquiryIds, setDeletedInquiryIds] = useState<Set<string>>(new Set());
   const [toastVisible, setToastVisible] = useState(showSubmittedToast);
   const [isNewInquiryModalOpen, setIsNewInquiryModalOpen] = useState(false);
   const newInquiryButtonRef = useRef<HTMLButtonElement>(null);
@@ -114,13 +120,14 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
         const nextInquiries = Array.isArray(data.inquiries) ? data.inquiries : [];
         setTotalCount(typeof data.totalCount === "number" ? data.totalCount : nextInquiries.length);
         setInquiries((current) => {
-          const firstPageIds = new Set(nextInquiries.map((inquiry: InquirySummary) => inquiry.id));
+          const visibleInquiries = nextInquiries.filter((inquiry: InquirySummary) => !deletedInquiryIds.has(inquiry.id));
+          const firstPageIds = new Set(visibleInquiries.map((inquiry: InquirySummary) => inquiry.id));
           return [
-            ...nextInquiries,
-            ...current.filter((inquiry) => !firstPageIds.has(inquiry.id)),
+            ...visibleInquiries,
+            ...current.filter((inquiry) => !deletedInquiryIds.has(inquiry.id) && !firstPageIds.has(inquiry.id)),
           ];
         });
-        setSelectedId((selected) => selected ?? nextInquiries[0]?.id ?? null);
+        setSelectedId((selected) => selected ?? nextInquiries.find((inquiry: InquirySummary) => !deletedInquiryIds.has(inquiry.id))?.id ?? null);
       } catch (loadError) {
         if (active && !hasLoadedInitially) {
           setError(loadError instanceof Error ? loadError.message : "Unable to load inquiries.");
@@ -143,7 +150,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
       active = false;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [deletedInquiryIds]);
 
   async function loadMoreInquiries() {
     if (isLoadingMore || inquiries.length >= totalCount) return;
@@ -160,7 +167,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
       const nextInquiries: InquirySummary[] = Array.isArray(data.inquiries) ? data.inquiries : [];
       setInquiries((current) => {
         const existingIds = new Set(current.map((inquiry) => inquiry.id));
-        return [...current, ...nextInquiries.filter((inquiry) => !existingIds.has(inquiry.id))];
+        return [...current, ...nextInquiries.filter((inquiry) => !existingIds.has(inquiry.id) && !deletedInquiryIds.has(inquiry.id))];
       });
       setTotalCount(typeof data.totalCount === "number" ? data.totalCount : totalCount);
       setPage(nextPage);
@@ -237,12 +244,73 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
     return () => window.clearTimeout(timeout);
   }, [basePath, router, selectedId, toastVisible]);
 
+  useEffect(() => {
+    if (!selectedForDelete) return;
+    const inquiryId = selectedForDelete.id;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !deletingInquiryIds.has(inquiryId)) {
+        setSelectedForDelete(null);
+      }
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [deletingInquiryIds, selectedForDelete]);
+
   function selectInquiry(id: string) {
     setSelectedInquiry(null);
     setIsLoadingThread(true);
     setError(null);
+    setReplyError(null);
     setSelectedId(id);
     router.replace(`${basePath}/inquiries?inquiry=${id}`);
+  }
+
+  function requestDeleteInquiry(event: React.MouseEvent<HTMLButtonElement>, inquiry: InquirySummary) {
+    event.stopPropagation();
+    if (deletingInquiryIds.has(inquiry.id)) return;
+    setDeleteError(null);
+    setSelectedForDelete(inquiry);
+  }
+
+  async function confirmDeleteInquiry(inquiry: InquirySummary) {
+    if (deletingInquiryIds.has(inquiry.id)) return;
+
+    setDeleteError(null);
+    setDeletingInquiryIds((current) => new Set(current).add(inquiry.id));
+    try {
+      const response = await fetch(`/api/my/inquiries/${inquiry.id}`, { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Unable to delete inquiry.");
+
+      setDeletedInquiryIds((current) => new Set(current).add(inquiry.id));
+      setInquiries((current) => current.filter((item) => item.id !== inquiry.id));
+      setTotalCount((current) => Math.max(0, current - 1));
+      setSelectedForDelete(null);
+
+      if (selectedId === inquiry.id) {
+        const remaining = inquiries.filter((item) => item.id !== inquiry.id);
+        setSelectedInquiry(null);
+        setIsLoadingThread(remaining.length > 0);
+        setReplyError(null);
+        setSelectedId(remaining[0]?.id ?? null);
+        router.replace(remaining[0] ? `${basePath}/inquiries?inquiry=${remaining[0].id}` : `${basePath}/inquiries`);
+      }
+    } catch (deleteError) {
+      setDeleteError(deleteError instanceof Error ? deleteError.message : "Unable to delete inquiry.");
+    } finally {
+      setDeletingInquiryIds((current) => {
+        const next = new Set(current);
+        next.delete(inquiry.id);
+        return next;
+      });
+    }
   }
 
   function handleNewInquirySubmitted(inquiry: { id: string; subject: string }) {
@@ -273,6 +341,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
 
     setIsSendingReply(true);
     setError(null);
+    setReplyError(null);
     try {
       const response = await fetch(`/api/my/inquiries/${selectedId}`, {
         method: "POST",
@@ -292,7 +361,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
       setInquiries((current) => current.map((inquiry) => inquiry.id === selectedId ? { ...inquiry, response: null, isResolved: false } : inquiry));
       setReplyText("");
     } catch (replyError) {
-      setError(replyError instanceof Error ? replyError.message : "Unable to send reply.");
+      setReplyError(replyError instanceof Error ? replyError.message : "Unable to send reply.");
     } finally {
       setIsSendingReply(false);
     }
@@ -301,9 +370,12 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
   return (
     <main className="px-6 pb-20 pt-10 lg:px-10 lg:pt-14">
       {toastVisible && (
-        <div className="fixed right-6 top-24 z-50 rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-xl" role="status">
-          Inquiry submitted successfully.
-        </div>
+        <FloatingFeedback
+          message="Inquiry submitted successfully."
+          type="success"
+          autoDismissMs={0}
+          onDismiss={() => setToastVisible(false)}
+        />
       )}
 
       <div className="mx-auto max-w-7xl">
@@ -349,40 +421,56 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
                   {inquiries.map((inquiry) => {
                     const status = getStatus(inquiry);
                     return (
-                      <button
+                      <div
                         key={inquiry.id}
-                        type="button"
-                        onClick={() => selectInquiry(inquiry.id)}
-                        className={`group w-full rounded-2xl border p-4 text-left transition-all duration-200 ${
+                        data-inquiry-card={inquiry.id}
+                        className={`group relative w-full rounded-2xl border p-3.5 transition-all duration-200 ${
                           selectedId === inquiry.id
                             ? "border-[#0a1f33] bg-white shadow-sm ring-1 ring-[#0a1f33]/10"
                             : "border-slate-200/80 bg-slate-50/50 hover:border-slate-300 hover:bg-white hover:shadow-sm"
                         }`}
                       >
-                        <div className="flex min-w-0 items-start justify-between gap-3">
-                          <p className={`min-w-0 flex-1 truncate text-sm font-bold transition-colors ${
-                            selectedId === inquiry.id
-                              ? "text-[#0a1f33]"
-                              : "text-slate-800 group-hover:text-slate-900"
-                          }`}>
-                            {inquiry.subject}
-                          </p>
-                          <span className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold shadow-sm ${status.className}`}>
-                            {inquiry.isResolved ? (
-                              <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
-                            ) : (
-                              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-                            )}
-                            {status.label}
-                          </span>
-                        </div>
-                        <div className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
-                          <Clock3 className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
-                          <span>
-                            {new Date(inquiry.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" })}
-                          </span>
-                        </div>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => selectInquiry(inquiry.id)}
+                          className="w-full pr-7 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+                          aria-current={selectedId === inquiry.id ? "true" : undefined}
+                        >
+                          <div className="flex min-w-0 items-start justify-between gap-3">
+                            <p className={`min-w-0 flex-1 truncate text-sm font-bold transition-colors ${
+                              selectedId === inquiry.id
+                                ? "text-[#0a1f33]"
+                                : "text-slate-800 group-hover:text-slate-900"
+                            }`}>
+                              {inquiry.subject}
+                            </p>
+                            <span className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold shadow-sm ${status.className}`}>
+                              {inquiry.isResolved ? (
+                                <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                              ) : (
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                              )}
+                              {status.label}
+                            </span>
+                          </div>
+                          <div className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+                            <Clock3 className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+                            <span>
+                              {new Date(inquiry.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" })}
+                            </span>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => requestDeleteInquiry(event, inquiry)}
+                          disabled={deletingInquiryIds.has(inquiry.id)}
+                          title="Delete inquiry"
+                          aria-label={`Delete inquiry: ${inquiry.subject}`}
+                          className="absolute right-3 top-3 rounded-md p-1 text-slate-400 opacity-0 transition-all hover:bg-rose-50 hover:text-rose-600 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 group-hover:opacity-100 disabled:cursor-wait disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
                     );
                   })}
                   {inquiries.length < totalCount ? (
@@ -437,6 +525,7 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
 
                 <form onSubmit={sendReply} className="border-t border-slate-200 bg-white px-5 py-4 sm:px-8">
                   <label htmlFor="inquiry-reply" className="sr-only">Reply to inquiry</label>
+                  {replyError ? <p role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{replyError}</p> : null}
                   <textarea id="inquiry-reply" value={replyText} onChange={(event) => setReplyText(event.target.value)} onKeyDown={(event) => {
                     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
                     event.preventDefault();
@@ -495,6 +584,73 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
                 onCancel={() => setIsNewInquiryModalOpen(false)}
                 onSubmitted={handleNewInquirySubmitted}
               />
+            </section>
+          </div>
+        ) : null}
+
+        {selectedForDelete ? (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs animate-in fade-in duration-150"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && !deletingInquiryIds.has(selectedForDelete.id)) {
+                setSelectedForDelete(null);
+                setDeleteError(null);
+              }
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-inquiry-title"
+              aria-describedby="delete-inquiry-description"
+              className="relative w-full max-w-[340px] rounded-2xl border border-slate-200/80 bg-white p-5 text-center shadow-xl animate-in zoom-in-95 duration-150"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedForDelete(null);
+                  setDeleteError(null);
+                }}
+                disabled={deletingInquiryIds.has(selectedForDelete.id)}
+                className="absolute right-3 top-3 rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Close delete confirmation"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+
+              <div className="mx-auto mb-2.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-rose-100 bg-rose-50 text-rose-600 shadow-2xs">
+                <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <h2 id="delete-inquiry-title" className="mb-1 text-sm font-bold text-slate-900">Delete inquiry?</h2>
+              <p id="delete-inquiry-description" className="px-1 text-[11px] leading-normal text-slate-500">
+                Are you sure you want to delete <span className="font-bold text-slate-800">&ldquo;{selectedForDelete.subject}&rdquo;</span>? This permanently removes the inquiry and its support message history.
+              </p>
+              <p className="mt-1 text-[10px] text-slate-400">
+                Submitted {new Date(selectedForDelete.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" })}
+              </p>
+              {deleteError ? <p role="alert" className="mt-3 text-center text-xs font-medium text-rose-600">{deleteError}</p> : null}
+
+              <div className="mt-4 grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedForDelete(null);
+                    setDeleteError(null);
+                  }}
+                  disabled={deletingInquiryIds.has(selectedForDelete.id)}
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmDeleteInquiry(selectedForDelete)}
+                  disabled={deletingInquiryIds.has(selectedForDelete.id)}
+                  className="h-8 w-full rounded-lg bg-rose-600 text-[11px] font-bold text-white shadow-2xs transition-all hover:bg-rose-700 active:scale-[0.98] disabled:cursor-wait disabled:opacity-50"
+                >
+                  {deletingInquiryIds.has(selectedForDelete.id) ? "Deleting..." : "Delete inquiry"}
+                </button>
+              </div>
             </section>
           </div>
         ) : null}

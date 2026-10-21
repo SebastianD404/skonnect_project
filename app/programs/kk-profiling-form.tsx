@@ -144,6 +144,7 @@ export default function KKProfilingForm() {
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [idFiles, setIdFiles] = useState<{ front?: File | null; back?: File | null; residency?: File | null }>({ front: null, back: null, residency: null });
@@ -492,6 +493,7 @@ export default function KKProfilingForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
+    setActionError(null);
     setAccountExistsFallback(false);
     setMagicLinkSent(false);
 
@@ -611,11 +613,11 @@ export default function KKProfilingForm() {
           return;
         }
 
-        setMessage(body?.error ?? "Failed to submit. Please try again.");
+        setActionError(body?.error ?? "Failed to submit. Please try again.");
       }
     } catch (error) {
       console.error("KK profiling submission failed", error);
-      setMessage("Network error. Please try again.");
+      setActionError("Network error. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -634,6 +636,7 @@ export default function KKProfilingForm() {
         <>
         <form onSubmit={handleSubmit} className="grid gap-x-4 gap-y-2 [&_label]:gap-1.5">
           <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
+          {actionError ? <p role="alert" className="text-sm font-medium text-rose-600">{actionError}</p> : null}
 
       <div className="flex flex-col gap-6">
         <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">

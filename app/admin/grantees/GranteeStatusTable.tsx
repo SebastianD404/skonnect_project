@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import type { SerializableSkeapApplicationFormPayload } from "./[id]/GranteeDossierView";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
+import AcademicJourneyHoverCard from "./AcademicJourneyHoverCard";
 
 export interface GranteeTableRow {
   id: string;
@@ -14,6 +15,7 @@ export interface GranteeTableRow {
   email: string;
   school: string;
   yearLevel: string;
+  completedJourneySemesters: number;
   status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED";
   generalAverage: number | null;
   dateEnrolled: string;
@@ -177,12 +179,14 @@ export function GranteeStatusTable({
             </tr>
           </thead>
           <tbody className={`divide-y divide-slate-100 bg-white text-sm transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
-            {filteredGrantees.map((grantee) => {
-                const isBelowGwa = grantee.generalAverage !== null && grantee.generalAverage < 80;
-                return (
+            {filteredGrantees.map((grantee) => (
                   <tr key={grantee.id} className="transition-colors hover:bg-slate-50/50">
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
+                      <div className="group/journey relative flex items-center gap-3">
+                        <AcademicJourneyHoverCard
+                          fullName={grantee.fullName}
+                          completedSemesters={grantee.completedJourneySemesters}
+                        />
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
                           {grantee.fullName
                             .split(" ")
@@ -206,13 +210,14 @@ export function GranteeStatusTable({
                         {STATUS_LABELS[grantee.status]}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className={`${isBelowGwa ? "text-rose-700 font-semibold" : "text-slate-900"}`}>
-                        {grantee.generalAverage !== null ? grantee.generalAverage.toFixed(2) : "—"}
-                      </div>
-                      {isBelowGwa ? (
-                        <div className="mt-1 text-xs text-rose-600">Below 80</div>
-                      ) : null}
+                    <td className="whitespace-nowrap px-6 py-4">
+                      {grantee.generalAverage !== null ? (
+                        <span className="text-sm font-bold text-slate-900">
+                          {grantee.generalAverage.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-sm font-medium text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-slate-500">
                       {formatDate(grantee.dateEnrolled)}
@@ -277,8 +282,7 @@ export function GranteeStatusTable({
                       </div>
                     </td>
                   </tr>
-                );
-            })}
+            ))}
           </tbody>
         </table>
         {filteredGrantees.length === 0 ? (

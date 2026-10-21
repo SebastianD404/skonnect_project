@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { ReactNode } from "react";
 import type { SubmissionStatus } from "@prisma/client";
 import {
@@ -586,6 +587,7 @@ export default function SubmissionReviewTable() {
   const [savingSubmissionId, setSavingSubmissionId] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [gradeVerification, setGradeVerification] = useState<GradeVerification & { submissionId: string }>({
     submissionId: "",
@@ -767,12 +769,13 @@ export default function SubmissionReviewTable() {
   ): Promise<boolean> {
     const documentDraft = docType === "coe" ? draft.coe : draft.grades;
     if (action === "RETURN_FOR_UPDATE" && !documentDraft.notes.trim()) {
-      setActionError("Add review notes before returning a document for edits.");
+      setValidationError("Add review notes before returning a document for edits.");
       return false;
     }
 
     setSavingSubmissionId(submission.id);
     setActionError(null);
+    setValidationError(null);
     setActionSuccess(null);
     try {
       const verification =
@@ -811,12 +814,13 @@ export default function SubmissionReviewTable() {
   async function submitPackageReview() {
     if (!selectedSubmission || isSaving) return;
     if (!isGradeVerificationComplete || parseVerifiedGwa(verifiedGwa) === null) {
-      setActionError("Verify the grade report and enter its GWA before approving the submission.");
+      setValidationError("Verify the grade report and enter its GWA before approving the submission.");
       return;
     }
 
     setSavingSubmissionId(selectedSubmission.id);
     setActionError(null);
+    setValidationError(null);
     setActionSuccess(null);
     try {
       await postDocumentReview(selectedSubmission, "coe", "APPROVE", "");
@@ -842,6 +846,7 @@ export default function SubmissionReviewTable() {
     const submissionId = selectedSubmission.id;
     setSavingSubmissionId(submissionId);
     setActionError(null);
+    setValidationError(null);
     setActionSuccess(null);
     try {
       const response = await fetch(`/api/admin/submissions/${submissionId}`, {
@@ -877,27 +882,31 @@ export default function SubmissionReviewTable() {
   return (
     <section className="w-full">
       {deleteToast ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className={`fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-lg ${
-            deleteToast.isWarning ? "border-l-4 border-l-amber-500" : "border-l-4 border-l-emerald-500"
-          }`}
-        >
-          <CheckCircle2
-            className={`mt-0.5 h-5 w-5 shrink-0 ${deleteToast.isWarning ? "text-amber-500" : "text-emerald-500"}`}
-            aria-hidden="true"
-          />
-          <span className="flex-1">{deleteToast.message}</span>
-          <button
-            type="button"
-            onClick={() => setDeleteToast(null)}
-            aria-label="Dismiss deletion notification"
-            className="ml-1 text-slate-400 transition hover:text-slate-700"
+        deleteToast.isWarning ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-xl border border-slate-200 border-l-4 border-l-amber-500 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-lg"
           >
-            ×
-          </button>
-        </div>
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden="true" />
+            <span className="flex-1">{deleteToast.message}</span>
+            <button
+              type="button"
+              onClick={() => setDeleteToast(null)}
+              aria-label="Dismiss deletion notification"
+              className="ml-1 text-slate-400 transition hover:text-slate-700"
+            >
+              ×
+            </button>
+          </div>
+        ) : (
+          <FloatingFeedback
+            message={deleteToast.message}
+            type="success"
+            autoDismissMs={0}
+            onDismiss={() => setDeleteToast(null)}
+          />
+        )
       ) : null}
       <div className="p-4 sm:p-5">
         <div className="flex h-10 items-center gap-4 overflow-x-auto">
@@ -990,25 +999,9 @@ export default function SubmissionReviewTable() {
 
       <div className="space-y-3 p-4 sm:p-5" aria-busy={isLoading}>
         {loadError ? <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
-        {actionError ? <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</div> : null}
-        {actionSuccess ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="fixed bottom-6 right-6 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-slate-200 border-l-4 border-l-emerald-500 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-lg"
-          >
-            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" aria-hidden="true" />
-            <span className="flex-1">{actionSuccess}</span>
-            <button
-              type="button"
-              onClick={() => setActionSuccess(null)}
-              aria-label="Dismiss success notification"
-              className="ml-1 shrink-0 text-slate-400 transition hover:text-slate-700"
-            >
-              ×
-            </button>
-          </div>
-        ) : null}
+        {validationError ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p> : null}
+        {actionError ? <FloatingFeedback message={actionError} type="error" onDismiss={() => setActionError(null)} /> : null}
+        {actionSuccess ? <FloatingFeedback message={actionSuccess} type="success" autoDismissMs={0} onDismiss={() => setActionSuccess(null)} /> : null}
 
         {isLoading ? <SubmissionsSkeleton /> : (
         <div className="grid grid-cols-1 items-stretch gap-6 md:h-[calc(100vh-220px)] md:min-h-[600px] md:grid-cols-12">
@@ -1040,6 +1033,7 @@ export default function SubmissionReviewTable() {
                   onClick={() => {
                     setSelectedSubmissionId(submission.id);
                     setActionError(null);
+                    setValidationError(null);
                     setActionSuccess(null);
                   }}
                   aria-current={selectedSubmissionId === submission.id ? "true" : undefined}

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -131,19 +130,6 @@ export default function SecureAccountForm({
                 </div>
               </div>
 
-              {errorMessage ? (
-                <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-950 shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
-                      <AlertTriangle className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-rose-950">We couldn’t save your credentials</p>
-                      <p className="mt-1 text-sm leading-6 text-rose-900/85">{errorMessage}</p>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
               {state?.redirectTo ? (
                 <p role="status" aria-live="polite" className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
                   Account secured. Redirecting you now...
@@ -152,6 +138,7 @@ export default function SecureAccountForm({
 
               <form action={formAction} className="mt-6 space-y-5">
                 {redirect ? <input type="hidden" name="redirect" value={redirect} /> : null}
+                {errorMessage ? <p role="alert" className="text-sm font-medium text-rose-600">{errorMessage}</p> : null}
 
                 <div>
                   <label htmlFor="username" className="text-sm font-semibold text-slate-900">

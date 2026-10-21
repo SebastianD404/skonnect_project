@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, CheckCircle2, RefreshCw, Users } from "lucide-react";
+import { CheckCircle2, RefreshCw, Users } from "lucide-react";
 
 type ReconcileSummary = {
   totalAuthUsers: number;
@@ -94,12 +94,7 @@ export default function SystemAdminReconcilePage() {
           </div>
         </div>
 
-        {error ? (
-          <div role="alert" className="mx-5 mb-5 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700 sm:mx-6">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        ) : null}
+        {error ? <p role="alert" className="border-t border-rose-100 px-5 py-3 text-sm font-medium text-rose-600 sm:px-6">{error}</p> : null}
 
         {result ? (
           <div role="status" aria-live="polite" className="border-t border-slate-100 px-5 py-4 sm:px-6">
