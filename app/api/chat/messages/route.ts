@@ -140,6 +140,7 @@ export async function POST(request: NextRequest) {
         message: guestAssistantMessage,
         userMessage: guestUserMessage,
         chunksUsed: assistantText.chunksUsed,
+        sources: assistantText.sources,
       });
     }
 
@@ -199,6 +200,7 @@ export async function POST(request: NextRequest) {
       message: createdAssistantMessage,
       userMessage: createdUserMessage,
       chunksUsed: assistantText.chunksUsed,
+      sources: assistantText.sources,
     });
   } catch (error) {
     const isError = error instanceof Error;

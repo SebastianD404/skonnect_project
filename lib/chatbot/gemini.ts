@@ -1,3 +1,6 @@
+import type { Language } from "@prisma/client";
+import { detectLanguage } from "@/lib/chatbot/language";
+
 type GeminiMessage = {
   role: "user" | "assistant";
   content: string;
@@ -28,24 +31,69 @@ function getGeminiAuthHeaders() {
 
 function generateFallbackAnswer(question: string) {
   const normalized = question.toLowerCase();
+  const language = detectLanguage(question);
 
-  if (normalized.includes("deadline") || normalized.includes("due date") || normalized.includes("due")) {
-    return "Most deadlines are posted on the announcements page. If you need an exact deadline, check your program details under the Events or Announcements section, or ask your SK officer for the current submission cutoff.";
+  if (language === "ILOCANO") {
+    return "Dispensarennak, awan ti eksakto a detalye maipanggep iti dayta ita. Mabalinmo nga isumitir ti pormal nga saludsod kadagiti opisyal ti SK babaen ti Inquiry Form wenno mapan idiay Barangay Pico Hall.";
   }
 
-  if (normalized.includes("scholarship") || normalized.includes("requirements") || normalized.includes("requirements")) {
-    return "Scholarship requirements usually include a complete application form, proof of enrollment, and barangay residency documents. Visit the scholarship or programs page for the exact checklist or contact your barangay SK officer for the latest guidance.";
+  if (language === "FILIPINO") {
+    return "Paumanhin, wala akong eksaktong detalye tungkol diyan sa ngayon. Maaari kang magsumite ng pormal na inquiry sa mga opisyal ng SK gamit ang Inquiry Form o bumisita sa Barangay Pico Hall.";
   }
 
-  if (normalized.includes("submission") || normalized.includes("submit") || normalized.includes("upload")) {
-    return "Upload your requirements through the submissions section of the dashboard. Make sure your files match the requested format and check for any return-for-edit notes from SK before resubmitting.";
+  if (/\b(household|family|families|sibling|siblings|one per home)\b/.test(normalized)) {
+    return "Only one scholar may be approved per household or immediate family.";
   }
 
-  if (normalized.includes("event") || normalized.includes("register")) {
-    return "You can register for SKEAP events from the Events page. Look for active event cards and click Register to secure your slot. If you don’t see an event, refresh the page or contact SK support.";
+  if (/\b(sitting|elected|sk official|sk officials|officials)\b/.test(normalized)
+    && /\b(skeap|scholarship|apply|eligible|receive|grant)\b/.test(normalized)) {
+    return "Sitting members and elected officials of the Sangguniang Kabataan of Barangay Pico are not eligible to apply for or receive SKEAP.";
   }
 
-  return "The AI helpdesk is temporarily unavailable, but you can still use the dashboard navigation to view announcements, events, and submission requirements. If you need urgent support, please contact your SK officer directly.";
+  if (/\b(physical|in person|in-person|paper|submit|submission|documents|requirements)\b/.test(normalized)
+    && /\b(hall|office|submit|submission|physical|in person|in-person|paper)\b/.test(normalized)) {
+    return "Yes. You may submit your SKEAP requirements in person at Barangay Pico Hall or the SK Office instead of uploading them online.";
+  }
+
+  if (/\b(response|reply|inquiry|inquiries|hear back)\b/.test(normalized)) {
+    return "Response times depend on SK officials' availability. Inquiries are typically reviewed within one hour during office hours, but that timeframe is not guaranteed.";
+  }
+
+  if (/\b(age|eligible|eligibility|apply|applicant|grade level|enrollment)\b/.test(normalized)) {
+    return "SKEAP is open to youth residents aged 15 to 30. Applicants may apply at any grade or educational level regardless of current enrollment status or timing, provided they submit the complete documentary requirements.";
+  }
+
+  return "I don't have the exact details for that right now, but you can submit a formal inquiry to the SK officials using our Portal Inquiry Form or visit the Barangay Pico Hall.";
+}
+
+export async function translateQueryToEnglish(question: string, language: Language): Promise<string | null> {
+  if (language === "ENGLISH") return question;
+
+  let auth: ReturnType<typeof getGeminiAuthHeaders>;
+  try {
+    auth = getGeminiAuthHeaders();
+  } catch {
+    return null;
+  }
+
+  const prompt = [
+    "Translate the user's question into concise, natural English for searching a scholarship and barangay-services knowledge base.",
+    "Return only the translated question. Do not answer it, add explanations, or change its meaning.",
+    `Detected source language: ${language === "FILIPINO" ? "Filipino/Tagalog" : "Ilocano"}.`,
+    `Question: ${question}`,
+  ].join("\n");
+
+  for (const modelName of ["gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-flash-latest"]) {
+    try {
+      const translated = await tryGenerateWithModel({ auth, modelName, prompt });
+      return translated.replace(/^["'“”]+|["'“”]+$/g, "").trim() || null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("Gemini query translation model fallback:", modelName, message);
+    }
+  }
+
+  return null;
 }
 
 export async function embedText(text: string): Promise<number[]> {

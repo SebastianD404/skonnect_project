@@ -47,6 +47,10 @@ class QueryCache<T> {
       }
     }
   }
+
+  clear() {
+    this.cache.clear();
+  }
 }
 
 export function normalizeQuery(text: string) {

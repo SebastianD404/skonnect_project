@@ -13,6 +13,7 @@ export type ChatUiMessage = {
   language: MessageLanguage;
   createdAt: string;
   isPending?: boolean;
+  sources?: string[];
 };
 
 export function useChatSession() {
@@ -84,7 +85,10 @@ export function useChatSession() {
       }
 
       const userMessage = data?.userMessage as ChatUiMessage;
-      const assistantMessage = data?.message as ChatUiMessage;
+      const assistantMessage = {
+        ...data?.message,
+        sources: Array.isArray(data?.sources) ? data.sources.filter((source: unknown): source is string => typeof source === "string") : [],
+      } as ChatUiMessage;
 
       setMessages((prev) => {
         const withoutPending = prev.filter((item) => item.id !== optimisticMessage.id);

@@ -11,7 +11,7 @@ export default async function AdminLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
+  const adminUser = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
   const supportInquiryFilter = {
     NOT: {
@@ -63,6 +63,7 @@ export default async function AdminLayout({
             profilingRegistrationCount={profilingRegistrationCountToday}
             newGranteesToday={newGranteesToday}
             approvedMemberCount={approvedMemberCountToday}
+            userRole={adminUser.role}
           />
           <main className="h-full min-w-0 flex-1 overflow-y-auto">
             <AdminGlobalTopBar />

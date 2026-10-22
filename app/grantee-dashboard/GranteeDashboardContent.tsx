@@ -64,6 +64,23 @@ export default async function GranteeDashboardContent() {
     redirect("/login");
   }
 
+  let journeyPhotoUrl: string | undefined;
+  if (appUser.avatarUrl) {
+    if (/^https?:\/\//i.test(appUser.avatarUrl)) {
+      journeyPhotoUrl = appUser.avatarUrl;
+    } else {
+      const { data, error } = await supabase.storage
+        .from("avatars")
+        .createSignedUrl(appUser.avatarUrl, 60 * 60 * 24 * 7);
+
+      if (error) {
+        console.warn("Unable to create a signed URL for the grantee avatar:", error.message);
+      } else {
+        journeyPhotoUrl = data.signedUrl;
+      }
+    }
+  }
+
   const submissions = appUser.grantee?.submissions ?? [];
   const pendingCount = submissions.filter((s) => s.status === "PENDING").length;
   const approvedCount = submissions.filter((s) => s.status === "APPROVED").length;
@@ -203,7 +220,7 @@ export default async function GranteeDashboardContent() {
         <section className="grantee-dashboard-enter grantee-dashboard-enter-activity mt-8">
           <AcademicJourneyMap
             studentName={appUser.fullName}
-            photoUrl={appUser.avatarUrl ?? undefined}
+            photoUrl={journeyPhotoUrl}
             currentSemesterIndex={journeyProgress.currentSemesterIndex}
             validatedSemesterIndexes={journeyProgress.validatedSemesterIndexes}
             currentStepStatus={journeyProgress.currentStepStatus}

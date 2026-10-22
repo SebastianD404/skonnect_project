@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users, Banknote } from "lucide-react";
+import type { Role } from "@prisma/client";
+import { Banknote, ClipboardList, Database, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { Avatar } from "@/components/ui/Avatar";
@@ -55,6 +56,7 @@ interface AdminSidebarProps {
   profilingRegistrationCount: number;
   newGranteesToday: number;
   approvedMemberCount: number;
+  userRole: Role;
 }
 
 interface SidebarCounts {
@@ -75,6 +77,7 @@ export default function AdminSidebar({
   profilingRegistrationCount,
   newGranteesToday,
   approvedMemberCount,
+  userRole,
 }: AdminSidebarProps) {
   const pathname = usePathname();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
@@ -229,6 +232,14 @@ export default function AdminSidebar({
         { label: "Inquiries", href: "/admin/inquiries", icon: Inbox, badge: liveCounts.openInquiryCount },
       ],
     },
+    ...(userRole === "SUPER_ADMIN"
+      ? [{
+          title: "AI Assistant",
+          items: [
+            { label: "Knowledge Base", href: "/system-admin/knowledge-base", icon: Database },
+          ],
+        }]
+      : []),
     {
       title: "System",
       items: [
@@ -236,7 +247,6 @@ export default function AdminSidebar({
       ],
     },
   ];
-
   return (
     <aside className="flex h-full w-72 flex-shrink-0 flex-col justify-between border-r border-slate-200 bg-white p-4">
       <div className="flex flex-col gap-6 w-full">

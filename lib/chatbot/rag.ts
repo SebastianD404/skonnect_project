@@ -1,7 +1,18 @@
 import type { Language } from "@prisma/client";
-import { generateAnswer, type GeminiMessage } from "@/lib/chatbot/gemini";
-import { detectLanguage, languageToInstruction } from "@/lib/chatbot/language";
+import { generateAnswer, translateQueryToEnglish, type GeminiMessage } from "@/lib/chatbot/gemini";
 import { formatRetrievedContext, retrieveChunksWithCache } from "@/lib/chatbot/retrieval";
+
+function sourceLabelsForChunks(chunks: Awaited<ReturnType<typeof retrieveChunksWithCache>>) {
+  const labels = new Set<string>();
+  for (const chunk of chunks) {
+    const sourceType = chunk.sourceType.toLowerCase();
+    if (sourceType.includes("skeap")) labels.add("Official SKEAP Guidelines");
+    else if (sourceType.includes("event")) labels.add("SK Event Information");
+    else if (sourceType.includes("contact")) labels.add("Barangay Pico Contact Information");
+    else labels.add("SKonnect Knowledge Base");
+  }
+  return [...labels];
+}
 
 export async function runRagAnswer(params: {
   question: string;
@@ -10,12 +21,21 @@ export async function runRagAnswer(params: {
   liveSystemContext?: string;
 }) {
   const detectedLanguageName = params.language === "FILIPINO" ? "filipino" : params.language === "ILOCANO" ? "ilocano" : "english";
-  const chunks = await retrieveChunksWithCache({ query: params.question, topK: 10, minSimilarity: 0.4 });
+  const [originalChunks, translatedQuery] = await Promise.all([
+    retrieveChunksWithCache({ query: params.question, topK: 10, minSimilarity: 0.4 }),
+    translateQueryToEnglish(params.question, params.language),
+  ]);
+  const retrievalQuestion = translatedQuery ?? params.question;
+  const translatedChunks = translatedQuery && translatedQuery.toLowerCase() !== params.question.toLowerCase()
+    ? await retrieveChunksWithCache({ query: translatedQuery, topK: 10, minSimilarity: 0.4 })
+    : [];
+  const chunks = [...new Map(
+    [...originalChunks, ...translatedChunks].map((chunk) => [chunk.id, chunk])
+  ).values()]
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, 10);
   const context = formatRetrievedContext(chunks);
-
-  if (chunks.length === 0) {
-    return { response: getFallbackMessage(detectedLanguageName), chunksUsed: 0 };
-  }
+  const sources = sourceLabelsForChunks(chunks);
 
   // Detect whether the user is explicitly asking about live/open registrations
   function containsEventKeywords(q: string) {
@@ -124,7 +144,7 @@ export async function runRagAnswer(params: {
   // context strongly indicates events, return a concise factual summary instead
   // of relying solely on the model.
   try {
-    if (isEventRelatedQuery(params.question)) {
+    if (isEventRelatedQuery(retrievalQuestion)) {
       const eventChunks = chunks.filter((c) => String(c.sourceType).toLowerCase().includes("event"));
       const strongEventChunks = eventChunks.filter((c) => Number(c.similarity ?? 0) >= 0.55);
 
@@ -141,6 +161,7 @@ export async function runRagAnswer(params: {
         return {
           response: summary,
           chunksUsed: chunks.length,
+          sources,
         };
       }
     }
@@ -149,25 +170,23 @@ export async function runRagAnswer(params: {
     console.warn("RAG post-processing failed:", e);
   }
 
-  // Tuned instruction: prefer answering directly from retrieved context and avoid
-  // generic portal-only redirection when context provides an answer.
+  const fallbackByLanguage = {
+    english: "I don't have the exact details for that right now, but you can submit a formal inquiry to the SK officials using our Portal Inquiry Form or visit the Barangay Pico Hall.",
+    filipino: "Paumanhin, wala akong sapat na detalye ukol diyan sa ngayon. Maaari kang magpadala ng pormal na inquiry gamit ang Inquiry Form o bumisita sa Barangay Pico Hall.",
+    ilocano: "Dispensarennak, awan ti eksakto a detalye maipanggep iti dayta ita. Mabalinmo nga isumiter ti pormal nga saludsod babaen ti Inquiry Form wenno mapan idiay Barangay Pico Hall.",
+  } as const;
+
   const response = await generateAnswer({
     systemInstruction: [
-      "You are a warm, approachable, and helpful front-desk assistant representing Barangay Pico. Speak like a kind barangay staff member helping youth and residents with care and clarity.",
-      "Use a conversational, public-servant tone: friendly, respectful, reassuring, and easy to understand.",
-      "Answer as a real person at the Barangay Pico hall, not as a technical bot or IT support agent.",
+      "You are the official AI Assistant for SKonnect, serving the Sangguniang Kabataan of Barangay Pico, La Trinidad, Benguet.",
+      "Answer youth questions about SKEAP scholarships, requirements, events, and barangay services with a warm, respectful, clear tone.",
       `The user's detected language is: ${detectedLanguageName}.`,
-      "Detect the language of the user's message.",
-      "ALWAYS respond in the EXACT SAME language the user used.",
-      "- If the user wrote in Filipino/Tagalog → respond fully in Filipino/Tagalog.",
-      "- If the user wrote in Ilocano → respond fully in Ilocano.",
-      "- If the user wrote in English → respond in English.",
-      "- NEVER mix languages in a single response.",
-      "- NEVER default to English if the user did not write in English.",
-      "Language Rule: You must match the user's exact language. If the user speaks Ilocano, answer entirely in Ilocano. If Tagalog, use Tagalog. If English, use English. Do not mix them.",
+      "Language and translation rules: Context may be in English. Understand or translate the user's question and relevant context as needed, but respond entirely in the exact language the user used: natural Ilocano for Ilocano, natural Filipino/Tagalog for Filipino, or clear English for English. Do not mix languages or copy errors in the user's wording.",
+      "Authoritative SKEAP policy facts: applicants must be 15 to 30 years old and may apply at any grade or educational level regardless of current enrollment status or timing, provided they complete the documentary requirements. Do not state or imply that current enrollment is mandatory. Exactly one scholar may be approved per household/immediate family; physical requirements may be submitted at Barangay Pico Hall/SK Office; sitting or elected Barangay Pico SK officials are ineligible to apply for or receive SKEAP; inquiry response depends on official availability and is typically reviewed within one hour during office hours, but this is not a guaranteed response time.",
+      "Mandatory output rules: Eligibility trigger — whenever a user asks who can apply, about grade or educational levels, qualifications, or requirements, explicitly state that applicants must be between 15 and 30 years old. In Filipino or Ilocano, state this age requirement naturally in the user's language. Never omit the age requirement when discussing who may apply for SKEAP.",
+      "These policy facts are authoritative even when retrieval returns no context or older retrieved text conflicts with them. For other facts, use only the retrieved context and do not invent details.",
       "Requirement Location Rule: When the user asks where to get or find their requirements, you MUST list the specific location for EVERY individual requirement line-by-line. Never summarize all requirements as being available in one place or just on the SKEAP portal.",
-      "Terminology Rule: Never use the terms 'system', 'app', or 'youth portal'. When referring to the online platform for applications and forms, you must strictly call it the 'SKEAP portal'.",
-      "Fallback Rule: If the answer is not in the provided context, you must apologize in the exact language the user asked the question in, and tell them to visit the Barangay Pico hall. For example, if asked in Ilocano, say: 'Pasensya, awan ti impormasyon ko maipanggep dita. Mabalin yo nga damagen idiay Barangay Pico hall.' Do not apologize in Tagalog if the user spoke Ilocano.",
+      `Fallback rule: if the answer is not in the authoritative policy facts or retrieved context, reply politely in the user's language and direct them to the Barangay Pico Hall or Portal Inquiry Form. Use this fallback wording in the detected language: ${fallbackByLanguage[detectedLanguageName]}`,
       "Do NOT use technical jargon, computer language, or IT terminology. Never say words like 'in the system', 'database', 'records', 'query', 'application logic', or 'data'.",
       "Do not mention technical details or internal implementation. Keep conversations simple and human.",
       params.liveSystemContext ? params.liveSystemContext : "",
@@ -176,7 +195,7 @@ export async function runRagAnswer(params: {
       "Do not end with closing remarks, pleasantries, or follow-up offers. Never say 'Let me know if you need anything else,' 'Feel free to ask if you have more questions,' 'Hope this helps,' or similar filler.",
       "Stop generating text immediately once the core question has been answered.",
       "Do not provide extra context, policies, or related information that the user did not explicitly ask for.",
-      "Use ONLY the provided context chunks to answer. Do not make up information.",
+      "Use the authoritative policy facts above and the provided context chunks to answer. Do not make up other information.",
       "If the user asks for the current count, use the current update above and ignore any conflicting figures from older context.",
     ].filter(Boolean).join(" "),
     context,
@@ -188,23 +207,25 @@ export async function runRagAnswer(params: {
     return {
       response: getFallbackMessage(detectedLanguageName),
       chunksUsed: chunks.length,
+      sources: [],
     };
   }
 
   return {
     response,
     chunksUsed: chunks.length,
+    sources,
   };
 }
 
 function getFallbackMessage(detectedLanguage: string) {
   if (detectedLanguage === "filipino" || detectedLanguage === "tagalog") {
-    return "Paumanhin, wala akong sapat na impormasyon para masagot ang iyong tanong. Maaari kang mag-submit ng formal na inquiry sa SK officials sa pamamagitan ng inquiry form sa portal.";
+    return "Paumanhin, wala akong eksaktong detalye tungkol diyan sa ngayon. Maaari kang magsumite ng pormal na inquiry sa mga opisyal ng SK gamit ang Inquiry Form o bumisita sa Barangay Pico Hall.";
   }
   if (detectedLanguage === "ilocano") {
-    return "Dispensarennak, awan ti sapat nga impormasyon para masungbatan ti saludsodmo. Mabalinmo nga isumiter ti formal nga inquiry kadagiti SK officials babaen ti inquiry form iti portal.";
+    return "Dispensarennak, awan ti eksakto a detalye maipanggep iti dayta ita. Mabalinmo nga isumitir ti pormal nga saludsod babaen ti Inquiry Form wenno mapan idiay Barangay Pico Hall.";
   }
-  return "Sorry, I don't have enough information to answer that. You can submit a formal inquiry to the SK officials through the portal's inquiry form.";
+  return "I don't have the exact details for that right now, but you can submit a formal inquiry to the SK officials using our Portal Inquiry Form or visit the Barangay Pico Hall.";
 }
 
 

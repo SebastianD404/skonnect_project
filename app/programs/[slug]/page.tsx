@@ -57,7 +57,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
     hero: "/brgyhall.jpeg",
     features: [
       { title: "Clear scholar status", detail: "Monitor Active, Probationary, or Graduated status from your dashboard." },
-      { title: "Document-ready workflow", detail: "Upload enrollment certificates, grades, and IDs in one secure place." },
+      { title: "Document-ready workflow", detail: "Submit your required application documents securely in one place." },
       { title: "Community-first support", detail: "Receive reminders, review updates, and direct helpdesk guidance." },
     ],
     statusTypes: [
@@ -67,7 +67,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
       { title: "Removed Scholar", description: "Students who were removed from the program due to ineligibility, withdrawal, or other administrative reasons. Removed scholars are not currently receiving benefits." },
     ],
     howItWorks: [
-      "Complete your SKonnect profile and submit the required enrollment documents.",
+      "Complete your SKonnect profile and submit the complete documentary requirements.",
       "SKEAP staff review submissions, verify residency, and confirm academic eligibility.",
       "Approved scholars receive confirmation and can track disbursement status in the portal.",
       "Keep your records up to date each semester to remain eligible for ongoing support.",
@@ -82,7 +82,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
     faq: [
       {
         q: "Who can apply for SKEAP?",
-        a: "Barangay Pico youth aged 18 years old and above who are enrolled in school and meet the SK scholarship criteria may apply. Proof of residency and enrollment are required.",
+        a: "Barangay Pico youth aged 15 to 30 may apply at any grade or educational level, regardless of current enrollment status or timing, as long as they submit the complete documentary requirements.",
       },
       {
         q: "What documents should I submit?",

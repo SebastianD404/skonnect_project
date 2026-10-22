@@ -7,6 +7,12 @@ import { TypingIndicator } from "@/app/components/chatbot/TypingIndicator";
 import { ChatHistoryModal } from "@/app/components/chatbot/ChatHistoryModal";
 import { Clock, X } from "lucide-react";
 
+const SUGGESTED_QUESTIONS = [
+  "Manu ti mabalin a scholar ti maysa a balay?",
+  "Can I submit my requirements at Pico Hall?",
+  "Sino ang pwedeng mag-apply?",
+];
+
 type PanelPosition = {
   left: number;
   top: number;
@@ -197,9 +203,24 @@ export function ChatPanelCompact({
         {isLoadingHistory ? (
           <p className="text-xs text-slate-500">Loading recent messages...</p>
         ) : messageList.length === 0 ? (
-          <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
-            Ask about SKEAP requirements, deadlines, or submissions.
-          </p>
+          <div>
+            <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+              Ask about SKEAP requirements, deadlines, or submissions.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2" aria-label="Suggested questions">
+              {SUGGESTED_QUESTIONS.map((question) => (
+                <button
+                  key={question}
+                  type="button"
+                  disabled={!canSend}
+                  onClick={() => void onSend(question)}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-left text-xs text-slate-600 transition hover:border-[#0F3D5C]/30 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {question}
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
           <>
             {/* Compact dedicated history header - shows older messages as compact chips */}

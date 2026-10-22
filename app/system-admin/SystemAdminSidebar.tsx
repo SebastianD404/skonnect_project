@@ -144,6 +144,26 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
         })}
       </nav>
 
+      <div className="mt-6 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#9AB0C2]">
+        AI Assistant
+      </div>
+      <nav className="mt-3 flex flex-col gap-1">
+        <Link
+          href="/system-admin/knowledge-base"
+          className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+            pathname.startsWith("/system-admin/knowledge-base")
+              ? "bg-[#174968] text-white shadow-md"
+              : "text-[#C6D6E2] hover:bg-[#174968]/65 hover:text-white"
+          }`}
+        >
+          {pathname.startsWith("/system-admin/knowledge-base") ? (
+            <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-[#33A8E2]" />
+          ) : null}
+          <Database className="h-4 w-4" />
+          <span className="flex-1 text-left">Knowledge Base</span>
+        </Link>
+      </nav>
+
       <div className="mt-6 rounded-2xl border border-[#1C4B67] bg-[#174968]/40 p-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#9AB0C2]">System health</p>
         <div className="mt-3 flex items-center justify-between gap-2">
