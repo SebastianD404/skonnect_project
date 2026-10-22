@@ -38,6 +38,13 @@ interface ApplicationMessage {
   attachments?: AttachedFileNote[];
 }
 
+interface ApplicationCounts {
+  pending: number;
+  returned: number;
+  resubmitted?: number;
+  approved: number;
+}
+
 interface AttachedFileNote {
   fileId: string;
   documentLabel?: string;
@@ -346,7 +353,7 @@ export default function SkeapApplicationsClient({
   academicYears,
 }: {
   applications: ApplicationRecord[];
-  counts?: { pending: number; returned: number; resubmitted?: number; approved: number };
+  counts?: ApplicationCounts;
   hasNextPage: boolean;
   initialCursor: { id: string; createdAt: string } | null;
   initialAcademicYear: string;
@@ -354,6 +361,7 @@ export default function SkeapApplicationsClient({
 }) {
   const router = useRouter();
   const [applications, setApplications] = useState<ApplicationRecord[]>(initialApplications);
+  const [applicationCounts, setApplicationCounts] = useState<ApplicationCounts | undefined>(counts);
   const [selectedAppId, setSelectedAppId] = useState<string>(initialApplications[0]?.id ?? "");
   const [viewFilter, setViewFilter] = useState<"pending" | "resubmitted" | "returned" | "approved">("pending");
   const [selectedAcademicYear, setSelectedAcademicYear] = useState(initialAcademicYear);
@@ -461,38 +469,6 @@ export default function SkeapApplicationsClient({
     }
   }
 
-  const initialStatusMap = useMemo(
-    () => new Map(initialApplications.map((app) => [app.id, normalizeApplicationStatus(app.status)])),
-    [initialApplications]
-  );
-
-  const statusDelta = useMemo(() => {
-    const delta = {
-      pending: 0,
-      returned: 0,
-      resubmitted: 0,
-      approved: 0,
-    };
-
-    const normalizedToKey = (status: string) => {
-      const normalized = normalizeApplicationStatus(status);
-      if (normalized === "Approved") return "approved" as const;
-      if (normalized === "Resubmitted") return "resubmitted" as const;
-      if (normalized === "Returned") return "returned" as const;
-      return "pending" as const;
-    };
-
-    applications.forEach((application) => {
-      const previous = initialStatusMap.get(application.id) ?? normalizeApplicationStatus(application.status);
-      const current = normalizeApplicationStatus(application.status);
-      if (previous === current) return;
-      delta[normalizedToKey(current)] += 1;
-      delta[normalizedToKey(previous)] -= 1;
-    });
-
-    return delta;
-  }, [applications, initialStatusMap]);
-
   const stats = useMemo(() => {
     const derived = {
       pending: applications.filter((app) => normalizeApplicationStatus(app.status) === "Pending Review").length,
@@ -501,17 +477,17 @@ export default function SkeapApplicationsClient({
       approved: applications.filter((app) => normalizeApplicationStatus(app.status) === "Approved").length,
     };
 
-    if (!counts) {
+    if (!applicationCounts) {
       return derived;
     }
 
     return {
-      pending: counts.pending + statusDelta.pending,
-      returned: counts.returned + statusDelta.returned,
-      resubmitted: (counts.resubmitted ?? 0) + statusDelta.resubmitted,
-      approved: counts.approved + statusDelta.approved,
+      pending: applicationCounts.pending,
+      returned: applicationCounts.returned,
+      resubmitted: applicationCounts.resubmitted ?? 0,
+      approved: applicationCounts.approved,
     };
-  }, [applications, counts, statusDelta]);
+  }, [applicationCounts, applications]);
 
   const uploadGroups = useMemo(
     () => selectedApplication?.uploadGroups ?? [],
@@ -711,10 +687,12 @@ export default function SkeapApplicationsClient({
 
       const page = await response.json() as {
         applications: ApplicationRecord[];
+        counts: ApplicationCounts;
         hasNextPage: boolean;
         nextCursor: { id: string; createdAt: string } | null;
       };
 
+      setApplicationCounts(page.counts);
       if (silent) {
         setApplications((current) => {
           const refreshedIds = new Set(page.applications.map((application) => application.id));

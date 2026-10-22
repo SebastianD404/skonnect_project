@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Inbox } from "lucide-react";
 import { useNotificationState } from "./NotificationProvider";
+import { Avatar } from "@/components/ui/Avatar";
 
 interface DashboardHeaderActionsProps {
   notifications?: string[];
@@ -233,14 +234,6 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
       })();
     }
   }, [serverRole, requiredRole, router]);
-
-  const initials =
-    profileName
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "?";
 
   const displayedNotifications: NotificationItem[] = [
     ...notifications.map<NotificationItem>((notification, index) => ({ id: `provided:${index}:${notification}`, text: notification })),
@@ -553,13 +546,12 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
           aria-label={`Open account menu for ${profileName}`}
           title={profileName}
         >
-          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
-            {profileAvatar ? (
-              <img src={profileAvatar} alt={profileName} className="h-full w-full object-cover" />
-            ) : (
-              initials
-            )}
-          </span>
+          <Avatar
+            src={profileAvatar}
+            alt={profileName}
+            size={32}
+            className="bg-[#0F3D5C] text-white"
+          />
 
           <svg viewBox="0 0 24 24" className="h-3 w-3 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m6 9 6 6 6-6" />
@@ -570,9 +562,12 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
           <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
             <div className="p-2">
               <div className="flex items-center gap-3 rounded-2xl px-4 py-4">
-                <div className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[#0F3D5C] text-sm font-bold text-white">
-                  {profileAvatar ? <img src={profileAvatar} alt={profileName} className="h-full w-full object-cover" /> : initials}
-                </div>
+                <Avatar
+                  src={profileAvatar}
+                  alt={profileName}
+                  size={40}
+                  className="bg-[#0F3D5C] text-white"
+                />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-900">{profileName}</p>
                   <p className="truncate text-xs text-slate-500">{profileEmail}</p>

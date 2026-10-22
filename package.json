@@ -31,6 +31,7 @@
     "docxtemplater": "^3.31.3",
     "docxtemplater-image-module-free": "^1.0.7",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.21.0",
     "next": "16.2.9",

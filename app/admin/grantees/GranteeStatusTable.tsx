@@ -15,7 +15,8 @@ export interface GranteeTableRow {
   email: string;
   school: string;
   yearLevel: string;
-  completedJourneySemesters: number;
+  currentJourneySemesterIndex: number;
+  validatedJourneySemesterIndexes: number[];
   status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED";
   generalAverage: number | null;
   dateEnrolled: string;
@@ -185,7 +186,8 @@ export function GranteeStatusTable({
                       <div className="group/journey relative flex items-center gap-3">
                         <AcademicJourneyHoverCard
                           fullName={grantee.fullName}
-                          completedSemesters={grantee.completedJourneySemesters}
+                          currentSemesterIndex={grantee.currentJourneySemesterIndex}
+                          validatedSemesterIndexes={grantee.validatedJourneySemesterIndexes}
                         />
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
                           {grantee.fullName

@@ -16,9 +16,6 @@ export default async function SecuritySettingsPage() {
     <SettingsShell
       title="Password & Security"
       headerTitle="Manage account security"
-      profileName={profile.fullName}
-      profileEmail={profile.email}
-      profileAvatar={profile.avatarUrl ?? ""}
       contentClassName="flex flex-1 flex-col p-0"
     >
       <PasswordSecurityForm />

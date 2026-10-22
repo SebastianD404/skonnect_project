@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getAcademicJourneyTerms, getApprovedSemesterCount } from "@/lib/academic-journey";
+import {
+  getAcademicJourneyProgress,
+  getAcademicJourneyTerms,
+  getApprovedSemesterCount,
+} from "@/lib/academic-journey";
 
 describe("getAcademicJourneyTerms", () => {
   it("creates two semesters for every requested year", () => {
@@ -31,5 +35,29 @@ describe("getApprovedSemesterCount", () => {
 
   it("returns zero when there are no approved semesters", () => {
     expect(getApprovedSemesterCount([])).toBe(0);
+  });
+});
+
+describe("getAcademicJourneyProgress", () => {
+  it("tracks the current semester independently from validated semesters", () => {
+    expect(getAcademicJourneyProgress([
+      { semester: "2024-2025 First Semester", status: "APPROVED" },
+      { semester: "2024-2025 Second Semester", status: "PENDING" },
+      { semester: "2025-2026 First Semester", status: "APPROVED" },
+    ], new Date(2024, 6, 1), new Date(2025, 9, 1))).toEqual({
+      currentSemesterIndex: 2,
+      validatedSemesterIndexes: [0, 2],
+      currentStepStatus: "approved",
+    });
+  });
+
+  it("distinguishes missing documents from a submission under review", () => {
+    const dateEnrolled = new Date(2025, 6, 1);
+    const now = new Date(2025, 6, 1);
+
+    expect(getAcademicJourneyProgress([], dateEnrolled, now).currentStepStatus).toBe("pending_docs");
+    expect(getAcademicJourneyProgress([
+      { semester: "2025-2026 First Semester", status: "PENDING" },
+    ], dateEnrolled, now).currentStepStatus).toBe("under_review");
   });
 });

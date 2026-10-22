@@ -5,6 +5,7 @@ import { useMemo, useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Cable, Database, LayoutDashboard, ScrollText, Users } from "lucide-react";
 import { SignOutButton } from "@/app/components/SignOutButton";
+import { Avatar } from "@/components/ui/Avatar";
 
 type SessionUser = {
   fullName?: string | null;
@@ -86,14 +87,6 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
     [sessionUser?.fullName, sessionUser?.email]
   );
 
-  const initials = useMemo(() => {
-    const source = (displayName || sessionUser?.email || "S").trim();
-    const parts = source.split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return "S";
-    if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
-    return `${parts[0].slice(0, 1)}${parts[parts.length - 1].slice(0, 1)}`.toUpperCase();
-  }, [displayName, sessionUser?.email]);
-
   const navItems = [
     { label: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
     { label: "Users", href: "/system-admin/users", icon: Users },
@@ -169,17 +162,12 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
       <div className="mt-auto border-t border-[#1C4B67] px-2 pt-4">
         <div className="rounded-2xl border border-[#1C4B67] bg-[#174968]/35 p-3">
           <div className="flex items-center gap-3">
-            {sessionUser?.avatarUrl ? (
-              <img
-                src={sessionUser.avatarUrl}
-                alt={sessionUser.fullName || sessionUser.email || "System admin"}
-                className="h-10 w-10 rounded-full object-cover ring-2 ring-white"
-              />
-            ) : (
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0E4467] text-xs font-bold text-white">
-                {initials}
-              </div>
-            )}
+            <Avatar
+              src={sessionUser?.avatarUrl}
+              alt={sessionUser?.fullName || sessionUser?.email || "System admin"}
+              size={40}
+              className="ring-2 ring-white"
+            />
 
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-white">{displayName}</p>

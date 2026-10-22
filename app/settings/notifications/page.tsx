@@ -17,9 +17,6 @@ export default async function NotificationsSettingsPage() {
       title="Notifications"
       headerTitle="Notification preferences"
       description="Choose how SKonnect keeps you informed about important grant updates."
-      profileName={profile.fullName}
-      profileEmail={profile.email}
-      profileAvatar={profile.avatarUrl ?? ""}
       contentClassName="flex flex-1 flex-col p-0"
     >
       <NotificationsSettingsForm />

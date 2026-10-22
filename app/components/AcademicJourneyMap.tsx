@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Avatar } from "@/components/ui/Avatar";
 import {
   BookOpen,
   Check,
@@ -17,22 +17,28 @@ type AcademicJourneyMapProps = {
   studentName?: string;
   photoUrl?: string;
   totalYears?: number;
-  currentSemesterIndex?: number;
+  currentSemesterIndex: number;
+  validatedSemesterIndexes: number[];
+  currentStepStatus?: "pending_docs" | "under_review" | "approved";
   compact?: boolean;
 };
 
 const STEP_WIDTH = 120;
-const START_X = 30;
-const END_PADDING = 64;
-const NODE_Y_POSITIONS = [104, 174];
+const START_X = 80;
+const END_PADDING = 128;
+const COMPACT_END_PADDING = 48;
+const NODE_Y_POSITIONS = [110, 174];
 
 export default function AcademicJourneyMap({
   studentName,
   photoUrl,
   totalYears = 4,
-  currentSemesterIndex = 0,
+  currentSemesterIndex,
+  validatedSemesterIndexes,
+  currentStepStatus = "pending_docs",
   compact = false,
 }: AcademicJourneyMapProps) {
+  const neonGlowId = `neon-glow-${useId().replace(/:/g, "")}`;
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -47,19 +53,27 @@ export default function AcademicJourneyMap({
   const currentIndex = Number.isFinite(currentSemesterIndex)
     ? Math.max(0, Math.min(Math.floor(currentSemesterIndex), termCount))
     : 0;
+  const validatedIndexes = useMemo(
+    () => new Set(validatedSemesterIndexes.filter(
+      (index) => Number.isInteger(index) && index >= 0 && index < termCount
+    )),
+    [termCount, validatedSemesterIndexes]
+  );
   const pathNodeCount = termCount + (compact ? 0 : 1);
   const focusedIndex = Math.min(currentIndex, pathNodeCount - 1);
-  const trackWidth = START_X + (pathNodeCount - 1) * STEP_WIDTH + STEP_WIDTH / 2 + END_PADDING;
-  const initials = studentName
-    ?.split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
+  const trackWidth = START_X + (pathNodeCount - 1) * STEP_WIDTH + STEP_WIDTH / 2
+    + (compact ? COMPACT_END_PADDING : END_PADDING);
   const nodePoints = Array.from({ length: pathNodeCount }, (_, index) => ({
     x: START_X + index * STEP_WIDTH,
     y: index === termCount ? 150 : NODE_Y_POSITIONS[index % NODE_Y_POSITIONS.length],
   }));
+  let activeBeamPath = "";
+  if (currentIndex < nodePoints.length - 1) {
+    const current = nodePoints[currentIndex];
+    const next = nodePoints[currentIndex + 1];
+    const controlX = (current.x + next.x) / 2;
+    activeBeamPath = `M ${current.x} ${current.y} C ${controlX} ${current.y}, ${controlX} ${next.y}, ${next.x} ${next.y}`;
+  }
   const journeyPath = nodePoints.reduce((path, point, index) => {
     if (index === 0) return `M ${point.x} ${point.y}`;
     const previous = nodePoints[index - 1];
@@ -161,7 +175,7 @@ export default function AcademicJourneyMap({
             Academic Journey
           </span>
           <span className="shrink-0 rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-            {Math.min(currentIndex, termCount)}/{termCount} Validated
+            {validatedIndexes.size}/{termCount} Validated
           </span>
         </div>
 
@@ -177,8 +191,16 @@ export default function AcademicJourneyMap({
           />
           <div className="relative z-10 flex w-full justify-between">
             {terms.map((term, index) => {
-              const isCompleted = index < currentIndex;
+              const isCompleted = validatedIndexes.has(index);
               const isCurrent = index === currentIndex;
+              const isMissed = index < currentIndex && !isCompleted;
+              const stateLabel = isCompleted
+                ? "validated"
+                : isCurrent
+                  ? "current step"
+                  : isMissed
+                    ? "missed"
+                    : "locked";
 
               return (
                 <div key={term.label} className="relative flex min-w-0 flex-1 justify-center">
@@ -188,10 +210,12 @@ export default function AcademicJourneyMap({
                         ? "bg-emerald-500"
                         : isCurrent
                           ? "animate-pulse bg-emerald-400 ring-4 ring-emerald-500/30 ring-offset-2 ring-offset-slate-900 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-                          : "border-2 border-slate-600 bg-slate-800"
+                          : isMissed
+                            ? "bg-rose-400"
+                            : "border-2 border-slate-600 bg-slate-800"
                     }`}
-                    title={`${term.year}, ${term.semester}: ${isCompleted ? "validated" : isCurrent ? "current step" : "locked"}`}
-                    aria-label={`${term.year}, ${term.semester}: ${isCompleted ? "validated" : isCurrent ? "current step" : "locked"}`}
+                    title={`${term.year}, ${term.semester}: ${stateLabel}`}
+                    aria-label={`${term.year}, ${term.semester}: ${stateLabel}`}
                   />
                   <span className="absolute left-1/2 top-6 -translate-x-1/2 whitespace-nowrap text-[9px] font-medium text-slate-400">
                     {term.label}
@@ -206,7 +230,7 @@ export default function AcademicJourneyMap({
   }
 
   return (
-    <div className={compact ? "relative" : "relative overflow-hidden rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)] md:p-8"}>
+    <div className={compact ? "relative" : "relative rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)] md:p-8"}>
       {!compact ? (
         <div
           className="pointer-events-none absolute inset-0 opacity-60"
@@ -241,7 +265,7 @@ export default function AcademicJourneyMap({
             </p>
           </div>
           <span className="inline-flex self-start rounded-full border border-emerald-200/60 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 shadow-2xs md:self-auto">
-            {Math.min(currentIndex, termCount)} of {termCount} semesters validated
+            {validatedIndexes.size} of {termCount} semesters validated
           </span>
           {isExtendedCourse ? (
             <span className="hidden items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-400 sm:inline-flex">
@@ -264,23 +288,34 @@ export default function AcademicJourneyMap({
             isExtendedCourse
               ? `select-none ${isDragging ? "cursor-grabbing snap-none" : "cursor-grab"}`
               : ""
-          }`}
+          } ${compact ? "" : "pt-16"}`}
           style={{ touchAction: "pan-x" }}
         >
           <div
-            className={`relative ${compact ? "h-[74px]" : "h-[240px] md:h-[260px]"}`}
-            style={{ width: `${trackWidth}px`, paddingLeft: "24px", paddingRight: `${END_PADDING}px` }}
+            className={`relative ${compact ? "h-[74px]" : "min-w-[1150px] h-[240px] pl-12 pr-32 pt-24 pb-12 md:h-[260px]"}`}
+            style={compact
+              ? { width: `${trackWidth}px`, paddingLeft: "24px", paddingRight: `${COMPACT_END_PADDING}px` }
+              : { width: `${trackWidth}px` }}
           >
 
             {!compact ? (
               <svg
-                className="pointer-events-none absolute inset-0 h-full"
-                width={trackWidth}
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                width="100%"
                 height="100%"
                 viewBox={`0 0 ${trackWidth} 230`}
                 preserveAspectRatio="none"
                 aria-hidden="true"
               >
+                <defs>
+                  <filter id={neonGlowId} x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
                 <path
                   d={`M 0 75 Q ${trackWidth * 0.25} 130 ${trackWidth * 0.5} 70 T ${trackWidth} 115`}
                   fill="none"
@@ -314,6 +349,27 @@ export default function AcademicJourneyMap({
                     className="transition-all duration-700"
                   />
                 ) : null}
+                {activeBeamPath ? (
+                  <path
+                    d={activeBeamPath}
+                    fill="none"
+                    stroke="rgba(16, 185, 129, 0.75)"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeDasharray="40 180"
+                    filter={`url(#${neonGlowId})`}
+                    aria-hidden="true"
+                  >
+                    <animate
+                      attributeName="stroke-dashoffset"
+                      from="220"
+                      to="0"
+                      dur="2s"
+                      repeatCount="indefinite"
+                      calcMode="linear"
+                    />
+                  </path>
+                ) : null}
               </svg>
             ) : (
               <>
@@ -336,9 +392,16 @@ export default function AcademicJourneyMap({
             )}
 
             {terms.map((term, index) => {
-              const isCompleted = index < currentIndex;
+              const isCompleted = validatedIndexes.has(index);
               const isCurrent = index === currentIndex;
-              const isLocked = index > currentIndex;
+              const isMissed = index < currentIndex && !isCompleted;
+              const stateLabel = isCompleted
+                ? "validated"
+                : isCurrent
+                  ? "current step"
+                  : isMissed
+                    ? "missed"
+                    : "locked";
               const yearNumber = Math.floor(index / 2) + 1;
               const isYearMilestone = index % 2 === 0;
               const isMidpoint = yearNumber === Math.ceil(years / 2) && isYearMilestone && years > 2;
@@ -367,46 +430,54 @@ export default function AcademicJourneyMap({
                   onBlur={() => setHoveredIndex(null)}
                 >
                   {!compact && hoveredIndex === index ? (
-                    <div className={`pointer-events-none absolute z-30 w-max max-w-56 rounded-xl bg-slate-900 px-3 py-2 text-center text-white shadow-xl animate-in fade-in zoom-in-95 duration-150 ${
-                      isCurrent || isLocked ? "top-16" : "-top-14"
+                    <div className={`pointer-events-none absolute z-30 px-3 py-2 bg-slate-900/95 backdrop-blur-sm border border-slate-700/50 text-white rounded-xl shadow-xl whitespace-nowrap animate-in fade-in zoom-in-95 duration-150 ${
+                      isCurrent ? "top-16" : "-top-14"
+                    } ${
+                      index === 0
+                        ? "left-0 origin-left"
+                        : index === terms.length - 1
+                          ? "right-0 origin-right"
+                          : "left-1/2 -translate-x-1/2 origin-bottom"
                     }`}>
                       <p className="text-[11px] font-bold">{`${term.year}, ${term.semester}`}</p>
-                      <p className="mt-0.5 text-[10px] text-emerald-300">
+                      <p className={`mt-0.5 text-[10px] ${isMissed ? "text-rose-300" : "text-emerald-300"}`}>
                         {isCompleted
                           ? "Semester validated"
                           : isCurrent
                             ? "Current step"
-                            : `Unlocks after ${terms[index - 1]?.label ?? "the previous semester"}`}
+                            : isMissed
+                              ? "Semester missed"
+                              : `Unlocks after ${terms[index - 1]?.label ?? "the previous semester"}`}
                       </p>
                     </div>
                   ) : null}
 
                   {!compact && isCurrent && studentName ? (
-                    <div className="animate-levitate absolute -top-20 z-20 flex flex-col items-center">
-                      <span className="mb-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-emerald-700">
+                    <div className="animate-levitate pointer-events-none absolute -top-16 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center gap-1.5">
+                      <span className="whitespace-nowrap rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-emerald-700 shadow-sm backdrop-blur-sm">
                         Current step
                       </span>
-                      <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border-[2.5px] border-emerald-500 bg-white/95 backdrop-blur-sm">
-                        {photoUrl ? (
-                          <Image
-                            src={photoUrl}
-                            alt={studentName}
-                            width={44}
-                            height={44}
-                            unoptimized
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <span className="text-xs font-bold text-slate-900">{initials}</span>
-                        )}
+                      <div className="flex flex-col items-center drop-shadow-md">
+                        <Avatar
+                          src={photoUrl}
+                          alt={studentName}
+                          size={44}
+                          className="rounded-2xl border-2 border-emerald-500 bg-white text-sm font-bold text-slate-800 shadow-inner ring-2 ring-white/90"
+                        />
+                        <svg
+                          className="-mt-px h-2 w-3 fill-emerald-500 drop-shadow-sm"
+                          viewBox="0 0 12 8"
+                          aria-hidden="true"
+                        >
+                          <path d="M0 0 L6 8 L12 0 Z" />
+                        </svg>
                       </div>
-                      <div className="-mt-1.5 h-2.5 w-2.5 rotate-45 rounded-br-sm bg-emerald-500" />
                     </div>
                   ) : null}
 
                   <div
                     tabIndex={0}
-                    aria-label={`${term.year}, ${term.semester}: ${isCompleted ? "validated" : isCurrent ? "current step" : "locked"}`}
+                    aria-label={`${term.year}, ${term.semester}: ${stateLabel}`}
                     className={`relative flex items-center justify-center rounded-full transition-all duration-300 ${
                       compact ? "h-4 w-4 border-2" : "h-10 w-10 border-2"
                     } ${
@@ -418,9 +489,13 @@ export default function AcademicJourneyMap({
                           ? compact
                             ? "border-emerald-400 bg-slate-900 ring-2 ring-emerald-500/30"
                             : "h-11 w-11 border-4 border-emerald-500 bg-white shadow-md shadow-emerald-500/30"
-                          : compact
-                            ? "border-slate-600 bg-slate-800"
-                            : "h-9 w-9 border-2 border-dashed border-slate-300 bg-slate-50 text-slate-300"
+                          : isMissed
+                            ? compact
+                              ? "border-rose-400 bg-rose-500"
+                              : "h-10 w-10 border-2 border-rose-200 bg-rose-50 text-rose-400"
+                            : compact
+                              ? "border-slate-600 bg-slate-800"
+                              : "h-9 w-9 border-2 border-dashed border-slate-300 bg-slate-50 text-slate-300"
                     }`}
                     onFocus={() => setHoveredIndex(index)}
                     onBlur={() => setHoveredIndex(null)}
@@ -429,6 +504,8 @@ export default function AcademicJourneyMap({
                       <Check className={compact ? "h-2.5 w-2.5" : "h-5 w-5 stroke-[3]"} aria-hidden="true" />
                     ) : isCurrent ? (
                       <span className={`rounded-full bg-emerald-600 ${compact ? "h-1.5 w-1.5" : "h-3.5 w-3.5 animate-pulse"}`} aria-hidden="true" />
+                    ) : isMissed ? (
+                      compact ? null : <span className="text-[10px] font-bold">N/A</span>
                     ) : compact ? null : (
                       <Lock className="h-4 w-4" aria-hidden="true" />
                     )}
@@ -440,6 +517,22 @@ export default function AcademicJourneyMap({
                   }`}>
                     {term.label}
                   </span>
+
+                  {!compact && isCurrent ? (
+                    <span className={`mt-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${
+                      currentStepStatus === "pending_docs"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : currentStepStatus === "under_review"
+                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}>
+                      {currentStepStatus === "pending_docs"
+                        ? "Missing Docs"
+                        : currentStepStatus === "under_review"
+                          ? "Under Review"
+                          : "Approved"}
+                    </span>
+                  ) : null}
 
                   {!compact && milestoneIcon && index !== 0 ? (
                     <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 shadow-2xs">
@@ -461,18 +554,18 @@ export default function AcademicJourneyMap({
                 onBlur={() => setHoveredIndex(null)}
               >
                 {hoveredIndex === termCount ? (
-                  <div className="pointer-events-none absolute -top-14 z-30 w-max rounded-xl bg-slate-900 px-3 py-2 text-center text-white shadow-xl animate-in fade-in zoom-in-95 duration-150">
+                  <div className="pointer-events-none absolute -top-14 right-0 origin-right z-30 w-max rounded-xl bg-slate-900 px-3 py-2 text-center text-white shadow-xl animate-in fade-in zoom-in-95 duration-150">
                     <p className="text-[11px] font-bold">Graduation</p>
                     <p className="mt-0.5 text-[10px] text-emerald-300">
-                      {currentIndex === termCount ? "All semesters validated" : "Complete all semesters to unlock"}
+                      {validatedIndexes.size === termCount ? "All semesters validated" : "Complete all semesters to unlock"}
                     </p>
                   </div>
                 ) : null}
                 <div
                   tabIndex={0}
-                  aria-label={`Graduation: ${currentIndex === termCount ? "current milestone" : "locked"}`}
+                  aria-label={`Graduation: ${validatedIndexes.size === termCount ? "current milestone" : "locked"}`}
                   className={`relative flex h-14 w-14 items-center justify-center rounded-2xl transition-all duration-300 ${
-                    currentIndex === termCount
+                    validatedIndexes.size === termCount
                       ? "bg-gradient-to-tr from-emerald-600 to-teal-400 text-white shadow-xl shadow-emerald-500/30"
                       : "border-2 border-slate-200 bg-white text-slate-300"
                   }`}
@@ -501,12 +594,12 @@ export default function AcademicJourneyMap({
 
       {compact ? (
         <p className="mt-2 text-[10px] text-slate-400">
-          {Math.min(currentIndex, termCount)} of {termCount} semesters validated
+          {validatedIndexes.size} of {termCount} semesters validated
         </p>
       ) : (
         <div className="relative z-10 mt-2 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
           <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{Math.min(currentIndex, termCount)} of {termCount} semesters validated</span>
+          <span>{validatedIndexes.size} of {termCount} semesters validated</span>
         </div>
       )}
     </div>

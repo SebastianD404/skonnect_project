@@ -38,6 +38,23 @@ export async function GET(request: NextRequest) {
     const subjectWhere: Prisma.InquiryWhereInput = {
       subject: { contains: "SKEAP application", mode: Prisma.QueryMode.insensitive },
     };
+    const excludeCancelled: Prisma.InquiryWhereInput = {
+      reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive },
+    };
+    const excludeApproved: Prisma.InquiryWhereInput = {
+      reviewStatus: { contains: "approve", mode: Prisma.QueryMode.insensitive },
+    };
+    const academicYearWhere: Prisma.InquiryWhereInput = {
+      createdAt: { gte: academicYearRange.start, lt: academicYearRange.end },
+    };
+    const baseWhere: Prisma.InquiryWhereInput = {
+      ...subjectWhere,
+      NOT: [excludeCancelled],
+    };
+    const queueBaseWhere: Prisma.InquiryWhereInput = {
+      ...baseWhere,
+      NOT: [excludeCancelled, excludeApproved],
+    };
     const cursorWhere: Prisma.InquiryWhereInput[] = cursorId && cursorDate
       ? [{
           OR: [
@@ -47,20 +64,45 @@ export async function GET(request: NextRequest) {
         }]
       : [];
 
-    const inquiries = await prisma.inquiry.findMany({
-      where: {
-        ...subjectWhere,
-        NOT: [{ reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive } }],
-        AND: [
-          { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-          skeapStatusWhere(["pending", "return", "resubm", "respond", "approve"]),
-          ...cursorWhere,
-        ],
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: PAGE_SIZE + 1,
-      select: SKEAP_APPLICATION_SELECT,
-    });
+    const [inquiries, pendingCount, returnedCount, resubmittedCount, approvedCount] = await Promise.all([
+      prisma.inquiry.findMany({
+        where: {
+          ...baseWhere,
+          AND: [
+            academicYearWhere,
+            skeapStatusWhere(["pending", "return", "resubm", "respond", "approve"]),
+            ...cursorWhere,
+          ],
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: PAGE_SIZE + 1,
+        select: SKEAP_APPLICATION_SELECT,
+      }),
+      prisma.inquiry.count({
+        where: {
+          ...queueBaseWhere,
+          AND: [academicYearWhere, skeapStatusWhere(["pending"])],
+        },
+      }),
+      prisma.inquiry.count({
+        where: {
+          ...queueBaseWhere,
+          AND: [academicYearWhere, skeapStatusWhere(["returned", "return", "correction", "revise", "revision"])],
+        },
+      }),
+      prisma.inquiry.count({
+        where: {
+          ...queueBaseWhere,
+          AND: [academicYearWhere, skeapStatusWhere(["resubm", "resubmit", "resubmitted"])],
+        },
+      }),
+      prisma.inquiry.count({
+        where: {
+          ...baseWhere,
+          AND: [academicYearWhere, skeapStatusWhere(["approve", "approved"])],
+        },
+      }),
+    ]);
 
     const hasNextPage = inquiries.length > PAGE_SIZE;
     const page = inquiries.slice(0, PAGE_SIZE);
@@ -68,6 +110,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       applications: page.map(mapInquiryToApplication),
+      counts: {
+        pending: pendingCount,
+        returned: returnedCount,
+        resubmitted: resubmittedCount,
+        approved: approvedCount,
+      },
       hasNextPage,
       nextCursor: hasNextPage && lastInquiry
         ? { id: lastInquiry.id, createdAt: lastInquiry.createdAt.toISOString() }

@@ -19,7 +19,7 @@ import {
 import ReturnedForEditCard from "./ReturnedForEditCard";
 import GranteeWelcomeGate from "./GranteeWelcomeGate";
 import { buildSemesterTracker } from "@/lib/semester-progress";
-import { getApprovedSemesterCount } from "@/lib/academic-journey";
+import { getAcademicJourneyProgress } from "@/lib/academic-journey";
 import AcademicJourneyMap from "@/app/components/AcademicJourneyMap";
 import { getAcademicTermScheduleState, getAcademicTermDeadlineTarget } from "@/lib/academic-term-schedule";
 
@@ -70,9 +70,13 @@ export default async function GranteeDashboardContent() {
   const needsEditCount = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
 
   const tracker = buildSemesterTracker(submissions);
-  const completedJourneySemesters = getApprovedSemesterCount(submissions);
-  const { schedules } = await getAcademicTermScheduleState();
   const now = new Date();
+  const journeyProgress = getAcademicJourneyProgress(
+    submissions,
+    appUser.grantee?.dateEnrolled ?? appUser.createdAt,
+    now
+  );
+  const { schedules } = await getAcademicTermScheduleState();
   const targetTerm = getAcademicTermDeadlineTarget(schedules, now);
   const isTermOpen = Boolean(
     targetTerm && targetTerm.opensAt <= now && targetTerm.closesAt >= now
@@ -200,7 +204,9 @@ export default async function GranteeDashboardContent() {
           <AcademicJourneyMap
             studentName={appUser.fullName}
             photoUrl={appUser.avatarUrl ?? undefined}
-            currentSemesterIndex={completedJourneySemesters}
+            currentSemesterIndex={journeyProgress.currentSemesterIndex}
+            validatedSemesterIndexes={journeyProgress.validatedSemesterIndexes}
+            currentStepStatus={journeyProgress.currentStepStatus}
           />
         </section>
 

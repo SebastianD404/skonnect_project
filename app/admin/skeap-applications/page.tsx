@@ -360,7 +360,10 @@ export default async function SkeapApplicationsPage() {
   const approvedCount = await prisma.inquiry.count({
     where: {
       ...baseWhere,
-      AND: [skeapStatusWhere(["approve", "approved"])],
+      AND: [
+        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
+        skeapStatusWhere(["approve", "approved"]),
+      ],
     },
   });
 

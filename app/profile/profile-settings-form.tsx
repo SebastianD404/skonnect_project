@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
+import { Avatar } from "@/components/ui/Avatar";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -86,6 +87,14 @@ export function ProfileSettingsForm({
     yearLevel: yearLevel === GRANTEE_PLACEHOLDER_YEAR_LEVEL ? "" : yearLevel,
     course,
   }));
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     // Prefer server-stored avatar; fall back to local storage for older data
@@ -222,13 +231,12 @@ export function ProfileSettingsForm({
       <section className="flex flex-col">
         <p className="mb-6 text-[10px] font-bold uppercase tracking-wider text-slate-400">Preview</p>
         <div className="flex flex-col items-center gap-4 text-center">
-          <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-            {avatarPreview ? (
-              <img src={avatarPreview} alt="Profile preview" className="h-full w-full object-cover" />
-            ) : (
-              <span className="text-3xl font-black text-[#0F3D5C]">{fullName.slice(0, 1).toUpperCase()}</span>
-            )}
-          </div>
+          <Avatar
+            src={avatarPreview}
+            alt={formData.fullName}
+            size={112}
+            className="border border-slate-200"
+          />
 
           <div>
             <p className="text-xl font-bold text-[#0F3D5C]">{formData.fullName}</p>
@@ -246,10 +254,10 @@ export function ProfileSettingsForm({
             onClick={clearAvatar}
             className="text-sm font-semibold text-slate-500 transition hover:text-[#0F3D5C]"
           >
-            Remove local picture
+            Remove profile picture
           </button>
           <p className="max-w-sm text-xs leading-5 text-slate-500">
-            The picture is saved in this browser for now. It is enough for a basic profile setup and can be upgraded to cloud storage later.
+            Your profile picture is securely saved in the database and synced across your account.
           </p>
         </div>
       </section>

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ClipboardList, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users, Banknote } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
+import { Avatar } from "@/components/ui/Avatar";
 
 type SessionUser = {
   fullName?: string | null;
@@ -192,14 +193,6 @@ export default function AdminSidebar({
     };
   }, []);
 
-  const initials = useMemo(() => {
-    const value = (displayName || sessionUser?.email || "A").trim();
-    const parts = value.split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return "A";
-    if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
-    return `${parts[0].slice(0, 1)}${parts[parts.length - 1].slice(0, 1)}`.toUpperCase();
-  }, [displayName, sessionUser?.email]);
-
   const sidebarSections = [
     {
       title: "Overview",
@@ -296,17 +289,12 @@ export default function AdminSidebar({
       <div className="mt-auto border-t border-slate-200 pt-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
           <div className="flex items-center gap-3">
-            {sessionUser?.avatarUrl ? (
-              <img
-                src={sessionUser.avatarUrl}
-                alt={sessionUser.fullName || sessionUser.email || "Admin account"}
-                className="h-10 w-10 rounded-full object-cover ring-2 ring-white"
-              />
-            ) : (
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
-                {initials}
-              </div>
-            )}
+            <Avatar
+              src={sessionUser?.avatarUrl}
+              alt={sessionUser?.fullName || sessionUser?.email || "Admin account"}
+              size={40}
+              className="ring-2 ring-white"
+            />
 
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-900">

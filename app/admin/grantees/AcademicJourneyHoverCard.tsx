@@ -11,10 +11,12 @@ type Position = {
 
 export default function AcademicJourneyHoverCard({
   fullName,
-  completedSemesters,
+  currentSemesterIndex,
+  validatedSemesterIndexes,
 }: {
   fullName: string;
-  completedSemesters: number;
+  currentSemesterIndex: number;
+  validatedSemesterIndexes: number[];
 }) {
   const [position, setPosition] = useState<Position | null>(null);
   const closeTimer = useRef<number | null>(null);
@@ -110,7 +112,11 @@ export default function AcademicJourneyHoverCard({
               className="fixed z-[100] h-auto w-[380px] max-w-[calc(100vw-24px)] rounded-xl border border-slate-700 bg-slate-900 p-4 text-white shadow-2xl animate-in fade-in zoom-in-95 duration-200"
               style={{ left: position.left, top: position.top }}
             >
-              <AcademicJourneyMap currentSemesterIndex={completedSemesters} compact />
+              <AcademicJourneyMap
+                currentSemesterIndex={currentSemesterIndex}
+                validatedSemesterIndexes={validatedSemesterIndexes}
+                compact
+              />
             </div>,
             document.body
           )

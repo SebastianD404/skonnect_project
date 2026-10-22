@@ -60,9 +60,6 @@ export default async function ProfilePage({ searchParams }: { searchParams?: Pro
       title="Personal Details"
       headerTitle="Edit your personal details"
       description="Edit your personal details, contact information, and profile photo."
-      profileName={appUser.fullName}
-      profileEmail={appUser.email}
-      profileAvatar={baseProfile.avatarUrl ?? ""}
       contentClassName="flex flex-1 flex-col p-0"
     >
       <ProfileSettingsForm

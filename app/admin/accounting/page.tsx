@@ -233,67 +233,42 @@ export default function AdminAccountingPage() {
     }
   }
 
-  function handleExportOfficialPayrollExcel() {
+  async function handleExportOfficialPayrollExcel() {
     if (isExporting) return;
 
     const currentSemester = String(selectedSemester ?? "")
       .replace(/\s*\(Current\)$/i, "")
       .trim();
-    const payrollNumber = `SK-${new Date().getFullYear()}-${Math.floor(Math.random() * 900 + 100)}`;
-    const filenamePeriod = (currentSemester || "Current").replace(/[<>:"/\\|?*]/g, "_");
-    const filename = `Official_SKEAP_Payroll_${filenamePeriod}.xlsx`;
-    const exportStartedAt = performance.now();
-    const finishAfterMinimumDuration = (complete: () => void) => {
-      const remaining = Math.max(0, 1000 - (performance.now() - exportStartedAt));
-      window.setTimeout(complete, remaining);
-    };
-
     setIsExporting(true);
     setErrorMessage(null);
 
     try {
-      const worker = new Worker(new URL("./payroll-export.worker.ts", import.meta.url), {
-        type: "module",
-      });
-      worker.onmessage = (event: MessageEvent<{ buffer?: ArrayBuffer; error?: string }>) => {
-        worker.terminate();
-        finishAfterMinimumDuration(() => {
-          if (event.data.buffer) {
-            const blob = new Blob([event.data.buffer], {
-              type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            });
-            const objectUrl = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = objectUrl;
-            link.download = filename;
-            link.style.display = "none";
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-          } else {
-            setErrorMessage(event.data.error || "Unable to generate the payroll workbook.");
-          }
-          setIsExporting(false);
-        });
-      };
-      worker.onerror = () => {
-        worker.terminate();
-        finishAfterMinimumDuration(() => {
-          setErrorMessage("Unable to generate the payroll workbook.");
-          setIsExporting(false);
-        });
-      };
-      worker.postMessage({
-        currentSemester,
-        payrollNumber,
-        disbursements: filteredWithSubmission.map((item) => ({ name: item.name, status: item.status })),
-      });
+      const response = await fetch(
+        `/api/admin/accounting/export?semesterId=${encodeURIComponent(currentSemester)}`,
+        { credentials: "same-origin" }
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || "Unable to export payroll.");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const disposition = response.headers.get("Content-Disposition");
+      const filename = disposition?.match(/filename="([^"]+)"/i)?.[1]
+        ?? `SKEAP-PAYROLL-${currentSemester.replace(/[<>:"/\\|?*]/g, "_")}.xlsx`;
+      link.href = objectUrl;
+      link.download = filename;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
     } catch (error) {
-      finishAfterMinimumDuration(() => {
-        setErrorMessage(error instanceof Error ? error.message : "Unable to export payroll.");
-        setIsExporting(false);
-      });
+      setErrorMessage(error instanceof Error ? error.message : "Unable to export payroll.");
+    } finally {
+      setIsExporting(false);
     }
   }
 
