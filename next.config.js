@@ -11,6 +11,8 @@ module.exports = {
       {
         source: "/:path*",
         headers: [
+          { key: "X-XSS-Protection", value: "1; mode=block" },
+          { key: "Server", value: "SKonnect" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           {
