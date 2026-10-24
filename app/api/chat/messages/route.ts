@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { detectLanguage } from "@/lib/chatbot/language";
 import { runRagAnswer } from "@/lib/chatbot/rag";
+import { checkChatIpRateLimit } from "@/lib/chatbot/ip-rate-limit";
 
 type AuthorizedUser = {
   id: string;
@@ -82,6 +83,23 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const forwardedIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const ip = request.headers.get("x-real-ip")?.trim() || forwardedIp || "unknown";
+  const rateLimit = checkChatIpRateLimit(ip);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait before trying again." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateLimit.retryAfterSeconds),
+          "Cache-Control": "no-store",
+        },
+      }
+    );
+  }
+
   try {
     const authorizedUser = await getAuthorizedUser();
     const body = (await request.json()) as { message?: string };

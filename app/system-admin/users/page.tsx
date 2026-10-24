@@ -2,20 +2,43 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import UserRoleManager from "../UserRoleManager";
+import AdminTablePaginationFooter from "@/app/admin/AdminTablePaginationFooter";
 
-export default async function SystemAdminUsersPage() {
-  const users = await prisma.user.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      fullName: true,
-      email: true,
-      avatarUrl: true,
-      role: true,
-      isActive: true,
-      createdAt: true,
-    },
-  });
+const PAGE_SIZES = [10, 20, 50] as const;
+
+export default async function SystemAdminUsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[] }>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const rawPage = Array.isArray(resolvedSearchParams.page) ? resolvedSearchParams.page[0] : resolvedSearchParams.page;
+  const rawPageSize = Array.isArray(resolvedSearchParams.pageSize)
+    ? resolvedSearchParams.pageSize[0]
+    : resolvedSearchParams.pageSize;
+  const requestedPage = Number(rawPage || 1);
+  const page = Number.isSafeInteger(requestedPage) ? Math.max(1, requestedPage) : 1;
+  const requestedPageSize = Number(rawPageSize);
+  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
+    ? requestedPageSize
+    : 10;
+  const [totalCount, users] = await Promise.all([
+    prisma.user.count(),
+    prisma.user.findMany({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        avatarUrl: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+    }),
+  ]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
@@ -43,6 +66,7 @@ export default async function SystemAdminUsersPage() {
       </header>
 
       <UserRoleManager
+        totalCount={totalCount}
         users={users.map((user) => ({
           id: user.id,
           fullName: user.fullName,
@@ -52,6 +76,12 @@ export default async function SystemAdminUsersPage() {
           isActive: user.isActive,
           createdAt: user.createdAt.toISOString(),
         }))}
+      />
+      <AdminTablePaginationFooter
+        totalCount={totalCount}
+        page={page}
+        pageSize={pageSize}
+        basePath="/system-admin/users"
       />
     </div>
   );

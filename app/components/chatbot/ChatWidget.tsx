@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import { MessageCircle } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { ChatPanelCompact as ChatPanel } from "@/app/components/chatbot/ChatPanelCompact";
@@ -56,6 +56,66 @@ function computePanelPosition(params: {
 
 export function ChatWidget() {
   const pathname = usePathname();
+
+  if (
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/system-admin") ||
+    pathname === "/login" ||
+    pathname === "/signup" ||
+    pathname === "/logout"
+  ) {
+    return null;
+  }
+
+  return (
+    <ChatWidgetErrorBoundary key={pathname}>
+      <ChatWidgetContent />
+    </ChatWidgetErrorBoundary>
+  );
+}
+
+type ChatWidgetErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class ChatWidgetErrorBoundary extends Component<
+  { children: ReactNode },
+  ChatWidgetErrorBoundaryState
+> {
+  state: ChatWidgetErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ChatWidgetErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Chat assistant failed to render:", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          role="alert"
+          className="fixed bottom-5 right-5 z-[9999] max-w-xs rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-xl"
+        >
+          <p>The assistant is temporarily unavailable.</p>
+          <button
+            type="button"
+            onClick={() => this.setState({ hasError: false })}
+            className="mt-2 font-semibold text-[#0F3D5C] underline underline-offset-2"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function ChatWidgetContent() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -67,23 +127,6 @@ export function ChatWidget() {
   });
 
   const { messages, error, isLoadingHistory, isSending, canSend, loadHistory, sendMessage, startNewConversation } = useChatSession();
-
-  const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const id = "skonnect-chat-portal";
-    let el = document.getElementById(id) as HTMLElement | null;
-    if (!el) {
-      el = document.createElement("div");
-      el.id = id;
-      document.body.appendChild(el);
-    }
-    setPortalEl(el);
-    return () => {
-      // keep the portal element for future navigations; do not remove it to avoid flicker
-      setPortalEl(null);
-    };
-  }, []);
 
   useEffect(() => {
     const onResize = () => {
@@ -115,16 +158,6 @@ export function ChatWidget() {
       viewportHeight: window.innerHeight,
     });
   }, [position.x, position.y]);
-
-  if (
-    pathname.startsWith("/admin") ||
-    pathname.startsWith("/system-admin") ||
-    pathname === "/login" ||
-    pathname === "/signup" ||
-    pathname === "/logout"
-  ) {
-    return null;
-  }
 
   const widget = (
     <>
@@ -170,10 +203,6 @@ export function ChatWidget() {
       />
     </>
   );
-
-  if (portalEl) {
-    return createPortal(widget, portalEl);
-  }
 
   return widget;
 }

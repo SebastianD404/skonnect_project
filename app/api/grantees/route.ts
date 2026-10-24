@@ -1,48 +1,86 @@
 import { NextResponse } from "next/server";
+import { Role } from "@prisma/client";
+import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
 
 const db = prisma;
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
 
 const normalizeSemester = (value?: string | null) => String(value ?? "").replace(/\s*\(current\)$/i, "").trim();
 
 export async function GET(req: Request) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const appUser = await ensureProfile(user);
+    if (!appUser || (appUser.role !== Role.SK_OFFICIAL && appUser.role !== Role.SUPER_ADMIN)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const url = new URL(req.url);
     const semester = url.searchParams.get("semester");
     const normalizedSemester = normalizeSemester(semester);
     const claimedParam = url.searchParams.get("claimed");
     const claimedFilter = claimedParam === "true" ? true : claimedParam === "false" ? false : null;
-
-    const rows = await db.grantee.findMany({
-      orderBy: { updatedAt: "desc" },
-      where: {
-        ...(normalizedSemester && {
-          submissions: {
-            some: {
-              semester: { equals: normalizedSemester, mode: "insensitive" },
-            },
-          },
-        }),
-      },
-      include: {
-        user: { select: { fullName: true } },
+    const requestedPage = Number(url.searchParams.get("page") ?? "1");
+    const requestedLimit = Number(url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE));
+    const page = Number.isSafeInteger(requestedPage) ? Math.max(1, requestedPage) : 1;
+    const limit = Number.isSafeInteger(requestedLimit)
+      ? Math.min(MAX_PAGE_SIZE, Math.max(1, requestedLimit))
+      : DEFAULT_PAGE_SIZE;
+    const where = {
+      ...(normalizedSemester && {
         submissions: {
-          where: {
-            ...(normalizedSemester && {
-              semester: { equals: normalizedSemester, mode: "insensitive" },
-            }),
+          some: {
+            semester: { equals: normalizedSemester, mode: "insensitive" as const },
           },
-          orderBy: { submittedAt: "desc" },
-          take: 1,
-          select: { id: true, status: true, semester: true, submittedAt: true },
         },
-      },
-    });
+      }),
+      ...(claimedFilter === true
+        ? { payout: { is: { claimedAt: { not: null } } } }
+        : claimedFilter === false
+          ? {
+              OR: [
+                { payout: { is: null } },
+                { payout: { is: { claimedAt: null } } },
+              ],
+            }
+          : {}),
+    };
 
-    const granteeIds = rows.map((r) => r.id);
-    const payouts = granteeIds.length > 0 ? await db.accountingPayout.findMany({ where: { granteeId: { in: granteeIds } } }) : [];
-    const payoutByGrantee: Record<string, any> = {};
-    for (const p of payouts) payoutByGrantee[p.granteeId] = p;
+    const [totalCount, rows] = await Promise.all([
+      db.grantee.count({ where }),
+      db.grantee.findMany({
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          user: { select: { fullName: true } },
+          submissions: {
+            where: {
+              ...(normalizedSemester && {
+                semester: { equals: normalizedSemester, mode: "insensitive" as const },
+              }),
+            },
+            orderBy: { submittedAt: "desc" },
+            take: 1,
+            select: { id: true, status: true, semester: true, submittedAt: true },
+          },
+          payout: { select: { claimedAt: true } },
+        },
+      }),
+    ]);
 
     const mapped = rows.map((g) => {
       const submission = g.submissions?.[0] ?? null;
@@ -56,7 +94,7 @@ export async function GET(req: Request) {
         else submissionState = "Pending review";
       }
 
-      const payout = payoutByGrantee[g.id];
+      const payout = g.payout;
       const claimed = !!(payout && payout.claimedAt);
       const claimedAt = payout?.claimedAt ?? null;
 
@@ -72,10 +110,9 @@ export async function GET(req: Request) {
       };
     });
 
-    const final = claimedFilter === null ? mapped : mapped.filter((m) => m.claimed === claimedFilter);
-    return NextResponse.json({ grantees: final });
+    return NextResponse.json({ grantees: mapped, totalCount, page, limit });
   } catch (error) {
     console.error("/api/grantees error:", error);
-    return NextResponse.json({ grantees: [] });
+    return NextResponse.json({ error: "Unable to load grantees." }, { status: 500 });
   }
 }

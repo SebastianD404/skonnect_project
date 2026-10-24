@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, ScrollText, Search, X } from "lucide-react";
 import {
   getAuditActionSummary,
@@ -30,6 +31,9 @@ type AuditItem = {
 
 type Props = {
   audits: AuditItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
 };
 
 const TIME_RANGES = [
@@ -86,11 +90,18 @@ const actionTone: Record<string, string> = {
   CANCEL_EVENT: "bg-rose-100 text-rose-700",
 };
 
-export default function AuditLogsTable({ audits }: Props) {
+export default function AuditLogsTable({ audits, page, pageSize, totalCount }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
-  const [auditItems, setAuditItems] = useState(audits);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [refreshResult, setRefreshResult] = useState<{
+    key: string;
+    audits: AuditItem[];
+    totalCount: number;
+  } | null>(null);
+  const resultForPage = refreshResult?.key === `${page}:${pageSize}` ? refreshResult : null;
+  const auditItems = resultForPage?.audits ?? audits;
+  const availableCount = resultForPage?.totalCount ?? totalCount;
   const [selectedRange, setSelectedRange] = useState<(typeof TIME_RANGES)[number]["value"]>("30d");
   const [isRangeMenuOpen, setIsRangeMenuOpen] = useState(false);
   const [isLoadingRange, setIsLoadingRange] = useState(false);
@@ -101,6 +112,13 @@ export default function AuditLogsTable({ audits }: Props) {
   const exportHref = query
     ? `/api/system-admin/audit/export?range=${selectedRange}&query=${encodeURIComponent(query)}`
     : `/api/system-admin/audit/export?range=${selectedRange}`;
+
+  function navigateToPage(nextPage: number, nextPageSize = pageSize) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(nextPage));
+    params.set("pageSize", String(nextPageSize));
+    router.push(`/system-admin/audit?${params.toString()}`, { scroll: false });
+  }
 
   useEffect(() => {
     function closeOnOutsideClick(event: MouseEvent) {
@@ -115,14 +133,22 @@ export default function AuditLogsTable({ audits }: Props) {
 
   const refreshAuditLogs = useCallback(async (
     range: (typeof TIME_RANGES)[number]["value"],
-    { signal, showLoading = false }: { signal?: AbortSignal; showLoading?: boolean } = {}
+    {
+      signal,
+      showLoading = false,
+      requestedPage = page,
+      requestedPageSize = pageSize,
+    }: { signal?: AbortSignal; showLoading?: boolean; requestedPage?: number; requestedPageSize?: number } = {}
   ) => {
     if (showLoading) setIsLoadingRange(true);
     try {
-      const response = await fetch(`/api/system-admin/audit?range=${range}`, {
-        cache: "no-store",
-        signal,
-      });
+      const response = await fetch(
+        `/api/system-admin/audit?range=${range}&page=${requestedPage}&pageSize=${requestedPageSize}`,
+        {
+          cache: "no-store",
+          signal,
+        }
+      );
       const payload: unknown = await response.json();
       if (!response.ok) {
         const message =
@@ -131,14 +157,25 @@ export default function AuditLogsTable({ audits }: Props) {
             : "Unable to load audit logs.";
         throw new Error(message);
       }
-      if (typeof payload !== "object" || payload === null || !("audits" in payload) || !Array.isArray(payload.audits)) {
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("audits" in payload) ||
+        !Array.isArray(payload.audits) ||
+        !("totalCount" in payload) ||
+        typeof payload.totalCount !== "number"
+      ) {
         throw new Error("The audit log response was invalid.");
       }
       if (!payload.audits.every(isAuditItem)) {
         throw new Error("The audit log response was invalid.");
       }
 
-      setAuditItems(payload.audits);
+      setRefreshResult({
+        key: `${requestedPage}:${requestedPageSize}`,
+        audits: payload.audits,
+        totalCount: payload.totalCount,
+      });
       setRangeError(null);
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -147,7 +184,7 @@ export default function AuditLogsTable({ audits }: Props) {
     } finally {
       if (showLoading) setIsLoadingRange(false);
     }
-  }, []);
+  }, [page, pageSize]);
 
   function changeTimeRange(range: (typeof TIME_RANGES)[number]["value"]) {
     if (range === selectedRange) {
@@ -157,7 +194,7 @@ export default function AuditLogsTable({ audits }: Props) {
     setRangeError(null);
     setIsLoadingRange(true);
     setSelectedRange(range);
-    setCurrentPage(1);
+    navigateToPage(1);
     setIsRangeMenuOpen(false);
     setSelectedAudit(null);
   }
@@ -192,7 +229,7 @@ export default function AuditLogsTable({ audits }: Props) {
       document.removeEventListener("visibilitychange", refreshIfVisible);
       window.removeEventListener("focus", refreshIfVisible);
     };
-  }, [refreshAuditLogs, selectedRange]);
+  }, [page, pageSize, refreshAuditLogs, selectedRange]);
 
   const filtered = useMemo(() => {
     const value = query.toLowerCase().trim();
@@ -218,10 +255,10 @@ export default function AuditLogsTable({ audits }: Props) {
         .includes(value);
     });
   }, [auditItems, query]);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const displayedPage = Math.min(currentPage, totalPages);
+  const totalPages = Math.max(1, Math.ceil(availableCount / pageSize));
+  const displayedPage = Math.min(page, totalPages);
   const startIndex = (displayedPage - 1) * pageSize;
-  const currentLogs = filtered.slice(startIndex, startIndex + pageSize);
+  const currentLogs = filtered;
 
   const selectedAuditMetadata = useMemo(() => {
     if (!selectedAudit) return null;
@@ -285,10 +322,7 @@ export default function AuditLogsTable({ audits }: Props) {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setCurrentPage(1);
-            }}
+            onChange={(event) => setQuery(event.target.value)}
             placeholder="Search action, actor, or table..."
             className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
           />
@@ -499,21 +533,18 @@ export default function AuditLogsTable({ audits }: Props) {
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
             <p className="text-xs font-medium text-slate-500">
               Showing{" "}
-              <span className="font-bold text-slate-900">{filtered.length > 0 ? startIndex + 1 : 0}</span>
+              <span className="font-bold text-slate-900">{availableCount > 0 ? startIndex + 1 : 0}</span>
               {" "}to{" "}
-              <span className="font-bold text-slate-900">{Math.min(startIndex + pageSize, filtered.length)}</span>
+              <span className="font-bold text-slate-900">{Math.min(startIndex + currentLogs.length, availableCount)}</span>
               {" "}of{" "}
-              <span className="font-bold text-slate-900">{filtered.length}</span> entries
+              <span className="font-bold text-slate-900">{availableCount}</span> entries
             </p>
             <label className="flex items-center gap-1.5 border-l border-slate-200 pl-4 text-[11px] font-medium text-slate-400">
               <span>Show</span>
               <select
                 aria-label="Rows per page"
                 value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value));
-                  setCurrentPage(1);
-                }}
+                onChange={(event) => navigateToPage(1, Number(event.target.value))}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
               >
                 <option value={10}>10 rows</option>
@@ -526,20 +557,20 @@ export default function AuditLogsTable({ audits }: Props) {
           <nav aria-label="Audit log pagination" className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setCurrentPage(Math.max(displayedPage - 1, 1))}
-              disabled={displayedPage === 1 || filtered.length === 0}
+              onClick={() => navigateToPage(Math.max(displayedPage - 1, 1))}
+              disabled={displayedPage === 1 || availableCount === 0}
               className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
               Previous
             </button>
             <span aria-live="polite" className="px-2 text-xs font-bold text-slate-700">
-              Page {filtered.length === 0 ? 0 : displayedPage} of {filtered.length === 0 ? 0 : totalPages}
+              Page {availableCount === 0 ? 0 : displayedPage} of {availableCount === 0 ? 0 : totalPages}
             </span>
             <button
               type="button"
-              onClick={() => setCurrentPage(Math.min(displayedPage + 1, totalPages))}
-              disabled={displayedPage === totalPages || filtered.length === 0}
+              onClick={() => navigateToPage(Math.min(displayedPage + 1, totalPages))}
+              disabled={displayedPage === totalPages || availableCount === 0}
               className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next

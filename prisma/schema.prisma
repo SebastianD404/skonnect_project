@@ -82,7 +82,9 @@ model Grantee {
   updatedAt      DateTime      @updatedAt
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   submissions    Submission[]
+  payout         AccountingPayout?
 
+  @@index([status, updatedAt(sort: Desc)])
   @@map("grantees")
 }
 
@@ -117,6 +119,8 @@ model Submission {
   requiresStrictManualReview Boolean    @default(false)
   grantee           Grantee          @relation(fields: [granteeId], references: [id], onDelete: Cascade)
 
+  @@index([status, submittedAt(sort: Desc)])
+  @@index([granteeId, submittedAt(sort: Desc)])
   @@index([coeStatus, submittedAt(sort: Desc)])
   @@index([gradesStatus, gradesSubmittedAt(sort: Desc)])
   @@map("submissions")
@@ -217,6 +221,7 @@ model ProfilingRegistration {
   middleName                        String   @default("")
   user                              User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([reviewStatus, submittedAt(sort: Desc)])
   @@map("kk_profiling_registrations")
 }
 
@@ -253,6 +258,7 @@ model Inquiry {
   application   SkeapApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([isResolved, createdAt(sort: Desc)])
   @@map("inquiries")
 }
 
@@ -373,6 +379,7 @@ model AuditLog {
   meta        Json?
   actor       User     @relation("ActorAuditLogs", fields: [actorId], references: [id])
 
+  @@index([createdAt(sort: Desc)])
   @@map("audit_logs")
 }
 
@@ -430,6 +437,7 @@ model Semester {
 model AccountingPayout {
   id        String    @id @default(uuid())
   granteeId String    @unique
+  grantee   Grantee   @relation(fields: [granteeId], references: [id])
   amount    Int
   semester  String?
   claimedAt DateTime? @map("claimed_at")

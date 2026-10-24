@@ -20,7 +20,6 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { createWorker } from "tesseract.js";
 import {
   COE_MIME_TYPES,
   GRADE_REPORT_MIME_TYPES,
@@ -272,6 +271,7 @@ async function extractSelectedFileText(file: File): Promise<string> {
     return extractDocxTextFromBuffer(await file.arrayBuffer());
   }
 
+  const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("eng");
   try {
     const result = await worker.recognize(file);

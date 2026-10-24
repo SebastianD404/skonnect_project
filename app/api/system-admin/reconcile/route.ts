@@ -112,6 +112,23 @@ export async function POST(request: NextRequest) {
     });
 
     const authUsers = await listAllAuthUsers(supabaseAdmin);
+    const authIds = authUsers.map((authUser) => authUser.id).filter(Boolean);
+    const emails = authUsers
+      .map((authUser) => String(authUser.email || "").trim())
+      .filter(Boolean);
+    const existingUsers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { authId: { in: authIds } },
+          { email: { in: emails, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true, authId: true, email: true, fullName: true, role: true },
+    });
+    const usersByAuthId = new Map(existingUsers.map((existingUser) => [existingUser.authId, existingUser]));
+    const usersByEmail = new Map(
+      existingUsers.map((existingUser) => [existingUser.email.toLowerCase(), existingUser])
+    );
     let skippedNoEmail = 0;
     let alreadyLinked = 0;
     let wouldRelink = 0;
@@ -129,20 +146,12 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        const byAuthId = await prisma.user.findUnique({
-          where: { authId },
-          select: { id: true },
-        });
-
-        if (byAuthId) {
+        if (usersByAuthId.has(authId)) {
           alreadyLinked += 1;
           continue;
         }
 
-        const existingByEmail = await prisma.user.findFirst({
-          where: { email: { equals: email, mode: "insensitive" } },
-          select: { id: true, authId: true, email: true, fullName: true, role: true },
-        });
+        const existingByEmail = usersByEmail.get(email.toLowerCase());
 
         if (existingByEmail) {
           wouldRelink += 1;
@@ -172,6 +181,10 @@ export async function POST(request: NextRequest) {
                 metadata: { source: "auth_user_reconciliation" },
               });
             });
+            usersByAuthId.delete(existingByEmail.authId);
+            const relinkedUser = { ...existingByEmail, authId };
+            usersByAuthId.set(authId, relinkedUser);
+            usersByEmail.set(email.toLowerCase(), relinkedUser);
             relinked += 1;
           }
           continue;
@@ -180,7 +193,7 @@ export async function POST(request: NextRequest) {
         wouldCreate += 1;
         if (apply) {
           const fullName = deriveFullName(authUser);
-          await prisma.$transaction(async (tx) => {
+          const createdUser = await prisma.$transaction(async (tx) => {
             const createdUser = await tx.user.create({
               data: { authId, email, fullName, role: "YOUTH" },
               select: { id: true },
@@ -194,7 +207,11 @@ export async function POST(request: NextRequest) {
               afterData: { authId, email, fullName, role: "YOUTH" },
               metadata: { source: "auth_user_reconciliation" },
             });
+            return createdUser;
           });
+          const newUser = { ...createdUser, authId, email, fullName, role: "YOUTH" as const };
+          usersByAuthId.set(authId, newUser);
+          usersByEmail.set(email.toLowerCase(), newUser);
           created += 1;
         }
       } catch (error) {

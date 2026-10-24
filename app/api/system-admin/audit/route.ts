@@ -5,6 +5,9 @@ import { getAuditStartDate, isAuditTimeRange } from "@/lib/audit/time-range";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 50;
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -25,30 +28,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid audit time range." }, { status: 400 });
     }
     const startDate = getAuditStartDate(requestedRange);
-    const audits = await prisma.auditLog.findMany({
-      where: startDate ? { createdAt: { gte: startDate } } : undefined,
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        action: true,
-        actorId: true,
-        targetTable: true,
-        targetId: true,
-        beforeData: true,
-        afterData: true,
-        metadata: true,
-        meta: true,
-        createdAt: true,
-        actor: {
-          select: {
-            fullName: true,
-            email: true,
+    const requestedPage = Number(request.nextUrl.searchParams.get("page") ?? "1");
+    const requestedPageSize = Number(
+      request.nextUrl.searchParams.get("pageSize") ?? String(DEFAULT_PAGE_SIZE)
+    );
+    const page = Number.isSafeInteger(requestedPage) ? Math.max(1, requestedPage) : 1;
+    const pageSize = Number.isSafeInteger(requestedPageSize)
+      ? Math.min(MAX_PAGE_SIZE, Math.max(1, requestedPageSize))
+      : DEFAULT_PAGE_SIZE;
+    const where = startDate ? { createdAt: { gte: startDate } } : undefined;
+    const [totalCount, audits] = await Promise.all([
+      prisma.auditLog.count({ where }),
+      prisma.auditLog.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          action: true,
+          actorId: true,
+          targetTable: true,
+          targetId: true,
+          beforeData: true,
+          afterData: true,
+          metadata: true,
+          meta: true,
+          createdAt: true,
+          actor: {
+            select: {
+              fullName: true,
+              email: true,
+            },
           },
         },
-      },
-    });
+      }),
+    ]);
 
     return NextResponse.json({
+      totalCount,
+      page,
+      pageSize,
       audits: audits.map((audit) => ({
         id: audit.id,
         action: audit.action,

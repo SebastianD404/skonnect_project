@@ -27,6 +27,7 @@ type UserItem = {
 
 type Props = {
   users: UserItem[];
+  totalCount: number;
 };
 
 type RoleFilter = "ALL" | Role;
@@ -38,7 +39,7 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "SUPER_ADMIN", label: "SUPER_ADMIN" },
 ];
 
-export default function UserRoleManager({ users }: Props) {
+export default function UserRoleManager({ users, totalCount }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
@@ -349,7 +350,7 @@ export default function UserRoleManager({ users }: Props) {
           </button>
           <div className="hidden text-xs text-slate-500 sm:block">
             <span className="font-semibold text-slate-900 tabular-nums">{filteredUsers.length}</span> of{" "}
-            <span className="tabular-nums">{users.length}</span>
+            <span className="tabular-nums">{users.length}</span> on this page
           </div>
         </div>
       </div>
@@ -363,7 +364,7 @@ export default function UserRoleManager({ users }: Props) {
             </p>
           </div>
           <span className="w-fit rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
-            Total Accounts: {users.length}
+            Total Accounts: {totalCount}
           </span>
         </div>
         {filteredUsers.length > 0 ? (

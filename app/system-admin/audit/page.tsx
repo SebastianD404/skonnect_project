@@ -2,11 +2,32 @@ import { prisma } from "@/lib/prisma";
 import { getAuditStartDate } from "@/lib/audit/time-range";
 import AuditLogsTable from "./AuditLogsTable";
 
-export default async function SystemAdminAuditPage() {
+const PAGE_SIZES = [10, 20, 50] as const;
+
+export default async function SystemAdminAuditPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[] }>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const rawPage = Array.isArray(resolvedSearchParams.page) ? resolvedSearchParams.page[0] : resolvedSearchParams.page;
+  const rawPageSize = Array.isArray(resolvedSearchParams.pageSize)
+    ? resolvedSearchParams.pageSize[0]
+    : resolvedSearchParams.pageSize;
+  const requestedPage = Number(rawPage || 1);
+  const page = Number.isSafeInteger(requestedPage) ? Math.max(1, requestedPage) : 1;
+  const requestedPageSize = Number(rawPageSize);
+  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
+    ? requestedPageSize
+    : 10;
   const startDate = getAuditStartDate("30d");
+  const where = startDate ? { createdAt: { gte: startDate } } : undefined;
+  const totalCount = await prisma.auditLog.count({ where });
   const audits = await prisma.auditLog.findMany({
-    where: startDate ? { createdAt: { gte: startDate } } : undefined,
-    orderBy: { createdAt: "desc" },
+    where,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    skip: (page - 1) * pageSize,
+    take: pageSize,
     select: {
       id: true,
       action: true,
@@ -44,6 +65,9 @@ export default async function SystemAdminAuditPage() {
       </header>
 
       <AuditLogsTable
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
         audits={audits.map((audit) => ({
           id: audit.id,
           action: audit.action,

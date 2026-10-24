@@ -135,6 +135,14 @@ export async function POST(request: Request) {
   let parsedAcademicTermSchedules:
     | Array<{ id?: string; semester: string; opensAt: Date; closesAt: Date }>
     | undefined;
+  let existingSchedules: Array<{
+    id: string;
+    semester: string;
+    opensAt: Date;
+    closesAt: Date;
+    createdAt: Date;
+    updatedAt: Date;
+  }> = [];
   if (academicTermSchedules !== undefined) {
     if (!Array.isArray(academicTermSchedules) || academicTermSchedules.length > 30) {
       return NextResponse.json({ error: "Provide a valid academic term schedule list." }, { status: 400 });
@@ -177,8 +185,8 @@ export async function POST(request: Request) {
     ) {
       return NextResponse.json({ error: "An academic schedule cannot be edited and removed at the same time." }, { status: 400 });
     }
-    const existingSchedules = await prisma.academicTermSchedule.findMany({
-      select: { id: true, semester: true, opensAt: true, closesAt: true },
+    existingSchedules = await prisma.academicTermSchedule.findMany({
+      select: { id: true, semester: true, opensAt: true, closesAt: true, createdAt: true, updatedAt: true },
     });
     const existingById = new Map(existingSchedules.map((schedule) => [schedule.id, schedule]));
     if (
@@ -272,6 +280,7 @@ export async function POST(request: Request) {
 
       if (parsedAcademicTermSchedules) {
         const deletedScheduleIds = deletedAcademicTermScheduleIds as string[] | undefined;
+        const deletedScheduleIdSet = new Set(deletedScheduleIds ?? []);
         if (deletedScheduleIds?.length) {
           const removedSchedules = await tx.academicTermSchedule.findMany({
             where: { id: { in: deletedScheduleIds } },
@@ -290,10 +299,16 @@ export async function POST(request: Request) {
           }
         }
 
+        const existingById = new Map(existingSchedules.map((schedule) => [schedule.id, schedule]));
+        const existingBySemester = new Map(
+          existingSchedules
+            .filter((schedule) => !deletedScheduleIdSet.has(schedule.id))
+            .map((schedule) => [schedule.semester, schedule])
+        );
         for (const schedule of parsedAcademicTermSchedules) {
           const before = schedule.id
-            ? await tx.academicTermSchedule.findUnique({ where: { id: schedule.id } })
-            : await tx.academicTermSchedule.findUnique({ where: { semester: schedule.semester } });
+            ? existingById.get(schedule.id)
+            : existingBySemester.get(schedule.semester);
           if (schedule.id && (!before || before.semester !== schedule.semester)) {
             throw new Error("An academic term schedule could not be found.");
           }

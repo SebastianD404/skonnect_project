@@ -60,6 +60,8 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
   const [selectedId, setSelectedId] = useState(initialInquiryId);
   const [selectedInquiry, setSelectedInquiry] = useState<InquiryDetail | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
+  const pollInquiriesRef = useRef<() => void>(() => {});
+  const pollThreadRef = useRef<() => void>(() => {});
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingThread, setIsLoadingThread] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -73,15 +75,6 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
   const [toastVisible, setToastVisible] = useState(showSubmittedToast);
   const [isNewInquiryModalOpen, setIsNewInquiryModalOpen] = useState(false);
   const newInquiryButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const refreshRoute = () => {
-      if (document.visibilityState === "visible") router.refresh();
-    };
-    const intervalId = window.setInterval(refreshRoute, 5_000);
-
-    return () => window.clearInterval(intervalId);
-  }, [router]);
 
   useEffect(() => {
     if (!isNewInquiryModalOpen) return;
@@ -142,13 +135,11 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
     }
 
     void loadInquiries();
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadInquiries();
-    }, 5_000);
+    pollInquiriesRef.current = () => void loadInquiries();
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
+      pollInquiriesRef.current = () => {};
     };
   }, [deletedInquiryIds]);
 
@@ -182,7 +173,10 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
     if (!selectedId) return;
 
     let active = true;
+    let requestPending = false;
     async function loadThread(showErrors = false) {
+      if (requestPending) return;
+      requestPending = true;
       try {
         const response = await fetch(`/api/my/inquiries/${selectedId}`, { cache: "no-store" });
         const data = await response.json();
@@ -202,25 +196,58 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
           setError(loadError instanceof Error ? loadError.message : "Unable to load inquiry.");
         }
       } finally {
+        requestPending = false;
         if (active && showErrors) setIsLoadingThread(false);
       }
     }
 
-    const refreshThread = () => {
-      if (document.visibilityState === "visible") void loadThread();
-    };
     void loadThread(true);
-    const intervalId = window.setInterval(refreshThread, 5_000);
-    window.addEventListener("focus", refreshThread);
-    document.addEventListener("visibilitychange", refreshThread);
+    pollThreadRef.current = () => void loadThread();
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", refreshThread);
-      document.removeEventListener("visibilitychange", refreshThread);
+      pollThreadRef.current = () => {};
     };
   }, [isSendingReply, selectedId]);
+
+  useEffect(() => {
+    let intervalId: number | undefined;
+
+    const poll = () => {
+      if (document.visibilityState !== "visible") return;
+      router.refresh();
+      pollInquiriesRef.current();
+      pollThreadRef.current();
+    };
+
+    const startPolling = (refreshImmediately = false) => {
+      if (document.visibilityState !== "visible" || intervalId !== undefined) return;
+      if (refreshImmediately) poll();
+      intervalId = window.setInterval(poll, 5_000);
+    };
+
+    const stopPolling = () => {
+      if (intervalId === undefined) return;
+      window.clearInterval(intervalId);
+      intervalId = undefined;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        startPolling(true);
+      } else {
+        stopPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [router]);
 
   const conversationVersion = selectedInquiry?.thread
     .map((message) => `${message.id}:${message.createdAt}:${message.text}`)
