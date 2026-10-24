@@ -8,8 +8,10 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['tests/**/*.test.ts', 'tests/**/*.spec.ts'],
+    include: ['tests/**/*.test.{ts,tsx}', 'tests/**/*.spec.{ts,tsx}'],
     exclude: ['tests/e2e/**', 'playwright.config.*', 'node_modules/**', 'tests/setup/**'],
     setupFiles: ['tests/setup/vitest.setup.ts'],
+    environment: 'node',
+    clearMocks: true,
   },
 });
