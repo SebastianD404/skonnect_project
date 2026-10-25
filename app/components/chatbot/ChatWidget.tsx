@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { MessageCircle } from "lucide-react";
+import { motion, useMotionValue, type PanInfo } from "framer-motion";
 import { usePathname } from "next/navigation";
+import { createPortal } from "react-dom";
 import { ChatPanelCompact as ChatPanel } from "@/app/components/chatbot/ChatPanelCompact";
 import { useChatSession } from "@/app/components/chatbot/hooks/useChatSession";
-import { useDraggablePosition } from "@/app/components/chatbot/hooks/useDraggablePosition";
 
 const BUTTON_SIZE = 56;
-// Increase margin so the floating icon isn't pushed too far to the right
-const VIEWPORT_MARGIN = 48;
+const VIEWPORT_MARGIN = 24;
 const TOP_BOUNDARY = 84;
 const PANEL_WIDTH = 360;
 const PANEL_HEIGHT = 520;
@@ -68,7 +68,7 @@ export function ChatWidget() {
   }
 
   return (
-    <ChatWidgetErrorBoundary key={pathname}>
+    <ChatWidgetErrorBoundary>
       <ChatWidgetContent />
     </ChatWidgetErrorBoundary>
   );
@@ -118,24 +118,41 @@ class ChatWidgetErrorBoundary extends Component<
 function ChatWidgetContent() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-
-  const { position, isDragging, hasHydrated, dragHandlers, consumeDragged } = useDraggablePosition({
-    storageKey: "skonnect.chat.widget.position.v2",
-    buttonSize: BUTTON_SIZE,
-    viewportMargin: VIEWPORT_MARGIN,
-    topBoundary: TOP_BOUNDARY,
-  });
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [launcherPosition, setLauncherPosition] = useState<PanelPosition | null>(null);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+  const constraintsRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dragX = useMotionValue(0);
+  const dragY = useMotionValue(0);
 
   const { messages, error, isLoadingHistory, isSending, canSend, loadHistory, sendMessage, startNewConversation } = useChatSession();
 
   useEffect(() => {
+    const portalFrame = window.requestAnimationFrame(() => {
+      setPortalContainer(document.body);
+    });
+
     const onResize = () => {
       setIsMobile(window.innerWidth < 768);
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+      setLauncherPosition((position) =>
+        position
+          ? {
+              left: clamp(position.left, VIEWPORT_MARGIN, window.innerWidth - BUTTON_SIZE - VIEWPORT_MARGIN),
+              top: clamp(position.top, TOP_BOUNDARY, window.innerHeight - BUTTON_SIZE - VIEWPORT_MARGIN),
+            }
+          : null,
+      );
     };
 
     onResize();
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    return () => {
+      window.cancelAnimationFrame(portalFrame);
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -147,60 +164,100 @@ function ChatWidgetContent() {
   }, [isOpen, loadHistory]);
 
   const panelPosition = useMemo(() => {
-    if (typeof window === "undefined") {
+    if (!viewportSize.width || !viewportSize.height) {
       return { left: VIEWPORT_MARGIN, top: TOP_BOUNDARY };
     }
 
     return computePanelPosition({
-      buttonX: position.x,
-      buttonY: position.y,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
+      buttonX: launcherPosition?.left ?? viewportSize.width - BUTTON_SIZE - VIEWPORT_MARGIN,
+      buttonY: launcherPosition?.top ?? viewportSize.height - BUTTON_SIZE - VIEWPORT_MARGIN,
+      viewportWidth: viewportSize.width,
+      viewportHeight: viewportSize.height,
     });
-  }, [position.x, position.y]);
+  }, [launcherPosition, viewportSize]);
+
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    isDraggingRef.current ||= info.offset.x !== 0 || info.offset.y !== 0;
+    setLauncherPosition({
+      left: clamp(info.point.x - BUTTON_SIZE / 2, VIEWPORT_MARGIN, viewportSize.width - BUTTON_SIZE - VIEWPORT_MARGIN),
+      top: clamp(info.point.y - BUTTON_SIZE / 2, TOP_BOUNDARY, viewportSize.height - BUTTON_SIZE - VIEWPORT_MARGIN),
+    });
+    dragX.set(0);
+    dragY.set(0);
+  };
 
   const widget = (
     <>
-      <button
+      <div
+        ref={constraintsRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-x-6 bottom-6 top-[84px]"
+      />
+      <motion.button
         type="button"
         aria-label="Open SKonnect assistant"
+        drag={!isOpen}
+        dragConstraints={constraintsRef}
+        dragElastic={0}
+        dragMomentum={false}
+        onPointerDown={(event) => {
+          isDraggingRef.current = false;
+          pointerStartRef.current = { x: event.clientX, y: event.clientY };
+        }}
+        onPointerMove={(event) => {
+          const pointerStart = pointerStartRef.current;
+          if (
+            pointerStart &&
+            (Math.abs(event.clientX - pointerStart.x) > 5 ||
+              Math.abs(event.clientY - pointerStart.y) > 5)
+          ) {
+            isDraggingRef.current = true;
+          }
+        }}
+        onDragStart={() => {
+          isDraggingRef.current = true;
+        }}
+        onDragEnd={handleDragEnd}
         onClick={() => {
-          if (consumeDragged()) {
+          if (isDraggingRef.current) {
+            isDraggingRef.current = false;
             return;
           }
           setIsOpen((prev) => !prev);
         }}
-        className={`fixed z-[9999] grid place-items-center rounded-full bg-[#0F3D5C] text-white shadow-xl ring-4 ring-white/70 ${
-          isDragging
-            ? "cursor-grabbing scale-105 transition-none"
-            : "cursor-grab transition-[left,top,transform,background-color] duration-200 ease-out hover:bg-[#0D2E47]"
+        className={`fixed z-50 grid h-14 w-14 place-items-center rounded-full bg-[#0F3D5C] text-white shadow-xl ring-4 ring-white/70 transition-colors duration-200 ease-out hover:bg-[#0D2E47] ${
+          isOpen ? "cursor-default" : "cursor-grab active:cursor-grabbing"
         }`}
         style={{
-          left: `${position.x}px`,
-          top: `${position.y}px`,
-          width: `${BUTTON_SIZE}px`,
-          height: `${BUTTON_SIZE}px`,
+          left: launcherPosition?.left,
+          top: launcherPosition?.top,
+          right: launcherPosition ? "auto" : 24,
+          bottom: launcherPosition ? "auto" : 24,
+          x: dragX,
+          y: dragY,
           touchAction: "none",
-          visibility: hasHydrated ? "visible" : "hidden",
         }}
-        {...dragHandlers}
+        whileHover={isOpen ? undefined : { scale: 1.06 }}
+        whileTap={isOpen ? undefined : { scale: 0.96 }}
       >
         <MessageCircle className="h-6 w-6" />
-      </button>
-
-      <ChatPanel
-        isOpen={isOpen}
-        panelPosition={panelPosition}
-        isMobile={isMobile}
-        messages={messages}
-        isLoadingHistory={isLoadingHistory}
-        isSending={isSending}
-        error={error}
-        canSend={canSend}
-        onClose={() => setIsOpen(false)}
-        onSend={sendMessage}
-        onStartNewConversation={() => startNewConversation()}
-      />
+      </motion.button>
+      {portalContainer && createPortal(
+        <ChatPanel
+          isOpen={isOpen}
+          panelPosition={panelPosition}
+          isMobile={isMobile}
+          messages={messages}
+          isLoadingHistory={isLoadingHistory}
+          isSending={isSending}
+          error={error}
+          canSend={canSend}
+          onClose={() => setIsOpen(false)}
+          onSend={sendMessage}
+          onStartNewConversation={() => startNewConversation()}
+        />,
+        portalContainer,
+      )}
     </>
   );
 

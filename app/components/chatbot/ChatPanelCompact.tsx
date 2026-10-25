@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatUiMessage } from "@/app/components/chatbot/hooks/useChatSession";
 import { MarkdownLite } from "@/app/components/chatbot/MarkdownLite";
 import { TypingIndicator } from "@/app/components/chatbot/TypingIndicator";
-import { ChatHistoryModal } from "@/app/components/chatbot/ChatHistoryModal";
 import { Clock, X } from "lucide-react";
 
 const SUGGESTED_QUESTIONS = [
@@ -49,9 +48,8 @@ export function ChatPanelCompact({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
   const [showFullHistory, setShowFullHistory] = useState(false);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
-  
 
   useEffect(() => {
     if (!isOpen) {
@@ -64,7 +62,9 @@ export function ChatPanelCompact({
 
     // scroll a bit after opening so input is visible at bottom
     const scrollTimeout = window.setTimeout(() => {
-      scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight ?? 0 });
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
     }, 120);
 
     return () => {
@@ -125,6 +125,10 @@ export function ChatPanelCompact({
     if (showFullHistory) return messageList;
     return messageList.slice(-recentWindow);
   }, [messageList, showFullHistory]);
+  const historyMessages = useMemo(
+    () => messageList.filter((message) => message.role === "USER"),
+    [messageList],
+  );
 
   const sendDraft = async () => {
     const value = draft.trim();
@@ -150,8 +154,10 @@ export function ChatPanelCompact({
 
   useEffect(() => {
     // auto-scroll when messages change (keep view at bottom)
-    scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight ?? 0 });
-  }, [recentMessages.length, showFullHistory, isSending]);
+    if (scrollRef.current && !showHistory) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [recentMessages.length, showFullHistory, isSending, showHistory]);
 
   const baseClass =
     "fixed z-[70] rounded-2xl border border-slate-200 bg-white shadow-2xl transition-all duration-200 ease-out";
@@ -180,10 +186,15 @@ export function ChatPanelCompact({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setShowHistoryModal(true)}
-            className="rounded-md p-2 text-[#0F3D5C] transition hover:bg-slate-50 hover:text-[#0D2E47]"
-            aria-label="Open conversation history"
-            title="History"
+            onClick={() => setShowHistory((current) => !current)}
+            className={`rounded-md p-2 transition ${
+              showHistory
+                ? "bg-slate-100 text-[#0F3D5C]"
+                : "text-[#0F3D5C] hover:bg-slate-50 hover:text-[#0D2E47]"
+            }`}
+            aria-label={showHistory ? "Return to chat" : "Open conversation history"}
+            aria-pressed={showHistory}
+            title={showHistory ? "Return to chat" : "History"}
           >
             <Clock className="h-5 w-5" aria-hidden />
           </button>
@@ -199,8 +210,55 @@ export function ChatPanelCompact({
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {isLoadingHistory ? (
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+        {showHistory ? (
+          <div className="flex flex-col gap-2">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Past Conversations
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  onStartNewConversation();
+                  setShowHistory(false);
+                  setShowFullHistory(false);
+                }}
+                className="text-xs font-medium text-[#0F3D5C] hover:underline"
+              >
+                Start new chat
+              </button>
+            </div>
+            {isLoadingHistory ? (
+              <p className="text-sm text-slate-500">Loading conversation history...</p>
+            ) : historyMessages.length === 0 ? (
+              <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+                No past conversations yet.
+              </p>
+            ) : (
+              historyMessages.map((message) => (
+                <button
+                  key={message.id}
+                  type="button"
+                  onClick={() => {
+                    setShowHistory(false);
+                    setShowFullHistory(true);
+                    window.setTimeout(() => {
+                      const element = document.querySelector(`[data-chat-id="${message.id}"]`);
+                      element?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+                    }, 0);
+                  }}
+                  className="w-full rounded-lg border border-slate-100 bg-slate-50 p-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
+                >
+                  <span className="block whitespace-pre-wrap break-words">{message.content}</span>
+                  <span className="mt-1 block text-xs text-slate-400">
+                    {new Date(message.createdAt).toLocaleString()}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        ) : isLoadingHistory ? (
           <p className="text-xs text-slate-500">Loading recent messages...</p>
         ) : messageList.length === 0 ? (
           <div>
@@ -223,42 +281,14 @@ export function ChatPanelCompact({
           </div>
         ) : (
           <>
-            {/* Compact dedicated history header - shows older messages as compact chips */}
-            {messageList.length > recentWindow && !showFullHistory ? (
-              <div className="mb-2">
-                <div className="flex items-center gap-2 overflow-x-auto py-1">
-                  {messageList.slice(0, Math.max(0, messageList.length - recentWindow)).map((m) => (
-                    <div key={`hist-${m.id}`} className="relative group flex-shrink-0">
-                      <button
-                        onClick={() => setShowHistoryModal(true)}
-                        className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
-                        aria-label={`Open history preview: ${m.content}`}
-                      >
-                        {m.content.length > 28 ? `${m.content.slice(0, 25)}...` : m.content}
-                      </button>
-                      <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-[280px] rounded-md bg-white p-2 text-sm text-slate-700 shadow-lg group-hover:block">
-                        <div className="text-xs text-slate-400">{m.role} • {new Date(m.createdAt).toLocaleString()}</div>
-                        <div className="mt-1 whitespace-pre-wrap">{m.content}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex justify-end">
-                  <button onClick={() => setShowHistoryModal(true)} className="text-xs text-slate-500 underline">
-                    View full history
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
             {(showFullHistory ? messageList : recentMessages).map((message) => (
               <div
                 key={message.id}
                 data-chat-id={message.id}
                 className={
                   message.role === "USER"
-                    ? "ml-8 rounded-2xl bg-[#0F3D5C] px-3 py-2 text-sm text-white"
-                    : "mr-8 rounded-2xl bg-slate-100 px-3 py-2"
+                    ? "mb-3 ml-8 rounded-2xl bg-[#0F3D5C] px-3 py-2 text-sm text-white"
+                    : "mb-3 mr-8 rounded-2xl bg-slate-100 px-3 py-2"
                 }
               >
                 {message.role === "USER" ? (
@@ -268,56 +298,42 @@ export function ChatPanelCompact({
                 )}
               </div>
             ))}
-            <ChatHistoryModal
-              isOpen={showHistoryModal}
-              onClose={() => setShowHistoryModal(false)}
-              messages={messageList}
-              onStartNewConversation={onStartNewConversation}
-              onSelectMessage={(id) => {
-                // when a message is selected in modal, close modal and scroll to it via simple showFullHistory
-                setShowHistoryModal(false);
-                setShowFullHistory(true);
-                // small delay to allow panel to show
-                setTimeout(() => {
-                  const el = document.querySelector(`[data-chat-id=\"${id}\"]`);
-                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-                }, 150);
-              }}
-            />
           </>
         )}
 
-        {isSending ? <TypingIndicator /> : null}
+        {!showHistory && isSending ? <TypingIndicator /> : null}
 
-        {error ? (
+        {!showHistory && error ? (
           <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
         ) : null}
       </div>
 
-      <form onSubmit={handleSubmit} className="border-t border-slate-200 px-3 py-3">
-        <label htmlFor="skonnect-chat-input" className="sr-only">
-          Type your message
-        </label>
-        <textarea
-          id="skonnect-chat-input"
-          ref={inputRef}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={handleKeyDown}
-          rows={isMobile ? 3 : 2}
-          placeholder="Type your message..."
-          className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
-        />
-        <div className="mt-2 flex items-center justify-end">
-          <button
-            type="submit"
-            disabled={!canSend || !draft.trim()}
-            className="rounded-lg bg-[#0F3D5C] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#0D2E47] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Send
-          </button>
-        </div>
-      </form>
+      {!showHistory ? (
+        <form onSubmit={handleSubmit} className="border-t border-slate-200 px-3 py-3">
+          <label htmlFor="skonnect-chat-input" className="sr-only">
+            Type your message
+          </label>
+          <textarea
+            id="skonnect-chat-input"
+            ref={inputRef}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={isMobile ? 3 : 2}
+            placeholder="Type your message..."
+            className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-[#0F3D5C] focus:ring-2 focus:ring-[#0F3D5C]/20"
+          />
+          <div className="mt-2 flex items-center justify-end">
+            <button
+              type="submit"
+              disabled={!canSend || !draft.trim()}
+              className="rounded-lg bg-[#0F3D5C] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#0D2E47] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      ) : null}
     </div>
   );
 }

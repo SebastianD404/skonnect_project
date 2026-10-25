@@ -1,7 +1,6 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { createBrowserClient } from "@/lib/supabase/browser";
 
 type AuthUser = {
   id?: string;
@@ -32,8 +31,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const browserSupabase = createBrowserClient();
-      const { data: { user: authUser } } = await browserSupabase.auth.getUser();
       const response = await fetch("/api/session", { cache: "no-store" });
       const data = response.ok ? await response.json() : null;
       const profile = data?.user ?? null;
@@ -41,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (requestId !== refreshRequestRef.current) return;
 
       if (profile) {
-        setUser({ ...profile, id: profile.id ?? authUser?.id, email: profile.email ?? authUser?.email ?? undefined });
+        setUser(profile);
       } else {
         setUser(null);
       }

@@ -135,14 +135,20 @@ export default async function GranteeDashboardContent() {
                 Track approvals and return-for-edit requests, see your next required action, and stay informed on SK announcements.
               </p>
 
-              <div className="mt-7 flex flex-wrap items-center gap-3">
+              <div className="mt-7 flex flex-wrap items-center gap-4">
                 <Link
                   href="/grantee-dashboard/documents"
-                  className="group inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-lg shadow-slate-900/10 transition hover:bg-slate-800"
+                  className="group inline-flex items-center gap-2 rounded-full bg-[#0B132B] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800"
                 >
                   <ClipboardList className="h-4 w-4" />
                   Open requirements
                   <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                </Link>
+                <Link
+                  href="/grantee-dashboard/payouts"
+                  className="inline-flex items-center rounded-full border border-slate-300 bg-transparent px-6 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  Check Payout Status
                 </Link>
               </div>
 

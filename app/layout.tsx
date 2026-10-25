@@ -37,9 +37,9 @@ export default function RootLayout({
           <NotificationProvider>
             <HeaderShell />
             {children}
-            <ChatWidget />
           </NotificationProvider>
         </AuthProvider>
+        <ChatWidget />
       </body>
     </html>
   );
