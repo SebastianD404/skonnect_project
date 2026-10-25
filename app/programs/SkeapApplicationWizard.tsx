@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { AlertTriangle, CheckCircle2, FileText, LoaderCircle, UploadCloud } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, FileText, LoaderCircle, UploadCloud } from "lucide-react";
 import {
   CORE_UPLOAD_KEYS,
   SKEAP_UPLOAD_KEY,
@@ -14,6 +14,7 @@ import SmartPortraitDropzone from "@/components/SmartPortraitDropzone";
 import type { KKProfile } from "@/lib/kk-profile-client";
 import { validateDocumentOCR, type DocumentOCRResult } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
+import { SKEAP_EDUCATION_LEVELS, SKEAP_YEAR_LEVELS, type SkeapEducationLevel } from "@/lib/skeap-education";
 
 type UploadedFile = {
   id: string;
@@ -230,24 +231,16 @@ const SCHOOL_OPTIONS = [
   "Baguio Central University (BCU)",
   "Pines City Colleges (PCC)",
 ];
-const YEAR_LEVELS = [
-  "Incoming Freshman",
-  "1st Year",
-  "2nd Year",
-  "3rd Year",
-  "4th Year",
-  "5th Year",
-  "6th Year",
-];
 const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
   lastName: ["Last name and first name are required."],
   firstName: ["Last name and first name are required."],
   middleName: ["Middle name is required."],
   permanentAddress: ["Permanent address is required."],
   schoolName: ["School / Institution is required.", "Please enter or select your school."],
+  educationLevel: ["Education level is required."],
   dateOfBirth: ["Date of birth is required."],
   placeOfBirth: ["Place of birth is required."],
-  age: ["Age is required.", "Please enter a valid age."],
+  age: ["Age is required.", "Applicants must be between 15 and 30 years old."],
   civilStatus: ["Civil status is required."],
   gender: ["Gender is required."],
   contactNumber: ["Contact number is required."],
@@ -428,6 +421,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
   const profileAge = profileBirthDate ? computeAgeFromDateValue(profileBirthDate) : undefined;
   const profileVoterStatus = userProfile.registration?.registeredNationalVoter || userProfile.registeredNationalVoter;
 
+  const [educationLevel, setEducationLevel] = useState<SkeapEducationLevel | "">("");
   const [course, setCourse] = useState("");
   const [yearLevel, setYearLevel] = useState("");
   const [gwa, setGwa] = useState("");
@@ -465,6 +459,9 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
   );
   const [totalFamilyMonthlyIncome, setTotalFamilyMonthlyIncome] = useState("");
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+  const yearLevels = educationLevel ? SKEAP_YEAR_LEVELS[educationLevel] : [];
+  const isJuniorHighSchool = educationLevel === "Junior High School";
+  const isSeniorHighSchool = educationLevel === "Senior High School";
   const isIncomingFreshman = yearLevel === "Incoming Freshman";
 
   function getUploadLabel(key: SkeapUploadKey) {
@@ -552,8 +549,8 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
       const parsedAge = Number(age);
       if (!age.trim()) {
         addError("age", "Age is required.");
-      } else if (Number.isNaN(parsedAge) || parsedAge <= 0 || parsedAge > 120) {
-        addError("age", "Please enter a valid age between 1 and 120.");
+      } else if (Number.isNaN(parsedAge) || parsedAge < 15 || parsedAge > 30) {
+        addError("age", "Applicants must be between 15 and 30 years old.");
       }
       if (!civilStatus.trim()) addError("civilStatus", "Civil status is required.");
       if (!gender.trim()) addError("gender", "Gender is required.");
@@ -568,8 +565,14 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
       }
     }
     if (step === 1) {
-      if (!course.trim()) addError("course", "Course is required.");
+      if (!educationLevel) addError("educationLevel", "Education level is required.");
+      if (!isJuniorHighSchool && !course.trim()) {
+        addError("course", isSeniorHighSchool ? "Academic / TVL strand is required." : "Course is required.");
+      }
       if (!yearLevel.trim()) addError("yearLevel", "Year level is required.");
+      else if (!educationLevel || !SKEAP_YEAR_LEVELS[educationLevel].includes(yearLevel)) {
+        addError("yearLevel", "Select a year level for the chosen education level.");
+      }
       if (!fathersName.trim()) addError("fathersName", "Father's name is required.");
       if (!fathersOccupation.trim()) addError("fathersOccupation", "Father's occupation is required.");
       if (!fathersContact.trim()) addError("fathersContact", "Father's contact is required.");
@@ -910,7 +913,8 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           schoolName: schoolName.trim(),
-          currentCourse: course,
+          educationLevel,
+          currentCourse: course.trim() || (isJuniorHighSchool ? "N/A" : ""),
           yearLevel,
           gwa: gwa,
           enrollmentFileUrl: enrollmentFileUrl || doneUrls[0],
@@ -1117,7 +1121,8 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
               <input
                 data-required="profile"
                 type="number"
-                min="1"
+                min="15"
+                max="30"
                 required
                 aria-required="true"
                 value={age}
@@ -1433,35 +1438,77 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
             <h4 className="text-sm font-semibold">SCHOOL INFORMATION</h4>
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
-            <EditableField
-              label="Current / Intended Course"
-              value={course}
-              onChange={(value) => { setCourse(value); markFieldValid("course"); }}
-              placeholder="e.g., BS Information Technology"
-              dataRequired="scholarship"
-              required
-              invalid={invalidFields.has("course")}
-            />
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Education Level <span className="text-black" aria-hidden="true">*</span>
+              </span>
+              <div className="relative mt-1">
+                <select
+                  data-required="scholarship"
+                  required
+                  aria-required="true"
+                  value={educationLevel}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value as SkeapEducationLevel | "";
+                    setEducationLevel(value);
+                    setYearLevel("");
+                    setCourse("");
+                    markFieldValid("educationLevel");
+                    markFieldValid("yearLevel");
+                    markFieldValid("course");
+                  }}
+                  aria-invalid={invalidFields.has("educationLevel")}
+                  className={`w-full appearance-none rounded-xl border py-2 pl-3 pr-10 text-sm text-slate-900 ${invalidFields.has("educationLevel") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
+                >
+                  <option value="">Select education level</option>
+                  {SKEAP_EDUCATION_LEVELS.map((level) => (
+                    <option key={level} value={level}>{level}</option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                  aria-hidden="true"
+                />
+              </div>
+            </label>
+            {!isJuniorHighSchool ? (
+              <EditableField
+                label={isSeniorHighSchool ? "Academic / TVL Strand" : "Current / Intended Course"}
+                value={course}
+                onChange={(value) => { setCourse(value); markFieldValid("course"); }}
+                placeholder={isSeniorHighSchool ? "e.g., STEM, HUMSS" : "e.g., BS Information Technology"}
+                dataRequired="scholarship"
+                required
+                invalid={invalidFields.has("course")}
+              />
+            ) : null}
             <label className="flex flex-col">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Year level <span className="text-black" aria-hidden="true">*</span></span>
-              <select
-                data-required="scholarship"
-                required
-                aria-required="true"
-                value={yearLevel}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setYearLevel(value);
-                  if (value.trim()) markFieldValid("yearLevel");
-                }}
-                aria-invalid={invalidFields.has("yearLevel")}
-                className={`mt-1 rounded-xl border px-3 py-2 text-sm text-slate-900 ${invalidFields.has("yearLevel") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
-              >
-                <option value="">Select year level</option>
-                {YEAR_LEVELS.map((year) => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
+              <div className="relative mt-1">
+                <select
+                  data-required="scholarship"
+                  required
+                  aria-required="true"
+                  value={yearLevel}
+                  disabled={!educationLevel}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setYearLevel(value);
+                    if (value.trim()) markFieldValid("yearLevel");
+                  }}
+                  aria-invalid={invalidFields.has("yearLevel")}
+                  className={`w-full appearance-none rounded-xl border py-2 pl-3 pr-10 text-sm text-slate-900 ${invalidFields.has("yearLevel") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
+                >
+                  <option value="">{educationLevel ? "Select year level" : "Select education level first"}</option>
+                  {yearLevels.map((year) => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                  aria-hidden="true"
+                />
+              </div>
             </label>
           </div>
 

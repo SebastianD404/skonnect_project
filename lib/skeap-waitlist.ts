@@ -10,6 +10,7 @@ export type SkeapWaitlistApplication = {
   emailAddress: string;
   contactNumber: string | null;
   school: string;
+  educationLevel: string | null;
   currentCourse: string;
   yearLevel: string;
 };
@@ -32,6 +33,7 @@ export async function getSkeapWaitlistSnapshot(): Promise<SkeapWaitlistSnapshot>
       emailAddress: true,
       contactNumber: true,
       school: true,
+      educationLevel: true,
       currentCourse: true,
       yearLevel: true,
       user: { select: { fullName: true, email: true } },
@@ -54,6 +56,7 @@ export async function getSkeapWaitlistSnapshot(): Promise<SkeapWaitlistSnapshot>
       emailAddress: application.emailAddress || application.user.email,
       contactNumber: application.contactNumber,
       school: normalizeSkeapSchoolName(application.school),
+      educationLevel: application.educationLevel,
       currentCourse: application.currentCourse,
       yearLevel: application.yearLevel,
     })),

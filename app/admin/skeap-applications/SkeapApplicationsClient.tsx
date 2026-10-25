@@ -78,6 +78,7 @@ interface ApplicationRecord {
   documents: DocumentItem[];
   uploadGroups?: UploadGroup[];
   application?: {
+    educationLevel?: string;
     currentCourse?: string;
     yearLevel?: string;
     gwa?: number | null;
@@ -1463,9 +1464,13 @@ export default function SkeapApplicationsClient({
                           <span className="text-sm font-semibold text-slate-900">{isReviewFinalized ? "5/5" : `${verifiedCount}/${verifyDocumentCount}`}</span>
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Course / Year</span>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Education / Course / Year</span>
                           <span className="break-words text-sm font-semibold text-slate-900">
-                            {[applicationDetails?.currentCourse, selectedApplication.yearLevel || applicationDetails?.yearLevel]
+                            {[
+                              applicationDetails?.educationLevel,
+                              applicationDetails?.currentCourse === "N/A" ? undefined : applicationDetails?.currentCourse,
+                              selectedApplication.yearLevel || applicationDetails?.yearLevel,
+                            ]
                               .filter(Boolean)
                               .join(" • ") || "Not provided"}
                           </span>

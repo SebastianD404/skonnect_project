@@ -1,3 +1,4 @@
 export function isSkeapTestAccount(email: string | null | undefined) {
-  return email?.trim().toLowerCase() === "test@example.com";
+  const normalizedEmail = email?.trim().toLowerCase();
+  return normalizedEmail === "test@example.com" || normalizedEmail === "test2@example.com";
 }

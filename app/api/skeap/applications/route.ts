@@ -8,6 +8,7 @@ import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-ca
 import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
+import { isSkeapEducationLevel, isValidSkeapYearLevel } from "@/lib/skeap-education";
 
 const EDUCATION_LEVELS = ["elementary", "highSchool", "college", "vocational"] as const;
 const EDUCATION_FIELDS = [
@@ -126,6 +127,7 @@ function normalizeEducationalBackground(value: unknown): Prisma.InputJsonObject 
 function buildSkeapInquiryMessage(data: {
   applicantName?: string;
   schoolName?: string;
+  educationLevel?: string;
   currentCourse: string;
   yearLevel: string;
   emailAddress?: string;
@@ -139,7 +141,8 @@ function buildSkeapInquiryMessage(data: {
     "Applicant submitted a SKEAP application.",
     `Applicant Name: ${data.applicantName || "Unknown"}`,
     `School / Institution: ${data.schoolName || "Unknown"}`,
-    `Course: ${data.currentCourse}`,
+    ...(data.educationLevel ? [`Education Level: ${data.educationLevel}`] : []),
+    ...(data.currentCourse !== "N/A" ? [`Course / Strand: ${data.currentCourse}`] : []),
     `Year Level: ${data.yearLevel}`,
   ];
 
@@ -215,6 +218,7 @@ export async function POST(request: NextRequest) {
       ? `${lastName}, ${firstName} ${middleName}`
       : "";
     const schoolName = normalizeSkeapSchoolName(String(body.schoolName || "").trim());
+    const educationLevel = String(body.educationLevel || "").trim();
     const currentCourse = String(body.currentCourse || "").trim();
     const yearLevel = String(body.yearLevel || "").trim();
     const permanentAddressInput = String(body.permanentAddress ?? "").trim();
@@ -303,13 +307,21 @@ export async function POST(request: NextRequest) {
       : null;
     const educationalBackground = normalizeEducationalBackground(body.educationalBackground);
 
-    if (!schoolName || !currentCourse || !yearLevel || !enrollmentFileUrl || !reportCardFileUrl) {
+    if (!isSkeapEducationLevel(educationLevel)) {
+      return NextResponse.json({ error: "Select a valid education level." }, { status: 400 });
+    }
+    if (!isValidSkeapYearLevel(educationLevel, yearLevel)) {
       return NextResponse.json(
-        { error: "School, course, year level, enrollment file, and report card file are required." },
+        { error: "Select a valid year level for the selected education level." },
         { status: 400 }
       );
     }
-
+    if (!schoolName || (educationLevel !== "Junior High School" && !currentCourse) || !enrollmentFileUrl || !reportCardFileUrl) {
+      return NextResponse.json(
+        { error: "School, education level, year level, enrollment file, and report card file are required. Course or strand is required except for Junior High School." },
+        { status: 400 }
+      );
+    }
     if (
       !fathersName ||
       !fathersOccupation ||
@@ -329,8 +341,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "GWA must be between 0 and 100." }, { status: 400 });
     }
 
-    if (age === undefined || Number.isNaN(age) || age <= 0 || age > 120) {
-      return NextResponse.json({ error: "Age must be a valid number between 1 and 120." }, { status: 400 });
+    if (age === undefined || Number.isNaN(age) || age < 15 || age > 30) {
+      return NextResponse.json({ error: "Applicants must be between 15 and 30 years old." }, { status: 400 });
     }
 
     if (!isSkeapTestAccount(user.email)) {
@@ -389,7 +401,8 @@ export async function POST(request: NextRequest) {
     const baseCreateData = {
       userId: appUser.id,
       school: schoolName,
-      currentCourse,
+      educationLevel,
+      currentCourse: currentCourse || "N/A",
       yearLevel,
       gwa: gwa === null ? null : gwa,
       // Persist optional grades and timeline if provided by client
@@ -447,6 +460,7 @@ export async function POST(request: NextRequest) {
           message: `${applicantMessage}\n\n${buildSkeapInquiryMessage({
             applicantName: createData.applicantName,
             schoolName: createData.school,
+            educationLevel,
             currentCourse,
             yearLevel,
             emailAddress: createData.emailAddress,

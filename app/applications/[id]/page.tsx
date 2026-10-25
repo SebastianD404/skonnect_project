@@ -72,6 +72,7 @@ export default async function ApplicationPage({ params }: Props) {
         select: {
           id: true,
           school: true,
+          educationLevel: true,
           currentCourse: true,
           yearLevel: true,
           gwa: true,
@@ -163,6 +164,7 @@ export default async function ApplicationPage({ params }: Props) {
               ? {
                   id: application.application.id,
                   school: application.application.school ?? undefined,
+                  educationLevel: application.application.educationLevel ?? undefined,
                   currentCourse: application.application.currentCourse,
                   yearLevel: application.application.yearLevel,
                   gwa: application.application.gwa ?? undefined,

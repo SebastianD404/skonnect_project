@@ -44,6 +44,7 @@ type ApplicationReviewProps = {
     application?: {
       id: string;
       school?: string;
+      educationLevel?: string;
       currentCourse?: string;
       yearLevel?: string;
       gwa?: number | null;
@@ -748,7 +749,10 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
             <div className="grid grid-cols-2 gap-x-4 gap-y-4 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
               <DetailItem label="School / Institution" value={submissionSummary?.["School / Institution"] || application.application?.school} />
               <DetailItem label="Year Level" value={submissionSummary?.["Year Level"] || application.application?.yearLevel} />
-              <DetailItem label="Course" value={submissionSummary?.Course || application.application?.currentCourse} />
+              <DetailItem label="Education Level" value={application.application?.educationLevel} />
+              {application.application?.currentCourse !== "N/A" ? (
+                <DetailItem label={application.application?.educationLevel === "Senior High School" ? "Academic / TVL Strand" : "Course"} value={submissionSummary?.Course || application.application?.currentCourse} />
+              ) : null}
               <DetailItem label="Contact Number" value={submissionSummary?.["Contact Number"] || application.application?.contactNumber} />
               <div className="border-t border-slate-200/60 pt-3">
                 <DetailItem

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, Upload } from "lucide-react";
+import { Image as ImageIcon, LoaderCircle, Upload } from "lucide-react";
 
 type DropzoneStatus = "idle" | "error" | "success";
 
@@ -23,6 +23,7 @@ export default function SmartPortraitDropzone({
   const uploadAttemptRef = useRef(0);
   const [status, setStatus] = useState<DropzoneStatus>(uploadedUrl ? "success" : "idle");
   const [previewUrl, setPreviewUrl] = useState<string | null>(uploadedUrl ?? null);
+  const [previewFailed, setPreviewFailed] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [isDragging, setIsDragging] = useState(false);
@@ -54,6 +55,7 @@ export default function SmartPortraitDropzone({
     previewObjectUrlRef.current = nextPreviewUrl;
     setSelectedFile(file);
     setPreviewUrl(nextPreviewUrl);
+    setPreviewFailed(false);
     setStatus("success");
     setErrorMessage("");
     setIsUploading(true);
@@ -114,8 +116,35 @@ export default function SmartPortraitDropzone({
       ) : previewUrl ? (
         <div className={`flex min-w-0 items-center justify-between gap-3 rounded-xl border p-3 ${invalid ? "border-rose-300 bg-rose-50/30" : "border-slate-200 bg-slate-50"}`}>
           <div className="flex min-w-0 items-center gap-3">
-            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-slate-200">
-              <img src={previewUrl} alt="Portrait preview" className="h-full w-full object-cover" />
+            <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-slate-100">
+              {previewFailed ? (
+                <div className="flex h-full flex-col items-center justify-center gap-1 text-slate-400" role="img" aria-label="Portrait preview unavailable">
+                  <ImageIcon className="h-6 w-6" aria-hidden="true" />
+                  <span className="text-[9px] font-medium">Preview unavailable</span>
+                </div>
+              ) : (
+                <a
+                  href={uploadedUrl || previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="View portrait photo"
+                  title="View portrait photo"
+                  className="block h-full w-full cursor-zoom-in"
+                >
+                  <img
+                    src={previewUrl}
+                    alt="Portrait preview"
+                    className="h-full w-full object-cover transition-opacity hover:opacity-80"
+                    onError={() => {
+                      if (uploadedUrl && previewUrl !== uploadedUrl) {
+                        setPreviewUrl(uploadedUrl);
+                        return;
+                      }
+                      setPreviewFailed(true);
+                    }}
+                  />
+                </a>
+              )}
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-slate-900" title={selectedFile?.name || uploadedName}>

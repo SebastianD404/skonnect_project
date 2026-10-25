@@ -265,7 +265,13 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     <td className="px-6 py-4 text-slate-700">
                       <div className="flex flex-col gap-0.5">
                         <p>{normalizeSkeapSchoolName(application.school)}</p>
-                        <p className="text-xs font-medium text-slate-500">{application.currentCourse} · {application.yearLevel}</p>
+                        <p className="text-xs font-medium text-slate-500">
+                          {[
+                            application.educationLevel,
+                            application.currentCourse === "N/A" ? undefined : application.currentCourse,
+                            application.yearLevel,
+                          ].filter(Boolean).join(" · ")}
+                        </p>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">{formatDate(application.submittedAt)}</td>

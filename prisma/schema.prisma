@@ -164,6 +164,7 @@ model SkeapApplication {
   signatureUrl      String?
   mothersContact    String?
   school            String
+  educationLevel    String?
   gender            String?
   grades            Json?
   timeline          Json?

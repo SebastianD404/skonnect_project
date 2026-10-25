@@ -72,6 +72,7 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   const [userProfile, setUserProfile] = useState<KKProfile | null>(null);
   const [checkingKkProfile, setCheckingKkProfile] = useState(false);
   const [kkCheckError, setKkCheckError] = useState<string | null>(null);
+  const [kkCheckUnavailable, setKkCheckUnavailable] = useState(false);
   const [showKkRequiredModal, setShowKkRequiredModal] = useState(false);
   const [status, setStatus] = useState<ProgramStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -112,6 +113,7 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
 
     setCheckingKkProfile(true);
     setKkCheckError(null);
+    setKkCheckUnavailable(false);
     const isTestAccount = isSkeapTestAccount(user?.email);
 
     try {
@@ -142,7 +144,10 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
         setShowKkRequiredModal(true);
       }
     } catch (error) {
-      console.error("Unable to load KK profile before SKEAP application:", error);
+      if (!(error instanceof Error && error.message === "KK profile not found")) {
+        console.error("Unable to load KK profile before SKEAP application:", error);
+        setKkCheckUnavailable(true);
+      }
       setShowKkRequiredModal(true);
     } finally {
       setCheckingKkProfile(false);
@@ -271,6 +276,33 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                   >
                     Check KK Status
                   </Link>
+                </div>
+              </>
+            ) : kkCheckUnavailable ? (
+              <>
+                <p className="text-xs uppercase tracking-[0.28em] text-amber-600">Temporarily unavailable</p>
+                <h3 className="mt-2 text-3xl font-semibold text-slate-900">Unable to verify your KK profile</h3>
+                <p className="mt-4 text-sm leading-7 text-slate-600">
+                  We couldn’t check your KK profile right now. Please try again in a moment.
+                </p>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowKkRequiredModal(false)}
+                    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowKkRequiredModal(false);
+                      void openApplyFlow();
+                    }}
+                    className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Try again
+                  </button>
                 </div>
               </>
             ) : (

@@ -14,6 +14,7 @@ const TEMPLATE_PATH = join(process.cwd(), "public", "SKEAP Application Form.docx
 export const SKEAP_APPLICATION_DOCX_BASE_SELECT = {
   id: true,
   userId: true,
+  educationLevel: true,
   currentCourse: true,
   yearLevel: true,
   gwa: true,
@@ -57,6 +58,7 @@ type SkeapApplicationTemplateInput = {
   contactNumber?: string | null;
   emailAddress?: string | null;
   school?: string | null;
+  educationLevel?: string | null;
   yearLevel?: string | null;
   currentCourse?: string | null;
   fathersName?: string | null;
@@ -242,8 +244,11 @@ export function buildSkeapApplicationTemplateData(
     contactNumber: safeText(context.contactNumber ?? application.contactNumber),
     emailAddress: normalizeEmail(context.email ?? application.emailAddress),
     school: normalizeSkeapSchoolName(toTitleCase(application.school)),
+    educationLevel: toTitleCase(application.educationLevel),
     yearLevel: toTitleCase(application.yearLevel),
-    course: toTitleCase(application.currentCourse),
+    course: application.educationLevel === "Junior High School"
+      ? ""
+      : toTitleCase(application.currentCourse === "N/A" ? "" : application.currentCourse),
     fatherName: toTitleCase(application.fathersName),
     fatherOccupation: toTitleCase(application.fathersOccupation),
     fatherContact: safeText(application.fathersContact),

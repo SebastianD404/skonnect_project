@@ -135,6 +135,7 @@ function mapInquiryToApplication(inquiry: {
   };
   application?: {
     school?: string | null;
+    educationLevel?: string | null;
     currentCourse: string;
     yearLevel: string;
     gwa?: number | null;
@@ -269,6 +270,7 @@ function mapInquiryToApplication(inquiry: {
     uploadGroups,
     application: inquiry.application
       ? {
+          educationLevel: inquiry.application.educationLevel || undefined,
           currentCourse: inquiry.application.currentCourse,
           yearLevel: inquiry.application.yearLevel,
           gwa: inquiry.application.gwa,

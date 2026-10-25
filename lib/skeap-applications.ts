@@ -64,6 +64,7 @@ export const SKEAP_APPLICATION_SELECT = {
   application: {
     select: {
       school: true,
+      educationLevel: true,
       currentCourse: true,
       yearLevel: true,
       gwa: true,
@@ -326,6 +327,7 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
     uploadGroups,
     application: inquiry.application
       ? {
+          educationLevel: inquiry.application.educationLevel ?? undefined,
           currentCourse: inquiry.application.currentCourse,
           yearLevel: inquiry.application.yearLevel,
           gwa: inquiry.application.gwa,

@@ -121,6 +121,22 @@ describe("SKEAP application DOCX", () => {
     expect(templateData.vocYear).toBe("N/A");
   });
 
+  it("omits the course field for Junior High School applications", () => {
+    const templateData = buildSkeapApplicationTemplateData(
+      {
+        educationLevel: "Junior High School",
+        currentCourse: "N/A",
+        yearLevel: "Grade 9",
+      },
+      {},
+      "",
+    );
+
+    expect(templateData.educationLevel).toBe("Junior High School");
+    expect(templateData.yearLevel).toBe("Grade 9");
+    expect(templateData.course).toBe("");
+  });
+
   it("uses the current profile name instead of a stale SKEAP application name", () => {
     const templateData = buildSkeapApplicationTemplateData(
       {
