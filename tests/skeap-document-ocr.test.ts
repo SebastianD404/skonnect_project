@@ -7,6 +7,7 @@ import PizZip from "pizzip";
 
 vi.mock("tesseract.js", () => ({
   createWorker: vi.fn(),
+  PSM: { AUTO: "3", SPARSE_TEXT: "11" },
 }));
 
 vi.mock("pdfjs-dist", () => ({
@@ -18,6 +19,7 @@ const mockedCreateWorker = vi.mocked(createWorker);
 const mockedGetDocument = vi.mocked(getDocument);
 const worker = {
   recognize: vi.fn(),
+  setParameters: vi.fn().mockResolvedValue(undefined),
   terminate: vi.fn(),
 };
 
@@ -79,6 +81,44 @@ describe("validateDocumentOCR", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:document");
   });
 
+  it("keeps a successful verification if worker cleanup fails afterward", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "CERTIFICATE OF LIVE BIRTH PSA", confidence: 87 },
+    });
+    worker.terminate.mockRejectedValueOnce(new Error("worker already stopped"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await validateDocumentOCR(
+      { type: "image/png" } as File,
+      SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
+    );
+
+    expect(result.status).toBe("verified");
+    expect(warn).toHaveBeenCalledWith(
+      "Could not cleanly stop the SKEAP OCR worker after validation.",
+      expect.any(Error)
+    );
+  });
+
+  it("shows the reader error when OCR initialization fails", async () => {
+    mockedCreateWorker.mockRejectedValueOnce(new Error("Failed to fetch language data"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await validateDocumentOCR(
+      { type: "image/jpeg", name: "birth-certificate.jpg" } as File,
+      SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
+    );
+
+    expect(result).toMatchObject({
+      status: "review",
+      reason: expect.stringContaining("Error: Failed to fetch language data"),
+    });
+    expect(error).toHaveBeenCalledWith(
+      "SKEAP upload could not be read automatically; manual review is available.",
+      expect.objectContaining({ currentStep: "reading the document text" })
+    );
+  });
+
   it("requests manual review when image confidence is too low", async () => {
     worker.recognize.mockResolvedValue({
       data: { text: "BARANGAY CERTIFICATION", confidence: 42 },
@@ -91,6 +131,39 @@ describe("validateDocumentOCR", () => {
 
     expect(result.status).toBe("review");
     expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("accepts a clearly recognized birth-certificate heading at moderate OCR confidence", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "CERTIFICATE OF LIVE BIRTH PSA", confidence: 42 },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "image/jpeg" } as File,
+      SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
+    );
+
+    expect(result).toMatchObject({
+      status: "verified",
+      extractedText: "CERTIFICATE OF LIVE BIRTH PSA",
+      confidence: 42,
+    });
+  });
+
+  it("keeps a weak birth-certificate signal in manual review at moderate OCR confidence", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "LIVE BIRTH", confidence: 42 },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "image/jpeg" } as File,
+      SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
+    );
+
+    expect(result).toMatchObject({
+      status: "review",
+      reason: "The text may be too blurry or unclear to verify.",
+    });
   });
 
   it("matches the singular grade keyword", async () => {
@@ -106,7 +179,20 @@ describe("validateDocumentOCR", () => {
     expect(result.status).toBe("verified");
   });
 
-  it("verifies matching valid ID text without requiring face detection", async () => {
+  it("matches common OCR character errors in a family-income certificate heading", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "CERTIFICAT OF LOW INCOME", confidence: 87 },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "image/webp" } as File,
+      SKEAP_UPLOAD_KEY.FAMILY_INCOME
+    );
+
+    expect(result.status).toBe("verified");
+  });
+
+  it("does not accept an unrelated photo ID as a birth certificate", async () => {
     worker.recognize.mockResolvedValue({
       data: { text: "REPUBLIC OF THE PHILIPPINES DRIVER'S LICENSE NAME: SAMPLE APPLICANT", confidence: 87 },
     });
@@ -118,25 +204,25 @@ describe("validateDocumentOCR", () => {
       SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
     );
 
-    expect(result.status).toBe("verified");
+    expect(result.status).toBe("review");
     expect(faceDetector).not.toHaveBeenCalled();
   });
 
-  it("verifies a DOCX file when its extracted text matches the upload slot", async () => {
+  it("sends an unrelated ID in a DOCX file for manual review", async () => {
     const result = await validateDocumentOCR(
       createDocxFile("valid-id.docx", "PHILIPPINE NATIONAL ID NAME: SAMPLE APPLICANT ADDRESS: LA TRINIDAD"),
       SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
     );
 
     expect(result).toMatchObject({
-      status: "verified",
+      status: "review",
       extractedText: "PHILIPPINE NATIONAL ID NAME: SAMPLE APPLICANT ADDRESS: LA TRINIDAD",
       confidence: 100,
     });
     expect(mockedCreateWorker).not.toHaveBeenCalled();
   });
 
-  it("checks DOCX files with generic ZIP MIME types and reads document headers", async () => {
+  it("sends generic ZIP documents with unrelated ID text for manual review", async () => {
     const result = await validateDocumentOCR(
       createDocxFile(
         "valid-id.docx",
@@ -148,13 +234,13 @@ describe("validateDocumentOCR", () => {
     );
 
     expect(result).toMatchObject({
-      status: "verified",
+      status: "review",
       extractedText: "Applicant Name BUREAU OF INTERNAL REVENUE DIGITAL TIN ID",
       confidence: 100,
     });
   });
 
-  it("OCR-checks scanned images embedded in DOCX files when body text does not match", async () => {
+  it("OCR-checks scanned DOCX images but does not accept an unrelated ID", async () => {
     worker.recognize.mockResolvedValue({
       data: { text: "PHILIPPINE NATIONAL ID NAME: SAMPLE APPLICANT ADDRESS: LA TRINIDAD", confidence: 87 },
     });
@@ -165,7 +251,7 @@ describe("validateDocumentOCR", () => {
     );
 
     expect(result).toMatchObject({
-      status: "verified",
+      status: "review",
       extractedText: "Applicant Name\nPHILIPPINE NATIONAL ID NAME: SAMPLE APPLICANT ADDRESS: LA TRINIDAD",
       confidence: 87,
     });
@@ -198,7 +284,7 @@ describe("validateDocumentOCR", () => {
     expect(mockedCreateWorker).not.toHaveBeenCalled();
   });
 
-  it("verifies a Digital TIN ID from matching readable text", async () => {
+  it("does not accept a Digital TIN ID as a birth certificate", async () => {
     worker.recognize.mockResolvedValue({
       data: {
         text: "BUREAU OF INTERNAL REVENUE DIGITAL TIN ID TAXPAYER IDENTIFICATION NUMBER NAME: SAMPLE APPLICANT",
@@ -209,11 +295,10 @@ describe("validateDocumentOCR", () => {
       { type: "image/png" } as File,
       SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
     );
-    expect(result.status).toBe("verified");
-    expect(result.status).toBe("verified");
+    expect(result.status).toBe("review");
   });
 
-  it("matches local school ID wording without regard to letter case", async () => {
+  it("does not accept local school ID wording as a birth certificate", async () => {
     worker.recognize.mockResolvedValue({
       data: { text: "LA TRINIDAD BENGUET SCHOOL ID NO: 12345", confidence: 87 },
     });
@@ -222,13 +307,81 @@ describe("validateDocumentOCR", () => {
       SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
     );
 
+    expect(result.status).toBe("review");
+  });
+
+  it("matches common OCR character errors in birth-certificate headings", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "CERTIFICAT OF LIVE BIRTH P5A", confidence: 87 },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "image/png" } as File,
+      SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
+    );
+
     expect(result.status).toBe("verified");
+  });
+
+  it.each([
+    SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE,
+    SKEAP_UPLOAD_KEY.FAMILY_INCOME,
+    SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY,
+    SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
+    SKEAP_UPLOAD_KEY.GRADE_REPORT,
+  ])("retries %s with sparse-text segmentation when the default pass misses its keywords", async (documentType) => {
+    worker.recognize
+      .mockResolvedValueOnce({ data: { text: "REPUBLIC OF THE PHILIPPINES", confidence: 80 } })
+      .mockResolvedValueOnce({
+        data: {
+          text: documentType === SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
+            ? "CERTIFICATE OF LIVE BIRTH PSA"
+            : documentType === SKEAP_UPLOAD_KEY.FAMILY_INCOME
+              ? "CERTIFICATE OF LOW INCOME"
+              : documentType === SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY
+                ? "BARANGAY CERTIFICATION OF RESIDENCY"
+                : documentType === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT
+                  ? "CERTIFICATE OF ENROLLMENT"
+                  : "FINAL GRADES",
+          confidence: 87,
+        },
+      });
+
+    const result = await validateDocumentOCR(
+      { type: "image/png" } as File,
+      documentType
+    );
+
+    expect(result.status).toBe("verified");
+    expect(worker.setParameters).toHaveBeenCalledOnce();
+    expect(worker.recognize).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the initial OCR result when an optional layout retry fails", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "REPUBLIC OF THE PHILIPPINES", confidence: 82 },
+    });
+    worker.setParameters.mockRejectedValueOnce(new Error("Tesseract parameter update failed"));
+
+    const result = await validateDocumentOCR(
+      { type: "image/jpeg" } as File,
+      SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
+    );
+
+    expect(result).toMatchObject({
+      status: "review",
+      extractedText: "REPUBLIC OF THE PHILIPPINES",
+      reason: "The document text does not clearly match this upload slot.",
+    });
+    if (result.status === "review") {
+      expect(result.reason).not.toContain("document reader ran into a problem");
+    }
   });
 
   it("matches voter certificate terms without regard to letter case", async () => {
     worker.recognize.mockResolvedValue({
       data: {
-        text: "COMMISSION ON ELECTIONS - CERTIFICATION OF REGISTRATION, PRECINCT 123",
+        text: "VOTER CERTIFICATE",
         confidence: 87,
       },
     });
@@ -241,15 +394,152 @@ describe("validateDocumentOCR", () => {
     expect(result.status).toBe("verified");
   });
 
-  it("requests manual review for PDFs in other document slots", async () => {
+  it("runs OCR on WebP uploads", async () => {
+    worker.recognize.mockResolvedValue({
+      data: {
+        text: "VOTER CERTIFICATE",
+        confidence: 87,
+      },
+    });
+    const imageData = {
+      data: new Uint8ClampedArray([255, 0, 0, 255]),
+      width: 1,
+      height: 1,
+    };
+    const putImageData = vi.fn();
+    const context = {
+      drawImage: vi.fn(),
+      getImageData: vi.fn().mockReturnValue(imageData),
+      putImageData,
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn().mockReturnValue(context),
+      toBlob: vi.fn((callback: BlobCallback) => callback(new Blob(["normalized"], { type: "image/png" }))),
+    };
+    vi.stubGlobal("document", { createElement: vi.fn().mockReturnValue(canvas) });
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue({
+      width: 640,
+      height: 480,
+      close: vi.fn(),
+    }));
+
+    const result = await validateDocumentOCR(
+      { type: "image/webp", name: "voters-certificate.webp" } as File,
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+    );
+
+    expect(result.status).toBe("verified");
+    expect(URL.createObjectURL).toHaveBeenCalledWith(expect.objectContaining({ type: "image/png" }));
+    expect(context.getImageData).toHaveBeenCalledWith(0, 0, 640, 480);
+    expect(putImageData).toHaveBeenCalledWith(imageData, 0, 0);
+    expect([...imageData.data]).toEqual([50, 50, 50, 255]);
+    expect(worker.recognize).toHaveBeenCalledOnce();
+  });
+
+  it("retries the original image when preprocessing hides the voter keywords", async () => {
+    const imageData = {
+      data: new Uint8ClampedArray([255, 255, 255, 255]),
+      width: 640,
+      height: 480,
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn().mockReturnValue({
+        drawImage: vi.fn(),
+        getImageData: vi.fn().mockReturnValue(imageData),
+        putImageData: vi.fn(),
+      }),
+      toBlob: vi.fn((callback: BlobCallback) => callback(new Blob(["enhanced"], { type: "image/png" }))),
+    };
+    vi.stubGlobal("document", { createElement: vi.fn().mockReturnValue(canvas) });
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue({
+      width: 640,
+      height: 480,
+      close: vi.fn(),
+    }));
+    worker.recognize
+      .mockResolvedValueOnce({ data: { text: "CERTIFICATION OF REGISTRATION", confidence: 90 } })
+      .mockResolvedValueOnce({ data: { text: "VOTER CERTIFICATE", confidence: 45 } });
+
+    const result = await validateDocumentOCR(
+      { type: "image/png", name: "voters-certificate.png" } as File,
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+    );
+
+    expect(result.status).toBe("verified");
+    expect(result.extractedText).toBe("VOTER CERTIFICATE");
+    expect(worker.recognize).toHaveBeenCalledTimes(2);
+  });
+
+  it("matches normalized voter keywords even when OCR includes spaces and punctuation", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "C.O.M.M.I.S.S.I.O.N  on  ELECTIONS", confidence: 10 },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "image/png", name: "voters-certificate.png" } as File,
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+    );
+
+    expect(result.status).toBe("verified");
+  });
+
+  it("matches the normalized vote keyword even when OCR confidence is low", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "V O T E", confidence: 10 },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "image/png", name: "voters-certificate.png" } as File,
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+    );
+
+    expect(result.status).toBe("verified");
+  });
+
+  it("does not treat a removed legacy keyword as a voter-certificate match", async () => {
+    worker.recognize.mockResolvedValue({
+      data: { text: "VIN", confidence: 10 },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "image/png", name: "voters-certificate.png" } as File,
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+    );
+
+    expect(result.status).toBe("review");
+  });
+
+  it("validates searchable PDFs in non-birth-certificate document slots", async () => {
+    const page = {
+      getTextContent: vi.fn().mockResolvedValue({ items: [{ str: "FINAL GRADE: 95" }] }),
+      cleanup: vi.fn(),
+    };
+    const pdfDocument = {
+      numPages: 1,
+      getPage: vi.fn().mockResolvedValue(page),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    };
+    mockedGetDocument.mockReturnValue({
+      promise: Promise.resolve(pdfDocument),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    } as never);
+
     const result = await validateDocumentOCR(
       { type: "application/pdf", name: "grades.pdf", arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)) } as unknown as File,
       SKEAP_UPLOAD_KEY.GRADE_REPORT
     );
 
-    expect(result.status).toBe("review");
+    expect(result).toMatchObject({
+      status: "verified",
+      extractedText: "FINAL GRADE: 95",
+      confidence: 100,
+    });
     expect(mockedCreateWorker).not.toHaveBeenCalled();
-    expect(mockedGetDocument).not.toHaveBeenCalled();
+    expect(page.cleanup).toHaveBeenCalledOnce();
   });
 
   it("recommends uploading the original photo when a PDF has no readable text", async () => {
@@ -274,19 +564,23 @@ describe("validateDocumentOCR", () => {
 
     expect(result).toMatchObject({
       status: "review",
-      reason: expect.stringContaining("Upload the original JPG or PNG photo"),
+      reason: expect.stringContaining("Upload the original JPG, PNG, or WebP photo"),
     });
   });
 
-  it("verifies a text-based Valid ID PDF across its pages", async () => {
+  it("sends an unrelated valid-ID PDF in the birth-certificate slot for manual review", async () => {
     const firstPage = {
       getTextContent: vi.fn().mockResolvedValue({ items: [{ str: "Name: Sample Applicant" }] }),
+      getViewport: vi.fn().mockReturnValue({ width: 300, height: 400 }),
+      render: vi.fn().mockReturnValue({ promise: Promise.resolve() }),
       cleanup: vi.fn(),
     };
     const secondPage = {
       getTextContent: vi.fn().mockResolvedValue({
         items: [{ str: "BUREAU OF INTERNAL REVENUE DIGITAL TIN ID TAXPAYER IDENTIFICATION NUMBER" }],
       }),
+      getViewport: vi.fn().mockReturnValue({ width: 300, height: 400 }),
+      render: vi.fn().mockReturnValue({ promise: Promise.resolve() }),
       cleanup: vi.fn(),
     };
     const pdfDocument = {
@@ -300,6 +594,17 @@ describe("validateDocumentOCR", () => {
       promise: Promise.resolve(pdfDocument),
       destroy: vi.fn().mockResolvedValue(undefined),
     } as never);
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => ({
+        width: 0,
+        height: 0,
+        getContext: vi.fn(() => ({})),
+        toBlob: vi.fn((callback: BlobCallback) => callback(new Blob(["rendered page"], { type: "image/png" }))),
+      })),
+    });
+    worker.recognize.mockResolvedValue({
+      data: { text: "UNRELATED ID CONTENT", confidence: 87 },
+    });
 
     const result = await validateDocumentOCR(
       { type: "application/pdf", name: "digital-tin-id.pdf", arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)) } as unknown as File,
@@ -307,11 +612,11 @@ describe("validateDocumentOCR", () => {
     );
 
     expect(result).toMatchObject({
-      status: "verified",
-      extractedText: "Name: Sample Applicant\nBUREAU OF INTERNAL REVENUE DIGITAL TIN ID TAXPAYER IDENTIFICATION NUMBER",
-      confidence: 100,
+      status: "review",
+      confidence: 87,
     });
-    expect(mockedCreateWorker).not.toHaveBeenCalled();
+    expect(result.extractedText).toContain("BUREAU OF INTERNAL REVENUE DIGITAL TIN ID");
+    expect(mockedCreateWorker).toHaveBeenCalledOnce();
     expect(firstPage.cleanup).toHaveBeenCalledOnce();
     expect(secondPage.cleanup).toHaveBeenCalledOnce();
     expect(pdfDocument.destroy).toHaveBeenCalledOnce();
@@ -324,6 +629,8 @@ describe("validateDocumentOCR", () => {
           str: "Linux Mint and Ubuntu Act. This text discusses identification, Benguet, and a national statistics report.",
         }],
       }),
+      getViewport: vi.fn().mockReturnValue({ width: 300, height: 400 }),
+      render: vi.fn().mockReturnValue({ promise: Promise.resolve() }),
       cleanup: vi.fn(),
     };
     const pdfDocument = {
@@ -335,6 +642,17 @@ describe("validateDocumentOCR", () => {
       promise: Promise.resolve(pdfDocument),
       destroy: vi.fn().mockResolvedValue(undefined),
     } as never);
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => ({
+        width: 0,
+        height: 0,
+        getContext: vi.fn(() => ({})),
+        toBlob: vi.fn((callback: BlobCallback) => callback(new Blob(["rendered page"], { type: "image/png" }))),
+      })),
+    });
+    worker.recognize.mockResolvedValue({
+      data: { text: "Linux Mint and Ubuntu Act. This text discusses identification.", confidence: 87 },
+    });
 
     const result = await validateDocumentOCR(
       { type: "application/pdf", name: "unrelated.pdf", arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)) } as unknown as File,
@@ -345,7 +663,49 @@ describe("validateDocumentOCR", () => {
       status: "review",
       reason: "The document text does not clearly match this upload slot.",
     });
+    expect(page.render).toHaveBeenCalledOnce();
     expect(pdfDocument.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("OCRs a scanned PDF page when selectable text exists but does not match the upload slot", async () => {
+    const page = {
+      getTextContent: vi.fn().mockResolvedValue({ items: [{ str: "Applicant: Sample Person" }] }),
+      getViewport: vi.fn().mockReturnValue({ width: 300, height: 400 }),
+      render: vi.fn().mockReturnValue({ promise: Promise.resolve() }),
+      cleanup: vi.fn(),
+    };
+    const pdfDocument = {
+      numPages: 1,
+      getPage: vi.fn().mockResolvedValue(page),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    };
+    mockedGetDocument.mockReturnValue({
+      promise: Promise.resolve(pdfDocument),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    } as never);
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => ({
+        width: 0,
+        height: 0,
+        getContext: vi.fn(() => ({})),
+        toBlob: vi.fn((callback: BlobCallback) => callback(new Blob(["rendered page"], { type: "image/png" }))),
+      })),
+    });
+    worker.recognize.mockResolvedValue({
+      data: { text: "CERTIFICATE OF LOW INCOME", confidence: 87 },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "application/pdf", name: "income-certificate.pdf", arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)) } as unknown as File,
+      SKEAP_UPLOAD_KEY.FAMILY_INCOME
+    );
+
+    expect(result).toMatchObject({
+      status: "verified",
+      extractedText: "Applicant: Sample Person\nCERTIFICATE OF LOW INCOME",
+      confidence: 87,
+    });
+    expect(page.render).toHaveBeenCalledOnce();
   });
 
   it("runs OCR on scanned Birth Certificate PDF pages", async () => {
@@ -395,12 +755,21 @@ describe("validateDocumentOCR", () => {
 
   it("accepts JFIF files with an unexpected MIME type and retries the original when normalized text is empty", async () => {
     const bitmap = { width: 20, height: 10, close: vi.fn() };
+    const imageData = {
+      data: new Uint8ClampedArray([255, 255, 255, 255]),
+      width: 20,
+      height: 10,
+    };
     vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
     vi.stubGlobal("document", {
       createElement: vi.fn(() => ({
         width: 0,
         height: 0,
-        getContext: vi.fn(() => ({ drawImage: vi.fn() })),
+        getContext: vi.fn(() => ({
+          drawImage: vi.fn(),
+          getImageData: vi.fn(() => imageData),
+          putImageData: vi.fn(),
+        })),
         toBlob: vi.fn((callback: BlobCallback) => callback(new Blob(["image"], { type: "image/png" }))),
       })),
     });

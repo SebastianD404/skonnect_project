@@ -1,15 +1,16 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, UploadCloud, X, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, FileText, UploadCloud, X, RefreshCw } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
 
 export type DocumentOCRState = {
-  status: "idle" | "scanning" | "success" | "error";
+  status: "idle" | "scanning" | "success" | "error" | "attached";
   badgeText?: string;
   message?: string;
+  errorCode?: string;
   text?: string;
   parsedDates?: string[];
   birthdateMatched?: boolean;
@@ -51,6 +52,16 @@ export default function DocumentOCRValidationExample({
     back: null,
     residency: null,
   });
+  const [previewErrors, setPreviewErrors] = useState<Record<DocumentOCRKey, boolean>>({
+    front: false,
+    back: false,
+    residency: false,
+  });
+  const [previewLoading, setPreviewLoading] = useState<Record<DocumentOCRKey, boolean>>({
+    front: false,
+    back: false,
+    residency: false,
+  });
   const [modalKey, setModalKey] = useState<DocumentOCRKey | null>(null);
 
   const inputRefs = useRef<Record<DocumentOCRKey, HTMLInputElement | null>>({
@@ -59,6 +70,28 @@ export default function DocumentOCRValidationExample({
     residency: null,
   });
   const restoredInitialFiles = useRef(false);
+  const previewUrlsRef = useRef<Record<DocumentOCRKey, string | null>>({
+    front: null,
+    back: null,
+    residency: null,
+  });
+  const previewGenerationRef = useRef<Record<DocumentOCRKey, number>>({
+    front: 0,
+    back: 0,
+    residency: 0,
+  });
+  const previewFallbackAttemptedRef = useRef<Record<DocumentOCRKey, boolean>>({
+    front: false,
+    back: false,
+    residency: false,
+  });
+
+  useEffect(() => () => {
+    Object.values(previewUrlsRef.current).forEach((url) => {
+      if (url) URL.revokeObjectURL(url);
+    });
+    previewUrlsRef.current = { front: null, back: null, residency: null };
+  }, []);
 
   useEffect(() => {
     onValidationChange?.(docs);
@@ -74,6 +107,9 @@ export default function DocumentOCRValidationExample({
     return imageTypes.includes(file.type) || extensionPattern.test(file.name);
   };
 
+  const isPdfFile = (file: File) =>
+    file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+
   const clearInput = (key: DocumentOCRKey) => {
     const input = inputRefs.current[key];
     if (input) {
@@ -82,19 +118,60 @@ export default function DocumentOCRValidationExample({
   };
 
   const setPreviewUrl = (key: DocumentOCRKey, url: string | null) => {
-    setPreviews((current) => {
-      const previousUrl = current[key];
-      if (previousUrl) {
-        URL.revokeObjectURL(previousUrl);
+    const previousUrl = previewUrlsRef.current[key];
+    if (previousUrl && previousUrl !== url) URL.revokeObjectURL(previousUrl);
+    previewUrlsRef.current[key] = url;
+    setPreviews((current) => ({ ...current, [key]: url }));
+    setPreviewErrors((current) => ({ ...current, [key]: false }));
+  };
+
+  const recoverPreview = async (key: DocumentOCRKey, file: File) => {
+    if (previewFallbackAttemptedRef.current[key]) {
+      setPreviewErrors((current) => ({ ...current, [key]: true }));
+      return;
+    }
+
+    previewFallbackAttemptedRef.current[key] = true;
+    const generation = previewGenerationRef.current[key];
+    setPreviewLoading((current) => ({ ...current, [key]: true }));
+    setPreviewErrors((current) => ({ ...current, [key]: true }));
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/programs/kk-profiling/preview", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(`Preview conversion failed (${response.status}).`);
       }
-      return { ...current, [key]: url };
-    });
+
+      const previewBlob = await response.blob();
+      if (!previewBlob.type.startsWith("image/")) {
+        throw new Error("Preview conversion did not return an image.");
+      }
+      if (generation !== previewGenerationRef.current[key]) return;
+
+      setPreviewUrl(key, URL.createObjectURL(previewBlob));
+    } catch (error) {
+      if (generation !== previewGenerationRef.current[key]) return;
+      console.warn("Could not prepare a browser preview for the KK Profiling image.", {
+        fileName: file.name,
+        error,
+      });
+      setPreviewErrors((current) => ({ ...current, [key]: true }));
+    } finally {
+      if (generation === previewGenerationRef.current[key]) {
+        setPreviewLoading((current) => ({ ...current, [key]: false }));
+      }
+    }
   };
 
   const clearPreview = (key: DocumentOCRKey) => setPreviewUrl(key, null);
 
   const openPreviewModal = (key: DocumentOCRKey) => {
-    if (previews[key]) {
+    if (previews[key] && !previewErrors[key]) {
       setModalKey(key);
     }
   };
@@ -102,12 +179,15 @@ export default function DocumentOCRValidationExample({
   const closePreviewModal = () => setModalKey(null);
 
   const handleInvalidFile = (key: DocumentOCRKey) => {
+    previewGenerationRef.current[key] += 1;
+    previewFallbackAttemptedRef.current[key] = false;
     clearInput(key);
     clearPreview(key);
+    setPreviewLoading((current) => ({ ...current, [key]: false }));
     setDoc(key, {
       file: null,
       status: "error",
-      message: "Only image files are accepted. Please upload JPG or PNG.",
+      message: "Please upload a PDF, JPG, PNG, or WebP file.",
       text: undefined,
       parsedDates: undefined,
       birthdateMatched: undefined,
@@ -116,10 +196,28 @@ export default function DocumentOCRValidationExample({
   };
 
   async function processFile(file: File | null, key: DocumentOCRKey) {
+    const generation = ++previewGenerationRef.current[key];
+    previewFallbackAttemptedRef.current[key] = false;
+    setPreviewLoading((current) => ({ ...current, [key]: false }));
     if (!file) {
       setPreviewUrl(key, null);
       setDoc(key, { file: null, status: "idle", message: undefined, text: undefined, parsedDates: undefined, birthdateMatched: undefined });
       onFileSelected?.(key, null);
+      return;
+    }
+
+    if (isPdfFile(file)) {
+      setPreviewUrl(key, null);
+      onFileSelected?.(key, file);
+      setDoc(key, {
+        file,
+        status: "attached",
+        badgeText: "PDF Attached",
+        message: "PDF Document Attached. It will be checked during application review.",
+        text: undefined,
+        parsedDates: undefined,
+        birthdateMatched: undefined,
+      });
       return;
     }
 
@@ -128,8 +226,12 @@ export default function DocumentOCRValidationExample({
       return;
     }
 
-    const previewUrl = URL.createObjectURL(file);
-    setPreviewUrl(key, previewUrl);
+    if (!(file instanceof Blob) || !file.type.startsWith("image/")) {
+      setPreviewUrl(key, null);
+    } else {
+      const previewUrl = URL.createObjectURL(file);
+      setPreviewUrl(key, previewUrl);
+    }
     onFileSelected?.(key, file);
     setDoc(key, { file, status: "scanning", message: "Scanning document...", text: undefined });
 
@@ -142,15 +244,18 @@ export default function DocumentOCRValidationExample({
         profileBirthDate: key === "back" ? profileBirthDate : undefined,
       });
 
+      if (generation !== previewGenerationRef.current[key]) return;
       setDoc(key, {
         status: result.status === "success" ? "success" : "error",
         badgeText: result.badgeText,
         message: result.message,
+        errorCode: result.errorCode,
         text: result.text,
         parsedDates: Array.isArray(result.parsedDates) ? result.parsedDates : undefined,
         birthdateMatched: typeof result.birthdateMatched === "boolean" ? result.birthdateMatched : undefined,
       });
     } catch (err: unknown) {
+      if (generation !== previewGenerationRef.current[key]) return;
       setDoc(key, {
         status: "error",
         badgeText: "Unreadable Image",
@@ -195,39 +300,40 @@ export default function DocumentOCRValidationExample({
 
   function renderInput(key: DocumentOCRKey, label: string) {
     const state = docs[key];
-    const previewUrl = previews[key];
-    const hasFile = Boolean(state.file);
+    const file = state.file;
+    const isImageFile = Boolean(file && file.type.startsWith("image/"));
+    const previewUrl = isImageFile && !previewErrors[key] ? previews[key] : null;
+    const hasFile = Boolean(file);
     const isError = state.status === "error";
     const isSuccess = state.status === "success";
     const isScanning = state.status === "scanning";
 
     const handleImageClick = () => {
-      if (hasFile) {
+      if (isAttached && previewUrl) {
+        window.open(previewUrl, "_blank", "noopener,noreferrer");
+      } else if (hasFile) {
         openPreviewModal(key);
       } else {
         inputRefs.current[key]?.click();
       }
     };
 
-    const showFeedback = isSuccess || isError || isScanning;
-    const feedbackTitle = isSuccess
-      ? state.badgeText || "Document verified"
-      : isError
-      ? state.badgeText || "Unreadable image"
-      : "Scanning document";
+    const isAttached = state.status === "attached";
+    const showFeedback = isError || isAttached;
+    const feedbackTitle = isError
+      ? state.errorCode === "UNRECOGNIZED_DOCUMENT"
+        ? "Unrecognized Document"
+        : state.badgeText || "Unreadable image"
+      : isAttached
+      ? state.badgeText || "PDF attached"
+      : "";
     const feedbackText = state.message;
-    const feedbackClasses = isSuccess
-      ? "bg-emerald-50 text-emerald-900"
-      : isError
-      ? "bg-amber-50/80 text-amber-900"
-      : "bg-slate-50 text-slate-900";
-
     return (
-      <div className="rounded-2xl border-2 border-dashed border-gray-300 bg-white p-4 transition">
+      <div className="flex h-full flex-col rounded-2xl border-2 border-dashed border-gray-300 bg-white p-4 transition">
         <input
           id={`ocr-input-${key}`}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp,application/pdf"
           ref={(el) => {
             inputRefs.current[key] = el;
           }}
@@ -236,36 +342,74 @@ export default function DocumentOCRValidationExample({
           className="hidden"
         />
 
-        <div className="flex flex-col gap-1">
-          <p className="text-sm font-semibold text-slate-900">{label}</p>
-          <p className="text-xs text-slate-500">JPG or PNG · Max 10MB</p>
+        <div className="mb-3 flex w-full items-start justify-between">
+          <div className="flex flex-col gap-1 text-left">
+            <p className="text-sm font-semibold text-slate-900">{label}</p>
+            <p className="text-xs text-slate-500">PDF, JPG, PNG, or WebP · Max 10MB</p>
+          </div>
+          {isSuccess ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              Verified
+            </span>
+          ) : null}
         </div>
 
         <div
-          className={`mt-4 overflow-hidden rounded-xl bg-slate-100 ${hasFile ? "cursor-pointer" : "cursor-pointer"}`}
+          className="relative mt-4 flex h-48 w-full cursor-pointer flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
           onClick={handleImageClick}
         >
-          {previewUrl ? (
-            <img
-              src={previewUrl}
-              alt={`${label} preview`}
-              className="h-[200px] w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-[200px] items-center justify-center text-sm text-slate-500">
-              No file selected
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            {previewUrl ? (
+              <img
+                src={previewUrl}
+                alt="ID Preview"
+                className="h-full w-full object-contain"
+                onError={() => {
+                  if (file) void recoverPreview(key, file);
+                }}
+              />
+            ) : file?.type === "application/pdf" ? (
+              <div className="flex flex-col items-center text-slate-500">
+                <FileText className="mb-2 h-8 w-8" aria-hidden="true" />
+                <span>PDF file attached</span>
+              </div>
+            ) : file && previewLoading[key] ? (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" aria-hidden="true" />
+                <span>Preparing preview…</span>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-400">
+                {file ? "Image preview unavailable" : "No file selected"}
+              </div>
+            )}
+          </div>
+          {isScanning ? (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-sm">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" aria-hidden="true" />
+              <span className="text-xs font-medium text-slate-700">Scanning document...</span>
             </div>
-          )}
+          ) : null}
+          {isError && feedbackText ? (
+            <div className="flex w-full items-start gap-2 border-t border-amber-200 bg-amber-50 p-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+              <p className="text-xs leading-snug text-amber-900">
+                <span className="font-medium">
+                  {state.errorCode === "UNRECOGNIZED_DOCUMENT" ? "Unrecognized document." : `${feedbackTitle}.`}
+                </span>{" "}
+                {feedbackText}
+              </p>
+            </div>
+          ) : null}
         </div>
 
-        {showFeedback && feedbackText ? (
-          <div className={`mt-4 flex gap-3 rounded-xl px-3 py-2 ${feedbackClasses}`}>
-            <span className="mt-1 text-slate-700">
-              {isSuccess ? <CheckCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-            </span>
-            <div>
-              <p className="text-sm font-semibold leading-5">{feedbackTitle}</p>
-              <p className="text-xs leading-5 text-current/80">{feedbackText}</p>
+        {isAttached && showFeedback && feedbackText ? (
+          <div className="mt-4 flex items-center gap-3 rounded-lg bg-slate-100 px-3 py-2 text-slate-800">
+            <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold leading-5">{feedbackTitle}</p>
+              <p className="text-xs leading-5 text-current/90">{feedbackText}</p>
             </div>
           </div>
         ) : null}
@@ -280,7 +424,7 @@ export default function DocumentOCRValidationExample({
         ) : null}
 
         {hasFile ? (
-          <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-700 font-medium">
+          <div className="mt-auto flex items-center justify-between border-t border-gray-100 pt-3 text-xs font-medium text-gray-700">
             <button
               type="button"
               onClick={(e) => {
@@ -323,7 +467,7 @@ export default function DocumentOCRValidationExample({
         </div>
         {isAnyScanning && <div className="sr-only">Processing document validation</div>}
       </div>
-      {modalKey && previews[modalKey] ? (
+      {modalKey && previews[modalKey] && !previewErrors[modalKey] ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="relative max-h-full w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl">
             <button
@@ -338,6 +482,12 @@ export default function DocumentOCRValidationExample({
                 src={previews[modalKey] ?? ""}
                 alt="Uploaded preview"
                 className="max-h-[80vh] max-w-full rounded-3xl object-contain"
+                onError={() => {
+                  if (modalKey) {
+                    setPreviewErrors((current) => ({ ...current, [modalKey]: true }));
+                  }
+                  setModalKey(null);
+                }}
               />
             </div>
           </div>

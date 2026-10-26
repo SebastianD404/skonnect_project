@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
+import { Avatar } from "@/components/ui/Avatar";
 
 type UserItem = {
   id: string;
@@ -383,29 +384,16 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                 {filteredUsers.map((user) => {
                   const draftRole = draftRoles[user.id] ?? user.role;
                   const busy = isPending && pendingUserId === user.id;
-                  const initials = user.fullName
-                    .split(/\s+/)
-                    .filter(Boolean)
-                    .slice(0, 2)
-                    .map((part) => part[0])
-                    .join("")
-                    .toUpperCase();
-
                   return (
                     <tr key={user.id} className="transition hover:bg-slate-50/50">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          {user.avatarUrl ? (
-                            <img
-                              src={user.avatarUrl}
-                              alt=""
-                              className="h-9 w-9 shrink-0 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
-                              {initials || "U"}
-                            </div>
-                          )}
+                          <Avatar
+                            src={user.avatarUrl}
+                            alt={user.fullName || "User"}
+                            size={36}
+                            className="h-9 w-9"
+                          />
                           <div>
                             <p className="font-bold text-slate-900">{user.fullName || "Unnamed User"}</p>
                             <p className="mt-0.5 text-xs text-slate-500">{user.email}</p>

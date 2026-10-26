@@ -2,10 +2,9 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { Eye, FileText, Loader2, Search, Trash2 } from "lucide-react";
+import { Eye, Loader2, Search, Trash2 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
-import type { SerializableSkeapApplicationFormPayload } from "./[id]/GranteeDossierView";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 import AcademicJourneyHoverCard from "./AcademicJourneyHoverCard";
 
@@ -24,8 +23,6 @@ export interface GranteeTableRow {
   retentionExpiresAt?: string | null;
   updatedAt: string;
   detailsHref?: string;
-  application?: SerializableSkeapApplicationFormPayload | null;
-  applicationDownloadHref?: string;
 }
 
 const STATUS_LABELS: Record<GranteeTableRow["status"], string> = {
@@ -56,7 +53,6 @@ export function GranteeStatusTable({
   totalCount,
   isLoading,
   startNavigation,
-  onViewApplication,
   onDelete,
 }: {
   grantees: GranteeTableRow[];
@@ -65,7 +61,6 @@ export function GranteeStatusTable({
   totalCount: number;
   isLoading: boolean;
   startNavigation: (callback: () => void) => void;
-  onViewApplication?: (grantee: GranteeTableRow) => void;
   onDelete?: (grantee: GranteeTableRow) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -259,17 +254,6 @@ export function GranteeStatusTable({
                             <Eye className="h-4 w-4" aria-hidden="true" />
                           </button>
                         )}
-                        {grantee.application ? (
-                          <button
-                            type="button"
-                            onClick={() => onViewApplication?.(grantee)}
-                            title="Preview application form"
-                            aria-label="Preview application form"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900 active:scale-95"
-                          >
-                            <FileText className="h-4 w-4" aria-hidden="true" />
-                          </button>
-                        ) : null}
                         {grantee.status !== "GRADUATED" ? (
                           <button
                             type="button"

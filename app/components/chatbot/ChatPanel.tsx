@@ -7,7 +7,7 @@ import { TypingIndicator } from "@/app/components/chatbot/TypingIndicator";
 
 const SUGGESTED_QUESTIONS = [
   "Manu ti mabalin a scholar ti maysa a balay?",
-  "Can I submit my requirements at Pico Hall?",
+  "What are the requirements for SKEAP?",
   "Sino ang pwedeng mag-apply?",
 ];
 

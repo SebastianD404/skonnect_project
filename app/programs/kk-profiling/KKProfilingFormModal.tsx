@@ -78,8 +78,9 @@ function UnifiedDocumentDropzone({
   onFileChange,
 }: UnifiedDocumentDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [validationStatus, setValidationStatus] = useState<DocumentValidationStatus>(existingUrl ? "success" : "idle");
+  const [validationStatus, setValidationStatus] = useState<DocumentValidationStatus>("idle");
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const scanAttemptRef = useRef(0);
   const hasExistingFile = Boolean(existingUrl);
   const hasSelectedFile = Boolean(selectedFile);
   const selectedFileUrl = useMemo(() => {
@@ -102,11 +103,12 @@ function UnifiedDocumentDropzone({
   const openFilePicker = () => inputRef.current?.click();
 
   const scanSelectedFile = async (file: File | null) => {
+    const scanAttempt = ++scanAttemptRef.current;
     onFileChange(file);
     setValidationMessage(null);
 
     if (!file) {
-      setValidationStatus(existingUrl ? "success" : "idle");
+      setValidationStatus("idle");
       return;
     }
 
@@ -120,9 +122,11 @@ function UnifiedDocumentDropzone({
         profileBirthDate: documentType === "back_id" ? profileBirthDate : undefined,
       });
 
+      if (scanAttempt !== scanAttemptRef.current) return;
       setValidationStatus(result.status === "success" && result.isValid ? "success" : "error");
       setValidationMessage(result.message || result.badgeText || null);
     } catch (error) {
+      if (scanAttempt !== scanAttemptRef.current) return;
       setValidationStatus("error");
       setValidationMessage(error instanceof Error ? error.message : "Unable to scan this document.");
     }
@@ -137,6 +141,8 @@ function UnifiedDocumentDropzone({
     ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-emerald-700">VERIFIED</span>
     : validationStatus === "error"
     ? <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-rose-700">REVIEW REQUIRED</span>
+    : validationStatus === "idle" && hasExistingFile
+    ? <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-bold tracking-wider text-slate-600">ON FILE</span>
     : <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-amber-700">PENDING SCAN</span>;
 
   return (
@@ -194,9 +200,13 @@ function UnifiedDocumentDropzone({
               </a>
             ) : null}
           </div>
-          <div className="mb-3 flex h-6 items-center justify-between text-xs text-slate-500" title={validationMessage ?? undefined}>
+          <div className="mb-3 flex min-h-6 items-center justify-between gap-2 text-xs text-slate-500" title={validationMessage ?? undefined}>
             {hasSelectedFile && validationStatus === "error" ? (
-              <span className="font-medium text-rose-700">Review required</span>
+              <span className="font-medium text-rose-700" role="alert">
+                {documentType === "certificate"
+                  ? "We couldn't clearly read this certificate. Please upload a clearer image or PDF."
+                  : validationMessage || "We couldn't clearly read this document. Please upload a clearer photo."}
+              </span>
             ) : hasSelectedFile ? (
               <span className="inline-flex min-w-0 items-center font-medium text-emerald-600">
                 <CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />

@@ -53,12 +53,6 @@ describe("POST /api/validate-document SKEAP DOCX validation", () => {
 
   it.each([
     ["PSA Birth Certificate", "psa"],
-    ["PhilSys National ID Name: Sample Applicant Address: La Trinidad Date of Birth: 2000-01-01", "philsys"],
-    ["UMID Card Name: Sample Applicant Address: La Trinidad Date of Birth: 2000-01-01", "umid"],
-    ["Bureau of Internal Revenue Digital TIN ID Name: Sample Applicant Address: La Trinidad", "digital tin"],
-    ["King's College of the Philippines Student ID No. 12345 La Trinidad Benguet", "king's college of the philippines"],
-    ["KCP Student ID No. 12345 Pico Road", "kcp"],
-    ["EDNA P. CONCHAO Registrar Signature KCP Student ID No. 12345", "edna p. conchao"],
   ])("verifies DOCX text matching %s", async (text, keyword) => {
     const result = await validate(createDocxFile(text));
 
@@ -84,15 +78,26 @@ describe("POST /api/validate-document SKEAP DOCX validation", () => {
 
   });
 
-  it("uses the KK Profiling Valid ID rules as an OR condition with birth certificate keywords", () => {
+  it("keeps birth certificate matching separate from the KK Profiling valid-ID rules", () => {
     const validSchoolIdText = "King's College of the Philippines Student ID No. 12345 La Trinidad Benguet";
     const birthCertificateText = "Certificate of Live Birth issued by PSA";
 
     expect(getKkProfilingValidIdMatches(validSchoolIdText).length).toBeGreaterThan(0);
-    expect(getSkeapDocumentKeywordMatches(validSchoolIdText, SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE).length)
-      .toBeGreaterThan(0);
+    expect(getSkeapDocumentKeywordMatches(validSchoolIdText, SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE))
+      .toHaveLength(0);
+    expect(getSkeapDocumentKeywordMatches("Date of Birth: 2000-01-01", SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE))
+      .toHaveLength(0);
     expect(getSkeapDocumentKeywordMatches(birthCertificateText, SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE))
       .toContain("certificate of live birth");
+  });
+
+  it("matches birth-certificate keywords despite common OCR character errors", () => {
+    expect(
+      getSkeapDocumentKeywordMatches(
+        "CERTIFICAT OF LIVE BIRTH P5A",
+        SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE
+      )
+    ).toContain("certificate of live birth");
   });
 
   it("extracts supported images from the DOCX word/media folder", () => {
@@ -107,13 +112,13 @@ describe("POST /api/validate-document SKEAP DOCX validation", () => {
     expect(Array.from(images[1].data)).toEqual([4, 5, 6]);
   });
 
-  it("retains the KK Profiling school-ID signal behavior", async () => {
+  it("does not apply KK Profiling valid-ID rules to a SKEAP birth-certificate upload", async () => {
     const result = await validate(createDocxFile("Student Registrar ID No. 12345, La Trinidad, Benguet"));
 
     expect(result).toMatchObject({
       success: true,
-      status: "verified",
-      isValid: true,
+      status: "needs_review",
+      isValid: false,
     });
   });
 

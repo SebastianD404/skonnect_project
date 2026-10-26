@@ -3,16 +3,8 @@ import { ensureProfile } from "@/lib/auth";
 import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { getSupportedSkeapDocumentType } from "@/lib/skeap-upload";
 
-const ALLOWED_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-]);
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
@@ -61,24 +53,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const isJfif = /\.jfif$/i.test(file.name);
-    const extension = file.name.toLowerCase().split(".").pop();
-    const fileType = file.type.toLowerCase();
-    const hasSupportedJfifType = ["", "application/octet-stream", "image/jfif", "image/jpeg"].includes(fileType);
-    const hasSupportedWordType = extension === "doc"
-      ? ["", "application/octet-stream", "application/msword", "application/x-ole-storage"].includes(fileType)
-      : extension === "docx"
-        ? [
-            "",
-            "application/octet-stream",
-            "application/zip",
-            "application/x-zip-compressed",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          ].includes(fileType)
-        : false;
-    if (!ALLOWED_TYPES.has(fileType) && !(isJfif && hasSupportedJfifType) && !hasSupportedWordType) {
+    const contentType = getSupportedSkeapDocumentType(file);
+    if (!contentType) {
       return NextResponse.json(
-        { error: "Only PDF, DOC/DOCX, PNG, JPG, and WEBP files are allowed" },
+        { error: "Only PDF, JPG, PNG, and WebP files are allowed." },
         { status: 400 }
       );
     }
@@ -95,13 +73,7 @@ export async function POST(request: NextRequest) {
     const { error: uploadError } = await supabase.storage
       .from("public image")
       .upload(filePath, await file.arrayBuffer(), {
-        contentType: isJfif
-          ? "image/jpeg"
-          : extension === "docx"
-            ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            : extension === "doc"
-              ? "application/msword"
-              : fileType,
+        contentType,
         cacheControl: "3600",
         upsert: false,
       });

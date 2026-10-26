@@ -5,6 +5,10 @@ export const SKEAP_EDUCATION_LEVELS = [
   "Vocational",
 ] as const;
 
+export const SKEAP_APPLICATION_EDUCATION_LEVELS = SKEAP_EDUCATION_LEVELS.filter(
+  (level) => level !== "Vocational"
+);
+
 export type SkeapEducationLevel = (typeof SKEAP_EDUCATION_LEVELS)[number];
 
 export const SKEAP_YEAR_LEVELS: Record<SkeapEducationLevel, readonly string[]> = {

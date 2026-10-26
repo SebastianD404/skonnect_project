@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import PizZip from "pizzip";
 import {
   buildSkeapApplicationTemplateData,
+  getSkeapProfilePhotoCandidates,
   generateSkeapApplicationDocx,
 } from "@/lib/docx/skeap-application-template";
 
@@ -9,6 +10,25 @@ const signaturePng =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAIAAAACUFjqAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4QIJBywfp3IOswAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAAAkUlEQVQY052PMQqDQBREZ1f/d1kUm3SxkeAF/FdIjpOcw2vpKcRWCwsRPMFPsaIQSIoMr5pXDGNUFd9j8TOn7kRW71fvO5HTq6qqtnWtzh20IqE3YXtL0zyKwAROQLQ5l/c9gHjfKK6wMZjADE6s49Dver4/smEAc2CuqgwAYI5jU9NcxhHEy60sni986H9+vwG1yDHfK1jitgAAAABJRU5ErkJggg==";
 
 describe("SKEAP application DOCX", () => {
+  it("prefers the uploaded 2x2 photo over the account avatar path", () => {
+    expect(getSkeapProfilePhotoCandidates(
+      {
+        photoFileUrl: "https://storage.example/photo-file.jpg",
+        uploadedFiles: {
+          photo: {
+            url: "https://storage.example/two-by-two.jpg",
+            name: "2x2.jpg",
+          },
+        },
+      },
+      { avatarUrl: "avatars/user/profile.webp" }
+    )).toEqual([
+      "https://storage.example/two-by-two.jpg",
+      "https://storage.example/photo-file.jpg",
+      "avatars/user/profile.webp",
+    ]);
+  });
+
   it("embeds the applicant signature PNG and renders the printed name", async () => {
     const output = await generateSkeapApplicationDocx({
       applicantName: "Applicant, First Middle",

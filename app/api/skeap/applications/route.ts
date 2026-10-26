@@ -301,6 +301,8 @@ export async function POST(request: NextRequest) {
             {
               url: upload.url,
               ...(upload.name !== undefined ? { name: upload.name } : {}),
+              ...(upload.manualReview !== undefined ? { manualReview: upload.manualReview } : {}),
+              ...(upload.verificationStatus !== undefined ? { verificationStatus: upload.verificationStatus } : {}),
             },
           ])
         )

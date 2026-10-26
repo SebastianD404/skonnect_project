@@ -1,6 +1,11 @@
 import type { Language } from "@prisma/client";
 import { generateAnswer, translateQueryToEnglish, type GeminiMessage } from "@/lib/chatbot/gemini";
 import { formatRetrievedContext, retrieveChunksWithCache } from "@/lib/chatbot/retrieval";
+import {
+  formatSkeapRequirementsAnswer,
+  isSkeapRequirementsListQuery,
+  SKEAP_DOCUMENT_NAMES_SYSTEM_DIRECTIVE,
+} from "@/lib/chatbot/skeap-requirements";
 
 function sourceLabelsForChunks(chunks: Awaited<ReturnType<typeof retrieveChunksWithCache>>) {
   const labels = new Set<string>();
@@ -21,6 +26,14 @@ export async function runRagAnswer(params: {
   liveSystemContext?: string;
 }) {
   const detectedLanguageName = params.language === "FILIPINO" ? "filipino" : params.language === "ILOCANO" ? "ilocano" : "english";
+  if (isSkeapRequirementsListQuery(params.question)) {
+    return {
+      response: formatSkeapRequirementsAnswer(params.language),
+      chunksUsed: 1,
+      sources: ["Official SKEAP Guidelines"],
+    };
+  }
+
   const [originalChunks, translatedQuery] = await Promise.all([
     retrieveChunksWithCache({ query: params.question, topK: 10, minSimilarity: 0.4 }),
     translateQueryToEnglish(params.question, params.language),
@@ -197,6 +210,7 @@ export async function runRagAnswer(params: {
       "Do not provide extra context, policies, or related information that the user did not explicitly ask for.",
       "Use the authoritative policy facts above and the provided context chunks to answer. Do not make up other information.",
       "If the user asks for the current count, use the current update above and ignore any conflicting figures from older context.",
+      SKEAP_DOCUMENT_NAMES_SYSTEM_DIRECTIVE,
     ].filter(Boolean).join(" "),
     context,
     history: params.history,

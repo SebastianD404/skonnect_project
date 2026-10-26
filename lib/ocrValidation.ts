@@ -16,6 +16,7 @@ type ScanResult = {
   matchedKeywords: string[];
   text: string;
   error?: string;
+  errorCode?: string;
   nameMatched?: boolean;
   parsedDates?: string[];
   birthdateMatched?: boolean;

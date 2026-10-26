@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, X } from "lucide-react";
@@ -9,6 +9,8 @@ import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-prof
 import { useAuth } from "@/app/components/AuthProvider";
 import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 import { createBrowserClient } from "@/lib/supabase/browser";
+import { getSkeapRequiredDocuments } from "@/lib/skeap-upload";
+import type { SkeapEducationLevel } from "@/lib/skeap-education";
 
 type Props = {
   slug: string;
@@ -65,7 +67,7 @@ function prefetchProgramStatus(slug: string) {
   void fetchProgramStatus(slug).catch(() => undefined);
 }
 
-export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
+export default function ProgramApplyClient({ slug }: Props) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [open, setOpen] = useState(false);
@@ -79,11 +81,19 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
   const [footerActionsTarget, setFooterActionsTarget] = useState<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [submittedReference, setSubmittedReference] = useState<string | null>(null);
+  const [educationLevel, setEducationLevel] = useState<SkeapEducationLevel | "">("");
+  const [yearLevel, setYearLevel] = useState("");
   const autoApplyHandled = useRef(false);
+  const requiredDocuments = useMemo(
+    () => getSkeapRequiredDocuments(educationLevel, yearLevel),
+    [educationLevel, yearLevel]
+  );
 
   function openApplicationModal(profile: KKProfile) {
     setUserProfile(profile);
     setStatus(getCachedProgramStatus(slug));
+    setEducationLevel("");
+    setYearLevel("");
     setOpen(true);
   }
 
@@ -362,32 +372,25 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
             </div>
 
             {submittedReference ? (
-              <div className="my-auto flex flex-1 flex-col items-center justify-center p-12 text-center">
-                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 shadow-sm">
-                  <CheckCircle2 className="h-10 w-10 animate-in zoom-in duration-300 text-emerald-600" />
+              <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center sm:px-10">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 shadow-sm">
+                  <CheckCircle2 className="h-9 w-9 animate-in zoom-in duration-300 text-emerald-600" />
                 </div>
-                <span className="mb-1 text-xs font-bold uppercase tracking-widest text-emerald-600">
+                <span className="mb-1 text-[11px] font-bold uppercase tracking-widest text-emerald-600">
                   Success Confirmation
                 </span>
-                <h2 className="mb-2 text-2xl font-black text-slate-900">Application Submitted Successfully</h2>
-                <p className="mb-8 max-w-md text-sm leading-relaxed text-slate-500">
+                <h2 className="mb-2 text-xl font-black text-slate-900 sm:text-2xl">Application Submitted Successfully</h2>
+                <p className="mb-5 max-w-md text-sm leading-relaxed text-slate-500">
                   Your SKEAP application has been securely logged. You can now monitor your review status and track document verification on your dashboard.
                 </p>
-                <div className="flex w-full max-w-sm items-center justify-center gap-4">
+                <div className="flex w-full justify-center">
                   <Link
                     href={`/applications/${encodeURIComponent(submittedReference)}`}
                     onClick={() => setOpen(false)}
-                    className="flex-1 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700"
+                    className="mx-auto rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700"
                   >
                     View application status
                   </Link>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-                  >
-                    Close
-                  </button>
                 </div>
               </div>
             ) : (
@@ -440,14 +443,19 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                   </div>
                 </div>
 
-                {!loading && status && isOpen ? (
+                {(!status || isOpen) ? (
                   <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                     <p className="text-sm font-semibold text-slate-900">Checklist before submit</p>
                     <ul className="mt-4 flex flex-col space-y-4">
-                      {requirements.map((item, index) => (
-                        <li key={`${item}-${index}`} className="flex items-start gap-3">
+                      {requiredDocuments.map((document) => (
+                        <li key={document.key} className="flex items-start gap-3">
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden="true" />
-                          <span className="text-sm leading-relaxed text-slate-600">{item}</span>
+                          <span className="text-sm leading-relaxed text-slate-600">
+                            <span>{document.label}</span>
+                            {document.helperText ? (
+                              <span className="mt-0.5 block text-xs text-slate-500">{document.helperText}</span>
+                            ) : null}
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -473,7 +481,11 @@ export default function ProgramApplyClient({ slug, requirements = [] }: Props) {
                   </div>
                 ) : (
                   <SkeapApplicationWizard
-                    requirements={requirements}
+                    educationLevel={educationLevel}
+                    onEducationLevelChange={setEducationLevel}
+                    yearLevel={yearLevel}
+                    onYearLevelChange={setYearLevel}
+                    requiredDocuments={requiredDocuments}
                     footerActionsTarget={footerActionsTarget}
                     scrollContainerRef={scrollContainerRef}
                     userProfile={userProfile!}

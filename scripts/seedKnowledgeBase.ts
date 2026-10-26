@@ -2,6 +2,7 @@ import "dotenv/config";
 import crypto from "crypto";
 import { Client } from "pg";
 import { embedText } from "../lib/chatbot/gemini";
+import { SKEAP_APPLICATION_REQUIREMENT_CHUNKS } from "../lib/chatbot/skeap-requirements";
 
 type KnowledgeChunk = {
   content: string;
@@ -265,6 +266,7 @@ Search phrases: how long for a response, inquiry reply time, when will SK respon
       language: "ENGLISH",
     },
   },
+  ...SKEAP_APPLICATION_REQUIREMENT_CHUNKS,
 ];
 
 function createPostgresClient() {
@@ -312,10 +314,14 @@ async function ensureEmbeddingDimension(client: Client) {
 }
 
 async function seedKnowledgeBase() {
+  const requirementsOnly = process.argv.includes("--skeap-requirements-only");
+  const chunksToSeed = requirementsOnly
+    ? chunks.filter((chunk) => chunk.metadata.category === "skeap_application_requirements")
+    : chunks;
   const client = createPostgresClient();
   await client.connect();
   await ensureEmbeddingDimension(client);
-  await client.query(
+  if (!requirementsOnly) await client.query(
     `DELETE FROM public.chat_embeddings
      WHERE lower("sourceType") = 'events'
         OR content ILIKE '%event%'
@@ -359,12 +365,12 @@ async function seedKnowledgeBase() {
     ]
   );
 
-  for (let index = 0; index < chunks.length; index += 1) {
-    const chunk = chunks[index];
+  for (let index = 0; index < chunksToSeed.length; index += 1) {
+    const chunk = chunksToSeed[index];
     const chunkId = contentToDeterministicId(chunk.content);
     const preview = chunk.content.slice(0, 60).replace(/\s+/g, " ");
 
-    console.log(`Embedding chunk ${index + 1} of ${chunks.length}: ${preview}...`);
+    console.log(`Embedding chunk ${index + 1} of ${chunksToSeed.length}: ${preview}...`);
 
     const embedding = await embedText(chunk.content);
     const embeddingVector = `[${embedding.map((value) => Number(value).toFixed(8)).join(",")}]`;
@@ -390,8 +396,27 @@ async function seedKnowledgeBase() {
       process.exit(1);
     }
 
-    console.log(`Seeded chunk ${index + 1} of ${chunks.length}.`);
+    console.log(`Seeded chunk ${index + 1} of ${chunksToSeed.length}.`);
     await sleep(200);
+  }
+
+  if (requirementsOnly) {
+    const storedChunks = await client.query(
+      `SELECT content, language, "sourceType"
+       FROM public.chat_embeddings
+       WHERE "sourceType" = 'skeap_application_requirements';`
+    );
+    const expected = new Map(chunksToSeed.map((chunk) => [chunk.metadata.language, chunk.content]));
+    const verified =
+      storedChunks.rows.length === expected.size &&
+      storedChunks.rows.every((row) =>
+        row.sourceType === "skeap_application_requirements" &&
+        expected.get(row.language) === row.content
+      );
+    if (!verified) {
+      throw new Error("Stored SKEAP requirement chunks do not exactly match the requested content.");
+    }
+    console.log("Verified all 3 stored SKEAP requirement chunks and language labels.");
   }
 
   await client.end();

@@ -5,19 +5,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAdminSearch } from "./AdminSearchContext";
 import AdminExportButton from "./AdminExportButton";
 import { GranteeStatusTable, type GranteeTableRow } from "./grantees/GranteeStatusTable";
-import type { SerializableSkeapApplicationFormPayload } from "./grantees/[id]/GranteeDossierView";
-import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 
 interface AdminGranteesPageClientProps {
   grantees: GranteeTableRow[];
   page: number;
   pageSize: number;
   totalCount: number;
-}
-
-interface SelectedApplicationState {
-  application: SerializableSkeapApplicationFormPayload | null;
-  downloadHref?: string;
 }
 
 export default function AdminGranteesPageClient({
@@ -53,20 +46,9 @@ export default function AdminGranteesPageClient({
   if (status) exportParams.set("status", status);
   if (searchQuery.trim()) exportParams.set("q", searchQuery.trim());
   const exportHref = `/api/admin/grantees/export${exportParams.size ? `?${exportParams.toString()}` : ""}`;
-  const [selectedApplication, setSelectedApplication] = useState<SelectedApplicationState | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<GranteeTableRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const handleViewApplication = (grantee: GranteeTableRow) => {
-    if (!grantee.application) return;
-    setSelectedApplication({
-      application: grantee.application,
-      downloadHref: grantee.applicationDownloadHref,
-    });
-  };
-
-  const closeApplicationModal = () => setSelectedApplication(null);
 
   const handleDeleteRequest = (grantee: GranteeTableRow) => {
     setDeleteCandidate(grantee);
@@ -126,16 +108,9 @@ export default function AdminGranteesPageClient({
           totalCount={totalCount}
           isLoading={isLoading}
           startNavigation={(callback) => startTransition(callback)}
-          onViewApplication={handleViewApplication}
           onDelete={handleDeleteRequest}
         />
       </div>
-      <SkeapApplicationFormModal
-        isOpen={Boolean(selectedApplication?.application)}
-        onClose={closeApplicationModal}
-        application={selectedApplication?.application ?? undefined}
-        downloadHref={selectedApplication?.downloadHref}
-      />
       {deleteCandidate ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div className="w-full max-w-lg rounded-[2rem] bg-white p-6 shadow-2xl">

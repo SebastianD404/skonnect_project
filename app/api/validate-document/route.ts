@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import { promisify } from "util";
 import { NextResponse } from "next/server";
-import { parseOcrWorkerOutput } from "../../../lib/ocrWorker";
+import { hasExplicitBackIdSideEvidence, parseOcrWorkerOutput } from "../../../lib/ocrWorker";
 import { doesOcrTextMatchName } from "../../../lib/ocrNameVerification";
 import { verifyBackIdBirthdate } from "../../../lib/verifyBackIdBirthdate";
 import { SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
@@ -34,6 +34,7 @@ type ValidationResponse = {
   text: string;
   nameMatched?: boolean;
   error?: string;
+  errorCode?: string;
 };
 
 const execFileAsync = promisify(execFile);
@@ -107,7 +108,20 @@ function getFriendlyValidationResponse(documentType: DocumentType, result: { suc
     };
   }
 
-  if (documentType === "front_id" || documentType === "back_id") {
+  if (documentType === "front_id") {
+    return {
+      success: false,
+      status: "error",
+      badgeText: "Unrecognized Document",
+      message: "We couldn't verify this as the front of a valid ID. Please ensure you uploaded the correct file and that the image is clear.",
+      isValid: false,
+      matchedKeywords: result.matchedKeywords,
+      text: result.text,
+      errorCode: "UNRECOGNIZED_DOCUMENT",
+    };
+  }
+
+  if (documentType === "back_id") {
     return {
       success: false,
       status: "error",
@@ -334,7 +348,11 @@ export async function POST(request: Request) {
       const result = parseOcrWorkerOutput(stdout);
       const response = getFriendlyValidationResponse(documentType, result);
 
-      if (documentType === "front_id" && result.documentSide === "back") {
+      if (
+        documentType === "front_id" &&
+        result.documentSide === "back" &&
+        hasExplicitBackIdSideEvidence(result.text)
+      ) {
         return NextResponse.json(
           {
             ...response,

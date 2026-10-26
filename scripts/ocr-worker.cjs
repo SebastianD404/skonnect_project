@@ -66,27 +66,15 @@ const FRONT_ID_TERMS = [
 ];
 
 const BACK_ID_TERMS = [
+  "Magnetic Stripe",
+  "Stripe Code",
   "Restrictions",
   "Restriction",
   "Endorsements",
-  "Class",
-  "Conditions",
   "Organ Donor",
   "Organ Donation",
   "Barcode",
-  "QR",
-  "Code",
-  "Valid Until",
-  "Authorized",
-  "Approved",
-  "Contact",
-  "Information",
-  "Rules",
-  "Use",
-  "Card",
-  "Issued",
-  "Office",
-  "Emergency",
+  "QR Code",
 ];
 
 const CERTIFICATE_TERMS = [

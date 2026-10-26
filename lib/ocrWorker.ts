@@ -7,6 +7,10 @@ export interface OcrWorkerResult {
   error?: string;
 }
 
+export function hasExplicitBackIdSideEvidence(text: string) {
+  return /\b(barcode|qr\s*(?:code)?|magnetic\s+stripe|stripe\s+code|restrictions?|endorsements?|organ\s+don(?:or|ation))\b/i.test(text);
+}
+
 export function parseOcrWorkerOutput(rawOutput: string): OcrWorkerResult {
   try {
     const parsed = JSON.parse(rawOutput) as Partial<OcrWorkerResult>;

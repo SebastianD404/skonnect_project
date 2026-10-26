@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { parseOcrWorkerOutput } from "../lib/ocrWorker";
+import { hasExplicitBackIdSideEvidence, parseOcrWorkerOutput } from "../lib/ocrWorker";
 
 describe("OCR worker output parsing", () => {
+  it("only identifies clear back-side ID evidence", () => {
+    expect(hasExplicitBackIdSideEvidence("Barcode QR Code Restrictions")).toBe(true);
+    expect(hasExplicitBackIdSideEvidence("Certificate issued by the Office of the Registrar")).toBe(false);
+    expect(hasExplicitBackIdSideEvidence("Emergency contact information")).toBe(false);
+  });
+
   it("parses a successful validation payload", () => {
     const payload = JSON.stringify({
       success: true,

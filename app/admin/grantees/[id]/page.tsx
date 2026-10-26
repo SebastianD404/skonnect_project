@@ -6,6 +6,7 @@ import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
 import { ArrowLeft } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
 import GranteeDossierView, {
   type SerializableSkeapApplicationFormPayload,
 } from "./GranteeDossierView";
@@ -107,6 +108,19 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
 
   const { grantee } = granteeData;
   const skeapApplication = grantee.user.skeapApplications[0] ?? null;
+  let profileAvatarUrl = grantee.user.avatarUrl;
+  if (profileAvatarUrl && !/^https?:\/\//i.test(profileAvatarUrl)) {
+    const supabase = await createClient();
+    const { data, error } = await supabase.storage
+      .from("avatars")
+      .createSignedUrl(profileAvatarUrl, 60 * 60);
+    if (error) {
+      console.error("Failed to create grantee profile photo URL:", error);
+      profileAvatarUrl = null;
+    } else {
+      profileAvatarUrl = data.signedUrl;
+    }
+  }
   const addressLineParts = (grantee.user.kkProfile?.addressLine ?? "")
     .split(",")
     .map((part) => part.trim())
@@ -186,7 +200,7 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
           fullName: grantee.user.fullName,
           email: grantee.user.email,
           phoneNumber: grantee.user.phoneNumber,
-          avatarUrl: grantee.user.avatarUrl,
+          avatarUrl: profileAvatarUrl,
           permanentAddress: {
             sitio,
             barangay: grantee.user.kkProfile?.barangay || grantee.user.barangay,

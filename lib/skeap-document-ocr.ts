@@ -1,4 +1,4 @@
-import { createWorker } from "tesseract.js";
+import { createWorker, PSM } from "tesseract.js";
 import PizZip from "pizzip";
 import { SKEAP_UPLOAD_KEY, type SkeapUploadKey } from "@/lib/skeap-upload";
 import {
@@ -13,6 +13,24 @@ export type DocumentOCRResult =
   | { status: "skipped"; extractedText: ""; confidence: 0 };
 
 const MINIMUM_CONFIDENCE = 50;
+const MINIMUM_BIRTH_CERTIFICATE_HEADING_CONFIDENCE = 30;
+const STRONG_BIRTH_CERTIFICATE_MATCHES = new Set([
+  "birth certificate",
+  "certificate of live birth",
+  "philippine statistics authority",
+  "national statistics office",
+  "office of the civil registrar general",
+  "civil registrar general",
+]);
+const VOTER_CERTIFICATE_KEYWORDS = ["vote", "voter", "voters", "commissiononelections", "comelec"];
+
+function hasDocumentKeyword(text: string, docType: SkeapUploadKey) {
+  if (docType === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE) {
+    const normalizedText = text.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return VOTER_CERTIFICATE_KEYWORDS.some((keyword) => normalizedText.includes(keyword));
+  }
+  return getSkeapDocumentKeywordMatches(text, docType).length > 0;
+}
 
 function isImageFile(file: File) {
   return file.type.startsWith("image/") || /\.(jpe?g|jfif|png|webp|gif|avif)$/i.test(file.name);
@@ -54,22 +72,83 @@ function extractDocxText(file: File): Promise<{ text: string; confidence: number
   });
 }
 
-async function normalizeImageForOCR(file: Blob): Promise<Blob> {
-  if (typeof createImageBitmap !== "function" || typeof document === "undefined") return file;
+export async function preprocessImageForOCR(file: Blob, binarize = false): Promise<Blob> {
+  if (typeof document === "undefined") return file;
 
+  const isWebp = file.type === "image/webp" ||
+    ("name" in file && typeof file.name === "string" && /\.webp$/i.test(file.name));
   let bitmap: ImageBitmap | null = null;
   try {
-    bitmap = await createImageBitmap(file);
     const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
+    let width: number;
+    let height: number;
+    let drawImage: (context: CanvasRenderingContext2D, width: number, height: number) => void;
+    if (typeof createImageBitmap === "function") {
+      try {
+        bitmap = await createImageBitmap(file);
+      } catch (error) {
+        if (!isWebp) throw error;
+      }
+    }
+
+    if (bitmap) {
+      width = bitmap.width;
+      height = bitmap.height;
+      drawImage = (context, outputWidth, outputHeight) =>
+        context.drawImage(bitmap!, 0, 0, outputWidth, outputHeight);
+    } else if (isWebp) {
+      const imageUrl = URL.createObjectURL(file);
+      try {
+        const image = new Image();
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error("Could not load the WebP image."));
+          image.src = imageUrl;
+        });
+        width = image.naturalWidth;
+        height = image.naturalHeight;
+        drawImage = (context, outputWidth, outputHeight) =>
+          context.drawImage(image, 0, 0, outputWidth, outputHeight);
+      } finally {
+        URL.revokeObjectURL(imageUrl);
+      }
+    } else {
+      return file;
+    }
+
+    const scale = binarize
+      ? Math.min(1.5, Math.max(1, 2400 / Math.max(width, height)))
+      : 1;
+    const outputWidth = Math.round(width * scale);
+    const outputHeight = Math.round(height * scale);
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
     const context = canvas.getContext("2d");
     if (!context) return file;
-    context.drawImage(bitmap, 0, 0);
+    drawImage(context, outputWidth, outputHeight);
+
+    const imageData = context.getImageData(0, 0, outputWidth, outputHeight);
+    const contrast = 1.5;
+    for (let index = 0; index < imageData.data.length; index += 4) {
+      const grayscale =
+        imageData.data[index] * 0.299 +
+        imageData.data[index + 1] * 0.587 +
+        imageData.data[index + 2] * 0.114;
+      const contrastAdjusted = Math.max(0, Math.min(255, (grayscale - 128) * contrast + 128));
+      const enhanced = binarize
+        ? contrastAdjusted < 175 ? 0 : 255
+        : contrastAdjusted;
+      imageData.data[index] = enhanced;
+      imageData.data[index + 1] = enhanced;
+      imageData.data[index + 2] = enhanced;
+    }
+    context.putImageData(imageData, 0, 0);
 
     const normalizedImage = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/png")
     );
+    canvas.width = 0;
+    canvas.height = 0;
     return normalizedImage ?? file;
   } catch (error) {
     console.warn("Could not normalize SKEAP upload for text reading; trying the original image.", error);
@@ -81,6 +160,7 @@ async function normalizeImageForOCR(file: Blob): Promise<Blob> {
 
 async function extractPdfText(
   file: File,
+  docType: SkeapUploadKey,
   getWorker: () => Promise<Awaited<ReturnType<typeof createWorker>>>,
   imageUrls: string[]
 ): Promise<{ text: string; confidence: number }> {
@@ -107,10 +187,8 @@ async function extractPdfText(
           .join(" ")
           .trim();
 
-        if (pageText) {
-          pageTexts.push(pageText);
-          continue;
-        }
+        if (pageText) pageTexts.push(pageText);
+        if (pageText && hasDocumentKeyword(pageText, docType)) continue;
 
         if (typeof document === "undefined") {
           throw new Error("PDF page rendering requires a browser document.");
@@ -169,7 +247,7 @@ export async function validateDocumentOCR(
 
   const isPdf = isPdfFile(file);
   const isDocx = isDocxFile(file);
-  if (!isImageFile(file) && !(isPdf && docType === SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE) && !isDocx) {
+  if (!isImageFile(file) && !isPdf && !isDocx) {
     return {
       status: "review",
       extractedText: "",
@@ -184,6 +262,7 @@ export async function validateDocumentOCR(
     worker ??= await createWorker("eng");
     return worker;
   };
+  let currentStep = "starting the document reader";
 
   try {
     let text: string;
@@ -191,47 +270,100 @@ export async function validateDocumentOCR(
     let embeddedImages: Blob[] = [];
 
     if (isDocx) {
+      currentStep = "opening the Word document";
       ({ text, confidence, embeddedImages } = await extractDocxText(file));
     } else if (isPdf) {
-      ({ text, confidence } = await extractPdfText(file, getWorker, imageUrls));
+      currentStep = "opening the PDF";
+      ({ text, confidence } = await extractPdfText(file, docType, getWorker, imageUrls));
     } else {
-      const normalizedImage = await normalizeImageForOCR(file);
-      const imageUrl = URL.createObjectURL(normalizedImage);
-      imageUrls.push(imageUrl);
+      currentStep = "preparing the image";
+      const normalizedImage = await preprocessImageForOCR(file);
+      const recognizeImage = async (image: Blob) => {
+        const imageUrl = URL.createObjectURL(image);
+        imageUrls.push(imageUrl);
+        currentStep = "reading the document text";
+        return (await getWorker()).recognize(imageUrl);
+      };
+
       let recognition: Awaited<ReturnType<Awaited<ReturnType<typeof createWorker>>["recognize"]>>;
+      let originalWasRetried = false;
       try {
-        recognition = await (await getWorker()).recognize(imageUrl);
+        recognition = await recognizeImage(normalizedImage);
       } catch (error) {
         if (normalizedImage === file) throw error;
-        console.warn("Could not read normalized SKEAP upload; trying the original image.", error);
-        const originalUrl = URL.createObjectURL(file);
-        imageUrls.push(originalUrl);
-        recognition = await (await getWorker()).recognize(originalUrl);
+        console.warn("Could not read the enhanced SKEAP upload; trying the original image.", error);
+        recognition = await recognizeImage(file);
+        originalWasRetried = true;
       }
 
-      if (!recognition.data.text.trim() && normalizedImage !== file) {
-        const originalUrl = URL.createObjectURL(file);
-        imageUrls.push(originalUrl);
-        recognition = await (await getWorker()).recognize(originalUrl);
+      if (
+        !originalWasRetried &&
+        normalizedImage !== file &&
+        (!recognition.data.text.trim() || !hasDocumentKeyword(recognition.data.text, docType))
+      ) {
+        const originalRecognition = await recognizeImage(file);
+        if (
+          hasDocumentKeyword(originalRecognition.data.text, docType) ||
+          originalRecognition.data.confidence > recognition.data.confidence
+        ) {
+          recognition = originalRecognition;
+        }
+      }
+
+      if (
+        !hasDocumentKeyword(recognition.data.text, docType)
+      ) {
+        try {
+          const ocrWorker = await getWorker();
+          await ocrWorker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+          const sparseRecognition = await recognizeImage(file);
+          if (
+            hasDocumentKeyword(sparseRecognition.data.text, docType) ||
+            sparseRecognition.data.confidence > recognition.data.confidence
+          ) {
+            recognition = sparseRecognition;
+          }
+        } catch (error) {
+          console.warn("Sparse-text OCR retry failed; retaining the best available SKEAP recognition.", error);
+        }
+      }
+
+      if (!hasDocumentKeyword(recognition.data.text, docType)) {
+        try {
+          const binarizedImage = await preprocessImageForOCR(file, true);
+          if (binarizedImage !== file) {
+            const ocrWorker = await getWorker();
+            await ocrWorker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+            const binarizedRecognition = await recognizeImage(binarizedImage);
+            if (
+              hasDocumentKeyword(binarizedRecognition.data.text, docType) ||
+              binarizedRecognition.data.confidence > recognition.data.confidence
+            ) {
+              recognition = binarizedRecognition;
+            }
+          }
+        } catch (error) {
+          console.warn("High-contrast OCR retry failed; retaining the best available SKEAP recognition.", error);
+        }
       }
 
       text = recognition.data.text;
       confidence = recognition.data.confidence;
     }
 
-    let hasMatch = getSkeapDocumentKeywordMatches(text, docType).length > 0;
+    let hasMatch = hasDocumentKeyword(text, docType);
     if (isDocx && !hasMatch && embeddedImages.length > 0) {
       const imageText: string[] = [];
       const imageConfidences: number[] = [];
       for (const image of embeddedImages) {
-        const imageUrl = URL.createObjectURL(await normalizeImageForOCR(image));
+        const imageUrl = URL.createObjectURL(await preprocessImageForOCR(image));
         imageUrls.push(imageUrl);
         const result = await (await getWorker()).recognize(imageUrl);
         const recognizedText = result.data.text.trim();
         if (recognizedText) imageText.push(recognizedText);
         imageConfidences.push(result.data.confidence);
         text = [text, ...imageText].filter(Boolean).join("\n");
-        hasMatch = getSkeapDocumentKeywordMatches(text, docType).length > 0;
+        hasMatch = hasDocumentKeyword(text, docType);
         if (hasMatch) break;
       }
       confidence = imageConfidences.length
@@ -245,12 +377,22 @@ export async function validateDocumentOCR(
         extractedText: text,
         confidence,
         reason: isPdf
-          ? "This PDF may contain an image instead of selectable text. Upload the original JPG or PNG photo for automatic verification, or proceed to manual review."
+          ? "This PDF may contain an image instead of selectable text. Upload the original JPG, PNG, or WebP photo for automatic verification, or proceed to manual review."
           : "We couldn't read the text in this document. Please check the preview or proceed for review.",
       };
     }
 
-    if (confidence <= MINIMUM_CONFIDENCE) {
+    const hasStrongBirthCertificateHeading =
+      docType === SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE &&
+      confidence > MINIMUM_BIRTH_CERTIFICATE_HEADING_CONFIDENCE &&
+      getSkeapDocumentKeywordMatches(text, docType)
+        .some((match) => STRONG_BIRTH_CERTIFICATE_MATCHES.has(match));
+
+    if (
+      confidence <= MINIMUM_CONFIDENCE &&
+      docType !== SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE &&
+      !hasStrongBirthCertificateHeading
+    ) {
       return {
         status: "review",
         extractedText: text,
@@ -265,24 +407,36 @@ export async function validateDocumentOCR(
         extractedText: text,
         confidence,
         reason: isPdf && text.trim().length < 20
-          ? "This PDF may contain an image instead of readable text. Upload the original JPG or PNG photo for automatic verification, or proceed to manual review."
+          ? "This PDF may contain an image instead of readable text. Upload the original JPG, PNG, or WebP photo for automatic verification, or proceed to manual review."
           : "The document text does not clearly match this upload slot.",
       };
     }
 
     return { status: "verified", extractedText: text, confidence };
   } catch (error) {
-    console.warn("SKEAP upload could not be read automatically; manual review is available.", error);
+    const details = error instanceof Error
+      ? `${error.name}: ${error.message}`
+      : String(error);
+    console.error("SKEAP upload could not be read automatically; manual review is available.", {
+      fileName: file.name,
+      documentType: docType,
+      currentStep,
+      error,
+    });
     return {
       status: "review",
       extractedText: "",
       confidence: 0,
       reason: isPdf
-        ? "This PDF could not be read automatically. Upload the original JPG or PNG photo for automatic verification, or proceed to manual review."
-        : "We couldn't read this document automatically. Please check the preview or proceed for review.",
+        ? "This PDF could not be read automatically. Upload the original JPG, PNG, or WebP photo for automatic verification, or proceed to manual review."
+        : `The document reader failed while ${currentStep} (${details}). Please try again or submit it for administrator review.`,
     };
   } finally {
     imageUrls.forEach((imageUrl) => URL.revokeObjectURL(imageUrl));
-    await worker?.terminate();
+    try {
+      await worker?.terminate();
+    } catch (error) {
+      console.warn("Could not cleanly stop the SKEAP OCR worker after validation.", error);
+    }
   }
 }

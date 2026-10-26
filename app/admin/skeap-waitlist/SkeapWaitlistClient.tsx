@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, CheckCircle2, RefreshCw, Search } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, LoaderCircle, Plus, Search, Trash2, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -35,10 +35,16 @@ async function readJsonResponse(response: Response) {
 
 export default function SkeapWaitlistClient({ initialData }: { initialData: SkeapWaitlistSnapshot }) {
   const [applications, setApplications] = useState<SkeapWaitlistApplication[]>(initialData.applications);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<SkeapWaitlistApplication | null>(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [candidateQuery, setCandidateQuery] = useState("");
+  const [candidateApplications, setCandidateApplications] = useState<SkeapWaitlistApplication[]>([]);
+  const [selectedCandidate, setSelectedCandidate] = useState<SkeapWaitlistApplication | null>(null);
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(false);
+  const [pendingRemoval, setPendingRemoval] = useState<SkeapWaitlistApplication | null>(null);
+  const [waitlistActionId, setWaitlistActionId] = useState<string | null>(null);
   const [capacityWarning, setCapacityWarning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,8 +72,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const firstVisibleIndex = (currentPage - 1) * pageSize;
   const visibleApplications = filteredApplications.slice(firstVisibleIndex, firstVisibleIndex + pageSize);
 
-  async function loadWaitlist() {
-    setIsRefreshing(true);
+  const loadWaitlist = useCallback(async () => {
     setError(null);
     try {
       const response = await fetch("/api/admin/skeap-applications/waitlist", { cache: "no-store" });
@@ -78,13 +83,59 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
       const maxSlots = typeof body.maxSlots === "number" ? body.maxSlots : 55;
       setCapacity({ activeCount, maxSlots });
       setCapacityWarning(false);
-      setSlotLimitDraft(String(maxSlots));
+      if (!editingCapacity) setSlotLimitDraft(String(maxSlots));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load the waitlist.");
-    } finally {
-      setIsRefreshing(false);
     }
-  }
+  }, [editingCapacity]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadWaitlist();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 15_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshWhenVisible);
+    };
+  }, [loadWaitlist]);
+
+  useEffect(() => {
+    if (!isAddModalOpen || candidateQuery.trim().length < 2) {
+      return;
+    }
+
+    let isCurrentRequest = true;
+    const timeout = window.setTimeout(async () => {
+      setIsLoadingCandidates(true);
+      try {
+        const params = new URLSearchParams({ mode: "candidates", query: candidateQuery.trim() });
+        const response = await fetch(`/api/admin/skeap-applications/waitlist?${params}`, { cache: "no-store" });
+        const body = await readJsonResponse(response);
+        if (!response.ok) throw new Error(String(body.error || "Unable to search pending applications."));
+        if (isCurrentRequest) {
+          setCandidateApplications(
+            Array.isArray(body.applications) ? body.applications as unknown as SkeapWaitlistApplication[] : []
+          );
+        }
+      } catch (candidateError) {
+        if (isCurrentRequest) {
+          setActionError(candidateError instanceof Error ? candidateError.message : "Unable to search pending applications.");
+        }
+      } finally {
+        if (isCurrentRequest) setIsLoadingCandidates(false);
+      }
+    }, 250);
+
+    return () => {
+      isCurrentRequest = false;
+      window.clearTimeout(timeout);
+    };
+  }, [candidateQuery, isAddModalOpen]);
 
   async function saveCapacity() {
     setSavingCapacity(true);
@@ -153,6 +204,48 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
       return;
     }
     await promoteApplication(selectedApplicant);
+  }
+
+  async function addToWaitlist(application: SkeapWaitlistApplication) {
+    setWaitlistActionId(application.id);
+    setActionError(null);
+    setToastMessage(null);
+    try {
+      const response = await fetch("/api/admin/skeap-applications/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: application.id }),
+      });
+      const body = await readJsonResponse(response);
+      if (!response.ok) throw new Error(String(body.error || "Unable to add applicant to the waitlist."));
+      setIsAddModalOpen(false);
+      setSelectedCandidate(null);
+      setCandidateQuery("");
+      setToastMessage(`${application.applicantName} was added to the waitlist.`);
+      await loadWaitlist();
+    } catch (addError) {
+      setActionError(addError instanceof Error ? addError.message : "Unable to add applicant to the waitlist.");
+    } finally {
+      setWaitlistActionId(null);
+    }
+  }
+
+  async function removeFromWaitlist(application: SkeapWaitlistApplication) {
+    setWaitlistActionId(application.id);
+    setActionError(null);
+    setToastMessage(null);
+    try {
+      const response = await fetch(`/api/admin/skeap-applications/waitlist/${application.id}`, { method: "DELETE" });
+      const body = await readJsonResponse(response);
+      if (!response.ok) throw new Error(String(body.error || "Unable to remove applicant from the waitlist."));
+      setPendingRemoval(null);
+      setToastMessage(`${application.applicantName} was removed from the waitlist and returned to pending review.`);
+      await loadWaitlist();
+    } catch (removeError) {
+      setActionError(removeError instanceof Error ? removeError.message : "Unable to remove applicant from the waitlist.");
+    } finally {
+      setWaitlistActionId(null);
+    }
   }
 
   return (
@@ -224,12 +317,16 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
           </div>
           <button
             type="button"
-            onClick={() => void loadWaitlist()}
-            disabled={isRefreshing}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60 sm:w-auto"
+            onClick={() => {
+              setCandidateQuery("");
+              setSelectedCandidate(null);
+              setActionError(null);
+              setIsAddModalOpen(true);
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-cyan-800 sm:w-auto"
           >
-            <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden="true" />
-            <span>Refresh Queue</span>
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Add applicant</span>
           </button>
         </div>
 
@@ -276,15 +373,27 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     </td>
                     <td className="px-6 py-4 text-slate-600">{formatDate(application.submittedAt)}</td>
                     <td className="px-6 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openPromotionModal(application)}
-                        disabled={isCapacityExceeded || promotingId !== null}
-                        title={isCapacityExceeded ? "Capacity full. Increase slot limit to promote." : "Promote applicant"}
-                        className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Promote to Grantee
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openPromotionModal(application)}
+                          disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
+                          title={isCapacityExceeded ? "Capacity full. Increase slot limit to promote." : "Promote applicant"}
+                          className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Promote to Grantee
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPendingRemoval(application)}
+                          disabled={waitlistActionId !== null}
+                          aria-label={`Remove ${application.applicantName} from the waitlist`}
+                          title="Remove from waitlist and return to pending review"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-rose-200 bg-white text-rose-700 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -432,6 +541,162 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
               </>
             )}
           </div>
+        </div>
+      ) : null}
+
+      {isAddModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm"
+            aria-label="Close add applicant dialog"
+            onClick={() => {
+              setIsAddModalOpen(false);
+              setSelectedCandidate(null);
+            }}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-waitlist-title"
+            className="relative flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <header className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <h2 id="add-waitlist-title" className="text-base font-bold text-slate-900">Add applicant to waitlist</h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Search pending SKEAP applications. Adding one approves it and places it at the end of the queue.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  setSelectedCandidate(null);
+                }}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </header>
+            <div className="relative p-5 pb-3">
+              <Search className="absolute left-8 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input
+                autoFocus
+                value={candidateQuery}
+                onChange={(event) => {
+                  setCandidateQuery(event.target.value);
+                  setSelectedCandidate(null);
+                }}
+                placeholder="Search applicant name or email..."
+                aria-label="Search pending applications"
+                className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+              />
+            </div>
+            <div className="min-h-32 flex-1 overflow-y-auto px-5 pb-4">
+              {candidateQuery.trim().length < 2 ? (
+                <p className="py-8 text-center text-sm text-slate-500">Search by applicant name or email to find pending applications.</p>
+              ) : isLoadingCandidates ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Searching applications...
+                </div>
+              ) : candidateApplications.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-500">No pending applications match that search.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100">
+                  {candidateApplications.map((candidate) => (
+                    <li key={candidate.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCandidate(candidate)}
+                        aria-pressed={selectedCandidate?.id === candidate.id}
+                        className={`flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition-colors ${selectedCandidate?.id === candidate.id ? "bg-cyan-50" : "hover:bg-slate-50"}`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-slate-900">{candidate.applicantName}</span>
+                          <span className="block truncate text-xs text-slate-500">{candidate.emailAddress} · {candidate.school}</span>
+                        </span>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${selectedCandidate?.id === candidate.id ? "bg-cyan-700 text-white" : "bg-slate-100 text-slate-600"}`}>
+                          {selectedCandidate?.id === candidate.id ? "Selected" : "Select"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <footer className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs leading-relaxed text-slate-500">
+                {selectedCandidate
+                  ? `This approves ${selectedCandidate.applicantName} and assigns the next queue position.`
+                  : "Select a pending application to continue."}
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    setSelectedCandidate(null);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectedCandidate && void addToWaitlist(selectedCandidate)}
+                  disabled={!selectedCandidate || waitlistActionId !== null}
+                  className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {waitlistActionId === selectedCandidate?.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+                  Add to waitlist
+                </button>
+              </div>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+
+      {pendingRemoval ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm"
+            aria-label="Cancel removing applicant"
+            onClick={() => setPendingRemoval(null)}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-waitlist-title"
+            className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"
+          >
+            <h2 id="remove-waitlist-title" className="text-base font-bold text-slate-900">Remove from waitlist?</h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              <span className="font-semibold text-slate-900">{pendingRemoval.applicantName}</span> will be removed from the queue and returned to pending application review. Their application and uploaded documents will not be deleted.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingRemoval(null)}
+                disabled={waitlistActionId !== null}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Keep on waitlist
+              </button>
+              <button
+                type="button"
+                onClick={() => void removeFromWaitlist(pendingRemoval)}
+                disabled={waitlistActionId !== null}
+                className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {waitlistActionId === pendingRemoval.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+                Remove applicant
+              </button>
+            </div>
+          </section>
         </div>
       ) : null}
     </main>

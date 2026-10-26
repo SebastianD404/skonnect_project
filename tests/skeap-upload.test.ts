@@ -6,55 +6,144 @@ import {
   getLatestSkeapResubmissionUploadKeys,
   getLatestSkeapResubmissionReplacements,
   getUnpersistedSkeapResubmissionReplacements,
+  getSkeapRequiredDocuments,
   getUploadGroups,
+  getSupportedSkeapDocumentType,
   mergeSkeapDraftReplacement,
   mergeSkeapResubmittedFiles,
   normalizeUploadedFiles,
+  SKEAP_UPLOAD_KEY,
 } from "@/lib/skeap-upload";
+
+describe("SKEAP required document labels", () => {
+  it("uses the ordinance labels and helper text for all applicants", () => {
+    expect(getSkeapRequiredDocuments("College", "1st Year")).toEqual([
+      { key: SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE, label: "Birth Certificate", helperText: "Original and Photocopy" },
+      {
+        key: SKEAP_UPLOAD_KEY.FAMILY_INCOME,
+        label: "Certificate of Low-income of Parents or Guardian",
+        helperText: 'Stating for the purpose of "Sangguniang Kabataan Educational Assistance Program"',
+      },
+      { key: SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY, label: "Certificate of Residency" },
+      {
+        key: SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
+        label: "Certified True Copy of Enrollment Form or Certificate of Enrollment",
+      },
+      { key: SKEAP_UPLOAD_KEY.GRADE_REPORT, label: "Grades issued by the school registrar" },
+    ]);
+  });
+
+  it.each(["Junior High School", "Senior High School"])(
+    "uses the report-card requirement for %s",
+    (educationLevel) => {
+      expect(getSkeapRequiredDocuments(educationLevel, "1st Year").at(-1)).toEqual({
+        key: SKEAP_UPLOAD_KEY.GRADE_REPORT,
+        label: "Certified true copy of report card or form 138",
+      });
+    }
+  );
+
+  it("uses the report-card requirement for incoming College freshmen", () => {
+    expect(getSkeapRequiredDocuments("College", "Incoming Freshman").at(-1)).toEqual({
+      key: SKEAP_UPLOAD_KEY.GRADE_REPORT,
+      label: "Certified true copy of report card or form 138",
+    });
+  });
+
+  it("keeps registrar grades for Vocational incoming freshmen", () => {
+    expect(getSkeapRequiredDocuments("Vocational", "Incoming Freshman").at(-1)).toEqual({
+      key: SKEAP_UPLOAD_KEY.GRADE_REPORT,
+      label: "Grades issued by the school registrar",
+    });
+  });
+});
+
+describe("SKEAP document file types", () => {
+  it.each([
+    [{ name: "certificate.pdf", type: "application/pdf" }, "application/pdf"],
+    [{ name: "photo.jpg", type: "image/jpeg" }, "image/jpeg"],
+    [{ name: "photo.jpeg", type: "image/jpeg" }, "image/jpeg"],
+    [{ name: "photo.png", type: "image/png" }, "image/png"],
+    [{ name: "photo.webp", type: "image/webp" }, "image/webp"],
+    [{ name: "photo.png", type: "application/octet-stream" }, "image/png"],
+  ])("accepts supported file %#", (file, expectedType) => {
+    expect(getSupportedSkeapDocumentType(file)).toBe(expectedType);
+  });
+
+  it.each([
+    { name: "certificate.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+    { name: "photo.webp", type: "image/png" },
+    { name: "photo.jpg", type: "image/png" },
+    { name: "photo.png", type: "image/svg+xml" },
+  ])("rejects unsupported file $name", (file) => {
+    expect(getSupportedSkeapDocumentType(file)).toBeNull();
+  });
+});
 
 describe("SKEAP upload verification state", () => {
   it("preserves verification state when normalizing uploaded files", () => {
     expect(normalizeUploadedFiles({
-      enrollmentCertificate: {
-        url: "https://example.com/enrollment.pdf",
-        name: "enrollment.pdf",
-        verified: true,
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.png",
+        name: "voter-certificate.png",
+        verificationStatus: "AUTO_VERIFIED",
       },
     })).toEqual({
-      enrollmentCertificate: {
-        url: "https://example.com/enrollment.pdf",
-        name: "enrollment.pdf",
-        verified: true,
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.png",
+        name: "voter-certificate.png",
+        verificationStatus: "AUTO_VERIFIED",
       },
     });
   });
 
-  it("exposes persisted verification state on upload groups", () => {
+  it("exposes persisted OCR verification state on upload groups", () => {
     expect(getUploadGroups({
-      enrollmentCertificate: {
-        url: "https://example.com/enrollment.pdf",
-        verified: true,
-        adminRemark: "Needs a clearer scan",
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.png",
+        verificationStatus: "PENDING_ADMIN_REVIEW",
       },
     })).toContainEqual(expect.objectContaining({
-      key: "enrollmentCertificate",
-      verified: true,
-      adminRemark: "Needs a clearer scan",
+      key: "voterCertificate",
+      verificationStatus: "PENDING_ADMIN_REVIEW",
     }));
   });
 
-  it("does not expose private remarks or verification state in applicant uploads", () => {
+  it("rejects unknown OCR verification statuses", () => {
+    expect(normalizeUploadedFiles({
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.png",
+        verificationStatus: "VERIFIED_BY_ADMIN",
+      },
+    })).toBeNull();
+  });
+
+  it("preserves manual review flags for administrative upload groups", () => {
+    expect(getUploadGroups({
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.png",
+        name: "voter-certificate.png",
+        manualReview: true,
+      },
+    })).toContainEqual(expect.objectContaining({
+      key: "voterCertificate",
+      manualReview: true,
+    }));
+  });
+
+  it("preserves OCR status but omits private remarks in applicant uploads", () => {
     expect(getApplicantUploadedFiles({
-      enrollmentCertificate: {
-        url: "https://example.com/enrollment.pdf",
-        name: "enrollment.pdf",
-        verified: true,
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.png",
+        name: "voter-certificate.png",
+        verificationStatus: "AUTO_VERIFIED",
         adminRemark: "Needs a clearer scan",
       },
     })).toEqual({
-      enrollmentCertificate: {
-        url: "https://example.com/enrollment.pdf",
-        name: "enrollment.pdf",
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.png",
+        name: "voter-certificate.png",
+        verificationStatus: "AUTO_VERIFIED",
       },
     });
   });
@@ -75,7 +164,7 @@ describe("SKEAP upload verification state", () => {
       attachments: [
         {
           fileId: "incomeCertificate",
-          documentLabel: "Family income certificate or income tax return",
+          documentLabel: "Certificate of Low-income of Parents or Guardian",
           fileName: "income-proof.pdf",
           fileUrl: "https://example.com/income-proof.pdf",
           fileType: "application/pdf",

@@ -191,7 +191,7 @@ export default function SmartPortraitDropzone({
           <button
             type="button"
             onClick={openFilePicker}
-            className="shrink-0 cursor-pointer rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            className="shrink-0 cursor-pointer rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm transition-all duration-150 hover:bg-slate-50 active:scale-95 active:bg-slate-100 active:shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
           >
             Browse
           </button>

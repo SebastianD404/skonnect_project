@@ -26,6 +26,7 @@ interface DocumentItem {
   isImage: boolean;
   fileName?: string;
   updated?: boolean;
+  verificationStatus?: "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
   status?: "Pending" | "Returned" | "Verified" | string;
 }
 
@@ -63,6 +64,8 @@ interface UploadGroup {
   type: string;
   isImage: boolean;
   verified?: boolean;
+  manualReview?: boolean;
+  verificationStatus?: "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
   adminRemark?: string;
 }
 
@@ -365,6 +368,9 @@ export default function SkeapApplicationsClient({
   const [applicationCounts, setApplicationCounts] = useState<ApplicationCounts | undefined>(counts);
   const [selectedAppId, setSelectedAppId] = useState<string>(initialApplications[0]?.id ?? "");
   const [viewFilter, setViewFilter] = useState<"pending" | "resubmitted" | "returned" | "approved">("pending");
+  const [verificationFilter, setVerificationFilter] = useState<
+    "all" | "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW"
+  >("all");
   const [selectedAcademicYear, setSelectedAcademicYear] = useState(initialAcademicYear);
   const itemsPerPage = 10;
   const [currentPage, setCurrentPage] = useState(1);
@@ -564,16 +570,22 @@ export default function SkeapApplicationsClient({
   const [showApplicationForm, setShowApplicationForm] = useState(false);
 
   const verifyUploadGroups = useMemo(
-    () => uploadGroups.filter((group) => group.key !== SKEAP_UPLOAD_KEY.PHOTO && group.key !== SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE),
+    () => uploadGroups.filter((group) => group.key !== SKEAP_UPLOAD_KEY.PHOTO),
     [uploadGroups]
   );
 
   const visibleVerifyDocuments = useMemo<DocumentItem[]>(() => {
     if (verifyUploadGroups.length > 0) {
+      const verificationKeys = [
+        ...CORE_UPLOAD_KEYS,
+        ...(verifyUploadGroups.some((group) => group.key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)
+          ? [SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE]
+          : []),
+      ];
       const updatedUploadKeys = selectedStatus === "Resubmitted"
         ? getLatestSkeapResubmissionUploadKeys(selectedApplication?.messages ?? [])
         : new Set<string>();
-      return CORE_UPLOAD_KEYS.map((key) => {
+      return verificationKeys.map((key) => {
         const group = verifyUploadGroups.find((groupItem) => groupItem.key === key);
         const groupUrl = group?.url ?? "";
         const normalizedGroupUrl = normalizeUrlForMatch(groupUrl);
@@ -601,6 +613,7 @@ export default function SkeapApplicationsClient({
           isImage: group?.isImage ?? matchedDoc?.isImage ?? false,
           fileName: group?.name,
           updated: updatedUploadKeys.has(key),
+          verificationStatus: group?.verificationStatus,
         };
       });
     }
@@ -615,9 +628,17 @@ export default function SkeapApplicationsClient({
         verified: doc?.verified ?? false,
         comment: doc?.comment ?? "",
         isImage: doc?.isImage ?? false,
+        verificationStatus: undefined,
       };
     });
   }, [verifyUploadGroups, selectedApplication, documentMapByUrl, selectedStatus]);
+
+  const filteredVerifyDocuments = useMemo(
+    () => verificationFilter === "all"
+      ? visibleVerifyDocuments
+      : visibleVerifyDocuments.filter((doc) => doc.verificationStatus === verificationFilter),
+    [visibleVerifyDocuments, verificationFilter]
+  );
 
   const verifiedCount = useMemo(
     () => visibleVerifyDocuments.filter((doc) => doc.verified).length,
@@ -1600,14 +1621,27 @@ export default function SkeapApplicationsClient({
                           <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Files</p>
                           <h2 className="mt-1 text-xl font-semibold text-slate-950">Documents to verify</h2>
                         </div>
-                        <div className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
-                          {verifiedCount}/{verifyDocumentCount}
+                        <div className="flex items-center gap-3">
+                          <label className="sr-only" htmlFor="skeap-ocr-filter">Filter documents by OCR status</label>
+                          <select
+                            id="skeap-ocr-filter"
+                            value={verificationFilter}
+                            onChange={(event) => setVerificationFilter(event.currentTarget.value as typeof verificationFilter)}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+                          >
+                            <option value="all">All OCR statuses</option>
+                            <option value="AUTO_VERIFIED">Auto-verified</option>
+                            <option value="PENDING_ADMIN_REVIEW">Pending admin review</option>
+                          </select>
+                          <div className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
+                            {verifiedCount}/{verifyDocumentCount}
+                          </div>
                         </div>
                       </div>
 
                       <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
                         <div className="divide-y divide-slate-200 bg-white">
-                          {visibleVerifyDocuments.map((doc) => {
+                          {filteredVerifyDocuments.map((doc) => {
                             const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
                             const isResubmittedDoc = doc.updated || (selectedStatus === "Resubmitted" && docStatus === "Returned");
                             const badgeClass = isReviewFinalized || doc.verified
@@ -1618,6 +1652,14 @@ export default function SkeapApplicationsClient({
                               ? "bg-red-50 text-red-600 border border-red-100"
                               : "bg-slate-100 text-slate-600 border border-slate-200";
                             const statusText = isReviewFinalized || doc.verified ? "Verified" : isResubmittedDoc ? "Pending" : docStatus;
+                            const needsManualReview = selectedApplication?.uploadGroups?.some(
+                              (group) => group.key === doc.id && group.manualReview
+                            ) ?? false;
+                            const ocrStatusLabel = doc.verificationStatus === "AUTO_VERIFIED"
+                              ? "OCR auto-verified"
+                              : doc.verificationStatus === "PENDING_ADMIN_REVIEW"
+                                ? "OCR pending review"
+                                : null;
 
                             return (
                               <div key={doc.id} className="w-full">
@@ -1642,6 +1684,20 @@ export default function SkeapApplicationsClient({
                                       {doc.updated ? (
                                         <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-cyan-700 ring-1 ring-inset ring-cyan-200">
                                           Updated
+                                        </span>
+                                      ) : null}
+                                      {needsManualReview ? (
+                                        <span className="shrink-0 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                                          OCR manual review
+                                        </span>
+                                      ) : null}
+                                      {ocrStatusLabel ? (
+                                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                                          doc.verificationStatus === "AUTO_VERIFIED"
+                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                            : "border-amber-200 bg-amber-50 text-amber-700"
+                                        }`}>
+                                          {ocrStatusLabel}
                                         </span>
                                       ) : null}
                                     </div>
@@ -1676,6 +1732,11 @@ export default function SkeapApplicationsClient({
                               </div>
                             );
                           })}
+                          {filteredVerifyDocuments.length === 0 ? (
+                            <p className="px-4 py-8 text-center text-sm text-slate-500">
+                              No documents match this OCR status.
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     </div>

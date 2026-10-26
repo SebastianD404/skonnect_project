@@ -4,49 +4,25 @@ import { SKEAP_UPLOAD_KEY, type SkeapUploadKey } from "@/lib/skeap-upload";
 const BIRTH_CERTIFICATE_KEYWORDS = [
   "birth certificate",
   "certificate of live birth",
+  "live birth",
   "philippine statistics authority",
   "national statistics office",
   "psa",
   "nso",
+  "office of the civil registrar general",
+  "civil registrar general",
 ];
 
-const VALID_ID_KEYWORDS = [
-  "philsys",
-  "philippine identification system",
-  "philippine national id",
-  "national id",
-  "national identification card",
-  "umid",
-  "unified multi-purpose id",
-  "school id",
-  "student id",
-  "driver's license",
-  "drivers license",
-  "postal id",
-  "passport",
-  "voter id",
-  "voter's id",
-  "voters id",
-  "philhealth id",
-  "tin id",
-  "digital tin",
-  "digital tin id",
-  "taxpayer identification number",
-  "tax identification number",
-  "bureau of internal revenue",
-];
-
-const SCHOOL_ID_KEYWORDS = [
-  "king's college of the philippines",
-  "kings college of the philippines",
-  "kcp",
-  "pico road",
-  "la trinidad",
-  "benguet",
-  "id no",
-  "student",
-  "registrar",
-  "edna p. conchao",
+const BIRTH_RECORD_FIELD_KEYWORDS = [
+  "date of birth",
+  "place of birth",
+  "name of child",
+  "mother",
+  "father",
+  "sex",
+  "date of registration",
+  "registry number",
+  "city or municipality",
 ];
 
 const KK_VALID_ID_KEYWORDS = [
@@ -119,8 +95,6 @@ const KK_CERTIFICATE_TERMS = [
 export const DOCUMENT_KEYWORDS: Partial<Record<SkeapUploadKey, string[]>> = {
   [SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE]: [
     ...BIRTH_CERTIFICATE_KEYWORDS,
-    ...VALID_ID_KEYWORDS,
-    ...SCHOOL_ID_KEYWORDS,
   ],
   [SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY]: [
     "barangay",
@@ -184,6 +158,99 @@ function normalizeOCRText(text: string) {
   return ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ")} `;
 }
 
+function getEditDistance(left: string, right: string) {
+  if (Math.abs(left.length - right.length) > 1) return 2;
+
+  let distance = 0;
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (leftIndex < left.length && rightIndex < right.length) {
+    if (left[leftIndex] === right[rightIndex]) {
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+
+    distance += 1;
+    if (distance > 1) return distance;
+    if (left.length > right.length) leftIndex += 1;
+    else if (right.length > left.length) rightIndex += 1;
+    else {
+      leftIndex += 1;
+      rightIndex += 1;
+    }
+  }
+
+  if (leftIndex < left.length || rightIndex < right.length) distance += 1;
+  return distance;
+}
+
+function wordsMatchWithOCRNoise(actual: string, expected: string) {
+  if (actual === expected) return true;
+  if (expected.length < 5) return false;
+  return getEditDistance(actual, expected) <= 1;
+}
+
+function phraseMatchesWithOCRNoise(text: string, phrase: string) {
+  const textWords = normalizeOCRText(text).trim().split(" ");
+  const phraseWords = phrase.split(" ");
+  const minWindowSize = phraseWords.length > 2 ? phraseWords.length - 1 : phraseWords.length;
+  const maxWindowSize = phraseWords.length + 1;
+
+  for (let start = 0; start < textWords.length; start += 1) {
+    for (let windowSize = minWindowSize; windowSize <= maxWindowSize; windowSize += 1) {
+      const window = textWords.slice(start, start + windowSize);
+      if (window.length !== windowSize) continue;
+
+      let textIndex = 0;
+      let phraseIndex = 0;
+      let skippedTextWord = false;
+      let skippedPhraseWord = false;
+      while (textIndex < window.length && phraseIndex < phraseWords.length) {
+        if (wordsMatchWithOCRNoise(window[textIndex], phraseWords[phraseIndex])) {
+          textIndex += 1;
+          phraseIndex += 1;
+        } else if (!skippedTextWord && window.length > phraseWords.length) {
+          skippedTextWord = true;
+          textIndex += 1;
+        } else if (
+          !skippedPhraseWord &&
+          phraseWords.length > window.length &&
+          phraseWords.length > 2
+        ) {
+          skippedPhraseWord = true;
+          phraseIndex += 1;
+        } else {
+          break;
+        }
+      }
+
+      if (phraseIndex === phraseWords.length && textIndex === window.length) return true;
+    }
+  }
+
+  return false;
+}
+
+function getBirthCertificateMatches(text: string) {
+  const matches = BIRTH_CERTIFICATE_KEYWORDS.filter((keyword) => {
+    if (keyword === "psa") return /\bpsa\b|\bp5a\b/i.test(text);
+    if (keyword === "nso") return /\bnso\b|\bn5o\b/i.test(text);
+    return phraseMatchesWithOCRNoise(text, keyword);
+  });
+  const matchedFields = BIRTH_RECORD_FIELD_KEYWORDS.filter((keyword) =>
+    phraseMatchesWithOCRNoise(text, keyword)
+  );
+
+  if (matches.length > 0) return matches;
+  const hasBirthDateField = matchedFields.includes("date of birth") ||
+    matchedFields.includes("place of birth");
+  const hasBothParentFields = matchedFields.includes("mother") && matchedFields.includes("father");
+  return hasBirthDateField && hasBothParentFields
+    ? matchedFields
+    : [];
+}
+
 function findKkTerms(text: string, terms: string[]) {
   const normalizedText = text.toLowerCase();
   return terms.filter((term) => normalizedText.includes(term.toLowerCase()));
@@ -202,20 +269,14 @@ export function getKkProfilingValidIdMatches(text: string) {
 }
 
 export function getSkeapDocumentKeywordMatches(text: string, docType: SkeapUploadKey) {
-  const keywords = DOCUMENT_KEYWORDS[docType] ?? [];
-  const normalizedText = normalizeOCRText(text);
-  const foundKeywords = keywords.filter((keyword) =>
-    normalizedText.includes(normalizeOCRText(keyword))
-  );
-  if (docType !== SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE) return foundKeywords;
+  if (docType === SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE) {
+    return getBirthCertificateMatches(text);
+  }
 
-  const birthCertificateMatches = foundKeywords.filter((keyword) =>
-    BIRTH_CERTIFICATE_KEYWORDS.includes(keyword)
+  const keywords = DOCUMENT_KEYWORDS[docType] ?? [];
+  return keywords.filter((keyword) =>
+    phraseMatchesWithOCRNoise(text, normalizeOCRText(keyword).trim())
   );
-  const validIdMatches = getKkProfilingValidIdMatches(text);
-  return birthCertificateMatches.length > 0 || validIdMatches.length > 0
-    ? foundKeywords
-    : [];
 }
 
 export function extractDocxTextFromBuffer(buffer: ArrayBuffer | Uint8Array) {

@@ -2,19 +2,20 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, FileText, LoaderCircle, UploadCloud } from "lucide-react";
+import { CheckCircle2, ChevronDown, Eye, FileText, LoaderCircle, TriangleAlert, UploadCloud } from "lucide-react";
 import {
-  CORE_UPLOAD_KEYS,
   SKEAP_UPLOAD_KEY,
-  SKEAP_UPLOAD_LABELS,
+  type SkeapRequiredDocument,
+  getSupportedSkeapDocumentType,
   normalizeUploadRequirement,
+  type SkeapVerificationStatus,
   type SkeapUploadKey,
 } from "@/lib/skeap-upload";
 import SmartPortraitDropzone from "@/components/SmartPortraitDropzone";
 import type { KKProfile } from "@/lib/kk-profile-client";
-import { validateDocumentOCR, type DocumentOCRResult } from "@/lib/skeap-document-ocr";
+import { validateDocumentOCR } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
-import { SKEAP_EDUCATION_LEVELS, SKEAP_YEAR_LEVELS, type SkeapEducationLevel } from "@/lib/skeap-education";
+import { SKEAP_APPLICATION_EDUCATION_LEVELS, SKEAP_YEAR_LEVELS, type SkeapEducationLevel } from "@/lib/skeap-education";
 
 type UploadedFile = {
   id: string;
@@ -22,62 +23,34 @@ type UploadedFile = {
   type: string;
   size: number;
   progress: number;
-  status: "queued" | "uploading" | "done" | "error";
+  status: "validating" | "queued" | "uploading" | "done" | "error";
   url?: string;
   error?: string;
+  manualReview?: boolean;
+  manualReviewAvailable?: boolean;
   requirement?: string;
   previewUrl?: string;
-  verification?: "scanning" | "verified" | "review" | "overridden" | "skipped";
-  verificationMessage?: string;
+  previewFailed?: boolean;
+  verificationStatus?: SkeapVerificationStatus;
   file?: File;
 };
 
 type SkeapUploadValue = {
   name?: string;
   url: string;
+  manualReview?: boolean;
+  verificationStatus?: SkeapVerificationStatus;
 };
 
 const MAX_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024;
-const ACCEPTED_DOCUMENT_TYPES = "image/*,application/pdf,.doc,.docx";
-
-function isServerValidatedSkeapFile(file: File) {
-  return /\.docx$/i.test(file.name) ||
-    file.type.startsWith("image/") && /\.(jpe?g|jfif|png|webp)$/i.test(file.name);
-}
-
-async function validateBirthCertificateDocument(file: File): Promise<DocumentOCRResult> {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("documentType", SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE);
-
-  const response = await fetch("/api/validate-document", {
-    method: "POST",
-    body: formData,
-  });
-  const result = await response.json() as {
-    status?: string;
-    message?: string;
-    text?: string;
-  };
-  if (!response.ok) {
-    throw new Error(result.message || "The document could not be checked.");
-  }
-
-  if (result.status === "verified") {
-    return {
-      status: "verified",
-      extractedText: result.text || "",
-      confidence: 100,
-    };
-  }
-
-  return {
-    status: "review",
-    extractedText: result.text || "",
-    confidence: 0,
-    reason: result.message || "This document needs manual verification.",
-  };
-}
+const ACCEPTED_DOCUMENT_TYPES = "image/jpeg,image/png,image/webp,application/pdf";
+const STRICT_OCR_UPLOAD_KEYS = new Set<SkeapUploadKey>([
+  SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE,
+  SKEAP_UPLOAD_KEY.FAMILY_INCOME,
+  SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY,
+  SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
+  SKEAP_UPLOAD_KEY.GRADE_REPORT,
+]);
 
 function isPreviewableImage(file: Pick<UploadedFile, "name"> & { type?: string }) {
   return Boolean(file.type?.startsWith("image/")) || /\.(jpe?g|jfif|png|webp|gif|avif)$/i.test(file.name);
@@ -91,6 +64,8 @@ function getFileBadge(file: Pick<UploadedFile, "name">) {
   const extension = file.name.split(".").pop()?.toLowerCase();
   const badge = extension === "pdf"
     ? { label: "PDF", className: "bg-red-50 text-red-700" }
+    : extension === "webp"
+      ? { label: "WEBP", className: "bg-emerald-50 text-emerald-700" }
     : extension === "docx"
       ? { label: "DOCX", className: "bg-blue-50 text-blue-700" }
       : extension === "doc"
@@ -102,10 +77,6 @@ function getFileBadge(file: Pick<UploadedFile, "name">) {
       {badge.label}
     </span>
   );
-}
-
-function getUploadLabelForKey(key: SkeapUploadKey) {
-  return SKEAP_UPLOAD_LABELS[key] || SKEAP_UPLOAD_LABELS.other;
 }
 
 function parseDateValue(value: string) {
@@ -152,17 +123,6 @@ function computeAgeFromDateValue(value: string) {
   }
 
   return age;
-}
-
-function getRequiredUploadKeys(requirements?: string[]) {
-  const requiredKeys = new Set<SkeapUploadKey>(CORE_UPLOAD_KEYS);
-  requirements?.forEach((req) => {
-    const key = normalizeUploadRequirement(req);
-    if (key !== SKEAP_UPLOAD_KEY.OTHER) {
-      requiredKeys.add(key);
-    }
-  });
-  return Array.from(requiredKeys);
 }
 
 function findUploadFileForKey(files: UploadedFile[], key: SkeapUploadKey) {
@@ -414,16 +374,14 @@ function SchoolCombobox({
   );
 }
 
-export default function SkeapApplicationWizard({ onSubmitted, requirements, footerActionsTarget, scrollContainerRef, userProfile, allowManualProfileDetails = false }: { onSubmitted: (reference: string) => void; requirements?: string[]; footerActionsTarget?: HTMLElement | null; scrollContainerRef: RefObject<HTMLDivElement | null>; userProfile: KKProfile; allowManualProfileDetails?: boolean }) {
+export default function SkeapApplicationWizard({ onSubmitted, educationLevel, onEducationLevelChange, yearLevel, onYearLevelChange, requiredDocuments, footerActionsTarget, scrollContainerRef, userProfile, allowManualProfileDetails = false }: { onSubmitted: (reference: string) => void; educationLevel: SkeapEducationLevel | ""; onEducationLevelChange: (educationLevel: SkeapEducationLevel | "") => void; yearLevel: string; onYearLevelChange: (yearLevel: string) => void; requiredDocuments: SkeapRequiredDocument[]; footerActionsTarget?: HTMLElement | null; scrollContainerRef: RefObject<HTMLDivElement | null>; userProfile: KKProfile; allowManualProfileDetails?: boolean }) {
   const [step, setStep] = useState(0);
   const parsedProfileName = parseProfileName(userProfile.fullName || "");
   const profileBirthDate = userProfile.birthDate ? String(userProfile.birthDate).slice(0, 10) : "";
   const profileAge = profileBirthDate ? computeAgeFromDateValue(profileBirthDate) : undefined;
   const profileVoterStatus = userProfile.registration?.registeredNationalVoter || userProfile.registeredNationalVoter;
 
-  const [educationLevel, setEducationLevel] = useState<SkeapEducationLevel | "">("");
   const [course, setCourse] = useState("");
-  const [yearLevel, setYearLevel] = useState("");
   const [gwa, setGwa] = useState("");
 
   
@@ -463,13 +421,6 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
   const isJuniorHighSchool = educationLevel === "Junior High School";
   const isSeniorHighSchool = educationLevel === "Senior High School";
   const isIncomingFreshman = yearLevel === "Incoming Freshman";
-
-  function getUploadLabel(key: SkeapUploadKey) {
-    if (key === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT && isIncomingFreshman) {
-      return "Notice of Admission / SHS Report Card";
-    }
-    return SKEAP_UPLOAD_LABELS[key];
-  }
 
   // Educational background
   const [elementarySchool, setElementarySchool] = useState("");
@@ -582,10 +533,10 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
       if (!totalFamilyMonthlyIncome.trim()) addError("totalFamilyMonthlyIncome", "Total family monthly income is required.");
     }
     if (step === 3) {
-      const requiredKeys = getRequiredUploadKeys(requirements);
+      const requiredKeys = requiredDocuments.map((document) => document.key);
       const missingKeys = requiredKeys.filter((key) => !isUploadCompleteForKey(files, key));
       for (const key of missingKeys) {
-        const label = SKEAP_UPLOAD_LABELS[key] || "Required document";
+        const label = requiredDocuments.find((document) => document.key === key)?.label || "Required document";
         addError(key, `Please upload the required file: ${label}.`);
       }
     }
@@ -647,7 +598,9 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
       }
 
       if (currentStep === 3) {
-        const missingKeys = getRequiredUploadKeys(requirements).filter((key) => !isUploadCompleteForKey(files, key));
+        const missingKeys = requiredDocuments
+          .map((document) => document.key)
+          .filter((key) => !isUploadCompleteForKey(files, key));
         if (missingKeys.length > 0) {
           const missingKey = missingKeys[0];
           const uploadCard = document.getElementById(`upload-${missingKey}`);
@@ -708,7 +661,25 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
       id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const normalizedRequirement = requirement ? normalizeUploadRequirement(requirement) : normalizeUploadRequirement(file.name || "");
       const normalizedKey = normalizedRequirement || normalizeUploadRequirement(file.name || "");
-      const hasOCRRules = normalizedKey !== SKEAP_UPLOAD_KEY.PHOTO && normalizedKey !== SKEAP_UPLOAD_KEY.OTHER;
+      const isVoterCertificate = normalizedKey === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE;
+      if (!getSupportedSkeapDocumentType(file)) {
+        const errorText = "That file type isn't supported. Please choose a PDF, JPG, PNG, or WebP.";
+        setFiles((prev) => [
+          ...prev.filter((existingFile) => existingFile.requirement !== normalizedKey),
+          {
+            id,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            progress: 0,
+            status: "error",
+            error: errorText,
+            requirement: normalizedKey,
+          },
+        ]);
+        return errorText;
+      }
+
       const previewUrl = URL.createObjectURL(file);
       previewObjectUrlsRef.current.add(previewUrl);
       files
@@ -725,9 +696,9 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
         size: file.size,
         previewUrl,
         progress: 0,
-        status: "queued",
+        status: STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey) ? "validating" : "queued",
         requirement: normalizedKey,
-        verification: hasOCRRules ? "scanning" : "skipped",
+        ...(isVoterCertificate ? { verificationStatus: "PENDING_ADMIN_REVIEW" as const } : {}),
         file,
       };
 
@@ -735,7 +706,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
         const errorText = "File size exceeds the 15MB limit. Please upload a smaller file.";
         setFiles((prev) => [
           ...prev.filter((f) => f.requirement !== normalizedKey),
-          { ...newUpload, status: "error", verification: "skipped", error: errorText },
+          { ...newUpload, status: "error", error: errorText },
         ]);
         return errorText;
       }
@@ -744,7 +715,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
         const errorText = "This file is empty. Please choose another file.";
         setFiles((prev) => [
           ...prev.filter((f) => f.requirement !== normalizedKey),
-          { ...newUpload, status: "error", verification: "skipped", error: errorText },
+          { ...newUpload, status: "error", error: errorText },
         ]);
         return errorText;
       }
@@ -753,39 +724,34 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
         ...prev.filter((f) => f.requirement !== normalizedKey),
         newUpload,
       ]);
-      if (normalizedKey) markFieldValid(normalizedKey);
 
-      if (hasOCRRules) {
+      if (STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey)) {
         try {
-          const validation = normalizedKey === SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE && isServerValidatedSkeapFile(file)
-            ? await validateBirthCertificateDocument(file)
-            : await validateDocumentOCR(file, normalizedKey);
-          if (validation.status === "review") {
-            setFiles((prev) => prev.map((f) => f.id === id
-              ? {
-                  ...f,
-                  verification: "review",
-                  verificationMessage: validation.reason,
-                }
-              : f));
-          } else {
-            setFiles((prev) => prev.map((f) => f.id === id
-              ? { ...f, verification: validation.status }
-              : f));
+          const validation = await validateDocumentOCR(file, normalizedKey);
+          if (validation.status !== "verified") {
+            const errorText = `Document not verified. ${validation.status === "review"
+              ? validation.reason
+              : "Please upload a readable document for this requirement."}`;
+            setFiles((prev) => prev.map((uploadedFile) => uploadedFile.id === id
+              ? { ...uploadedFile, status: "error", error: errorText, manualReviewAvailable: true }
+              : uploadedFile));
+            return errorText;
           }
+          setFiles((prev) => prev.map((uploadedFile) => uploadedFile.id === id
+            ? { ...uploadedFile, status: "queued", error: undefined }
+            : uploadedFile));
         } catch (error) {
-          console.error("SKEAP document OCR failed; applicant review is required.", {
-            requirement: normalizedKey,
+          const details = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+          const errorText = `Document not verified. The document reader could not finish checking this file (${details}). Please try again or submit it for administrator review.`;
+          console.error("SKEAP document OCR validation failed.", {
             fileName: file.name,
+            requirement: normalizedKey,
             error,
           });
-          setFiles((prev) => prev.map((f) => f.id === id
-            ? {
-                ...f,
-                verification: "review",
-                verificationMessage: "We couldn't check this file automatically.",
-              }
-            : f));
+          setFiles((prev) => prev.map((uploadedFile) => uploadedFile.id === id
+            ? { ...uploadedFile, status: "error", error: errorText, manualReviewAvailable: true }
+            : uploadedFile));
+          return errorText;
         }
       }
 
@@ -841,6 +807,15 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
     }
   }
 
+  async function continueUploadForManualReview(upload: UploadedFile) {
+    if (!upload.file || !upload.requirement) return;
+    const requirement = upload.requirement as SkeapUploadKey;
+    setFiles((prev) => prev.map((item) => item.id === upload.id
+      ? { ...item, status: "queued", error: undefined, manualReview: true, manualReviewAvailable: false }
+      : item));
+    await uploadPendingFile(upload.id, upload.file, requirement);
+  }
+
   async function submitApplication() {
     const validation = validateStep();
     if (validation.invalidFields.length > 0) {
@@ -861,20 +836,35 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
 
     try {
       const doneUrls = files.filter((f) => f.status === "done").map((f) => f.url).filter(Boolean) as string[];
-      const requiredUploadKeys = getRequiredUploadKeys(requirements);
+      const requiredUploadKeys = requiredDocuments.map((document) => document.key);
       const documentUploads = requiredUploadKeys.reduce<Partial<Record<SkeapUploadKey, SkeapUploadValue>>>((acc, key) => {
         const file = findUploadFileForKey(files, key);
         if (file?.status === "done" && file.url?.trim()) {
-          acc[key] = { name: file.name, url: file.url.trim() };
+          acc[key] = {
+            name: file.name,
+            url: file.url.trim(),
+            ...(file.manualReview ? { manualReview: true } : {}),
+            ...(key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE && file.verificationStatus
+              ? { verificationStatus: file.verificationStatus }
+              : {}),
+          };
         }
         return acc;
       }, {});
+      const voterCertificate = findUploadFileForKey(files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
+      if (voterCertificate?.status === "done" && voterCertificate.url?.trim()) {
+        documentUploads[SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE] = {
+          name: voterCertificate.name,
+          url: voterCertificate.url.trim(),
+          verificationStatus: "PENDING_ADMIN_REVIEW",
+        };
+      }
 
       const missingUploadKeys = requiredUploadKeys.filter((key) => !documentUploads[key]?.url?.trim());
       if (missingUploadKeys.length > 0) {
         setMessage(
           `Please upload required document${missingUploadKeys.length > 1 ? "s" : ""}: ${missingUploadKeys
-            .map((key) => getUploadLabel(key) || key)
+            .map((key) => requiredDocuments.find((document) => document.key === key)?.label || key)
             .join(", ")}`
         );
         setSubmitting(false);
@@ -1207,9 +1197,12 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                 data-required="profile"
                 required
                 aria-required="true"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={contactNumber}
                 onChange={(e) => {
-                  setContactNumber(e.target.value);
+                  setContactNumber(e.target.value.replace(/\D/g, ""));
                   markFieldValid("contactNumber");
                 }}
                 aria-invalid={invalidFields.has("contactNumber")}
@@ -1278,29 +1271,6 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                   const voterFile = files.find((file) => file.requirement === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
                   const inputId = "voter-certificate-upload";
                   const voterFileUrl = voterFile?.status === "done" ? voterFile.url : undefined;
-                  const statusLabel = voterFile?.verification === "scanning"
-                    ? "Checking..."
-                    : voterFile?.status === "uploading"
-                    ? "Uploading..."
-                    : voterFile?.verification === "review"
-                    ? "Needs review"
-                    : voterFile?.verification === "verified"
-                    ? "Verified"
-                    : voterFile?.verification === "overridden"
-                    ? "For manual review"
-                    : voterFile?.status === "error"
-                    ? "Upload failed"
-                    : voterFile?.status === "done"
-                    ? "Ready"
-                    : "Required";
-                  const statusClass = voterFile?.verification === "scanning" || voterFile?.status === "uploading"
-                    ? "border-sky-200 bg-sky-50 text-sky-700"
-                    : voterFile?.verification === "verified" || (voterFile?.status === "done" && voterFile.verification !== "overridden")
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : voterFile?.verification === "review" || voterFile?.verification === "overridden" || voterFile?.status === "error"
-                    ? "border-amber-200 bg-amber-50 text-amber-800"
-                    : "border-slate-200 bg-slate-100 text-slate-600";
-
                   return (
                     <div
                       className="mt-2 space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -1315,11 +1285,8 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                           <label htmlFor={inputId} className="text-sm font-semibold text-slate-900">
                             Voter&apos;s certificate (photocopy) <span className="text-red-500" aria-hidden="true">*</span>
                           </label>
-                          <p className="mt-0.5 text-xs text-slate-500">Supports PDF, DOC, DOCX, and images (Max 15MB).</p>
+                          <p className="mt-0.5 text-xs text-slate-500">Supports PDF, JPG, PNG, and WebP (Max 15MB).</p>
                         </div>
-                        <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${statusClass}`}>
-                          {statusLabel}
-                        </span>
                       </div>
                       <input
                         id={inputId}
@@ -1334,24 +1301,29 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                         className="sr-only"
                         aria-label="Upload or replace voter's certificate"
                       />
-                      {voterFile?.verification === "scanning" || voterFile?.status === "uploading" ? (
-                        <div className="flex h-[68px] animate-pulse items-center justify-between rounded-xl border border-blue-100 bg-blue-50/40 px-4" role="status">
-                          <div className="flex items-center gap-3">
-                            <LoaderCircle className="h-5 w-5 shrink-0 animate-spin text-blue-600" aria-hidden="true" />
-                            <span className="text-xs font-medium text-blue-900">
-                              {voterFile.verification === "scanning" ? "Checking your document..." : "Uploading your document..."}
-                            </span>
+                      {voterFile?.status === "uploading" ? (
+                        <div className="flex h-[68px] items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/40 px-4" role="status">
+                          <LoaderCircle className="h-5 w-5 shrink-0 animate-spin text-blue-600" aria-hidden="true" />
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-medium text-blue-900">Uploading your document...</span>
+                            <div className="mt-2 h-1.5 animate-pulse rounded-full bg-blue-200" aria-hidden="true" />
                           </div>
-                          <span className="text-[11px] font-medium text-blue-600">Please wait</span>
                         </div>
                       ) : voterFile ? (
                         <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                           <div className="flex min-w-0 items-center gap-3">
-                            {isPreviewableImage(voterFile) && voterFile.previewUrl ? (
-                              <img src={voterFile.previewUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover" />
+                            {isPreviewableImage(voterFile) && voterFile.previewUrl && !voterFile.previewFailed ? (
+                              <img
+                                src={voterFile.previewUrl}
+                                alt=""
+                                onError={() => setFiles((prev) => prev.map((file) =>
+                                  file.id === voterFile.id ? { ...file, previewFailed: true } : file
+                                ))}
+                                className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover"
+                              />
                             ) : (
                               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-500">
-                                {isPdfFile(voterFile) ? "PDF" : <FileText className="h-5 w-5" aria-hidden="true" />}
+                                  {isPdfFile(voterFile) ? "PDF" : <FileText className="h-5 w-5" aria-hidden="true" />}
                               </div>
                             )}
                             <div className="min-w-0">
@@ -1383,42 +1355,18 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                             <UploadCloud className="h-5 w-5 text-slate-400" aria-hidden="true" />
                             <span className="text-sm text-slate-600">Click or drop to upload document</span>
                           </span>
-                          <span className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm">Browse</span>
+                          <span className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm transition-all duration-150 active:scale-95 active:bg-slate-100 active:shadow-inner">
+                            Browse
+                          </span>
                         </label>
                       )}
-                      {voterFile?.verification === "review" ? (
-                        <div className="flex flex-col items-start justify-between gap-4 rounded-xl border border-amber-200/90 bg-amber-50/80 p-4 shadow-sm transition-all sm:flex-row sm:items-center">
-                          <div className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
-                              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                            </div>
-                            <div>
-                              <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900">Manual Verification Recommended</h4>
-                              <p className="mt-0.5 text-xs leading-relaxed text-amber-800">
-                                We couldn&apos;t verify that this file is a valid match for the required{" "}
-                                <span className="font-semibold">{getUploadLabel(SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)}</span>.
-                                {" "}If your uploaded file is clear and correct, you can safely proceed anyway.
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFiles((prev) => prev.map((file) => file.id === voterFile.id
-                                ? { ...file, verification: "overridden" }
-                                : file));
-                              if (voterFile.status !== "done" || !voterFile.url) {
-                                void uploadPendingFile(voterFile.id, voterFile.file, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
-                              }
-                            }}
-                            disabled={voterFile.status === "uploading"}
-                            className="w-full shrink-0 cursor-pointer rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-amber-700 disabled:cursor-wait disabled:opacity-60 sm:w-auto"
-                          >
-                            Proceed Anyway
-                          </button>
-                        </div>
+                      {voterFile?.status === "done" && voterFile.url ? (
+                        <p className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700" role="status">
+                          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                          File uploaded successfully
+                        </p>
                       ) : null}
-                      {voterFile?.error ? <p className="text-xs text-rose-700" role="alert">{voterFile.error}</p> : null}
+                      {voterFile?.error ? <p className="text-sm text-slate-600" role="status">{voterFile.error}</p> : null}
                     </div>
                   );
                 })()
@@ -1450,8 +1398,8 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                   value={educationLevel}
                   onChange={(event) => {
                     const value = event.currentTarget.value as SkeapEducationLevel | "";
-                    setEducationLevel(value);
-                    setYearLevel("");
+                    onEducationLevelChange(value);
+                    onYearLevelChange("");
                     setCourse("");
                     markFieldValid("educationLevel");
                     markFieldValid("yearLevel");
@@ -1461,7 +1409,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                   className={`w-full appearance-none rounded-xl border py-2 pl-3 pr-10 text-sm text-slate-900 ${invalidFields.has("educationLevel") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
                 >
                   <option value="">Select education level</option>
-                  {SKEAP_EDUCATION_LEVELS.map((level) => (
+                  {SKEAP_APPLICATION_EDUCATION_LEVELS.map((level) => (
                     <option key={level} value={level}>{level}</option>
                   ))}
                 </select>
@@ -1493,7 +1441,7 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                   disabled={!educationLevel}
                   onChange={(event) => {
                     const value = event.currentTarget.value;
-                    setYearLevel(value);
+                    onYearLevelChange(value);
                     if (value.trim()) markFieldValid("yearLevel");
                   }}
                   aria-invalid={invalidFields.has("yearLevel")}
@@ -1552,10 +1500,13 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                 <input
                   data-required="scholarship"
                   required
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={fathersContact}
                   disabled={fathersContact === "N/A"}
                   onChange={(e) => {
-                    setFathersContact(e.target.value);
+                    setFathersContact(e.target.value.replace(/\D/g, ""));
                     markFieldValid("fathersContact");
                   }}
                   aria-invalid={invalidFields.has("fathersContact")}
@@ -1609,10 +1560,13 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                 <input
                   data-required="scholarship"
                   required
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={mothersContact}
                   disabled={mothersContact === "N/A"}
                   onChange={(e) => {
-                    setMothersContact(e.target.value);
+                    setMothersContact(e.target.value.replace(/\D/g, ""));
                     markFieldValid("mothersContact");
                   }}
                   aria-invalid={invalidFields.has("mothersContact")}
@@ -1743,39 +1697,33 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
           <p className="text-sm font-semibold text-slate-900">Upload your required application documents</p>
 
           <div className="grid gap-3">
-            {getRequiredUploadKeys(requirements).map((key) => {
-              const label = getUploadLabel(key);
+            {requiredDocuments.map((requiredDocument) => {
+              const { key, label } = requiredDocument;
               const inputId = `file-input-${key}`;
               const matchingFile = findUploadFileForKey(files, key);
               const isReady = matchingFile?.status === "done" && Boolean(matchingFile.url);
               const matchingFileUrl = matchingFile?.status === "done" ? matchingFile.url : undefined;
               const statusLabel = matchingFile?.status === "error"
-                ? "Try again"
+                ? matchingFile.manualReviewAvailable ? "UNVERIFIED" : "Try again"
+                : matchingFile?.status === "validating"
+                ? "Checking document"
                 : matchingFile?.status === "uploading"
                 ? "Uploading"
-                : matchingFile?.verification === "scanning"
-                ? "Checking"
-                : matchingFile?.verification === "review"
-                ? "Needs review"
                 : matchingFile?.status === "done"
-                ? matchingFile.verification === "verified"
-                  ? "Verified"
-                  : matchingFile.verification === "overridden"
-                  ? "For manual review"
-                  : "Ready"
+                ? "Uploaded"
                 : matchingFile?.status === "queued"
                 ? "Queued"
                 : "Pending";
               const statusBadgeClass = matchingFile?.status === "error"
-                ? "border-rose-200 bg-rose-50 text-rose-700"
-                : matchingFile?.status === "uploading" || matchingFile?.verification === "scanning"
+                ? matchingFile.manualReviewAvailable
+                  ? "border border-slate-200 bg-slate-100 text-slate-700"
+                  : "border-rose-200 bg-rose-50 text-rose-700"
+                : matchingFile?.status === "validating"
+                ? "border-amber-200 bg-amber-50 text-amber-700"
+                : matchingFile?.status === "uploading"
                 ? "border-sky-200 bg-sky-50 text-sky-700"
-                : matchingFile?.verification === "verified"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : matchingFile?.verification === "review" || matchingFile?.verification === "overridden"
-                ? "border-amber-200 bg-amber-50 text-amber-800"
                 : matchingFile?.status === "done"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                ? "border-slate-200 bg-slate-100 text-slate-600"
                 : "border-slate-200 bg-slate-100 text-slate-500";
               return (
                 <div
@@ -1787,16 +1735,20 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                     event.preventDefault();
                     void onChooseFiles(event.dataTransfer.files, key);
                   }}
-                  className={`flex flex-col rounded-2xl border p-5 ${invalidFields.has(key) ? "border-rose-300 bg-rose-50/30 text-slate-900" : "border-slate-200 bg-white"}`}
+                  className={`flex flex-col gap-2 overflow-hidden rounded-2xl border p-4 ${invalidFields.has(key) ? "border-rose-300 bg-rose-50/30 text-slate-900" : "border-slate-200 bg-white"}`}
                 >
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="min-w-0 truncate text-sm font-semibold text-slate-800">{label}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">Supports PDF, DOC, DOCX, and images (Max 15MB).</p>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <h4 className="min-w-0 truncate text-sm font-semibold text-slate-900">{label}</h4>
+                      {!isReady ? (
+                        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusLabel === "UNVERIFIED" ? "border border-slate-200 bg-slate-100 text-slate-700" : `border ${statusBadgeClass}`}`}>
+                          {statusLabel}
+                        </span>
+                      ) : null}
                     </div>
-                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${statusBadgeClass}`}>
-                      {statusLabel}
-                    </span>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Supports PDF, JPG, PNG, and WebP (Max 15MB).
+                    </p>
                   </div>
 
                   <input
@@ -1814,12 +1766,15 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                   />
 
                   {matchingFile ? (
-                    <div className="mt-3 flex min-w-0 items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-3 pl-4">
+                    <div className="my-1 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                       <div className="flex min-w-0 items-center gap-3">
-                        {isPreviewableImage(matchingFile) && matchingFile.previewUrl ? (
+                        {isPreviewableImage(matchingFile) && matchingFile.previewUrl && !matchingFile.previewFailed ? (
                           <img
                             src={matchingFile.previewUrl}
                             alt=""
+                            onError={() => setFiles((prev) => prev.map((file) =>
+                              file.id === matchingFile.id ? { ...file, previewFailed: true } : file
+                            ))}
                             className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover"
                           />
                         ) : (
@@ -1840,10 +1795,11 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                                 href={matchingFileUrl || matchingFile.previewUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-xs font-medium text-cyan-700 hover:underline"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-cyan-700 transition-colors hover:bg-cyan-50"
                                 aria-label={`View ${matchingFile.name} in a new tab`}
+                                title={`Preview ${matchingFile.name}`}
                               >
-                                View file
+                                <Eye className="h-4 w-4" aria-hidden="true" />
                               </a>
                             ) : null}
                           </div>
@@ -1867,21 +1823,20 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                         <UploadCloud className="h-5 w-5 text-slate-400" aria-hidden="true" />
                         <span className="text-sm font-medium text-slate-600">Click or drop to upload document</span>
                       </span>
-                      <span className="rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold shadow-sm hover:bg-slate-50">
+                      <span className="rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold shadow-sm transition-all duration-150 hover:bg-slate-50 active:scale-95 active:bg-slate-100 active:shadow-inner">
                         Browse
                       </span>
                     </label>
                   )}
-                  {matchingFile?.verification === "scanning" || matchingFile?.status === "uploading" ? (
+                  {matchingFile?.status === "uploading" ? (
                     <div className="mt-2 flex min-w-0 items-center gap-2 text-xs text-sky-700" role="status">
                       <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
                       <span className="shrink-0">
-                        {matchingFile.verification === "scanning"
-                          ? "Checking document..."
-                          : matchingFile.progress >= 100
-                            ? "Finishing upload..."
-                            : "Uploading your file..."}
+                        {matchingFile.progress >= 100
+                          ? "Finishing upload..."
+                          : "Uploading your file..."}
                       </span>
+                      <div className="h-1.5 min-w-8 max-w-24 flex-1 animate-pulse rounded-full bg-sky-200" aria-hidden="true" />
                       {matchingFile.status === "uploading" ? (
                         <>
                           <div
@@ -1902,44 +1857,45 @@ export default function SkeapApplicationWizard({ onSubmitted, requirements, foot
                       ) : null}
                     </div>
                   ) : null}
-                  {matchingFile?.error ? <p className="mt-2 text-xs text-rose-700" role="alert">{matchingFile.error}</p> : null}
-                  {matchingFile?.verification === "verified" && isReady ? (
-                    <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                      This file looks clear and matches the selected document type.
-                    </p>
-                  ) : null}
-                  {matchingFile?.verification === "review" ? (
-                    <div className="mt-3 flex flex-col items-start justify-between gap-4 rounded-xl border border-amber-200/90 bg-amber-50/80 p-4 shadow-sm transition-all sm:flex-row sm:items-center">
-                      <div className="flex items-start gap-3">
-                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
-                          <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900">Manual Verification Recommended</h4>
-                          <p className="mt-0.5 text-xs leading-relaxed text-amber-800">
-                            We couldn&apos;t verify that this file is a valid match for the required{" "}
-                            <span className="font-semibold">{label}</span>.
-                            {" "}If your uploaded file is clear and correct, you can safely proceed anyway.
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFiles((prev) => prev.map((file) => file.id === matchingFile.id
-                            ? { ...file, verification: "overridden" }
-                            : file));
-                          if (matchingFile.status !== "done" || !matchingFile.url) {
-                            void uploadPendingFile(matchingFile.id, matchingFile.file, key);
-                          }
-                        }}
-                        disabled={matchingFile.status === "uploading"}
-                        className="w-full shrink-0 cursor-pointer rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-amber-700 disabled:cursor-wait disabled:opacity-60 sm:w-auto"
-                      >
-                        Proceed Anyway
-                      </button>
+                  {matchingFile?.status === "validating" ? (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-amber-700" role="status">
+                      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      <span>Checking that this is the correct document...</span>
+                      <div className="h-1.5 min-w-8 max-w-24 flex-1 animate-pulse rounded-full bg-amber-200" aria-hidden="true" />
                     </div>
+                  ) : null}
+                  {matchingFile?.error ? (
+                    <div>
+                      {matchingFile.manualReviewAvailable ? (
+                        <div className="mt-2 -mx-4 -mb-4 flex items-center justify-between gap-4 border-t border-amber-200/80 bg-amber-50/70 px-4 py-3 rounded-b-[inherit]" role="alert">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <TriangleAlert className="h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+                            <p className="text-xs leading-snug text-amber-900">
+                              {matchingFile.error.replace(/^Document not verified\.\s*/, "")}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void continueUploadForManualReview(matchingFile)}
+                            className="shrink-0 whitespace-nowrap rounded border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 shadow-sm transition-colors hover:bg-amber-100"
+                          >
+                            Continue for manual review
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mt-2" role="alert">
+                          <p className="text-sm text-rose-700">{matchingFile.error}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                  {isReady ? (
+                    <p className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700" role="status">
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      {matchingFile.manualReview
+                        ? "Uploaded for administrator review"
+                        : "Document verified and uploaded successfully"}
+                    </p>
                   ) : null}
                 </div>
               );

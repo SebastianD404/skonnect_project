@@ -117,27 +117,7 @@ export default async function AdminGranteesPage({ searchParams }: {
                 id: true,
                 application: {
                   select: {
-                    id: true,
-                    currentCourse: true,
-                    yearLevel: true,
                     gwa: true,
-                    applicantName: true,
-                    permanentAddress: true,
-                    dateOfBirth: true,
-                    placeOfBirth: true,
-                    age: true,
-                    civilStatus: true,
-                    gender: true,
-                    fathersName: true,
-                    fathersOccupation: true,
-                    fathersContact: true,
-                    mothersMaidenName: true,
-                    mothersOccupation: true,
-                    mothersContact: true,
-                    contactNumber: true,
-                    emailAddress: true,
-                    photoFileUrl: true,
-                    uploadedFiles: true,
                   },
                 },
               },
@@ -186,31 +166,6 @@ export default async function AdminGranteesPage({ searchParams }: {
     const latestInquiry = grantee.user.inquiries?.[0] ?? null;
     const latestSubmission = grantee.submissions?.find((submission) => submission.generalAverage !== null) ?? null;
     const journeyProgress = getAcademicJourneyProgress(grantee.submissions, grantee.dateEnrolled);
-    const application = latestInquiry?.application
-      ? {
-          currentCourse: latestInquiry.application.currentCourse ?? undefined,
-          yearLevel: latestInquiry.application.yearLevel ?? undefined,
-          gwa: latestInquiry.application.gwa ?? null,
-          applicantName: latestInquiry.application.applicantName ?? undefined,
-          permanentAddress: latestInquiry.application.permanentAddress ?? undefined,
-          dateOfBirth: latestInquiry.application.dateOfBirth?.toISOString() ?? undefined,
-          placeOfBirth: latestInquiry.application.placeOfBirth ?? undefined,
-          age: latestInquiry.application.age ?? undefined,
-          civilStatus: latestInquiry.application.civilStatus ?? undefined,
-          gender: latestInquiry.application.gender ?? undefined,
-          fathersName: latestInquiry.application.fathersName ?? undefined,
-          fathersOccupation: latestInquiry.application.fathersOccupation ?? undefined,
-          fathersContact: latestInquiry.application.fathersContact ?? undefined,
-          mothersMaidenName: latestInquiry.application.mothersMaidenName ?? undefined,
-          mothersOccupation: latestInquiry.application.mothersOccupation ?? undefined,
-          mothersContact: latestInquiry.application.mothersContact ?? undefined,
-          contactNumber: latestInquiry.application.contactNumber ?? undefined,
-          emailAddress: latestInquiry.application.emailAddress ?? grantee.user.email ?? undefined,
-          photoFileUrl: latestInquiry.application.photoFileUrl ?? undefined,
-          uploadedFiles: latestInquiry.application.uploadedFiles ?? undefined,
-        }
-      : null;
-
     return {
       id: grantee.id,
       fullName: grantee.user.fullName,
@@ -227,10 +182,6 @@ export default async function AdminGranteesPage({ searchParams }: {
       retentionExpiresAt: getRetentionExpiryDate(grantee)?.toISOString() ?? null,
       updatedAt: grantee.updatedAt.toISOString(),
       detailsHref: `/admin/grantees/${grantee.id}`,
-      application,
-      applicationDownloadHref: latestInquiry?.application
-        ? `/api/admin/skeap-applications/${latestInquiry.application.id}/download`
-        : undefined,
     };
   });
 

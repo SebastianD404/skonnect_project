@@ -206,13 +206,15 @@ function formatApplicantAddress(
   return structuredAddress === "Not specified" ? "N/A" : structuredAddress;
 }
 
-function getProfilePhotoUrl(application: SkeapApplicationTemplateInput, context: ApplicantTemplateContext) {
-  return (
-    context.avatarUrl?.trim() ||
-    application.photoFileUrl?.trim() ||
-    getPhotoUploadGroup(application.uploadedFiles)?.url ||
-    ""
-  );
+export function getSkeapProfilePhotoCandidates(
+  application: Pick<SkeapApplicationTemplateInput, "photoFileUrl" | "uploadedFiles">,
+  context: Pick<ApplicantTemplateContext, "avatarUrl">
+) {
+  return Array.from(new Set([
+    getPhotoUploadGroup(application.uploadedFiles)?.url,
+    application.photoFileUrl,
+    context.avatarUrl,
+  ].flatMap((value) => typeof value === "string" && value.trim() ? [value.trim()] : [])));
 }
 
 export function buildSkeapApplicationTemplateData(
@@ -272,38 +274,41 @@ export function buildSkeapApplicationTemplateData(
   };
 }
 
-async function fetchProfilePhoto(url: string) {
-  if (!url) return null;
-
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(url);
-  } catch {
-    console.warn("Omitting invalid SKEAP profile photo URL.");
-    return null;
-  }
-
+async function fetchProfilePhoto(urls: string[]) {
   const configuredSupabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL
     ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname
     : null;
-  const isSupabaseHost =
-    parsedUrl.hostname.endsWith(".supabase.co") || parsedUrl.hostname === configuredSupabaseHost;
-  if (parsedUrl.protocol !== "https:" || !isSupabaseHost) {
-    console.warn("Omitting SKEAP profile photo from an unapproved URL host.");
-    return null;
+  for (const url of urls) {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      console.warn("Skipping invalid SKEAP profile photo URL.");
+      continue;
+    }
+
+    const isSupabaseHost =
+      parsedUrl.hostname.endsWith(".supabase.co") || parsedUrl.hostname === configuredSupabaseHost;
+    if (parsedUrl.protocol !== "https:" || !isSupabaseHost) {
+      console.warn("Skipping SKEAP profile photo from an unapproved URL host.");
+      continue;
+    }
+
+    try {
+      const response = await fetch(parsedUrl);
+      if (!response.ok) {
+        console.warn(`Skipping SKEAP profile photo; storage returned HTTP ${response.status}.`);
+        continue;
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      await sharp(buffer).metadata();
+      return { url, buffer };
+    } catch (error) {
+      console.warn("Skipping SKEAP profile photo after a fetch or image validation failure.", error);
+    }
   }
 
-  try {
-    const response = await fetch(parsedUrl);
-    if (!response.ok) {
-      console.warn(`Omitting SKEAP profile photo; storage returned HTTP ${response.status}.`);
-      return null;
-    }
-    return Buffer.from(await response.arrayBuffer());
-  } catch (error) {
-    console.warn("Omitting SKEAP profile photo after a fetch failure.", error);
-    return null;
-  }
+  return null;
 }
 
 function signatureDataUrlToBuffer(value: string) {
@@ -325,7 +330,7 @@ function signatureDataUrlToBuffer(value: string) {
 async function fetchSignatureImage(value: string) {
   return value.startsWith("data:image/png;base64,")
     ? signatureDataUrlToBuffer(value)
-    : fetchProfilePhoto(value);
+    : (await fetchProfilePhoto([value]))?.buffer ?? null;
 }
 
 async function prepSignature(
@@ -356,16 +361,15 @@ export async function generateSkeapApplicationDocx(
   application: SkeapApplicationTemplateInput,
   context: ApplicantTemplateContext = {}
 ) {
-  const profilePhotoUrl = getProfilePhotoUrl(application, context);
-  const profilePhotoBuffer = await fetchProfilePhoto(profilePhotoUrl);
+  const profilePhoto = await fetchProfilePhoto(getSkeapProfilePhotoCandidates(application, context));
   const signatureBuffer = application.signatureUrl
     ? await fetchSignatureImage(application.signatureUrl)
     : null;
-  const photo = profilePhotoBuffer ? await prepPhoto(profilePhotoBuffer) : null;
+  const photo = profilePhoto ? await prepPhoto(profilePhoto.buffer) : null;
   const sig: { buf: Buffer | null; size: [number, number] } = signatureBuffer
     ? await prepSignature(signatureBuffer)
     : { buf: null, size: [160, 45] };
-  const data = buildSkeapApplicationTemplateData(application, context, profilePhotoBuffer ? profilePhotoUrl : "");
+  const data = buildSkeapApplicationTemplateData(application, context, profilePhoto?.url ?? "");
   const zip = new PizZip(readFileSync(TEMPLATE_PATH));
   const imageModule = new ImageModule({
     centered: false,

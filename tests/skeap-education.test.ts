@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  SKEAP_APPLICATION_EDUCATION_LEVELS,
   SKEAP_EDUCATION_LEVELS,
   SKEAP_YEAR_LEVELS,
   isSkeapEducationLevel,
@@ -7,6 +8,14 @@ import {
 } from "@/lib/skeap-education";
 
 describe("SKEAP education options", () => {
+  it("omits Vocational from the application form education-level choices", () => {
+    expect(SKEAP_APPLICATION_EDUCATION_LEVELS).toEqual([
+      "Junior High School",
+      "Senior High School",
+      "College",
+    ]);
+  });
+
   it("defines the supported education levels and year-level options", () => {
     expect(SKEAP_EDUCATION_LEVELS).toEqual([
       "Junior High School",

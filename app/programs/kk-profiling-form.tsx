@@ -162,7 +162,9 @@ export default function KKProfilingForm() {
     residency: { status: "idle", file: null },
   });
 
-  const isOcrVerified = Object.values(ocrValidationState).every((state) => state.status === "success");
+  const areDocumentsReady = Object.values(ocrValidationState).every(
+    (state) => state.status === "success" || state.status === "attached"
+  );
 
   useEffect(() => {
     let active = true;
@@ -475,8 +477,8 @@ export default function KKProfilingForm() {
       return "Please upload your Certificate of Residency.";
     }
 
-    if (!isOcrVerified) {
-      return "Please complete OCR validation for each uploaded document before submitting.";
+    if (!areDocumentsReady) {
+      return "Please upload each document and complete its check, or attach a PDF for admin review.";
     }
 
     if (!doesProfileNameMatchIdText()) {
@@ -998,7 +1000,7 @@ export default function KKProfilingForm() {
         </div>
       )}
       <div className="flex items-center gap-3">
-        <button type="submit" disabled={submitting || !isOcrVerified} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60">
+        <button type="submit" disabled={submitting || !areDocumentsReady} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60">
           {submitting ? "Submitting..." : "Submit"}
         </button>
         {message && <p className="text-sm text-slate-700">{message}</p>}
