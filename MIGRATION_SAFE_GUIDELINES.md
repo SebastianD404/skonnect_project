@@ -65,4 +65,4 @@ Notes and best practices
 - Keep migrations in version control and include a descriptive name and PR justification.
 - Add test coverage or at least a dev/staging smoke test that runs after migrations.
 
-If you want, I can add a CI job snippet that runs `npx prisma migrate status` and fails the pipeline if drift is detected.
+If you want, I can add a CI job snippet that runs `npx prisma migrate status` and fails the pipeline if drift is detectedaa.
