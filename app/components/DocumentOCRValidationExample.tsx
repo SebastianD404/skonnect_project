@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, FileText, LoaderCircle, X, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, LoaderCircle, X, RefreshCw } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
 
 export type DocumentOCRState = {
-  status: "idle" | "scanning" | "success" | "error" | "attached";
+  status: "idle" | "scanning" | "success" | "error";
   badgeText?: string;
   message?: string;
   errorCode?: string;
@@ -117,13 +117,8 @@ export default function DocumentOCRValidationExample({
   };
 
   const isValidImageFile = (file: File) => {
-    const imageTypes = ["image/jpeg", "image/png", "image/jpg", "image/webp", "image/gif", "image/bmp", "image/tiff"];
-    const extensionPattern = /\.(jpe?g|png|webp|gif|bmp|tiff?)$/i;
-    return imageTypes.includes(file.type) || extensionPattern.test(file.name);
+    return ["image/jpeg", "image/png", "image/webp"].includes(file.type);
   };
-
-  const isPdfFile = (file: File) =>
-    file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 
   const clearInput = (key: DocumentOCRKey) => {
     const input = inputRefs.current[key];
@@ -202,7 +197,7 @@ export default function DocumentOCRValidationExample({
     setDoc(key, {
       file: null,
       status: "error",
-      message: "Please upload a PDF, JPG, PNG, or WebP file.",
+      message: "Please upload a JPG, PNG, or WebP image.",
       text: undefined,
       parsedDates: undefined,
       birthdateMatched: undefined,
@@ -218,21 +213,6 @@ export default function DocumentOCRValidationExample({
       setPreviewUrl(key, null);
       setDoc(key, { file: null, status: "idle", message: undefined, text: undefined, parsedDates: undefined, birthdateMatched: undefined });
       onFileSelected?.(key, null);
-      return;
-    }
-
-    if (isPdfFile(file)) {
-      setPreviewUrl(key, null);
-      onFileSelected?.(key, file);
-      setDoc(key, {
-        file,
-        status: "attached",
-        badgeText: "PDF Attached",
-        message: "PDF Document Attached. It will be checked during application review.",
-        text: undefined,
-        parsedDates: undefined,
-        birthdateMatched: undefined,
-      });
       return;
     }
 
@@ -331,23 +311,17 @@ export default function DocumentOCRValidationExample({
     const isScanning = state.status === "scanning";
 
     const handleImageClick = () => {
-      if (isAttached && previewUrl) {
-        window.open(previewUrl, "_blank", "noopener,noreferrer");
-      } else if (hasFile) {
+      if (hasFile) {
         openPreviewModal(key);
       } else {
         inputRefs.current[key]?.click();
       }
     };
 
-    const isAttached = state.status === "attached";
-    const showFeedback = isError || isAttached;
     const feedbackTitle = isError
       ? state.errorCode === "UNRECOGNIZED_DOCUMENT"
         ? "Unrecognized Document"
         : state.badgeText || "Unreadable image"
-      : isAttached
-      ? state.badgeText || "PDF attached"
       : "";
     const feedbackText = state.message;
     return (
@@ -355,7 +329,7 @@ export default function DocumentOCRValidationExample({
         <input
           id={`ocr-input-${key}`}
           type="file"
-          accept="image/jpeg,image/png,image/webp,application/pdf"
+          accept="image/jpeg,image/png,image/webp"
           ref={(el) => {
             inputRefs.current[key] = el;
           }}
@@ -368,7 +342,7 @@ export default function DocumentOCRValidationExample({
         <div className="mb-3 flex w-full items-start justify-between">
           <div className="flex flex-col gap-1 text-left">
             <p className="text-sm font-semibold text-slate-900">{label}</p>
-            <p className="text-xs text-slate-500">PDF, JPG, PNG, or WebP · Max 10MB</p>
+            <p className="text-xs text-slate-500">JPG, PNG, or WebP · Max 10MB</p>
           </div>
           {isSuccess ? (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
@@ -392,11 +366,6 @@ export default function DocumentOCRValidationExample({
                   if (file) void recoverPreview(key, file);
                 }}
               />
-            ) : file?.type === "application/pdf" ? (
-              <div className="flex flex-col items-center text-slate-500">
-                <FileText className="mb-2 h-8 w-8" aria-hidden="true" />
-                <span>PDF file attached</span>
-              </div>
             ) : file && previewLoading[key] ? (
               <div className="flex items-center gap-2 text-sm text-slate-500">
                 <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" aria-hidden="true" />
@@ -430,16 +399,6 @@ export default function DocumentOCRValidationExample({
             </div>
           ) : null}
         </div>
-
-        {isAttached && showFeedback && feedbackText ? (
-          <div className="mt-4 flex items-center gap-3 rounded-lg bg-slate-100 px-3 py-2 text-slate-800">
-            <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold leading-5">{feedbackTitle}</p>
-              <p className="text-xs leading-5 text-current/90">{feedbackText}</p>
-            </div>
-          </div>
-        ) : null}
 
         {showDebug && state.parsedDates && state.parsedDates.length > 0 ? (
           <div className="mt-2 text-xs text-slate-600">

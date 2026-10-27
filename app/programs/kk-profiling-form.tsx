@@ -164,7 +164,7 @@ export default function KKProfilingForm() {
   });
 
   const areDocumentsReady = Object.values(ocrValidationState).every(
-    (state) => state.status === "success" || state.status === "attached"
+    (state) => state.status === "success"
   );
 
   useEffect(() => {
@@ -479,7 +479,7 @@ export default function KKProfilingForm() {
     }
 
     if (!areDocumentsReady && !manualReview) {
-      return "Please upload each document and complete its check, or attach a PDF for admin review.";
+      return "Please upload each document and complete its OCR check, or submit for manual review after two unsuccessful scans.";
     }
 
     if (!manualReview && !doesProfileNameMatchIdText()) {

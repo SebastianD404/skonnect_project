@@ -104,6 +104,14 @@ function UnifiedDocumentDropzone({
 
   const scanSelectedFile = async (file: File | null) => {
     const scanAttempt = ++scanAttemptRef.current;
+    if (file && !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      if (inputRef.current) inputRef.current.value = "";
+      onFileChange(null);
+      setValidationStatus("error");
+      setValidationMessage("Please upload a JPG, PNG, or WebP image.");
+      return;
+    }
+
     onFileChange(file);
     setValidationMessage(null);
 
@@ -204,7 +212,7 @@ function UnifiedDocumentDropzone({
             {hasSelectedFile && validationStatus === "error" ? (
               <span className="font-medium text-rose-700" role="alert">
                 {documentType === "certificate"
-                  ? "We couldn't clearly read this certificate. Please upload a clearer image or PDF."
+                  ? "We couldn't clearly read this certificate. Please upload a clearer image."
                   : validationMessage || "We couldn't clearly read this document. Please upload a clearer photo."}
               </span>
             ) : hasSelectedFile ? (
@@ -801,8 +809,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 documentType="front_id"
                 existingUrl={registration.idFrontFileUrl}
                 selectedFile={selectedFiles.front}
-                accept="image/*"
-                helper="PNG, JPG (max. 10MB)"
+                accept="image/jpeg,image/png,image/webp"
+                helper="JPG, PNG, or WebP (max. 10MB)"
                 firstName={form.firstName}
                 lastName={form.lastName}
                 middleInitial={form.middleName}
@@ -813,8 +821,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 documentType="back_id"
                 existingUrl={registration.idBackFileUrl}
                 selectedFile={selectedFiles.back}
-                accept="image/*"
-                helper="PNG, JPG (max. 10MB)"
+                accept="image/jpeg,image/png,image/webp"
+                helper="JPG, PNG, or WebP (max. 10MB)"
                 profileBirthDate={form.birthDate}
                 onFileChange={(file) => handleFileChange("back", file)}
               />
@@ -823,8 +831,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 documentType="certificate"
                 existingUrl={registration.idSingleFileUrl}
                 selectedFile={selectedFiles.single}
-                accept="image/*,application/pdf"
-                helper="PNG, JPG, PDF (max. 10MB)"
+                accept="image/jpeg,image/png,image/webp"
+                helper="JPG, PNG, or WebP (max. 10MB)"
                 firstName={form.firstName}
                 lastName={form.lastName}
                 onFileChange={(file) => handleFileChange("single", file)}
