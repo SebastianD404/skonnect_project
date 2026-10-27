@@ -1,8 +1,10 @@
 "use client";
 
-import { ArrowUpRight, Download, Image as ImageIcon, X } from "lucide-react";
+import { useState } from "react";
+import { ArrowUpRight, Download, Image as ImageIcon, Loader2, X } from "lucide-react";
 import { getAdditionalUploadGroups, getCoreUploadGroups, getPhotoUploadGroup } from "@/lib/skeap-upload";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 type ApplicationFormModalProps = {
   isOpen: boolean;
@@ -46,7 +48,57 @@ function formatDateOfBirth(value: string) {
 }
 
 export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHref, application }: ApplicationFormModalProps) {
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   if (!isOpen) return null;
+
+  async function handleDownload() {
+    if (!downloadHref || isDownloading) return;
+
+    setIsDownloading(true);
+    setDownloadError(null);
+    let objectUrl: string | null = null;
+
+    try {
+      const response = await fetch(downloadHref, { cache: "no-store" });
+      if (!response.ok) {
+        let message = "Failed to generate document. Please try again.";
+        try {
+          const payload = (await response.json()) as { error?: string; details?: string };
+          if (payload.details || payload.error) {
+            message = [payload.error, payload.details].filter(Boolean).join(": ");
+          }
+        } catch {
+          // Keep the friendly fallback when the error response is not JSON.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = objectUrl;
+      downloadLink.download = "SKEAP Application Form.docx";
+      downloadLink.style.display = "none";
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+      window.setTimeout(() => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      }, 1000);
+    } catch (error) {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      console.error("Failed to download SKEAP application form:", error);
+      setDownloadError(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate document. Please try again."
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  }
 
   function computeAverageFromGrades(rows: Array<{ subject?: string; grade?: string | number }> | undefined) {
     if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -99,16 +151,21 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
           </div>
           <div className="flex items-center gap-2">
             {downloadHref ? (
-              <a
-                href={downloadHref}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200"
+              <button
+                type="button"
+                onClick={() => void handleDownload()}
+                disabled={isDownloading}
+                aria-busy={isDownloading}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 disabled:cursor-wait disabled:opacity-70"
                 title="Download compiled application form"
                 aria-label="Download compiled application form"
               >
-                <Download className="h-5 w-5" />
-              </a>
+                {isDownloading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Download className="h-5 w-5" aria-hidden="true" />
+                )}
+              </button>
             ) : null}
             <button onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
               <X className="h-5 w-5" />
@@ -282,6 +339,14 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
             ) : null}
         </div>
       </div>
+      {downloadError ? (
+        <FloatingFeedback
+          message={downloadError}
+          type="error"
+          autoDismissMs={5000}
+          onDismiss={() => setDownloadError(null)}
+        />
+      ) : null}
     </div>
   );
 }

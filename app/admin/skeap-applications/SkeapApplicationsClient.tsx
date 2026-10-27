@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CornerUpLeft, Eye, FileText, FolderOpen, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CornerUpLeft, Download, Eye, FileText, FolderOpen, Loader2, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import {
   CORE_UPLOAD_KEYS,
   getLatestSkeapResubmissionUploadKeys,
@@ -438,6 +439,57 @@ export default function SkeapApplicationsClient({
     paginatedApplications.find((app) => app.id === selectedAppId) ?? paginatedApplications[0] ?? null;
   const effectiveSelectedAppId = selectedApplication?.id ?? "";
 
+  async function handleDownloadApplicationForm() {
+    if (!selectedApplication || isDownloading) return;
+
+    setIsDownloading(true);
+    setDownloadError(null);
+    let objectUrl: string | null = null;
+
+    try {
+      const response = await fetch(
+        `/api/applications/${encodeURIComponent(selectedApplication.id)}/download`,
+        { cache: "no-store" }
+      );
+
+      if (!response.ok) {
+        let message = "Failed to generate document. Please try again.";
+        try {
+          const payload = (await response.json()) as { error?: string; details?: string };
+          if (payload.details || payload.error) {
+            message = [payload.error, payload.details].filter(Boolean).join(": ");
+          }
+        } catch {
+          // Keep the friendly fallback when the error response is not JSON.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = objectUrl;
+      downloadLink.download = "SKEAP Application Form.docx";
+      downloadLink.style.display = "none";
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+      window.setTimeout(() => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      }, 1000);
+    } catch (error) {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      console.error("Failed to download SKEAP application form:", error);
+      setDownloadError(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate document. Please try again."
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
   const selectedStatus = normalizeApplicationStatus(selectedApplication?.status ?? "");
   const isApproved = selectedStatus === "Approved";
   const isWaitlisted = selectedStatus === "Waitlisted";
@@ -568,6 +620,8 @@ export default function SkeapApplicationsClient({
   );
 
   const [showApplicationForm, setShowApplicationForm] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const verifyUploadGroups = useMemo(
     () => uploadGroups.filter((group) => group.key !== SKEAP_UPLOAD_KEY.PHOTO),
@@ -1408,15 +1462,32 @@ export default function SkeapApplicationsClient({
                         <h2 className="mt-2 text-2xl font-semibold text-slate-950">{selectedApplication.applicantName}</h2>
                         <p className="mt-1 text-sm text-slate-600">{selectedApplication.applicantEmail}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowApplicationForm(true)}
-                        title="View compiled application form"
-                        aria-label="View compiled application form"
-                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-cyan-700 bg-cyan-700 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:border-cyan-800 hover:bg-cyan-800"
-                      >
-                        <span>View Form</span>
-                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowApplicationForm(true)}
+                          title="Preview application form"
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                        >
+                          <Eye className="h-4 w-4" aria-hidden="true" />
+                          <span>Preview Form</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDownloadApplicationForm()}
+                          disabled={isDownloading}
+                          aria-busy={isDownloading}
+                          title="Download compiled application form"
+                          className="inline-flex items-center gap-2 rounded-lg border border-cyan-700 bg-cyan-700 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:border-cyan-800 hover:bg-cyan-800 disabled:cursor-wait disabled:opacity-70"
+                        >
+                          {isDownloading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <Download className="h-4 w-4" aria-hidden="true" />
+                          )}
+                          <span>{isDownloading ? "Downloading..." : "Download Form"}</span>
+                        </button>
+                      </div>
                     </div>
                     <div className="mt-3 mb-2 flex items-center gap-6 overflow-x-auto" role="tablist" aria-label="Application details sections">
                       {([
@@ -1945,6 +2016,15 @@ export default function SkeapApplicationsClient({
         application={selectedApplication?.application}
         downloadHref={`/api/applications/${selectedApplication?.id}/download`}
       />
+
+      {downloadError ? (
+        <FloatingFeedback
+          message={downloadError}
+          type="error"
+          autoDismissMs={5000}
+          onDismiss={() => setDownloadError(null)}
+        />
+      ) : null}
 
       {activeReviewFile ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4 backdrop-blur-sm sm:p-6">

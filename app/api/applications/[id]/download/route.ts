@@ -104,8 +104,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     });
   } catch (error) {
     console.error("Failed to generate SKEAP application document:", error);
-    const message = error instanceof Error ? error.message : "Failed to generate application document";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const details = error instanceof Error ? error.message : "An unexpected error occurred";
+    return NextResponse.json({ error: "Export failed", details }, { status: 500 });
   }
 }
 
