@@ -85,8 +85,6 @@ export function splitFullName(fullName: string) {
   };
 }
 
-export function buildTemporaryPassword(lastName: string, birthDate: Date) {
-  const birthYear = birthDate.getFullYear();
-  const cleanedLastName = lastName.replace(/[^a-zA-Z]/g, "") || "User";
-  return `Pico-${cleanedLastName}-${birthYear}`;
+export function buildTemporaryPassword() {
+  return `Pico-${globalThis.crypto.randomUUID()}`;
 }

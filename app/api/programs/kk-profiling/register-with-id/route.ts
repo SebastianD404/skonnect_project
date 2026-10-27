@@ -144,7 +144,14 @@ async function findExistingAuthIdByEmail(email: string) {
 async function signInAndSetSession(email: string, password: string): Promise<string | null> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error || !data?.user?.id) {
+  if (error) {
+    console.warn("KK profiling temporary sign-in did not establish a session", {
+      code: error.code,
+      status: error.status,
+    });
+    return null;
+  }
+  if (!data?.user?.id) {
     return null;
   }
   return data.user.id;
@@ -260,6 +267,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
+    const [existingMember, existingKKProfile] = await Promise.all([
+      prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: { authId: true },
+      }),
+      prisma.kKProfile.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: { user: { select: { authId: true } } },
+      }),
+    ]);
+
+    if (existingMember || existingKKProfile) {
+      const supabase = await createSupabaseServerClient();
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
+      const currentAuthId = currentUser?.id;
+      const belongsToCurrentUser =
+        Boolean(currentAuthId) &&
+        (!existingMember || existingMember.authId === currentAuthId) &&
+        (!existingKKProfile || existingKKProfile.user?.authId === currentAuthId);
+
+      if (!belongsToCurrentUser) {
+        return NextResponse.json(
+          {
+            error: "It looks like this email is already taken. Please use a different one or try logging in.",
+            emailAlreadyRegistered: true,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    const latestRegistration = await prisma.profilingRegistration.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+      orderBy: { submittedAt: "desc" },
+      select: { reviewStatus: true },
+    });
+    if (latestRegistration?.reviewStatus?.trim().toLowerCase() === "rejected") {
+      return NextResponse.json(
+        { error: "Your latest KK Profiling registration was rejected and cannot be resubmitted. Contact Barangay Pico staff if you need clarification." },
+        { status: 409 }
+      );
+    }
+
     const names = splitFullName(`${firstNameInput} ${middleNameInput} ${lastNameInput}`);
     const birthDateInput = String(body.birthDate || "");
 
@@ -289,10 +341,9 @@ export async function POST(req: NextRequest) {
     const municipality = String(body.municipality || "").trim();
     const province = String(body.province || "").trim();
     const username = email;
-    const temporaryPassword = buildTemporaryPassword(names.lastName, birthDate);
+    const temporaryPassword = buildTemporaryPassword();
 
     let authId = await findExistingAuthIdByEmail(email);
-
     if (!authId) {
       const admin = getSupabaseAdminClient();
       const { data: signupData, error: signupError } = await admin.auth.admin.createUser({
@@ -314,10 +365,12 @@ export async function POST(req: NextRequest) {
     }
 
     let signedInUserId: string | null = null;
-    try {
-      signedInUserId = await signInAndSetSession(email, temporaryPassword);
-    } catch (loginError) {
-      console.error("KK profiling auto-login failed", loginError);
+    if (createdAuthUserId) {
+      try {
+        signedInUserId = await signInAndSetSession(email, temporaryPassword);
+      } catch (loginError) {
+        console.error("KK profiling auto-login failed", loginError);
+      }
     }
 
     const supabase = await createSupabaseServerClient();
@@ -433,8 +486,9 @@ export async function POST(req: NextRequest) {
             phoneNumber: contactNumber,
             barangay: BARANGAY_PICO,
             kkProfileId: kkProfile.id,
-            mustSecureAccount: true,
-            usesTemporaryPassword: true,
+            ...(createdAuthUserId
+              ? { mustSecureAccount: true, usesTemporaryPassword: true }
+              : {}),
           },
         });
       } else {
@@ -448,8 +502,8 @@ export async function POST(req: NextRequest) {
             role: "YOUTH",
             barangay: BARANGAY_PICO,
             kkProfileId: kkProfile.id,
-            mustSecureAccount: true,
-            usesTemporaryPassword: true,
+            mustSecureAccount: Boolean(createdAuthUserId),
+            usesTemporaryPassword: Boolean(createdAuthUserId),
           },
         });
       }
@@ -498,14 +552,14 @@ export async function POST(req: NextRequest) {
       success: true,
       kkProfileId: created.kkProfileId,
       userId: created.userId,
-      signedIn: Boolean(signedInUserId),
+      signedIn: Boolean(signedInUserId || currentUser?.id === authId),
+      existingAccount: !createdAuthUserId,
       redirectTo: "/programs/kk-profiling/status",
-      credentials: {
-        username,
-        temporaryPassword,
-      },
+      credentials: createdAuthUserId ? { username, temporaryPassword } : null,
       message:
-        body.manualReviewRequested
+        !createdAuthUserId
+          ? "Your KK Profiling request and documents were submitted. An account already exists for this email, so sign in with your current password to access your status and secure your account."
+          : body.manualReviewRequested
           ? "Your KK Profiling request and documents were submitted for manual SK Admin review. You can monitor your status from your SKonnect account."
           : "Your KK Profiling request has been received with your ID documents and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates.",
     });
@@ -525,9 +579,8 @@ export async function POST(req: NextRequest) {
     if (errorCode === "P2002") {
       return NextResponse.json(
         {
-          error:
-            "A user with this email already exists. If this is your email, please use Secure Account or contact support.",
-          accountExists: true,
+          error: "It looks like this email is already taken. Please use a different one or try logging in.",
+          emailAlreadyRegistered: true,
         },
         { status: 409 }
       );

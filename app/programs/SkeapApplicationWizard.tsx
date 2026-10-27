@@ -954,6 +954,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
       }
 
       const reference = String(body.inquiryId || body.applicationId || "");
+      window.dispatchEvent(new Event("skeap-application-submitted"));
       onSubmitted(reference);
     } catch {
       setActionError("Network error while submitting application.");

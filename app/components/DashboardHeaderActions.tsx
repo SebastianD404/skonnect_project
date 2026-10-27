@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Inbox } from "lucide-react";
 import { useNotificationState } from "./NotificationProvider";
+import { useAuth } from "./AuthProvider";
 import { Avatar } from "@/components/ui/Avatar";
 
 interface DashboardHeaderActionsProps {
@@ -44,6 +45,7 @@ function getSupportReplyKey(inquiry: SupportThread) {
 export function DashboardHeaderActions({ notifications = [], requiredRole, supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user: authUser } = useAuth();
   const {
     readNotificationIds,
     unreadCount: liveUnreadCount,
@@ -51,11 +53,13 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
     markAllNotificationsAsRead,
   } = useNotificationState();
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "settings">("none");
-  const [serverRole, setServerRole] = useState<string | undefined>(undefined);
-  const [profileId, setProfileId] = useState<string | null>(null);
-  const [profileName, setProfileName] = useState("Your account");
-  const [profileEmail, setProfileEmail] = useState("");
-  const [profileAvatar, setProfileAvatar] = useState("");
+  const [serverRole, setServerRole] = useState<string | undefined>(authUser?.role);
+  const [profileId, setProfileId] = useState<string | null>(authUser?.id ?? null);
+  const [profileName, setProfileName] = useState(
+    authUser?.fullName || authUser?.email || "Your account"
+  );
+  const [profileEmail, setProfileEmail] = useState(authUser?.email || "");
+  const [profileAvatar, setProfileAvatar] = useState(authUser?.avatarUrl || "");
   const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
   const [broadcastNotifications, setBroadcastNotifications] = useState<NotificationItem[]>([]);
   const [inAppNotifications, setInAppNotifications] = useState<NotificationItem[]>([]);
@@ -205,7 +209,6 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
       } catch (error) {}
     }
 
-    syncProfile();
     window.addEventListener("storage", syncProfile);
     window.addEventListener("skonnect-profile-updated", syncProfile as EventListener);
 

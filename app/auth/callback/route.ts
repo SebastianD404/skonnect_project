@@ -48,13 +48,13 @@ export async function GET(request: Request) {
     }
     confirmedUser = data.user;
   } else {
-    if (type !== "email_change") {
+    if (type !== "email_change" && type !== "recovery") {
       return redirectToProfile(requestUrl, next, "error", "invalid_confirmation_type");
     }
 
     const { data, error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash!,
-      type: "email_change",
+      type,
     });
     if (error) {
       return redirectToProfile(requestUrl, next, "error", error.code || "confirmation_failed");

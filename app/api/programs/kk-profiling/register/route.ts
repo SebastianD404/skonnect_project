@@ -306,6 +306,17 @@ export async function POST(req: Request) {
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
+    const latestRegistration = await prisma.profilingRegistration.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+      orderBy: { submittedAt: "desc" },
+      select: { reviewStatus: true },
+    });
+    if (latestRegistration?.reviewStatus?.trim().toLowerCase() === "rejected") {
+      return NextResponse.json(
+        { error: "Your latest KK Profiling registration was rejected and cannot be resubmitted. Contact Barangay Pico staff if you need clarification." },
+        { status: 409 }
+      );
+    }
     if (!contactNumber) {
       return NextResponse.json({ error: "Contact number is required" }, { status: 400 });
     }
@@ -322,7 +333,7 @@ export async function POST(req: Request) {
     }
 
     const names = splitFullName(fullName);
-    const temporaryPassword = buildTemporaryPassword(names.lastName, birthDate);
+    const temporaryPassword = buildTemporaryPassword();
     const username = email;
     const metadata = {
       full_name: names.fullName,

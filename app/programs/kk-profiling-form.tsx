@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
 import DocumentOCRValidationExample, { type DocumentOCRKey, type DocumentOCRState } from "@/app/components/DocumentOCRValidationExample";
@@ -146,13 +147,18 @@ export default function KKProfilingForm() {
   const manualReviewRequestRef = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [idFiles, setIdFiles] = useState<{ front?: File | null; back?: File | null; residency?: File | null }>({ front: null, back: null, residency: null });
   const [successMessage, setSuccessMessage] = useState("Your KK Profiling application has been received and is now pending verification.");
   const [successRedirectTo, setSuccessRedirectTo] = useState("/programs/kk-profiling/status");
   const [successCredentials, setSuccessCredentials] = useState<{ username: string; temporaryPassword: string } | null>(null);
+  const [credentialsCopied, setCredentialsCopied] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [existingAccount, setExistingAccount] = useState(false);
+  const [secureAccountError, setSecureAccountError] = useState<string | null>(null);
+  const [isOpeningSecureAccount, setIsOpeningSecureAccount] = useState(false);
   const [accountExistsFallback, setAccountExistsFallback] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
@@ -232,8 +238,9 @@ export default function KKProfilingForm() {
           const data = await response.json();
           const profileStatus = data.profile?.status || "";
           const isApprovedStatus = profileStatus.toLowerCase().includes("approved");
+          const isRejectedStatus = profileStatus.toLowerCase().includes("rejected");
 
-          if (isApprovedStatus) {
+          if (isApprovedStatus || isRejectedStatus) {
             router.replace("/programs/kk-profiling/status");
             return;
           }
@@ -255,6 +262,10 @@ export default function KKProfilingForm() {
   // ID file preview effect
 
   function setField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
+    if (key === "email") {
+      setEmailError(null);
+    }
+
     if (key === "birthDate") {
       const birthDateValue = String(value);
       const computedAge = computeAgeFromBirthDate(birthDateValue);
@@ -499,6 +510,7 @@ export default function KKProfilingForm() {
     manualReviewRequestRef.current = false;
     setMessage(null);
     setActionError(null);
+    setEmailError(null);
     setAccountExistsFallback(false);
     setMagicLinkSent(false);
 
@@ -590,29 +602,21 @@ export default function KKProfilingForm() {
               }
             : null
         );
+        setCredentialsCopied(false);
 
-        let loggedIn = Boolean(body?.signedIn);
-        if (!loggedIn && body?.credentials?.username && body?.credentials?.temporaryPassword) {
-          try {
-            const browserSupabase = createBrowserClient();
-            const { error } = await browserSupabase.auth.signInWithPassword({
-              email: body.credentials.username,
-              password: body.credentials.temporaryPassword,
-            });
-
-            if (!error) {
-              loggedIn = true;
-            } else {
-              console.error("KK profiling client auto-login failed", error.message);
-            }
-          } catch (loginError) {
-            console.error("KK profiling client auto-login failed", loginError);
-          }
-        }
-
-        setSignedIn(loggedIn);
+        setSignedIn(Boolean(body?.signedIn));
+        setExistingAccount(Boolean(body?.existingAccount));
+        setSecureAccountError(null);
         setShowSuccessModal(true);
       } else {
+        if (body?.emailAlreadyRegistered) {
+          setEmailError(
+            body.error ||
+              "It looks like this email is already taken. Please use a different one or try logging in."
+          );
+          return;
+        }
+
         if (body?.accountExists) {
           setAccountExistsFallback(true);
           setMessage("");
@@ -642,7 +646,6 @@ export default function KKProfilingForm() {
         <>
         <form onSubmit={handleSubmit} className="grid gap-x-4 gap-y-2 [&_label]:gap-1.5">
           <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
-          {actionError ? <p role="alert" className="text-sm font-medium text-rose-600">{actionError}</p> : null}
 
       <div className="flex flex-col gap-6">
         <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
@@ -759,7 +762,20 @@ export default function KKProfilingForm() {
       <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Email Address *</span>
-          <input type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} required className="rounded-lg border px-3 py-2" />
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => setField("email", e.target.value)}
+            required
+            aria-invalid={Boolean(emailError)}
+            aria-describedby={emailError ? "kk-profiling-email-error" : undefined}
+            className={`rounded-lg border px-3 py-2 ${emailError ? "border-rose-400 focus-visible:outline-rose-500" : ""}`}
+          />
+          {emailError ? (
+            <p id="kk-profiling-email-error" className="text-sm text-rose-700" role="alert">
+              {emailError}
+            </p>
+          ) : null}
         </label>
 
         <label className="flex flex-col gap-1.5">
@@ -1020,6 +1036,11 @@ export default function KKProfilingForm() {
         >
           {submitting ? "Submitting..." : "Submit"}
         </button>
+        {actionError ? (
+          <p role="alert" className="min-w-0 flex-1 text-sm leading-relaxed text-rose-600">
+            {actionError}
+          </p>
+        ) : null}
         {manualReviewAvailable ? (
           <button
             type="submit"
@@ -1059,7 +1080,24 @@ export default function KKProfilingForm() {
                   </div>
                   <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
                     <span className="text-slate-600">Temporary password</span>
-                    <span className="font-medium text-slate-900 break-all">{successCredentials.temporaryPassword}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 break-all text-right font-medium text-slate-900">{successCredentials.temporaryPassword}</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(successCredentials.temporaryPassword);
+                            setCredentialsCopied(true);
+                            setSecureAccountError(null);
+                          } catch {
+                            setSecureAccountError("Unable to copy the temporary password. Select and copy it manually.");
+                          }
+                        }}
+                        className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        {credentialsCopied ? "Copied" : "Copy"}
+                      </button>
+                    </span>
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-slate-500">
@@ -1071,12 +1109,14 @@ export default function KKProfilingForm() {
             <div className="text-sm text-slate-600">
               {!signedIn && (
                 <p>
-                  You are not currently signed in. Use the credentials above to log in, or secure your account first before applying.
+                  {existingAccount
+                    ? "An account already exists for this email. Sign in with your current password to continue."
+                    : "Your registration is complete, but automatic sign-in was unavailable. Use the credentials above to sign in and view your status."}
                 </p>
               )}
             </div>
 
-            <div className="flex w-full flex-col gap-3 sm:flex-row sm:justify-center">
+            <div className="flex w-full flex-col gap-2.5 sm:flex-row sm:justify-center">
               <button
                 type="button"
                 onClick={() => {
@@ -1086,22 +1126,71 @@ export default function KKProfilingForm() {
                     : `/login?next=${encodeURIComponent(successRedirectTo)}`;
                   router.push(target);
                 }}
-                className="inline-flex justify-center rounded-lg bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+                className="inline-flex min-h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
               >
-                {signedIn ? "View KK Profiling Status" : "Sign in to view status"}
+                {signedIn ? "View status" : "Sign in for status"}
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setShowSuccessModal(false);
+                disabled={isOpeningSecureAccount}
+                onClick={async () => {
+                  setSecureAccountError(null);
+                  setIsOpeningSecureAccount(true);
                   const securePath = `/secure-account?redirect=${encodeURIComponent(successRedirectTo)}`;
-                  router.push(signedIn ? securePath : `/login?next=${encodeURIComponent(securePath)}`);
+
+                  try {
+                    if (!signedIn) {
+                      if (!successCredentials) {
+                        setShowSuccessModal(false);
+                        router.push(`/login?next=${encodeURIComponent(securePath)}`);
+                        return;
+                      }
+
+                      const browserSupabase = createBrowserClient();
+                      const { error } = await browserSupabase.auth.signInWithPassword({
+                        email: successCredentials.username,
+                        password: successCredentials.temporaryPassword,
+                      });
+                      if (error) {
+                        throw new Error("Automatic sign-in failed. Please sign in with the credentials above, then secure your account.");
+                      }
+                      setSignedIn(true);
+                    }
+
+                    setShowSuccessModal(false);
+                    router.push(securePath);
+                  } catch (error) {
+                    setSecureAccountError(
+                      error instanceof Error
+                        ? error.message
+                        : "Unable to open account security. Please sign in and try again."
+                    );
+                  } finally {
+                    setIsOpeningSecureAccount(false);
+                  }
                 }}
-                className="inline-flex justify-center rounded-lg border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
               >
-                Secure Account
+                {isOpeningSecureAccount ? "Opening..." : existingAccount && !signedIn ? "Sign in to secure" : "Secure account"}
               </button>
             </div>
+            {!signedIn ? (
+              <p className="text-center text-sm text-slate-600">
+                Forgot your password?{" "}
+                <Link
+                  href="/forgot-password"
+                  className="font-semibold text-[#0F3D5C] underline-offset-4 hover:underline"
+                  onClick={() => setShowSuccessModal(false)}
+                >
+                  Reset it
+                </Link>
+              </p>
+            ) : null}
+            {secureAccountError ? (
+              <p role="alert" className="text-sm leading-relaxed text-rose-700">
+                {secureAccountError}
+              </p>
+            ) : null}
           </div>
         </div>
       </div>

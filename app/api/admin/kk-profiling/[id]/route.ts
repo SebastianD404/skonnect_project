@@ -87,6 +87,16 @@ export async function PUT(
     if (email !== undefined && !email?.trim()) {
       return NextResponse.json({ error: "Email is required." }, { status: 400 });
     }
+    if (
+      typeof reviewStatus === "string" &&
+      reviewStatus.trim().toLowerCase() === "rejected" &&
+      (typeof reviewNotes !== "string" || !reviewNotes.trim())
+    ) {
+      return NextResponse.json(
+        { error: "A rejection reason is required so the applicant understands the decision." },
+        { status: 400 }
+      );
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
       const saved = await (tx as any).profilingRegistration.update({

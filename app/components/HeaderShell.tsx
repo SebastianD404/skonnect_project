@@ -3,7 +3,13 @@
 import { usePathname } from "next/navigation";
 import { PublicHeader } from "./PublicHeader";
 
-const hiddenPaths = ["/login", "/signup", "/logout"];
+const hiddenPaths = [
+  "/login",
+  "/signup",
+  "/logout",
+  "/forgot-password",
+  "/reset-password",
+];
 
 export function HeaderShell() {
   const pathname = usePathname();

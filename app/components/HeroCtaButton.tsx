@@ -4,7 +4,7 @@ export default function HeroCtaButton({ hasApplication }: { hasApplication: bool
   return (
     <Link
       href={hasApplication ? "/applications" : "/programs/skeap-scholarship"}
-      className="group inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] text-white font-bold rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 min-w-[220px]"
+      className="group inline-flex h-12 w-[232px] items-center justify-center gap-2 whitespace-nowrap rounded-2xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-6 text-white font-bold shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-2xl active:scale-95"
     >
       {hasApplication ? "Manage Applications" : "Discover SKEAP"}
       <span className="group-hover:translate-x-1 transition-transform">→</span>

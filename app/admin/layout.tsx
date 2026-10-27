@@ -1,4 +1,5 @@
 import { Role } from "@prisma/client";
+import { cookies } from "next/headers";
 import { requireRole } from "@/lib/auth";
 import { prisma, getProfilingRegistrationCountByStatusSince } from "@/lib/prisma";
 import { skeapStatusWhere } from "@/lib/skeap-applications";
@@ -28,10 +29,26 @@ export default async function AdminLayout({
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
+  const cookieStore = await cookies();
+  const profilingLastViewedCookie = cookieStore.get("admin-kk-profiling-last-viewed")?.value;
+  const profilingLastViewed = profilingLastViewedCookie ? new Date(profilingLastViewedCookie) : null;
+  const validProfilingLastViewed =
+    profilingLastViewed && !Number.isNaN(profilingLastViewed.getTime()) ? profilingLastViewed : null;
+  const getCookieViewedAt = (name: string) => {
+    const value = cookieStore.get(name)?.value;
+    if (!value) return startOfToday;
+    const viewedAt = new Date(value);
+    return Number.isNaN(viewedAt.getTime()) ? startOfToday : viewedAt;
+  };
+  const inquiryLastViewed = getCookieViewedAt("admin-inquiries-last-viewed");
+  const skeapLastViewed = getCookieViewedAt("admin-skeap-applications-last-viewed");
+  const submissionsLastViewed = getCookieViewedAt("admin-submissions-last-viewed");
+  const granteesLastViewed = getCookieViewedAt("admin-grantees-last-viewed");
+  const membersLastViewed = getCookieViewedAt("admin-members-last-viewed");
 
   const [newGranteesToday, approvedMemberCountToday] = await Promise.all([
-    prisma.grantee.count({ where: { createdAt: { gte: startOfToday } } }),
-    getProfilingRegistrationCountByStatusSince("Approved", startOfToday),
+    prisma.grantee.count({ where: { createdAt: { gte: granteesLastViewed } } }),
+    getProfilingRegistrationCountByStatusSince("Approved", membersLastViewed),
   ]);
 
   const [
@@ -40,17 +57,23 @@ export default async function AdminLayout({
     pendingDocumentCountToday,
     profilingRegistrationCountToday,
   ] = await Promise.all([
-    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfToday } } }),
+    prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: inquiryLastViewed } } }),
     prisma.inquiry.count({
       where: {
         ...subjectWhere,
         NOT: [excludeCancelled, excludeApproved],
         AND: [skeapStatusWhere(["pending", "return", "resubm", "respond"])],
-        createdAt: { gte: startOfToday },
+        createdAt: { gte: skeapLastViewed },
       },
     }),
-    prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: startOfToday } } }),
-    prisma.profilingRegistration.count({ where: { submittedAt: { gte: startOfToday } } }),
+    prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: submissionsLastViewed } } }),
+    prisma.profilingRegistration.count({
+      where: {
+        submittedAt: validProfilingLastViewed
+          ? { gt: validProfilingLastViewed }
+          : { gte: startOfToday },
+      },
+    }),
   ]);
   return (
     <AdminSearchProvider>

@@ -3,11 +3,140 @@
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { ensureProfile, getRoleHomePath } from "@/lib/auth";
 
 export type AuthState = {
   error?: string;
 } | null;
+
+export type PasswordRecoveryState = {
+  error?: string;
+  message?: string;
+  redirectTo?: string;
+} | null;
+
+function isStrongPassword(value: string) {
+  return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(value);
+}
+
+export async function requestPasswordReset(
+  _prevState: PasswordRecoveryState,
+  formData: FormData
+): Promise<PasswordRecoveryState> {
+  const email = String(formData.get("email") || "").trim().toLowerCase();
+  if (!email) {
+    return { error: "Enter the email address for your account." };
+  }
+
+  const requestHeaders = await headers();
+  const origin =
+    requestHeaders.get("origin") ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "http://localhost:3000";
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/reset-password")}`,
+  });
+
+  if (error) {
+    console.error("Password recovery email request failed", {
+      code: error.code,
+      status: error.status,
+    });
+    return { error: "We couldn't send a recovery email right now. Please try again later." };
+  }
+
+  return {
+    message: "If an account exists for that email, a password recovery link has been sent.",
+  };
+}
+
+export async function resetPassword(
+  _prevState: PasswordRecoveryState,
+  formData: FormData
+): Promise<PasswordRecoveryState> {
+  const password = String(formData.get("password") || "");
+  const confirmPassword = String(formData.get("confirmPassword") || "");
+
+  if (!isStrongPassword(password)) {
+    return { error: "Use at least 8 characters with uppercase, lowercase, and a number." };
+  }
+  if (password !== confirmPassword) {
+    return { error: "Passwords do not match." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: "This recovery link is invalid or expired. Request a new one and try again." };
+  }
+
+  const appUser = await ensureProfile(user);
+  if (!appUser) {
+    return { error: "Your account profile could not be loaded. Please contact support." };
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    password,
+    data: {
+      must_secure_account: false,
+      temporary_credential: false,
+    },
+  });
+  if (error) {
+    console.error("Password recovery update rejected", {
+      code: error.code,
+      status: error.status,
+      message: error.message,
+    });
+
+    const errorCode = error.code?.toLowerCase() || "";
+    const errorMessage = error.message.toLowerCase();
+    if (
+      errorCode.includes("weak_password") ||
+      errorMessage.includes("weak password") ||
+      errorMessage.includes("password should")
+    ) {
+      return {
+        error: "Choose a password different from your current one.",
+      };
+    }
+    if (
+      errorCode.includes("same_password") ||
+      errorMessage.includes("different from the old password")
+    ) {
+      return { error: "Choose a password you haven't used for this account before." };
+    }
+    if (error.status === 401 || error.status === 403) {
+      return {
+        error: "Your recovery link has expired. Request a new link and try again.",
+      };
+    }
+
+    return {
+      error: error.message
+        ? `We couldn't update your password: ${error.message}`
+        : "We couldn't update your password. Try a different password or request a new recovery link.",
+    };
+  }
+
+  await prisma.user.update({
+    where: { id: appUser.id },
+    data: {
+      mustSecureAccount: false,
+      usesTemporaryPassword: false,
+    },
+  });
+
+  return {
+    redirectTo: appUser.kkProfileId
+      ? "/programs/kk-profiling/status"
+      : getRoleHomePath(appUser.role) || "/",
+  };
+}
 
 export async function signup(
   _prevState: AuthState,

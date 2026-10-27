@@ -27,6 +27,12 @@ export async function PUT(request: NextRequest) {
   if (!registration) {
     return NextResponse.json({ error: "KK profiling registration not found." }, { status: 404 });
   }
+  if (registration.reviewStatus?.trim().toLowerCase() === "rejected") {
+    return NextResponse.json(
+      { error: "This registration was rejected and can no longer be edited or resubmitted. Contact Barangay Pico staff if you need clarification." },
+      { status: 409 }
+    );
+  }
 
   const {
     fullName,

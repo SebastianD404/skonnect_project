@@ -15,28 +15,60 @@ export default function HomePageContent() {
   const [youthCount, setYouthCount] = useState<number | null>(null);
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
-  const [hasSkeapApplication, setHasSkeapApplication] = useState(false);
+  const [skeapApplicationState, setSkeapApplicationState] = useState<{
+    userId: string;
+    hasApplication: boolean;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    setHasSkeapApplication(false);
+    if (authLoading || !user?.id || user.role !== "YOUTH") return;
+    const userId = user.id;
+    let request: AbortController | null = null;
 
-    if (authLoading || user?.role !== "YOUTH") return;
+    const checkApplication = async () => {
+      request?.abort();
+      const controller = new AbortController();
+      request = controller;
 
-    fetch("/api/skeap/applications", { cache: "no-store" })
-      .then(async (response) => {
+      try {
+        const response = await fetch("/api/skeap/applications", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!response.ok) {
-          throw new Error("Failed to check SKEAP application status");
+          throw new Error(`Failed to check SKEAP application status (${response.status}).`);
         }
         const data = await response.json();
-        if (mounted) setHasSkeapApplication(data.hasApplication === true);
-      })
-      .catch((error) => {
-        console.error("Could not check SKEAP application status:", error);
-      });
+        if (mounted && !controller.signal.aborted) {
+          setSkeapApplicationState({
+            userId,
+            hasApplication: data.hasApplication === true,
+          });
+        }
+      } catch (error) {
+        if (mounted && !controller.signal.aborted) {
+          console.error("Could not check SKEAP application status:", error);
+        }
+      }
+    };
 
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") void checkApplication();
+    };
+
+    void checkApplication();
+    window.addEventListener("focus", handleVisible);
+    window.addEventListener("pageshow", handleVisible);
+    window.addEventListener("skeap-application-submitted", handleVisible);
+    document.addEventListener("visibilitychange", handleVisible);
     return () => {
       mounted = false;
+      request?.abort();
+      window.removeEventListener("focus", handleVisible);
+      window.removeEventListener("pageshow", handleVisible);
+      window.removeEventListener("skeap-application-submitted", handleVisible);
+      document.removeEventListener("visibilitychange", handleVisible);
     };
   }, [authLoading, user?.id, user?.role]);
 
@@ -114,7 +146,12 @@ export default function HomePageContent() {
               </p>
               
               <div className="flex flex-wrap items-center gap-4 pt-4">
-                <HeroCtaButton hasApplication={hasSkeapApplication} />
+                <HeroCtaButton
+                  hasApplication={
+                    user?.id === skeapApplicationState?.userId &&
+                    skeapApplicationState?.hasApplication === true
+                  }
+                />
                 <Link
                   href={user?.role === "YOUTH" ? "/youth-dashboard/inquiries" : "/grantee-dashboard/inquiries"}
                   className="inline-flex min-h-12 min-w-[220px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 bg-transparent px-6 py-3 font-semibold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"

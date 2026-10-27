@@ -71,6 +71,7 @@ export function KKProfilingRegistrationsTable({
   const requestedPage = Number.isFinite(requestedPageValue) ? Math.max(1, Math.floor(requestedPageValue)) : 1;
   const requestedPageSizeValue = Number(searchParams.get("pageSize") ?? "10");
   const requestedPageSize = Number.isFinite(requestedPageSizeValue) ? requestedPageSizeValue : 10;
+  const focusedRegistrationId = searchParams.get("focus");
   const routePending = pathname === "/admin/kk-profiling" && (
     requestedStatus !== String(statusLabel ?? "Pending").toLowerCase() ||
     requestedPage !== (pageNumber ?? 1) ||
@@ -122,11 +123,6 @@ export function KKProfilingRegistrationsTable({
         ...current,
         rows: current.rows.filter((row) => row.id !== updatedRegistration.id),
       }));
-      try {
-        router.refresh();
-      } catch {
-        // ignore refresh failures
-      }
       return;
     }
 
@@ -136,8 +132,12 @@ export function KKProfilingRegistrationsTable({
     }));
   };
 
-  const handleStatusUpdate = (status: "Approved" | "Returned") => {
-    router.push(`/admin/kk-profiling?status=${status.toLowerCase()}`);
+  const handleStatusUpdate = (status: "Approved" | "Returned" | "Rejected", registrationId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("status", status.toLowerCase());
+    params.set("page", "1");
+    params.set("focus", registrationId);
+    router.push(`/admin/kk-profiling?${params.toString()}`, { scroll: false });
   };
 
   return (
@@ -197,7 +197,14 @@ export function KKProfilingRegistrationsTable({
           </thead>
           <tbody className={`divide-y divide-slate-100 bg-white text-slate-700 transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
               {filteredRows.map((registration) => (
-                <tr key={registration.id} className="transition-colors hover:bg-slate-50/50">
+                <tr
+                  key={registration.id}
+                  className={`transition-colors hover:bg-slate-50/50 ${
+                    registration.id === focusedRegistrationId
+                      ? "bg-cyan-50 ring-1 ring-inset ring-cyan-200"
+                      : ""
+                  }`}
+                >
                   <td className="px-6 py-4">
                     <div className="font-semibold text-slate-900">{registration.fullName}</div>
                     <div className="text-xs text-slate-500">{registration.email}</div>
@@ -210,6 +217,17 @@ export function KKProfilingRegistrationsTable({
                       <span className="inline-flex items-center rounded-full border border-emerald-200/60 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
                         Approved
                       </span>
+                    ) : String(registration.reviewStatus || "").toLowerCase() === "rejected" ? (
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700">
+                          Rejected
+                        </span>
+                        {registration.reviewNotes ? (
+                          <span className="max-w-56 truncate text-xs text-slate-500" title={registration.reviewNotes}>
+                            Reason: {registration.reviewNotes}
+                          </span>
+                        ) : null}
+                      </div>
                     ) : (
                       <div className="flex flex-col items-start gap-1">
                         <span className="capitalize text-slate-700">{registration.reviewStatus || "Pending"}</span>

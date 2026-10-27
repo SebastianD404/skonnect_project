@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { Role } from "@prisma/client";
 import { Banknote, ClipboardList, Database, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users } from "lucide-react";
@@ -69,6 +69,14 @@ interface SidebarCounts {
 }
 
 const GRANTEES_LAST_VIEWED_KEY = "admin-grantees-last-viewed";
+const BADGE_SECTIONS = [
+  { href: "/admin/inquiries", countKey: "openInquiryCount", cookie: "admin-inquiries-last-viewed" },
+  { href: "/admin/skeap-applications", countKey: "skeapApplicationCount", cookie: "admin-skeap-applications-last-viewed" },
+  { href: "/admin/submissions", countKey: "pendingDocumentCount", cookie: "admin-submissions-last-viewed" },
+  { href: "/admin/kk-profiling", countKey: "profilingRegistrationCount", cookie: "admin-kk-profiling-last-viewed" },
+  { href: "/admin/grantees", countKey: "newGranteeCount", cookie: "admin-grantees-last-viewed" },
+  { href: "/admin/members", countKey: "approvedMemberCount", cookie: "admin-members-last-viewed" },
+] as const;
 
 export default function AdminSidebar({
   openInquiryCount,
@@ -95,13 +103,30 @@ export default function AdminSidebar({
     [sessionUser?.fullName, sessionUser?.email]
   );
 
+  const setSectionViewedTimestamp = useCallback((href: string) => {
+    const section = BADGE_SECTIONS.find((candidate) => candidate.href === href);
+    if (!section) return null;
+
+    const viewedAt = new Date().toISOString();
+    document.cookie = `${section.cookie}=${encodeURIComponent(viewedAt)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    if (section.countKey === "newGranteeCount") {
+      window.localStorage.setItem(GRANTEES_LAST_VIEWED_KEY, viewedAt);
+    }
+    return section;
+  }, []);
+
+  const markSectionViewed = useCallback((href: string) => {
+    const section = setSectionViewedTimestamp(href);
+    if (!section) return;
+    setLiveCounts((current) => ({ ...current, [section.countKey]: 0 }));
+  }, [setSectionViewedTimestamp]);
+
   useEffect(() => {
     let mounted = true;
     let controller: AbortController | null = null;
 
-    if (pathname.startsWith("/admin/grantees")) {
-      window.localStorage.setItem(GRANTEES_LAST_VIEWED_KEY, new Date().toISOString());
-    }
+    const activeBadgeSection = BADGE_SECTIONS.find((section) => pathname.startsWith(section.href));
+    if (activeBadgeSection) setSectionViewedTimestamp(activeBadgeSection.href);
 
     async function refreshCounts() {
       if (!mounted || document.visibilityState !== "visible" || countsRequest.current) return;
@@ -110,9 +135,9 @@ export default function AdminSidebar({
 
       try {
         const granteesLastViewed = window.localStorage.getItem(GRANTEES_LAST_VIEWED_KEY);
-        const query = granteesLastViewed
-          ? `?granteesLastViewed=${encodeURIComponent(granteesLastViewed)}`
-          : "";
+        const queryParams = new URLSearchParams();
+        if (granteesLastViewed) queryParams.set("granteesLastViewed", granteesLastViewed);
+        const query = queryParams.size ? `?${queryParams.toString()}` : "";
         const response = await fetch(`/api/admin/sidebar-counts${query}`, {
           cache: "no-store",
           signal: controller.signal,
@@ -156,7 +181,7 @@ export default function AdminSidebar({
       window.removeEventListener("admin-inquiries-updated", handleFocus);
       window.removeEventListener("admin-submissions-updated", handleFocus);
     };
-  }, [pathname]);
+  }, [pathname, setSectionViewedTimestamp]);
 
   useEffect(() => {
     let mounted = true;
@@ -270,13 +295,16 @@ export default function AdminSidebar({
                     <Link
                       key={item.label}
                       href={item.href}
+                      onClick={() => markSectionViewed(item.href)}
                       className={`group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm transition ${
                         isActive ? "bg-[#0F3D5C] text-white" : "text-slate-700 hover:bg-slate-100"
                       }`}
                     >
                       <Icon className="h-4 w-4" />
                       <span className="flex-1 text-left">{item.label}</span>
-                      {item.badge && item.badge > 0 && !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees")) ? (
+                      {item.badge && item.badge > 0 &&
+                      !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees")) &&
+                      !(item.href === "/admin/kk-profiling" && pathname.startsWith("/admin/kk-profiling")) ? (
                         <span
                           className={`ml-auto flex min-w-[1.25rem] items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold text-center transition-colors duration-150 ${
                             isActive

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useActionState } from "react";
 import { login } from "@/app/actions/auth";
 import { useSearchParams } from "next/navigation";
@@ -11,20 +11,11 @@ function LoginForm() {
   const [state, formAction, submitting] = useActionState(login, null);
   const search = useSearchParams();
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const next = search.get("next") ?? "";
   const kkProfilingHref = `/programs/kk-profiling${next ? `?redirect=${encodeURIComponent(next)}` : ""}`;
-
-  useEffect(() => {
-    if (!state?.error) return;
-
-    const timer = window.setTimeout(() => {
-      setDismissedError(state.error ?? null);
-    }, 3000);
-
-    return () => window.clearTimeout(timer);
-  }, [state]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,61,92,0.08),_transparent_35%),linear-gradient(180deg,#f7f9fc_0%,#f4f7fb_100%)] px-4 py-10 text-slate-900">
@@ -45,7 +36,11 @@ function LoginForm() {
             <p className="mt-2 text-sm text-slate-500">Sign in to access your SKonnect account</p>
           </div>
 
-          <form action={formAction} className="mt-6 space-y-5">
+          <form
+            action={formAction}
+            onSubmit={() => setDismissedError(null)}
+            className="mt-6 space-y-5"
+          >
             {state?.error && state.error !== dismissedError ? (
               <div
                 role="alert"
@@ -93,7 +88,11 @@ function LoginForm() {
                   autoComplete="current-password"
                   required
                   placeholder="Enter your password"
-                  onChange={() => setDismissedError(state?.error ?? null)}
+                  value={password}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setDismissedError(state?.error ?? null);
+                  }}
                   className="secure-login-password w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
                 />
                 <button
@@ -112,7 +111,9 @@ function LoginForm() {
                 <input type="checkbox" name="remember" className="h-4 w-4 rounded border-slate-300 text-[#0F3D5C] focus:ring-[#0F3D5C]" />
                 Remember me
               </label>
-              <span className="font-medium text-[#14A9D6]">Forgot password?</span>
+              <Link href="/forgot-password" className="font-medium text-[#14A9D6] hover:underline">
+                Forgot password?
+              </Link>
             </div>
 
             <button

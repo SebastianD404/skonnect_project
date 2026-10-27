@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { databaseUnavailableResponse } from "@/lib/database-errors";
 
 function computeAge(birthDate: Date) {
   const now = new Date();
@@ -24,6 +25,16 @@ function computeAge(birthDate: Date) {
 }
 
 export async function GET() {
+  try {
+    return await getKKProfile();
+  } catch (error) {
+    const unavailable = databaseUnavailableResponse(error, "GET /api/my/kk-profile");
+    if (unavailable) return unavailable;
+    throw error;
+  }
+}
+
+async function getKKProfile() {
   const supabase = await createClient();
   const {
     data: { user },

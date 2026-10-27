@@ -46,12 +46,19 @@ export async function GET() {
       return NextResponse.json({ hasApplication: false });
     }
 
-    const application = await prisma.skeapApplication.findFirst({
-      where: { userId: appUser.id },
+    const applicationInquiry = await prisma.inquiry.findFirst({
+      where: {
+        userId: appUser.id,
+        subject: { contains: "SKEAP application", mode: "insensitive" },
+        applicationId: { not: null },
+      },
       select: { id: true },
     });
 
-    return NextResponse.json({ hasApplication: Boolean(application) });
+    return NextResponse.json(
+      { hasApplication: Boolean(applicationInquiry) },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
+    );
   } catch (error) {
     console.error("Failed to check SKEAP application status:", error);
     return NextResponse.json({ error: "Failed to check SKEAP application status." }, { status: 500 });

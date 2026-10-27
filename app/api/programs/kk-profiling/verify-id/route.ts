@@ -50,6 +50,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const appUser = await ensureProfile(user);
+    if (!appUser) {
+      return NextResponse.json({ error: "KK profiling registration not found." }, { status: 404 });
+    }
+
+    const latestRegistration = await prisma.profilingRegistration.findFirst({
+      where: { userId: appUser.id },
+      orderBy: { submittedAt: "desc" },
+    });
+
+    if (!latestRegistration) {
+      return NextResponse.json({ error: "KK profiling registration not found." }, { status: 404 });
+    }
+    if (latestRegistration.reviewStatus?.trim().toLowerCase() === "rejected") {
+      return NextResponse.json(
+        { error: "This registration was rejected and can no longer be edited or resubmitted. Contact Barangay Pico staff if you need clarification." },
+        { status: 409 }
+      );
+    }
+
     const formData = await request.formData();
     const frontFile = formData.get("frontFile") as File | null;
     const backFile = formData.get("backFile") as File | null;
@@ -102,20 +122,6 @@ export async function POST(request: NextRequest) {
 
       const result = await uploadFile(supabase, user.id, upload.file, upload.label);
       uploadedFiles.push({ label: upload.label, path: result.path, url: result.url });
-    }
-
-    const appUser = await ensureProfile(user);
-    if (!appUser) {
-      return NextResponse.json({ error: "KK profiling registration not found." }, { status: 404 });
-    }
-
-    const latestRegistration = await prisma.profilingRegistration.findFirst({
-      where: { userId: appUser.id },
-      orderBy: { submittedAt: "desc" },
-    });
-
-    if (!latestRegistration) {
-      return NextResponse.json({ error: "KK profiling registration not found." }, { status: 404 });
     }
 
     const updateData: Record<string, unknown> = {

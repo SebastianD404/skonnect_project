@@ -15,7 +15,14 @@ if (!connectionString) {
 
 process.env.DATABASE_URL = connectionString;
 
-const prismaPool = globalForPrisma.prismaPool ?? new Pool({ connectionString });
+const prismaPool =
+  globalForPrisma.prismaPool ??
+  new Pool({
+    connectionString,
+    connectionTimeoutMillis: 10_000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+  });
 const prismaAdapter = globalForPrisma.prismaAdapter ?? new PrismaPg(prismaPool);
 
 export const prisma =

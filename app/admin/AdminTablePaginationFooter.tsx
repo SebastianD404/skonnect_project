@@ -25,6 +25,7 @@ export default function AdminTablePaginationFooter({
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(nextPage));
     params.set("pageSize", String(nextPageSize));
+    params.delete("focus");
     const href = `${basePath}?${params.toString()}`;
     const navigate = () => router.push(href, { scroll: false });
     if (startNavigation) startNavigation(navigate);

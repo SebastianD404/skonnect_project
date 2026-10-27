@@ -1,10 +1,21 @@
 import { Role } from "@prisma/client";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { getProfilingRegistrationCountByStatusSince, prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
-export async function GET(request: Request) {
+function getViewedAt(request: NextRequest, cookieName: string) {
+  const value = request.cookies.get(cookieName)?.value;
+  if (!value) return null;
+
+  const viewedAt = new Date(value);
+  if (Number.isNaN(viewedAt.getTime())) {
+    throw new Error(`Invalid viewed timestamp in ${cookieName}.`);
+  }
+  return viewedAt;
+}
+
+export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -18,10 +29,31 @@ export async function GET(request: Request) {
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
-  const granteesLastViewedValue = new URL(request.url).searchParams.get("granteesLastViewed");
-  const granteesLastViewed = granteesLastViewedValue ? new Date(granteesLastViewedValue) : null;
-  if (granteesLastViewedValue && (!granteesLastViewed || Number.isNaN(granteesLastViewed.getTime()))) {
+  const queryGranteesLastViewed = new URL(request.url).searchParams.get("granteesLastViewed");
+  const granteesLastViewedFromQuery = queryGranteesLastViewed
+    ? new Date(queryGranteesLastViewed)
+    : null;
+  if (queryGranteesLastViewed && (!granteesLastViewedFromQuery || Number.isNaN(granteesLastViewedFromQuery.getTime()))) {
     return NextResponse.json({ error: "Invalid Grantees viewed timestamp." }, { status: 400 });
+  }
+  let inquiryLastViewed: Date | null;
+  let skeapLastViewed: Date | null;
+  let submissionsLastViewed: Date | null;
+  let kkProfilingLastViewed: Date | null;
+  let granteesLastViewed: Date | null;
+  let membersLastViewed: Date | null;
+  try {
+    inquiryLastViewed = getViewedAt(request, "admin-inquiries-last-viewed");
+    skeapLastViewed = getViewedAt(request, "admin-skeap-applications-last-viewed");
+    submissionsLastViewed = getViewedAt(request, "admin-submissions-last-viewed");
+    kkProfilingLastViewed = getViewedAt(request, "admin-kk-profiling-last-viewed");
+    granteesLastViewed =
+      getViewedAt(request, "admin-grantees-last-viewed") ??
+      granteesLastViewedFromQuery;
+    membersLastViewed = getViewedAt(request, "admin-members-last-viewed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid viewed timestamp.";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   const supportInquiryFilter = {
@@ -49,7 +81,7 @@ export async function GET(request: Request) {
       approvedMemberCount,
     ] = await Promise.all([
       prisma.inquiry.count({
-        where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: startOfToday } },
+        where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: inquiryLastViewed ?? startOfToday } },
       }),
       prisma.inquiry.count({
         where: {
@@ -59,11 +91,17 @@ export async function GET(request: Request) {
             { reviewStatus: { contains: "approve", mode: "insensitive" } },
           ],
           AND: [applicationStatusFilter],
-          createdAt: { gte: startOfToday },
+          createdAt: { gte: skeapLastViewed ?? startOfToday },
         },
       }),
-      prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: startOfToday } } }),
-      prisma.profilingRegistration.count({ where: { submittedAt: { gte: startOfToday } } }),
+      prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: submissionsLastViewed ?? startOfToday } } }),
+      prisma.profilingRegistration.count({
+        where: {
+          submittedAt: kkProfilingLastViewed
+            ? { gt: kkProfilingLastViewed }
+            : { gte: startOfToday },
+        },
+      }),
       prisma.grantee.count({
         where: {
           createdAt: granteesLastViewed
@@ -71,7 +109,7 @@ export async function GET(request: Request) {
             : { gte: startOfToday },
         },
       }),
-      getProfilingRegistrationCountByStatusSince("Approved", startOfToday),
+      getProfilingRegistrationCountByStatusSince("Approved", membersLastViewed ?? startOfToday),
     ]);
 
     return NextResponse.json(

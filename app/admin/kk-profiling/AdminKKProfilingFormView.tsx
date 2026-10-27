@@ -2,16 +2,15 @@
 
 import { ExternalLink, Pencil, X } from "lucide-react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import type { KKProfilingRegistration } from "./types";
 
 function ReadOnlyField({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
-      <span className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-base font-medium text-slate-900">
+    <div className="min-w-0 text-left">
+      <span className="mb-1 block text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</span>
+      <div className="w-full break-words rounded-xl border border-slate-100 bg-slate-50 p-3 text-left text-sm font-medium text-slate-900">
         {value || "N/A"}
-      </span>
+      </div>
     </div>
   );
 }
@@ -64,26 +63,38 @@ export function AdminKKProfilingFormView({
   onClose: () => void;
   onEdit?: () => void;
   onReturn?: (updatedRegistration: KKProfilingRegistration) => void;
-  onStatusUpdate?: (status: "Approved" | "Returned") => void;
+  onStatusUpdate?: (status: "Approved" | "Returned" | "Rejected", registrationId: string) => void;
 }) {
   const [correctionNotes, setCorrectionNotes] = useState("");
   const [isReturning, setIsReturning] = useState(false);
   const [isCorrectionOpen, setIsCorrectionOpen] = useState(false);
   const [returnError, setReturnError] = useState<string | null>(null);
   const [returnSuccess, setReturnSuccess] = useState<string | null>(null);
+  const [rejectionNotes, setRejectionNotes] = useState("");
+  const [isRejectionOpen, setIsRejectionOpen] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [rejectionError, setRejectionError] = useState<string | null>(null);
+  const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
+  const [isReopening, setIsReopening] = useState(false);
+  const [reopenError, setReopenError] = useState<string | null>(null);
   const [isApproving, setIsApproving] = useState(false);
-  const router = useRouter();
   const [approveError, setApproveError] = useState<string | null>(null);
   const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
 
-  const isApproved = registration.reviewStatus === "Approved";
-  const isLocked = ["approved", "rejected"].includes((registration.reviewStatus || "").toLowerCase());
+  const isApproved = registration.reviewStatus?.toLowerCase() === "approved";
+  const isRejected = registration.reviewStatus?.toLowerCase() === "rejected";
+  const isLocked = isApproved || isRejected;
   const canReturn = !isLocked;
 
   const resetCorrectionFlow = () => {
     setCorrectionNotes("");
     setIsCorrectionOpen(false);
     setReturnError(null);
+    setRejectionNotes("");
+    setIsRejectionOpen(false);
+    setRejectionError(null);
+    setIsReopenConfirmOpen(false);
+    setReopenError(null);
   };
 
   const handleClose = () => {
@@ -118,8 +129,7 @@ export function AdminKKProfilingFormView({
         onReturn(data as KKProfilingRegistration);
       }
       onClose();
-      onStatusUpdate?.("Approved");
-      router.refresh();
+      onStatusUpdate?.("Approved", registration.id);
     } catch (error) {
       setApproveError(error instanceof Error ? error.message : "Failed to approve registration.");
     } finally {
@@ -161,8 +171,7 @@ export function AdminKKProfilingFormView({
         onReturn(data as KKProfilingRegistration);
       }
       onClose();
-      onStatusUpdate?.("Returned");
-      router.refresh();
+      onStatusUpdate?.("Returned", registration.id);
     } catch (error) {
       setReturnError(error instanceof Error ? error.message : "Failed to return registration for correction.");
     } finally {
@@ -170,13 +179,74 @@ export function AdminKKProfilingFormView({
     }
   };
 
+  const handleReject = async () => {
+    const notes = rejectionNotes.trim();
+    setRejectionError(null);
+
+    if (!notes) {
+      setRejectionError("Add a reason so the applicant understands why the registration was rejected.");
+      return;
+    }
+
+    setIsRejecting(true);
+    try {
+      const response = await fetch(`/api/admin/kk-profiling/${registration.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewStatus: "Rejected", reviewNotes: notes }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to reject registration.");
+      }
+
+      onReturn?.(data as KKProfilingRegistration);
+      onClose();
+      onStatusUpdate?.("Rejected", registration.id);
+    } catch (error) {
+      setRejectionError(error instanceof Error ? error.message : "Failed to reject registration.");
+    } finally {
+      setIsRejecting(false);
+    }
+  };
+
+  const handleReopen = async () => {
+    setReopenError(null);
+    setIsReopening(true);
+
+    try {
+      const response = await fetch(`/api/admin/kk-profiling/${registration.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reviewStatus: "Returned",
+          reviewNotes: "This application has been reopened for resubmission. Please review and update your registration, then submit it again.",
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to reopen registration.");
+      }
+
+      onReturn?.(data as KKProfilingRegistration);
+      onClose();
+      onStatusUpdate?.("Returned", registration.id);
+    } catch (error) {
+      setReopenError(error instanceof Error ? error.message : "Failed to reopen registration.");
+    } finally {
+      setIsReopening(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-6">
-      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-3 px-6 pt-6">
-          <div>
-            <h3 className="text-xl font-semibold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Submission</h3>
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 sm:p-6">
+      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white text-left shadow-2xl">
+        <div className="flex shrink-0 items-start justify-between gap-3 px-6 pt-6">
+          <div className="min-w-0">
+            <h3 className="break-words text-left text-xl font-semibold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Submission</h3>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-left text-sm text-slate-500">
               <span>Submitted on {new Date(registration.submittedAt).toLocaleString()}</span>
               <span className="inline-flex items-center gap-2">
                 <span className="font-medium text-slate-600">Review status</span>
@@ -184,6 +254,8 @@ export function AdminKKProfilingFormView({
                   className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                     isApproved
                       ? "bg-emerald-100 text-emerald-800"
+                      : isRejected
+                      ? "bg-rose-100 text-rose-800"
                       : registration.reviewStatus === "Returned"
                       ? "bg-rose-100 text-rose-800"
                       : "bg-amber-100 text-amber-800"
@@ -216,108 +288,86 @@ export function AdminKKProfilingFormView({
             </button>
           </div>
         </div>
-        <div className="px-6 pt-4 text-sm text-slate-500">
-          <p>
-            <span className="font-medium text-slate-600">Informed consent:</span> This registrant indicated consent when submitting the KK profiling form.
-          </p>
-          {registration.reviewNotes ? (
-            <div className="mt-3">
-              <p className="font-medium text-slate-600">Admin review notes</p>
-              <p className="mt-1 whitespace-pre-wrap">{registration.reviewNotes}</p>
-            </div>
-          ) : null}
-        </div>
-
-        <hr className="mt-6 mb-4 border-t border-slate-200" />
-
-        <div className="max-h-[calc(90vh-10rem)] overflow-x-hidden overflow-y-auto px-6 pb-6 pt-0">
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
+          <div className="mb-6 space-y-3 text-left text-sm text-slate-600">
+            <p>
+              <span className="font-medium text-slate-700">Informed consent:</span> This registrant indicated consent when submitting the KK profiling form.
+            </p>
+            {registration.reviewNotes ? (
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-medium text-slate-700">Admin review notes</p>
+                <p className="mt-1 break-words whitespace-pre-wrap">{registration.reviewNotes}</p>
+              </div>
+            ) : null}
+          </div>
           {/* Form layout identical to youth form but read-only */}
-          <div className="grid gap-4">
-            <div className="mb-4 border-b border-slate-200 pb-3">
-              <h4 className="text-lg font-semibold text-slate-950">PART I: Profile</h4>
-              <p className="mt-1 text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
+          <div className="grid min-w-0 grid-cols-1 gap-4">
+            <div className="col-span-full mb-1 mt-2 border-b border-slate-200 pb-2">
+              <h4 className="break-words text-left text-lg font-bold text-slate-800">PART I: Profile</h4>
+              <p className="mt-1 text-left text-sm text-slate-600">Please ensure the accuracy of your responses by providing truthful and complete information in all required fields.</p>
             </div>
 
-            <ReadOnlyField label="Complete Name (Family, First, Middle)" value={registration.fullName} />
-            <ReadOnlyField label="Complete Address" value={registration.address} />
+            <div className="col-span-full">
+              <ReadOnlyField label="Complete Name (Family, First, Middle)" value={registration.fullName} />
+            </div>
+            <div className="col-span-full">
+              <ReadOnlyField label="Complete Address" value={registration.address} />
+            </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="col-span-full grid grid-cols-1 gap-4 md:grid-cols-3">
               <ReadOnlyField label="Sex" value={registration.sex} />
-              <ReadOnlyField label="Age" value={registration.age} />
               <ReadOnlyField label="Birth Date" value={new Date(registration.birthDate).toLocaleDateString()} />
+              <ReadOnlyField label="Age" value={registration.age} />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="col-span-full grid grid-cols-1 gap-4 md:grid-cols-2">
               <ReadOnlyField label="Email Address" value={registration.email} />
               <ReadOnlyField label="Facebook Account (Name)" value={registration.facebook} />
             </div>
 
-            <ReadOnlyField label="Contact Number" value={registration.contactNumber} />
-
-            <h4 className="text-lg font-semibold">PART II: Demographic Characteristics</h4>
-
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Civil Status *</span>
-              <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.civilStatus}</div>
-            </label>
-
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Youth Classification *</span>
-              <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.youthClassification}</div>
-            </label>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Youth age Group *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.youthAgeGroup}</div>
-              </label>
-
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Work Status *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.workStatus}</div>
-              </label>
+            <div className="col-span-full">
+              <ReadOnlyField label="Contact Number" value={registration.contactNumber} />
             </div>
 
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Educational Background *</span>
-              <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.educationalBackground}</div>
-            </label>
+            <h4 className="col-span-full mb-1 mt-6 break-words border-b border-slate-200 pb-2 text-left text-lg font-bold text-slate-800">
+              PART II: Demographic Characteristics
+            </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Registered SK Voter? *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.registeredSKVoter}</div>
-              </label>
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Did you vote last SK election? *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.votedLastSK}</div>
-              </label>
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">Registered National Voter? *</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.registeredNationalVoter}</div>
-              </label>
+            <ReadOnlyField label="Civil Status" value={registration.civilStatus} />
+
+            <ReadOnlyField label="Youth Classification" value={registration.youthClassification} />
+
+            <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <ReadOnlyField label="Youth Age Group" value={registration.youthAgeGroup} />
+              <ReadOnlyField label="Work Status" value={registration.workStatus} />
             </div>
 
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold">Have you already attended a KK Assembly? *</span>
-              <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.attendedKKAssembly}</div>
-            </label>
+            <div className="col-span-full">
+              <ReadOnlyField label="Educational Background" value={registration.educationalBackground} />
+            </div>
+
+            <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <ReadOnlyField label="Registered SK Voter?" value={registration.registeredSKVoter} />
+              <ReadOnlyField label="Did you vote last SK election?" value={registration.votedLastSK} />
+              <ReadOnlyField label="Registered National Voter?" value={registration.registeredNationalVoter} />
+            </div>
+
+            <div className="col-span-full">
+              <ReadOnlyField label="Have you already attended a KK Assembly?" value={registration.attendedKKAssembly} />
+            </div>
 
             {registration.attendedKKAssembly === "Yes" && (
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">If Yes, How many times</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.assemblyTimes || "N/A"}</div>
-              </label>
+              <ReadOnlyField label="If Yes, how many times" value={registration.assemblyTimes} />
             )}
 
             {registration.attendedKKAssembly === "No" && (
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold">If No, Why?</span>
-                <div className="mt-1 rounded-lg border px-3 py-2 bg-white text-sm text-slate-700">{registration.noAssemblyReason || "N/A"}</div>
-              </label>
+              <ReadOnlyField label="If No, why?" value={registration.noAssemblyReason} />
             )}
 
-            <div className="space-y-4">
+            <div className="col-span-full mt-6 space-y-4">
+              <h4 className="break-words border-b border-slate-200 pb-2 text-left text-lg font-bold text-slate-800">
+                PART III: Identification Documents
+              </h4>
               <p className="text-sm font-semibold text-slate-900">Uploaded identification</p>
               <p className="mt-2 text-sm text-slate-600">{registration.idDocumentType || "Not uploaded"}</p>
 
@@ -331,7 +381,7 @@ export function AdminKKProfilingFormView({
                 {registration.idSingleFileUrl ? (
                   <PrintableDocumentCard
                     title="Certificate of Residency"
-                    subtitle="Verified proof of address - PDF"
+                    subtitle="Proof of address"
                     url={registration.idSingleFileUrl}
                     fullWidth
                   />
@@ -345,58 +395,154 @@ export function AdminKKProfilingFormView({
           </div>
         </div>
 
-        <div className="shrink-0 rounded-b-xl border-t border-slate-200 bg-white px-6 py-4">
-          {approveError || returnError ? (
-            <div className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{approveError || returnError}</div>
+        <div className="sticky bottom-0 z-10 shrink-0 border-t border-slate-100 bg-white/90 p-4 backdrop-blur">
+          {approveError || returnError || rejectionError || reopenError ? (
+            <div role="alert" className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {approveError || returnError || rejectionError || reopenError}
+            </div>
           ) : null}
           {approveSuccess || returnSuccess ? (
             <div className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{approveSuccess || returnSuccess}</div>
           ) : null}
 
-          {canReturn ? (
-            <div className={`overflow-hidden transition-all duration-200 ${isCorrectionOpen ? "mb-4 max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700">Correction notes</span>
+          {canReturn && isCorrectionOpen ? (
+            <div className="mt-4 w-full animate-in slide-in-from-bottom-2 border-t border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+              <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                <span className="mb-2 block">Correction notes</span>
                 <textarea
-                  rows={3}
+                  rows={4}
                   value={correctionNotes}
                   onChange={(event) => setCorrectionNotes(event.target.value)}
-                  className="mt-2 w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-900"
+                  className="min-h-[100px] w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   placeholder="Explain what the applicant needs to fix in this new submission..."
                 />
               </label>
+              <div className="mt-4 flex w-full items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={resetCorrectionFlow}
+                  disabled={isReturning}
+                  className="inline-flex justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReturn}
+                  disabled={isReturning || isRejecting || isApproving}
+                  className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isReturning ? "Returning..." : "Confirm Return"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {canReturn && isRejectionOpen ? (
+            <div className="mb-4 w-full rounded-xl border border-rose-200 bg-rose-50/70 p-4 dark:border-rose-900/60 dark:bg-rose-950/20">
+              <p className="text-sm font-semibold text-rose-900 dark:text-rose-200">Reject this registration?</p>
+              <p className="mb-3 break-words whitespace-normal text-sm leading-tight text-rose-800 dark:text-rose-200">
+                The applicant will see this reason and will not be able to edit or resubmit this form.
+              </p>
+              <textarea
+                rows={3}
+                required
+                aria-label="Reason for rejection"
+                value={rejectionNotes}
+                onChange={(event) => setRejectionNotes(event.target.value)}
+                className="min-h-[80px] w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300/60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500 dark:focus:ring-slate-500/30"
+                placeholder="Explain why this registration cannot be approved."
+              />
+              <div className="mt-2 flex w-full justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRejectionOpen(false);
+                    setRejectionNotes("");
+                    setRejectionError(null);
+                  }}
+                  disabled={isRejecting}
+                  className="inline-flex justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReject}
+                  disabled={isRejecting || isReturning || isApproving}
+                  className="inline-flex justify-center rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isRejecting ? "Rejecting..." : "Confirm Rejection"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {isRejected && isReopenConfirmOpen ? (
+            <div className="mb-4 w-full rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">Reopen this application?</p>
+              <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                The applicant will be able to edit and resubmit this registration. The application will move to Returned.
+              </p>
+              <div className="mt-3 flex w-full justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReopenConfirmOpen(false);
+                    setReopenError(null);
+                  }}
+                  disabled={isReopening}
+                  className="inline-flex justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReopen}
+                  disabled={isReopening}
+                  className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isReopening ? "Reopening..." : "Confirm Reopen"}
+                </button>
+              </div>
             </div>
           ) : null}
 
-          <div className="flex items-center justify-end gap-3">
-            {canReturn ? (
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              {isCorrectionOpen ? (
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {isRejected && !isReopenConfirmOpen ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReopenConfirmOpen(true);
+                  setReopenError(null);
+                }}
+                className="inline-flex justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Reopen for Resubmission
+              </button>
+            ) : null}
+            {canReturn && !isCorrectionOpen ? (
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                {!isRejectionOpen ? (
                 <>
                   <button
                     type="button"
-                    onClick={resetCorrectionFlow}
-                    className="inline-flex justify-center rounded-md px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleReturn}
-                    disabled={isReturning}
-                    className="inline-flex justify-center rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {isReturning ? "Returning..." : "Confirm Return"}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsCorrectionOpen(true)}
+                    onClick={() => {
+                      setIsCorrectionOpen(true);
+                      setIsRejectionOpen(false);
+                    }}
                     className="inline-flex justify-center rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                   >
                     Request Correction
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRejectionOpen(true);
+                      setIsCorrectionOpen(false);
+                      setReturnError(null);
+                    }}
+                    className="inline-flex justify-center rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+                  >
+                    Reject Registration
                   </button>
                   <button
                     type="button"
@@ -407,17 +553,10 @@ export function AdminKKProfilingFormView({
                     {isApproving ? "Approving..." : "Approve Registration"}
                   </button>
                 </>
-              )}
-            </div>
+                ) : null}
+              </div>
             ) : null}
 
-            <button
-              type="button"
-              onClick={handleClose}
-              className="inline-flex items-center justify-center rounded-lg bg-[#0F3D5C] px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0D2E47]"
-            >
-              Close
-            </button>
           </div>
         </div>
       </div>

@@ -44,7 +44,10 @@ export function AuthProvider({
 
     try {
       const response = await fetch("/api/session", { cache: "no-store" });
-      const data = response.ok ? await response.json() : null;
+      if (!response.ok) {
+        throw new Error(`Failed to refresh the authenticated profile (${response.status}).`);
+      }
+      const data = await response.json();
       const profile = data?.user ?? null;
 
       if (requestId !== refreshRequestRef.current) return;
@@ -54,9 +57,10 @@ export function AuthProvider({
       } else {
         setUser(null);
       }
-    } catch {
-      if (requestId !== refreshRequestRef.current) return;
-      setUser(null);
+    } catch (error) {
+      if (requestId === refreshRequestRef.current) {
+        console.error("Failed to refresh the authenticated profile:", error);
+      }
     } finally {
       if (requestId === refreshRequestRef.current) {
         hasLoadedRef.current = true;
@@ -83,28 +87,14 @@ export function AuthProvider({
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") {
         return;
       }
 
-      const authUser = session?.user;
-      setUser(
-        authUser
-          ? {
-              id: authUser.id,
-              email: authUser.email,
-              fullName:
-                authUser.user_metadata.full_name ??
-                authUser.user_metadata.name ??
-                undefined,
-              avatarUrl:
-                authUser.user_metadata.avatar_url ??
-                authUser.user_metadata.avatarUrl ??
-                undefined,
-            }
-          : null,
-      );
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+      }
       router.refresh();
       void refresh();
     });

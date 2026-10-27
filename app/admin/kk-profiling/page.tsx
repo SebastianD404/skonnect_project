@@ -9,13 +9,15 @@ import KKProfilingStatusTabs from "./KKProfilingStatusTabs";
 
 const PAGE_SIZES = [10, 20, 50] as const;
 
-export default async function AdminKKProfilingPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; status?: string | string[] }> }) {
+export default async function AdminKKProfilingPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; status?: string | string[]; focus?: string | string[] }> }) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
   const resolvedSearchParams = await searchParams;
   const rawPage = Array.isArray(resolvedSearchParams.page) ? resolvedSearchParams.page[0] : resolvedSearchParams.page;
   const rawPageSize = Array.isArray(resolvedSearchParams.pageSize) ? resolvedSearchParams.pageSize[0] : resolvedSearchParams.pageSize;
   const rawStatus = Array.isArray(resolvedSearchParams.status) ? resolvedSearchParams.status[0] : resolvedSearchParams.status;
+  const rawFocus = Array.isArray(resolvedSearchParams.focus) ? resolvedSearchParams.focus[0] : resolvedSearchParams.focus;
+  const focusId = typeof rawFocus === "string" ? rawFocus : "";
   const requestedPage = Number(rawPage || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(rawPageSize);
@@ -35,10 +37,12 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
       ? { reviewStatus: "Returned" }
       : hasReviewStatusColumn && statusParam === "resubmitted"
       ? { reviewStatus: "Resubmitted" }
+      : hasReviewStatusColumn && statusParam === "rejected"
+      ? { reviewStatus: "Rejected" }
       : undefined;
 
   const selectedStatus = whereFilter?.reviewStatus;
-  const [totalCount, registrations] = await Promise.all([
+  const [totalCount, registrations, focusedRegistrations] = await Promise.all([
     hasReviewStatusColumn && selectedStatus
       ? getProfilingRegistrationCountByStatus(selectedStatus)
       : getProfilingRegistrationCount(),
@@ -56,15 +60,36 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
         },
       },
     }),
+    hasReviewStatusColumn && selectedStatus && focusId
+      ? listProfilingRegistrations({
+          where: { ...whereFilter, id: focusId },
+          take: 1,
+          include: {
+            user: {
+              select: {
+                fullName: true,
+                email: true,
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
   ]);
 
-  const latestRegistrations = registrations;
+  const latestRegistrations = focusedRegistrations.length > 0
+    ? [
+        ...focusedRegistrations,
+        ...registrations.filter((registration) => registration.id !== focusId),
+      ].slice(0, pageSize)
+    : registrations;
   const statusLabel = statusParam === "approved"
     ? "Approved"
     : statusParam === "returned"
     ? "Returned"
     : statusParam === "resubmitted"
     ? "Resubmitted"
+    : statusParam === "rejected"
+    ? "Rejected"
     : "Pending";
 
   return (
@@ -101,6 +126,8 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
                   ? "returned"
                   : statusParam === "resubmitted"
                   ? "resubmitted"
+                  : statusParam === "rejected"
+                  ? "rejected"
                   : "pending"
               }
             />

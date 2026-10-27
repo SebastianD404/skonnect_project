@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     returned: "Returned",
     resubmitted: "Resubmitted",
     approved: "Approved",
+    rejected: "Rejected",
   };
   const statusLabel = statusLabels[requestedStatus];
   if (!statusLabel) {
