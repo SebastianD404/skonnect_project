@@ -7,8 +7,13 @@
 
 const https = require('https');
 
-const projectUrl = 'https://ehroxahawcwmltatrcto.supabase.co';
-const serviceRoleKey = 'sb_secret_Vmr33NngElCHVawpW0jQ2A_rmgNit6d';
+const projectUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!projectUrl || !serviceRoleKey) {
+  console.error('Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.');
+  process.exit(1);
+}
 
 // SQL to create policies
 const policies = [

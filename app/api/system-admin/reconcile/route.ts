@@ -94,14 +94,12 @@ export async function POST(request: NextRequest) {
     const apply = body?.apply === true || queryApply;
 
     const adminUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!adminUrl || !serviceRoleKey) {
       return NextResponse.json(
         {
-          error:
-            "Missing SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY, and NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL.",
+          error: "Missing SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL.",
         },
         { status: 500 }
       );

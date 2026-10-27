@@ -41,8 +41,7 @@ function computeAge(birthDate: Date) {
 
 function getSupabaseAdminClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Missing Supabase admin configuration");
@@ -74,7 +73,7 @@ async function findExistingAuthIdByEmail(email: string) {
     }
   }
 
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return null;
   }
 
@@ -148,7 +147,7 @@ async function signInAndSetSession(email: string, password: string) {
 function getSupabaseProvisioningClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl) {
@@ -522,7 +521,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     if (createdAuthUserId) {
       try {
-        if (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
+        if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
           const supabaseAdmin = getSupabaseAdminClient();
           await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
         }

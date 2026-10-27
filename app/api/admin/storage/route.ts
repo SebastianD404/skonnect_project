@@ -22,9 +22,9 @@ export async function GET() {
 		}
 
 		// Check admin client configuration first
-		const hasAdminEnv = !!(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) && !!(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY);
+		const hasAdminEnv = !!(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 		if (!hasAdminEnv) {
-			return NextResponse.json({ error: "admin_client_unconfigured", message: "Missing SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY", debug: { hasAdminEnv } }, { status: 500 });
+			return NextResponse.json({ error: "admin_client_unconfigured", message: "Missing SUPABASE_SERVICE_ROLE_KEY", debug: { hasAdminEnv } }, { status: 500 });
 		}
 
 		const admin = createAdminClient();

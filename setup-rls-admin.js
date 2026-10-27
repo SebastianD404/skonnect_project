@@ -7,9 +7,14 @@
 
 const https = require('https');
 
-const PROJECT_URL = 'https://ehroxahawcwmltatrcto.supabase.co';
-const SERVICE_ROLE_KEY = 'sb_secret_Vmr33NngElCHVawpW0jQ2A_rmgNit6d';
+const PROJECT_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUCKET_ID = 'public image';
+
+if (!PROJECT_URL || !SERVICE_ROLE_KEY) {
+  console.error('Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.');
+  process.exit(1);
+}
 
 function makeRequest(method, path, body = null) {
   return new Promise((resolve, reject) => {
