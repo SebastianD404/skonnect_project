@@ -6,6 +6,9 @@ module.exports = {
   // keep in sync with next.config.ts
   poweredByHeader: false,
   serverExternalPackages: ["sharp"],
+  outputFileTracingIncludes: {
+    "/api/**/*": ["./node_modules/sharp/**/*", "./node_modules/@img/**/*"],
+  },
   async headers() {
     return [
       {
