@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, FileText, UploadCloud, X, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, FileText, LoaderCircle, X, RefreshCw } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
@@ -26,6 +26,7 @@ type DocumentOCRValidationExampleProps = {
   profileBirthDate?: string;
   onFileSelected?: (key: DocumentOCRKey, file: File | null) => void;
   onValidationChange?: (state: Record<DocumentOCRKey, DocumentOCRState>) => void;
+  onManualReviewAvailable?: (available: boolean) => void;
   onRemoveFile?: (key: DocumentOCRKey) => void;
   className?: string;
 };
@@ -38,6 +39,7 @@ export default function DocumentOCRValidationExample({
   initialFiles,
   onFileSelected,
   onValidationChange,
+  onManualReviewAvailable,
   onRemoveFile,
   showDebug = false,
   className,
@@ -63,6 +65,7 @@ export default function DocumentOCRValidationExample({
     residency: false,
   });
   const [modalKey, setModalKey] = useState<DocumentOCRKey | null>(null);
+  const failedScanCountRef = useRef(0);
 
   const inputRefs = useRef<Record<DocumentOCRKey, HTMLInputElement | null>>({
     front: null,
@@ -96,6 +99,18 @@ export default function DocumentOCRValidationExample({
   useEffect(() => {
     onValidationChange?.(docs);
   }, [docs, onValidationChange]);
+
+  const recordFailedScan = () => {
+    failedScanCountRef.current += 1;
+    if (failedScanCountRef.current >= 2) {
+      onManualReviewAvailable?.(true);
+    }
+  };
+
+  const recordSuccessfulScan = () => {
+    failedScanCountRef.current = 0;
+    onManualReviewAvailable?.(false);
+  };
 
   const setDoc = (key: DocumentOCRKey, patch: Partial<DocumentOCRState>) => {
     setDocs((d) => ({ ...d, [key]: { ...d[key], ...patch } }));
@@ -245,6 +260,11 @@ export default function DocumentOCRValidationExample({
       });
 
       if (generation !== previewGenerationRef.current[key]) return;
+      if (result.status !== "success" || !result.isValid) {
+        recordFailedScan();
+      } else {
+        recordSuccessfulScan();
+      }
       setDoc(key, {
         status: result.status === "success" ? "success" : "error",
         badgeText: result.badgeText,
@@ -256,9 +276,11 @@ export default function DocumentOCRValidationExample({
       });
     } catch (err: unknown) {
       if (generation !== previewGenerationRef.current[key]) return;
+      recordFailedScan();
       setDoc(key, {
         status: "error",
-        badgeText: "Unreadable Image",
+        badgeText: "Scanner Unavailable",
+        errorCode: "SCANNER_UNAVAILABLE",
         message: String(err instanceof Error ? err.message : err) || "Unable to process this image. Please try again.",
         parsedDates: undefined,
         birthdateMatched: undefined,
@@ -338,6 +360,7 @@ export default function DocumentOCRValidationExample({
             inputRefs.current[key] = el;
           }}
           onChange={(e) => handleFileChange(e, key)}
+          disabled={isAnyScanning}
           data-testid={`ocr-input-${key}`}
           className="hidden"
         />
@@ -386,9 +409,13 @@ export default function DocumentOCRValidationExample({
             )}
           </div>
           {isScanning ? (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-sm">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" aria-hidden="true" />
-              <span className="text-xs font-medium text-slate-700">Scanning document...</span>
+            <div
+              role="status"
+              aria-live="polite"
+              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-sm"
+            >
+              <LoaderCircle className="h-6 w-6 animate-spin text-slate-800" aria-hidden="true" />
+              <span className="text-xs font-medium text-slate-700">Scanning document text...</span>
             </div>
           ) : null}
           {isError && feedbackText ? (
@@ -431,6 +458,7 @@ export default function DocumentOCRValidationExample({
                 e.stopPropagation();
                 inputRefs.current[key]?.click();
               }}
+              disabled={isAnyScanning}
               className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
             >
               <RefreshCw className="h-4 w-4" />
@@ -446,6 +474,7 @@ export default function DocumentOCRValidationExample({
                 onFileSelected?.(key, null);
                 onRemoveFile?.(key);
               }}
+              disabled={isAnyScanning}
               className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
             >
               <X className="h-4 w-4" />

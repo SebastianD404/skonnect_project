@@ -257,10 +257,12 @@ export async function validateDocumentOCR(
   }
 
   const imageUrls: string[] = [];
-  let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
+  const workerRef: { current: Awaited<ReturnType<typeof createWorker>> | null } = {
+    current: null,
+  };
   const getWorker = async () => {
-    worker ??= await createWorker("eng");
-    return worker;
+    workerRef.current ??= await createWorker("eng");
+    return workerRef.current;
   };
   let currentStep = "starting the document reader";
 
@@ -434,7 +436,7 @@ export async function validateDocumentOCR(
   } finally {
     imageUrls.forEach((imageUrl) => URL.revokeObjectURL(imageUrl));
     try {
-      await worker?.terminate();
+      await workerRef.current?.terminate();
     } catch (error) {
       console.warn("Could not cleanly stop the SKEAP OCR worker after validation.", error);
     }

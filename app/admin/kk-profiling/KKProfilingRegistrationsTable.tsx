@@ -9,6 +9,7 @@ import type { KKProfilingRegistration } from "./types";
 import { useAdminSearch } from "../AdminSearchContext";
 import AdminExportButton from "../AdminExportButton";
 import { formatDate } from "@/lib/utils";
+import { isKKProfilingManualReview } from "@/lib/kk-profiling-review";
 import { useKKProfilingTableSearch } from "./KKProfilingTableSearch";
 
 const deleteRegistration = async (id: string) => {
@@ -210,7 +211,17 @@ export function KKProfilingRegistrationsTable({
                         Approved
                       </span>
                     ) : (
-                      <span className="capitalize text-slate-700">{registration.reviewStatus || "Pending"}</span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="capitalize text-slate-700">{registration.reviewStatus || "Pending"}</span>
+                        {isKKProfilingManualReview(registration.reviewNotes) ? (
+                          <span
+                            title={registration.reviewNotes ?? undefined}
+                            className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                          >
+                            Manual review requested
+                          </span>
+                        ) : null}
+                      </div>
                     )}
                   </td>
                   <td className="px-6 py-4 text-slate-500">

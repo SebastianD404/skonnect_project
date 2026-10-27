@@ -6,6 +6,56 @@ export type AcademicJourneySubmission = {
   submittedAt?: Date | string;
 };
 
+export type AcademicJourneyStepStatus =
+  | "locked"
+  | "scheduled_locked"
+  | "open_for_submit"
+  | "under_review"
+  | "action_required"
+  | "validated";
+
+export function normalizeAcademicJourneyStepStatus(status: unknown): AcademicJourneyStepStatus {
+  switch (status) {
+    case "locked":
+    case "scheduled_locked":
+    case "open_for_submit":
+    case "under_review":
+    case "action_required":
+    case "validated":
+      return status;
+    case "LOCKED":
+      return "locked";
+    case "pending_submission":
+    case "pending_docs":
+      return "open_for_submit";
+    case "approved":
+      return "validated";
+    case "REJECTED":
+    case "RETURNED_FOR_EDIT":
+      return "action_required";
+    case "PENDING":
+      return "under_review";
+    default:
+      return "scheduled_locked";
+  }
+}
+
+export function resolveScheduledJourneyStepStatus(
+  status: AcademicJourneyStepStatus,
+  schedule: { opensAt: Date; closesAt: Date } | null,
+  now = new Date(),
+): AcademicJourneyStepStatus {
+  if (status !== "open_for_submit") {
+    return status;
+  }
+
+  if (!schedule || now < schedule.opensAt || now > schedule.closesAt) {
+    return "scheduled_locked";
+  }
+
+  return "open_for_submit";
+}
+
 function getSemesterOrder(semester: string) {
   const match = semester.match(/^(\d{4})-(\d{4})\s+(First|Second) Semester$/i);
   if (!match || Number(match[2]) !== Number(match[1]) + 1) return null;
@@ -17,12 +67,14 @@ export function getAcademicJourneyProgress(
   submissions: AcademicJourneySubmission[],
   dateEnrolled: Date,
   now = new Date(),
-  totalYears = 4
+  totalYears = 4,
+  activeSemester?: string,
 ) {
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const termCount = years * 2;
   const startOrder = getSemesterOrder(getCurrentAcademicSemester(dateEnrolled));
-  const currentOrder = getSemesterOrder(getCurrentAcademicSemester(now));
+  const activeOrder = activeSemester ? getSemesterOrder(activeSemester) : null;
+  const currentOrder = activeOrder ?? getSemesterOrder(getCurrentAcademicSemester(now));
 
   if (startOrder === null || currentOrder === null) {
     throw new Error("Unable to determine academic journey semester order.");
@@ -53,12 +105,16 @@ export function getAcademicJourneyProgress(
 
   return {
     currentSemesterIndex: Math.max(0, Math.min(currentOrder - startOrder, termCount)),
+    currentStepSemester,
     validatedSemesterIndexes,
-    currentStepStatus: currentStepSubmission?.status === "APPROVED"
-      ? "approved" as const
-      : currentStepSubmission && !["REJECTED", "RETURNED_FOR_EDIT"].includes(currentStepSubmission.status)
-        ? "under_review" as const
-        : "pending_docs" as const,
+    currentStepStatus: !currentStepSubmission
+      ? "open_for_submit" as const
+      : currentStepSubmission.status === "APPROVED"
+        ? "validated" as const
+        : currentStepSubmission.status === "REJECTED" ||
+            currentStepSubmission.status === "RETURNED_FOR_EDIT"
+          ? "action_required" as const
+          : "under_review" as const,
   };
 }
 

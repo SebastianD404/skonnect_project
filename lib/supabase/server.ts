@@ -14,6 +14,18 @@ function normalizeError(error: unknown) {
   };
 }
 
+export function isAuthSessionMissingError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const authError = error as { name?: unknown; message?: unknown };
+  return (
+    authError.name === "AuthSessionMissingError" ||
+    authError.message === "Auth session missing!"
+  );
+}
+
 export function isRefreshTokenMissingError(error: unknown) {
   const normalized = normalizeError(error);
   if (!normalized) {
@@ -55,7 +67,21 @@ export async function createClient() {
 
   const originalGetUser = supabase.auth.getUser.bind(supabase.auth);
   supabase.auth.getUser = (async (jwt?: string) => {
-    const { data, error } = await originalGetUser(jwt);
+    let result: Awaited<ReturnType<typeof originalGetUser>>;
+    try {
+      result = await originalGetUser(jwt);
+    } catch (error) {
+      if (isAuthSessionMissingError(error)) {
+        return {
+          data: { user: null as never },
+          error: null,
+        } as Awaited<ReturnType<typeof originalGetUser>>;
+      }
+
+      throw error;
+    }
+
+    const { data, error } = result;
 
     if (error && isRefreshTokenMissingError(error)) {
       try {

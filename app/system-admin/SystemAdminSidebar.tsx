@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import { Cable, Database, LayoutDashboard, ScrollText, Users } from "lucide-react";
 import { SignOutButton } from "@/app/components/SignOutButton";
@@ -17,6 +17,8 @@ type Props = {
   roleUpdateCount: number;
   databaseStatus: "connected" | "unavailable";
 };
+
+const AUDIT_LAST_VIEWED_KEY = "system-admin-audit-last-viewed";
 
 function toTitleCase(value: string) {
   return value
@@ -55,6 +57,66 @@ function deriveDisplayName(fullName?: string | null, email?: string | null) {
 export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: Props) {
   const pathname = usePathname();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [unreadAuditCount, setUnreadAuditCount] = useState(
+    pathname.startsWith("/system-admin/audit") ? 0 : roleUpdateCount,
+  );
+  const countRequest = useRef(false);
+
+  const markAuditLogsViewed = useCallback(() => {
+    const viewedAt = new Date().toISOString();
+    window.localStorage.setItem(AUDIT_LAST_VIEWED_KEY, viewedAt);
+    setUnreadAuditCount(0);
+  }, []);
+
+  const refreshUnreadAuditCount = useCallback(async () => {
+    if (document.visibilityState !== "visible" || countRequest.current) return;
+    if (pathname.startsWith("/system-admin/audit")) {
+      window.localStorage.setItem(AUDIT_LAST_VIEWED_KEY, new Date().toISOString());
+      return;
+    }
+
+    countRequest.current = true;
+    try {
+      const lastViewed = window.localStorage.getItem(AUDIT_LAST_VIEWED_KEY);
+      const query = lastViewed ? `?since=${encodeURIComponent(lastViewed)}` : "";
+      const response = await fetch(`/api/system-admin/audit/unread-count${query}`, {
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok || !Number.isInteger(data?.count) || data.count < 0) {
+        throw new Error(data?.error || "Unable to refresh unread audit count.");
+      }
+      setUnreadAuditCount(data.count);
+    } catch (error) {
+      console.error("Failed to refresh unread audit count:", error);
+    } finally {
+      countRequest.current = false;
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    if (pathname.startsWith("/system-admin/audit")) {
+      window.localStorage.setItem(AUDIT_LAST_VIEWED_KEY, new Date().toISOString());
+    }
+
+    const initialRefresh = pathname.startsWith("/system-admin/audit")
+      ? null
+      : window.setTimeout(() => void refreshUnreadAuditCount(), 0);
+    const interval = window.setInterval(() => void refreshUnreadAuditCount(), 15_000);
+    const handleFocus = () => void refreshUnreadAuditCount();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refreshUnreadAuditCount();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (initialRefresh !== null) window.clearTimeout(initialRefresh);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [pathname, markAuditLogsViewed, refreshUnreadAuditCount]);
 
   useEffect(() => {
     let mounted = true;
@@ -91,7 +153,7 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
     { label: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
     { label: "Users", href: "/system-admin/users", icon: Users },
     { label: "API Integrations", href: "/system-admin/integrations", icon: Cable },
-    { label: "Audit Logs", href: "/system-admin/audit", icon: ScrollText, badge: roleUpdateCount },
+    { label: "Audit Logs", href: "/system-admin/audit", icon: ScrollText, badge: unreadAuditCount },
   ];
 
   return (
@@ -121,6 +183,7 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
             <Link
               key={item.label}
               href={item.href}
+              onClick={item.href === "/system-admin/audit" ? markAuditLogsViewed : undefined}
               className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                 isActive
                   ? "bg-[#174968] text-white shadow-md"
@@ -130,7 +193,9 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
               {isActive ? <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-[#33A8E2]" /> : null}
               <Icon className="h-4 w-4" />
               <span className="flex-1 text-left">{item.label}</span>
-              {item.badge ? (
+              {item.badge &&
+              item.badge > 0 &&
+              !(item.href === "/system-admin/audit" && pathname.startsWith("/system-admin/audit")) ? (
                 <span
                   className={`flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
                     isActive ? "bg-white/15 text-white" : "bg-[#0B2132] text-[#DCE7F0]"

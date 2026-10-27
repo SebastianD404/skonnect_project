@@ -5,6 +5,11 @@ import { HeaderShell } from "./components/HeaderShell";
 import { ChatWidget } from "./components/chatbot/ChatWidget";
 import { NotificationProvider } from "./components/NotificationProvider";
 import { AuthProvider } from "./components/AuthProvider";
+import {
+  createClient,
+  isAuthSessionMissingError,
+} from "@/lib/supabase/server";
+import { ensureProfile } from "@/lib/auth";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -23,17 +28,19 @@ export const metadata: Metadata = {
     "Scholarship tracking, event registration, and a multilingual helpdesk for the youth of Barangay Pico, La Trinidad, Benguet.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialAuthUser = await getInitialAuthUser();
+
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body
         className={`${fraunces.variable} ${inter.variable} font-sans antialiased`}
       >
-        <AuthProvider>
+        <AuthProvider initialUser={initialAuthUser}>
           <NotificationProvider>
             <HeaderShell />
             {children}
@@ -43,4 +50,55 @@ export default function RootLayout({
       </body>
     </html>
   );
+}
+
+async function getInitialAuthUser() {
+  const supabase = await createClient();
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError) {
+    throw sessionError;
+  }
+
+  if (!session) {
+    return null;
+  }
+
+  let authUser;
+  try {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error) {
+      throw error;
+    }
+
+    authUser = user;
+  } catch (error) {
+    if (isAuthSessionMissingError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+
+  if (!authUser) return null;
+
+  const profile = await ensureProfile(authUser);
+  if (!profile) {
+    return null;
+  }
+
+  return {
+    id: profile.id,
+    fullName: profile.fullName,
+    email: profile.email,
+    avatarUrl: profile.avatarUrl ?? undefined,
+    role: profile.role,
+  };
 }

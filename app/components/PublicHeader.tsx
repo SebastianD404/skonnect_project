@@ -140,7 +140,7 @@ export function PublicHeader() {
 
         <div className="flex items-center gap-3">
           {authLoading ? (
-            <div className="h-10 w-32 rounded-full bg-slate-200/70 animate-pulse" />
+            <div className="h-10 w-44 rounded-full bg-slate-200/70 animate-pulse" aria-hidden="true" />
           ) : sessionUser ? (
             sessionUser.role === "YOUTH" || sessionUser.role === "GRANTEE" ? (
               <DashboardHeaderActions

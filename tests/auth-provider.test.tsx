@@ -4,6 +4,21 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "@/app/components/AuthProvider";
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
+vi.mock("@/lib/supabase/browser", () => ({
+  createBrowserClient: () => ({
+    auth: {
+      onAuthStateChange: () => ({
+        data: { subscription: { unsubscribe: vi.fn() } },
+      }),
+    },
+  }),
+}));
+
 function AuthState() {
   const { user, loading } = useAuth();
   return (
@@ -40,5 +55,23 @@ describe("AuthProvider", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/session", {
       cache: "no-store",
     });
+  });
+
+  it("renders a server-provided profile without waiting for the session endpoint", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const profile = { id: "user-2", email: "server@example.com", role: "YOUTH" as const };
+
+    render(
+      <AuthProvider initialUser={profile}>
+        <AuthState />
+      </AuthProvider>,
+    );
+
+    expect(screen.getByTestId("auth-state")).toHaveTextContent(
+      JSON.stringify(profile),
+    );
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

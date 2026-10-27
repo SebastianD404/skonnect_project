@@ -19,7 +19,10 @@ import {
 import ReturnedForEditCard from "./ReturnedForEditCard";
 import GranteeWelcomeGate from "./GranteeWelcomeGate";
 import { buildSemesterTracker } from "@/lib/semester-progress";
-import { getAcademicJourneyProgress } from "@/lib/academic-journey";
+import {
+  getAcademicJourneyProgress,
+  resolveScheduledJourneyStepStatus,
+} from "@/lib/academic-journey";
 import AcademicJourneyMap from "@/app/components/AcademicJourneyMap";
 import { getAcademicTermScheduleState, getAcademicTermDeadlineTarget } from "@/lib/academic-term-schedule";
 
@@ -88,13 +91,23 @@ export default async function GranteeDashboardContent() {
 
   const tracker = buildSemesterTracker(submissions);
   const now = new Date();
+  const { schedules } = await getAcademicTermScheduleState(now);
+  const targetTerm = getAcademicTermDeadlineTarget(schedules, now);
   const journeyProgress = getAcademicJourneyProgress(
     submissions,
     appUser.grantee?.dateEnrolled ?? appUser.createdAt,
-    now
+    now,
+    4,
+    targetTerm?.semester ?? undefined,
   );
-  const { schedules } = await getAcademicTermScheduleState();
-  const targetTerm = getAcademicTermDeadlineTarget(schedules, now);
+  const currentStepSchedule = schedules.find(
+    (schedule) => schedule.semester === journeyProgress.currentStepSemester,
+  ) ?? null;
+  const currentStepStatus = resolveScheduledJourneyStepStatus(
+    journeyProgress.currentStepStatus,
+    currentStepSchedule,
+    now,
+  );
   const isTermOpen = Boolean(
     targetTerm && targetTerm.opensAt <= now && targetTerm.closesAt >= now
   );
@@ -229,7 +242,12 @@ export default async function GranteeDashboardContent() {
             photoUrl={journeyPhotoUrl}
             currentSemesterIndex={journeyProgress.currentSemesterIndex}
             validatedSemesterIndexes={journeyProgress.validatedSemesterIndexes}
-            currentStepStatus={journeyProgress.currentStepStatus}
+            currentStepStatus={currentStepStatus}
+            currentStepOpensAt={
+              currentStepSchedule && now < currentStepSchedule.opensAt
+                ? currentStepSchedule.opensAt.toISOString()
+                : null
+            }
           />
         </section>
 

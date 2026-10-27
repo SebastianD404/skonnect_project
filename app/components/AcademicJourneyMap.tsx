@@ -4,14 +4,23 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import {
   BookOpen,
+  CheckCircle2,
   Check,
+  Clock3,
   Flag,
   GraduationCap,
   Lock,
   MoveHorizontal,
   Star,
+  Upload,
+  TriangleAlert,
 } from "lucide-react";
-import { getAcademicJourneyTerms } from "@/lib/academic-journey";
+import {
+  getAcademicJourneyTerms,
+  normalizeAcademicJourneyStepStatus,
+  type AcademicJourneyStepStatus,
+} from "@/lib/academic-journey";
+import type { LucideIcon } from "lucide-react";
 
 type AcademicJourneyMapProps = {
   studentName?: string;
@@ -19,7 +28,8 @@ type AcademicJourneyMapProps = {
   totalYears?: number;
   currentSemesterIndex: number;
   validatedSemesterIndexes: number[];
-  currentStepStatus?: "pending_docs" | "under_review" | "approved";
+  currentStepStatus?: AcademicJourneyStepStatus;
+  currentStepOpensAt?: string | null;
   compact?: boolean;
 };
 
@@ -28,6 +38,115 @@ const START_X = 80;
 const END_PADDING = 128;
 const COMPACT_END_PADDING = 48;
 const NODE_Y_POSITIONS = [110, 174];
+const STEP_STATUS_CONFIG: Record<
+  AcademicJourneyStepStatus,
+  {
+    label: string;
+    badgeClassName: string;
+    badgeIconClassName: string;
+    activeNodeClassName: string;
+    activeNodeCoreClassName: string;
+    compactActiveNodeClassName: string;
+    activeLabelClassName: string;
+    activePathClassName: string;
+    pathColor: string;
+    glowClassName: string;
+    avatarClassName: string;
+    avatarPointerClassName: string;
+    Icon: LucideIcon;
+  }
+> = {
+  locked: {
+    label: "Locked",
+    badgeClassName: "border-slate-200 bg-slate-100 text-slate-400",
+    badgeIconClassName: "text-slate-400",
+    activeNodeClassName: "border-slate-200 bg-slate-50",
+    activeNodeCoreClassName: "bg-slate-400",
+    compactActiveNodeClassName: "border-2 border-slate-600 bg-slate-800",
+    activeLabelClassName: "text-slate-400",
+    activePathClassName: "bg-slate-200",
+    pathColor: "#e2e8f0",
+    glowClassName: "bg-slate-500/10",
+    avatarClassName: "border-slate-300",
+    avatarPointerClassName: "fill-slate-300",
+    Icon: Lock,
+  },
+  scheduled_locked: {
+    label: "Submission Closed",
+    badgeClassName: "border-slate-200 bg-slate-100 text-slate-600",
+    badgeIconClassName: "text-slate-500",
+    activeNodeClassName: "border-slate-300 bg-slate-100 ring-4 ring-slate-300/20",
+    activeNodeCoreClassName: "bg-slate-400",
+    compactActiveNodeClassName: "border-2 border-slate-400 bg-slate-700 ring-4 ring-slate-500/20 ring-offset-2 ring-offset-slate-900",
+    activeLabelClassName: "text-slate-400",
+    activePathClassName: "bg-slate-300",
+    pathColor: "#cbd5e1",
+    glowClassName: "bg-slate-400/10",
+    avatarClassName: "border-slate-400 animate-pulse",
+    avatarPointerClassName: "fill-slate-400",
+    Icon: Clock3,
+  },
+  open_for_submit: {
+    label: "Submit Requirements",
+    badgeClassName: "border-amber-300 bg-amber-50 text-amber-800 shadow-sm",
+    badgeIconClassName: "text-amber-600",
+    activeNodeClassName: "border-amber-500 bg-amber-500/10 ring-4 ring-amber-500/20 animate-pulse",
+    activeNodeCoreClassName: "bg-amber-500",
+    compactActiveNodeClassName: "animate-pulse bg-amber-400 ring-4 ring-amber-500/30 ring-offset-2 ring-offset-slate-900 shadow-[0_0_10px_rgba(245,158,11,0.5)]",
+    activeLabelClassName: "text-amber-300",
+    activePathClassName: "bg-amber-500",
+    pathColor: "#f59e0b",
+    glowClassName: "bg-amber-500/10",
+    avatarClassName: "border-amber-500",
+    avatarPointerClassName: "fill-amber-500",
+    Icon: Upload,
+  },
+  under_review: {
+    label: "Under Review",
+    badgeClassName: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    badgeIconClassName: "text-indigo-600",
+    activeNodeClassName: "border-indigo-400 bg-indigo-50 ring-4 ring-indigo-400/20",
+    activeNodeCoreClassName: "bg-indigo-500",
+    compactActiveNodeClassName: "bg-indigo-400 ring-4 ring-indigo-500/30 ring-offset-2 ring-offset-slate-900",
+    activeLabelClassName: "text-indigo-300",
+    activePathClassName: "bg-indigo-400",
+    pathColor: "#818cf8",
+    glowClassName: "bg-indigo-500/10",
+    avatarClassName: "border-indigo-400",
+    avatarPointerClassName: "fill-indigo-400",
+    Icon: Clock3,
+  },
+  action_required: {
+    label: "Action Required",
+    badgeClassName: "border-amber-300 bg-amber-50 text-amber-800 shadow-sm",
+    badgeIconClassName: "text-amber-600",
+    activeNodeClassName: "border-amber-500 bg-amber-500/10 ring-4 ring-amber-500/20 animate-pulse",
+    activeNodeCoreClassName: "bg-amber-600",
+    compactActiveNodeClassName: "animate-pulse bg-amber-500 ring-4 ring-amber-500/30 ring-offset-2 ring-offset-slate-900",
+    activeLabelClassName: "text-amber-300",
+    activePathClassName: "bg-amber-500",
+    pathColor: "#f59e0b",
+    glowClassName: "bg-amber-500/10",
+    avatarClassName: "border-amber-500",
+    avatarPointerClassName: "fill-amber-500",
+    Icon: TriangleAlert,
+  },
+  validated: {
+    label: "Validated",
+    badgeClassName: "border-transparent bg-emerald-600 text-white shadow-sm",
+    badgeIconClassName: "text-white",
+    activeNodeClassName: "border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-600/20",
+    activeNodeCoreClassName: "bg-emerald-600",
+    compactActiveNodeClassName: "bg-emerald-500 ring-4 ring-emerald-500/30 ring-offset-2 ring-offset-slate-900 shadow-[0_0_10px_rgba(16,185,129,0.5)]",
+    activeLabelClassName: "text-emerald-300",
+    activePathClassName: "bg-emerald-500",
+    pathColor: "#10b981",
+    glowClassName: "bg-emerald-500/10",
+    avatarClassName: "border-emerald-500",
+    avatarPointerClassName: "fill-emerald-500",
+    Icon: CheckCircle2,
+  },
+};
 
 export default function AcademicJourneyMap({
   studentName,
@@ -35,7 +154,8 @@ export default function AcademicJourneyMap({
   totalYears = 4,
   currentSemesterIndex,
   validatedSemesterIndexes,
-  currentStepStatus = "pending_docs",
+  currentStepStatus = "scheduled_locked",
+  currentStepOpensAt,
   compact = false,
 }: AcademicJourneyMapProps) {
   const neonGlowId = `neon-glow-${useId().replace(/:/g, "")}`;
@@ -49,6 +169,17 @@ export default function AcademicJourneyMap({
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const terms = useMemo(() => getAcademicJourneyTerms(years), [years]);
   const termCount = terms.length;
+  const stepStatusConfig =
+    STEP_STATUS_CONFIG[normalizeAcademicJourneyStepStatus(currentStepStatus)];
+  const stepStatusLabel =
+    normalizeAcademicJourneyStepStatus(currentStepStatus) === "scheduled_locked" &&
+    currentStepOpensAt
+      ? `Opens ${new Intl.DateTimeFormat("en-US", {
+          month: "short",
+          day: "numeric",
+          timeZone: "Asia/Manila",
+        }).format(new Date(currentStepOpensAt))}`
+      : stepStatusConfig.label;
   const isExtendedCourse = termCount > 8;
   const currentIndex = Number.isFinite(currentSemesterIndex)
     ? Math.max(0, Math.min(Math.floor(currentSemesterIndex), termCount))
@@ -185,7 +316,7 @@ export default function AcademicJourneyMap({
             aria-hidden="true"
           />
           <div
-            className="absolute left-[6.25%] top-1.5 h-0.5 rounded-full bg-emerald-500 transition-all duration-500"
+            className={`absolute left-[6.25%] top-1.5 h-0.5 rounded-full transition-all duration-500 ${stepStatusConfig.activePathClassName}`}
             style={{ width: progressWidth }}
             aria-hidden="true"
           />
@@ -209,7 +340,7 @@ export default function AcademicJourneyMap({
                       isCompleted
                         ? "bg-emerald-500"
                         : isCurrent
-                          ? "animate-pulse bg-emerald-400 ring-4 ring-emerald-500/30 ring-offset-2 ring-offset-slate-900 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+                          ? stepStatusConfig.compactActiveNodeClassName
                           : isMissed
                             ? "bg-rose-400"
                             : "border-2 border-slate-600 bg-slate-800"
@@ -244,7 +375,7 @@ export default function AcademicJourneyMap({
 
       {activeNodeOffset !== null ? (
         <div
-          className={`pointer-events-none absolute rounded-full bg-emerald-500/10 blur-3xl transition-all duration-500 ${
+          className={`pointer-events-none absolute rounded-full blur-3xl transition-all duration-500 ${stepStatusConfig.glowClassName} ${
             compact ? "hidden" : "h-72 w-72"
           }`}
           style={compact ? undefined : {
@@ -342,7 +473,7 @@ export default function AcademicJourneyMap({
                   <path
                     d={progressPath}
                     fill="none"
-                    stroke="#059669"
+                    stroke={stepStatusConfig.pathColor}
                     strokeWidth="6"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -353,7 +484,8 @@ export default function AcademicJourneyMap({
                   <path
                     d={activeBeamPath}
                     fill="none"
-                    stroke="rgba(16, 185, 129, 0.75)"
+                    stroke={stepStatusConfig.pathColor}
+                    opacity="0.75"
                     strokeWidth="3.5"
                     strokeLinecap="round"
                     strokeDasharray="40 180"
@@ -380,7 +512,7 @@ export default function AcademicJourneyMap({
                 />
                 {currentIndex > 0 ? (
                   <div
-                    className="absolute top-2 h-1 -translate-y-1/2 rounded-full bg-emerald-500 transition-all duration-500"
+                    className={`absolute top-2 h-1 -translate-y-1/2 rounded-full transition-all duration-500 ${stepStatusConfig.activePathClassName}`}
                     style={{
                       left: `${START_X}px`,
                       width: `${Math.min(termCount - 1, currentIndex) * STEP_WIDTH}px`,
@@ -454,7 +586,7 @@ export default function AcademicJourneyMap({
 
                   {!compact && isCurrent && studentName ? (
                     <div className="animate-levitate pointer-events-none absolute -top-16 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center gap-1.5">
-                      <span className="whitespace-nowrap rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-emerald-700 shadow-sm backdrop-blur-sm">
+                      <span className={`whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider shadow-sm backdrop-blur-sm ${stepStatusConfig.badgeClassName}`}>
                         Current step
                       </span>
                       <div className="flex flex-col items-center drop-shadow-md">
@@ -462,10 +594,10 @@ export default function AcademicJourneyMap({
                           src={photoUrl}
                           alt={studentName}
                           size={44}
-                          className="rounded-2xl border-2 border-emerald-500 bg-white text-sm font-bold text-slate-800 shadow-inner ring-2 ring-white/90"
+                          className={`rounded-2xl border-2 bg-white text-sm font-bold text-slate-800 shadow-inner ring-2 ring-white/90 ${stepStatusConfig.avatarClassName}`}
                         />
                         <svg
-                          className="-mt-px h-2 w-3 fill-emerald-500 drop-shadow-sm"
+                          className={`-mt-px h-2 w-3 drop-shadow-sm ${stepStatusConfig.avatarPointerClassName}`}
                           viewBox="0 0 12 8"
                           aria-hidden="true"
                         >
@@ -487,8 +619,8 @@ export default function AcademicJourneyMap({
                           : "border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-600/20 hover:scale-110"
                         : isCurrent
                           ? compact
-                            ? "border-emerald-400 bg-slate-900 ring-2 ring-emerald-500/30"
-                            : "h-11 w-11 border-4 border-emerald-500 bg-white shadow-md shadow-emerald-500/30"
+                            ? `${stepStatusConfig.compactActiveNodeClassName} h-4 w-4 border-2`
+                            : `h-11 w-11 border-4 ${stepStatusConfig.activeNodeClassName}`
                           : isMissed
                             ? compact
                               ? "border-rose-400 bg-rose-500"
@@ -503,7 +635,7 @@ export default function AcademicJourneyMap({
                     {isCompleted ? (
                       <Check className={compact ? "h-2.5 w-2.5" : "h-5 w-5 stroke-[3]"} aria-hidden="true" />
                     ) : isCurrent ? (
-                      <span className={`rounded-full bg-emerald-600 ${compact ? "h-1.5 w-1.5" : "h-3.5 w-3.5 animate-pulse"}`} aria-hidden="true" />
+                      <span className={`rounded-full ${stepStatusConfig.activeNodeCoreClassName} ${compact ? "h-1.5 w-1.5" : "h-3.5 w-3.5 animate-pulse"}`} aria-hidden="true" />
                     ) : isMissed ? (
                       compact ? null : <span className="text-[10px] font-bold">N/A</span>
                     ) : compact ? null : (
@@ -512,27 +644,21 @@ export default function AcademicJourneyMap({
                   </div>
 
                   <span className={`mt-2.5 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider ${
-                    isCurrent ? compact ? "text-emerald-300" : "font-extrabold text-emerald-700"
+                    isCurrent ? compact ? stepStatusConfig.activeLabelClassName : `font-extrabold ${stepStatusConfig.badgeIconClassName}`
                     : compact ? isCompleted ? "text-slate-300" : "text-slate-500" : "text-slate-400"
                   }`}>
                     {term.label}
                   </span>
 
-                  {!compact && isCurrent ? (
-                    <span className={`mt-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${
-                      currentStepStatus === "pending_docs"
-                        ? "border-amber-200 bg-amber-50 text-amber-700"
-                        : currentStepStatus === "under_review"
-                          ? "border-blue-200 bg-blue-50 text-blue-700"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    }`}>
-                      {currentStepStatus === "pending_docs"
-                        ? "Missing Docs"
-                        : currentStepStatus === "under_review"
-                          ? "Under Review"
-                          : "Approved"}
-                    </span>
-                  ) : null}
+                  {!compact && isCurrent ? (() => {
+                    const { badgeClassName, badgeIconClassName, Icon } = stepStatusConfig;
+                    return (
+                      <span className={`mt-1 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${badgeClassName}`}>
+                        <Icon className={`h-3 w-3 ${badgeIconClassName}`} aria-hidden="true" />
+                        {stepStatusLabel}
+                      </span>
+                    );
+                  })() : null}
 
                   {!compact && milestoneIcon && index !== 0 ? (
                     <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 shadow-2xs">

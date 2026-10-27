@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, ChangeEvent } from "react";
+import React, { useState, useEffect, useRef, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
@@ -36,7 +36,6 @@ const initialForm = {
   consent: false,
 };
 
-const REQUIRED_DOCUMENT_TYPE = "Valid ID + Certificate of Residency";
 const KK_PROFILING_DRAFT_KEY = "skonnect:kk-profiling-draft";
 const KK_PROFILING_FILES_DB = "skonnect-kk-profiling-files";
 const KK_PROFILING_FILES_STORE = "documents";
@@ -143,6 +142,8 @@ export default function KKProfilingForm() {
   const router = useRouter();
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
+  const [manualReviewAvailable, setManualReviewAvailable] = useState(false);
+  const manualReviewRequestRef = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -438,7 +439,7 @@ export default function KKProfilingForm() {
     }
   }
 
-  function validate() {
+  function validate(manualReview = false) {
     if (!form.lastName.trim()) return "Last name is required";
     if (!form.firstName.trim()) return "First name is required";
     if (!form.middleInitial.trim()) return "Middle name is required";
@@ -477,15 +478,15 @@ export default function KKProfilingForm() {
       return "Please upload your Certificate of Residency.";
     }
 
-    if (!areDocumentsReady) {
+    if (!areDocumentsReady && !manualReview) {
       return "Please upload each document and complete its check, or attach a PDF for admin review.";
     }
 
-    if (!doesProfileNameMatchIdText()) {
+    if (!manualReview && !doesProfileNameMatchIdText()) {
       return "Your name does not match the name on your ID.";
     }
 
-    if (!doesProfileBirthDateMatchIdText()) {
+    if (!manualReview && !doesProfileBirthDateMatchIdText()) {
       return "Your birthdate does not match the birthdate on your ID.";
     }
     
@@ -494,12 +495,14 @@ export default function KKProfilingForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const manualReview = manualReviewRequestRef.current;
+    manualReviewRequestRef.current = false;
     setMessage(null);
     setActionError(null);
     setAccountExistsFallback(false);
     setMagicLinkSent(false);
 
-    const err = validate();
+    const err = validate(manualReview);
     if (err) {
       setMessage(err);
       return;
@@ -548,9 +551,9 @@ export default function KKProfilingForm() {
       formData.append("consent", String(form.consent));
       formData.append("fullName", fullName);
       formData.append("address", address);
+      formData.append("manualReviewRequested", String(manualReview));
 
       // Add ID files
-      formData.append("documentType", REQUIRED_DOCUMENT_TYPE);
       formData.append("frontFile", idFiles.front as File);
       formData.append("backFile", idFiles.back as File);
       formData.append("residencyFile", idFiles.residency as File);
@@ -567,6 +570,7 @@ export default function KKProfilingForm() {
         window.sessionStorage.removeItem(KK_PROFILING_DRAFT_KEY);
         void clearProfilingFiles().catch((error) => console.warn("Unable to clear KK profiling documents", error));
         setIdFiles({ front: null, back: null, residency: null });
+        setManualReviewAvailable(false);
         setOcrValidationState({
           front: { status: "idle", file: null },
           back: { status: "idle", file: null },
@@ -934,6 +938,7 @@ export default function KKProfilingForm() {
             handleIdFileChange(field as keyof typeof idFiles, null);
           }}
           onValidationChange={setOcrValidationState}
+          onManualReviewAvailable={setManualReviewAvailable}
         />
           </div>
 
@@ -999,10 +1004,34 @@ export default function KKProfilingForm() {
           )}
         </div>
       )}
-      <div className="flex items-center gap-3">
-        <button type="submit" disabled={submitting || !areDocumentsReady} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60">
+      <div className="flex flex-wrap items-center gap-3">
+        {manualReviewAvailable ? (
+          <p className="w-full text-sm text-amber-900">
+            The scanner could not verify your documents after two attempts. You can submit them for SK Admin review.
+          </p>
+        ) : null}
+        <button
+          type="submit"
+          onClick={() => {
+            manualReviewRequestRef.current = false;
+          }}
+          disabled={submitting || !areDocumentsReady}
+          className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+        >
           {submitting ? "Submitting..." : "Submit"}
         </button>
+        {manualReviewAvailable ? (
+          <button
+            type="submit"
+            onClick={() => {
+              manualReviewRequestRef.current = true;
+            }}
+            disabled={submitting}
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+          >
+            {submitting ? "Submitting..." : "Submit for Manual Review"}
+          </button>
+        ) : null}
         {message && <p className="text-sm text-slate-700">{message}</p>}
       </div>
       </form>
