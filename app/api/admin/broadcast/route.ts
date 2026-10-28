@@ -13,6 +13,17 @@ type BroadcastPayload = {
   granteeIds?: string[];
 };
 
+function wasAcceptedByMailServer(
+  acceptedRecipients: Array<string | { address: string }>,
+  recipientEmail: string
+) {
+  const expectedEmail = recipientEmail.toLowerCase();
+  return acceptedRecipients.some((accepted) => {
+    const address = typeof accepted === "string" ? accepted : accepted.address;
+    return address.toLowerCase() === expectedEmail;
+  });
+}
+
 async function getAdminUser() {
   const supabase = await createClient();
   const {
@@ -106,8 +117,14 @@ export async function POST(request: Request) {
         recipients.map(async (grantee) => {
           try {
             const result = await sendBroadcastEmail(transporter, grantee.id, grantee.email, subject, body);
-            if (result) emailed += 1;
-            else emailSkipped += 1;
+            if (!result) {
+              emailSkipped += 1;
+            } else if (wasAcceptedByMailServer(result.accepted, grantee.email)) {
+              emailed += 1;
+            } else {
+              emailFailed += 1;
+              console.error("Mail server did not accept the broadcast recipient.");
+            }
           } catch (error) {
             emailFailed += 1;
             console.error("Nodemailer error:", error);

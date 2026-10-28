@@ -48,6 +48,7 @@ const STEP_STATUS_CONFIG: Record<
     activeNodeCoreClassName: string;
     compactActiveNodeClassName: string;
     activeLabelClassName: string;
+    lightActiveLabelClassName: string;
     activePathClassName: string;
     pathColor: string;
     glowClassName: string;
@@ -64,6 +65,7 @@ const STEP_STATUS_CONFIG: Record<
     activeNodeCoreClassName: "bg-slate-400",
     compactActiveNodeClassName: "border-2 border-slate-600 bg-slate-800",
     activeLabelClassName: "text-slate-400",
+    lightActiveLabelClassName: "text-slate-700",
     activePathClassName: "bg-slate-200",
     pathColor: "#e2e8f0",
     glowClassName: "bg-slate-500/10",
@@ -79,6 +81,7 @@ const STEP_STATUS_CONFIG: Record<
     activeNodeCoreClassName: "bg-slate-400",
     compactActiveNodeClassName: "border-2 border-slate-400 bg-slate-700 ring-4 ring-slate-500/20 ring-offset-2 ring-offset-slate-900",
     activeLabelClassName: "text-slate-400",
+    lightActiveLabelClassName: "text-slate-700",
     activePathClassName: "bg-slate-300",
     pathColor: "#cbd5e1",
     glowClassName: "bg-slate-400/10",
@@ -94,6 +97,7 @@ const STEP_STATUS_CONFIG: Record<
     activeNodeCoreClassName: "bg-amber-500",
     compactActiveNodeClassName: "animate-pulse bg-amber-400 ring-4 ring-amber-500/30 ring-offset-2 ring-offset-slate-900 shadow-[0_0_10px_rgba(245,158,11,0.5)]",
     activeLabelClassName: "text-amber-300",
+    lightActiveLabelClassName: "text-amber-800",
     activePathClassName: "bg-amber-500",
     pathColor: "#f59e0b",
     glowClassName: "bg-amber-500/10",
@@ -109,6 +113,7 @@ const STEP_STATUS_CONFIG: Record<
     activeNodeCoreClassName: "bg-indigo-500",
     compactActiveNodeClassName: "bg-indigo-400 ring-4 ring-indigo-500/30 ring-offset-2 ring-offset-slate-900",
     activeLabelClassName: "text-indigo-300",
+    lightActiveLabelClassName: "text-indigo-700",
     activePathClassName: "bg-indigo-400",
     pathColor: "#818cf8",
     glowClassName: "bg-indigo-500/10",
@@ -124,6 +129,7 @@ const STEP_STATUS_CONFIG: Record<
     activeNodeCoreClassName: "bg-amber-600",
     compactActiveNodeClassName: "animate-pulse bg-amber-500 ring-4 ring-amber-500/30 ring-offset-2 ring-offset-slate-900",
     activeLabelClassName: "text-amber-300",
+    lightActiveLabelClassName: "text-amber-800",
     activePathClassName: "bg-amber-500",
     pathColor: "#f59e0b",
     glowClassName: "bg-amber-500/10",
@@ -139,6 +145,7 @@ const STEP_STATUS_CONFIG: Record<
     activeNodeCoreClassName: "bg-emerald-600",
     compactActiveNodeClassName: "bg-emerald-500 ring-4 ring-emerald-500/30 ring-offset-2 ring-offset-slate-900 shadow-[0_0_10px_rgba(16,185,129,0.5)]",
     activeLabelClassName: "text-emerald-300",
+    lightActiveLabelClassName: "text-emerald-800",
     activePathClassName: "bg-emerald-500",
     pathColor: "#10b981",
     glowClassName: "bg-emerald-500/10",
@@ -644,7 +651,9 @@ export default function AcademicJourneyMap({
                   </div>
 
                   <span className={`mt-2.5 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider ${
-                    isCurrent ? compact ? stepStatusConfig.activeLabelClassName : `font-extrabold ${stepStatusConfig.badgeIconClassName}`
+                    isCurrent ? compact
+                      ? stepStatusConfig.activeLabelClassName
+                      : `font-extrabold ${stepStatusConfig.lightActiveLabelClassName}`
                     : compact ? isCompleted ? "text-slate-300" : "text-slate-500" : "text-slate-400"
                   }`}>
                     {term.label}

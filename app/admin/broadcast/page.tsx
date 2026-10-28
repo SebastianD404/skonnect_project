@@ -15,6 +15,10 @@ type BroadcastDraft = {
 
 const BROADCAST_DRAFT_KEY = "skonnect.admin.broadcast.draft";
 
+function formatRecipientCount(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 const QUICK_TEMPLATES = [
   {
     label: "Load Deadline Notice",
@@ -203,11 +207,30 @@ export default function BroadcastPage() {
       const emailed = data.emailed ?? 0;
       const failed = data.emailFailed ?? 0;
       const skipped = data.emailSkipped ?? 0;
-      const emailSummary = `Email requests accepted for delivery: ${emailed}; not sent because email notifications are off: ${skipped}; failed: ${failed}.`;
-      const failureGuidance = failed > 0 ? " Check Gmail configuration and server logs." : "";
-      setSuccess(
-        `Broadcast posted for ${sent} active grantee${sent === 1 ? "" : "s"}. ${emailSummary}${failureGuidance}`
-      );
+
+      if (sent === 0) {
+        setSuccess("No active grantees were found. Nothing was sent.");
+      } else {
+        const emailDetails = [
+          emailed > 0 ? `Email sent to ${formatRecipientCount(emailed, "grantee", "grantees")}.` : "",
+          skipped > 0
+            ? `Email not sent to ${formatRecipientCount(skipped, "grantee", "grantees")} because email notifications are off.`
+            : "",
+          failed > 0
+            ? `Email could not be sent to ${formatRecipientCount(failed, "grantee", "grantees")}. Check your Gmail settings and try again.`
+            : "",
+        ].filter(Boolean);
+
+        if (emailDetails.length === 0) {
+          emailDetails.push("Email sending status is unavailable.");
+        }
+
+        setSuccess(
+          `Broadcast sent to ${formatRecipientCount(sent, "active grantee", "active grantees")}. ${
+            sent === 1 ? "In-app message sent." : `In-app messages sent to ${formatRecipientCount(sent, "grantee", "grantees")}.`
+          } ${emailDetails.join(" ")}`
+        );
+      }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to send broadcast.");
     } finally {
