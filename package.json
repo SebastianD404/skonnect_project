@@ -11,6 +11,7 @@
     "db:pull": "prisma db pull",
     "db:generate": "prisma generate",
     "db:status": "prisma migrate status",
+    "db:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
     "test:audit": "vitest run lib/audit/metadata.test.ts",
     "reminders": "npx tsx scripts/send-reminders.ts",
