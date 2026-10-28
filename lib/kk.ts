@@ -96,13 +96,11 @@ export function buildTemporaryPassword() {
     "planet", "plum", "pocket", "river", "robin", "sailor", "silver", "sprout",
     "star", "stone", "summer", "tiger", "velvet", "willow", "winter", "yellow",
   ] as const;
-  const randomValues = new Uint32Array(5);
+  const randomValues = new Uint32Array(2);
   globalThis.crypto.getRandomValues(randomValues);
-  const selectedWords = Array.from(randomValues.slice(0, 4), (value) => {
-    const word = words[value & 63];
-    return `${word[0].toUpperCase()}${word.slice(1)}`;
-  });
-  const numericCode = String(randomValues[4] % 1_000_000).padStart(6, "0");
+  const word = words[randomValues[0] & 63];
+  const selectedWord = `${word[0].toUpperCase()}${word.slice(1)}`;
+  const numericCode = String(randomValues[1] % 1_000).padStart(3, "0");
 
-  return `Pico-${selectedWords.join("-")}-${numericCode}`;
+  return `Pico-${selectedWord}-${numericCode}`;
 }

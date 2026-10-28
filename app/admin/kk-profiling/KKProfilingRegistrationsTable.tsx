@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Search } from "lucide-react";
+import { AlertTriangle, Loader2, Search } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
 import type { KKProfilingRegistration } from "./types";
@@ -225,17 +225,17 @@ export function KKProfilingRegistrationsTable({
                         ) : null}
                       </div>
                     ) : (
-                      <div className="flex flex-col items-start gap-1">
+                      registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (
+                        <span
+                          title={registration.reviewNotes ?? "This registration needs manual review."}
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-900"
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          Manual Review
+                        </span>
+                      ) : (
                         <span className="capitalize text-slate-700">{registration.reviewStatus || "Pending"}</span>
-                        {registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (
-                          <span
-                            title={registration.reviewNotes ?? undefined}
-                            className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
-                          >
-                            Manual review requested
-                          </span>
-                        ) : null}
-                      </div>
+                      )
                     )}
                   </td>
                   <td className="px-6 py-4 text-slate-500">
