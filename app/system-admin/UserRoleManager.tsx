@@ -421,7 +421,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
           throw new Error(result?.error || "Failed to delete user");
         }
 
-        setMessage({ type: "success", text: "User deleted successfully." });
+        setMessage({ type: "success", text: "User account and associated files deleted successfully." });
         setDeleteCandidate(null);
         router.refresh();
       } catch (error) {
@@ -673,7 +673,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                                 ) : (
                                   <CheckCircle className="h-4 w-4" aria-hidden="true" />
                                 )}
-                                {user.isActive ? "Suspend Account" : "Reactivate Account"}
+                                {user.isActive ? "Deactivate" : "Reactivate Account"}
                               </button>
                               <button
                                 type="button"
@@ -985,7 +985,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                     Delete user?
                   </h2>
                   <p id="delete-user-description" className="mt-2 text-sm leading-6 text-slate-600">
-                    Delete <span className="font-semibold text-slate-900">{deleteCandidate.fullName}</span>? This action cannot be undone.
+                    Permanently delete <span className="font-semibold text-slate-900">{deleteCandidate.fullName}</span>&apos;s sign-in access, profile, related records, and uploaded files? This action cannot be undone.
                   </p>
                 </div>
               </div>

@@ -343,42 +343,70 @@ export default function HomePageContent() {
           </div>
 
           {/* Right White Card Column */}
-          <div className="rounded-2xl bg-white p-6 text-slate-900 shadow-2xl lg:p-8">
-            <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              WHY IT MATTERS
+          <div className="flex flex-col justify-between rounded-2xl bg-white p-6 text-slate-900 shadow-2xl lg:p-8">
+            <div>
+              <div className="mb-5">
+                <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
+                  Why It Matters
+                </h3>
+                <ul className="space-y-2 text-sm text-slate-600">
+                  <li className="flex items-start gap-2">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Identify and document barangay youth demographics.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Inform SK programs and local youth policies.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Update the NYC National Youth Database.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <hr className="mb-5 border-slate-100" />
+
+              <div className="mb-6">
+                <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
+                  What You Need
+                </h3>
+                <ul className="space-y-3 text-sm text-slate-700">
+                  <li className="flex items-start gap-2">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V8l-5-5H8z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M14 3v5h5M8 13h8M8 17h8" />
+                    </svg>
+                    <span><strong>Valid ID</strong></span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V8l-5-5H8z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M14 3v5h5M8 13h8M8 17h8" />
+                    </svg>
+                    <span>
+                      <strong>Certificate of Residency</strong>
+                      <br />
+                      <span className="text-xs text-slate-500">
+                        Must state you have lived in Barangay Pico for at least 8 months.
+                      </span>
+                    </span>
+                  </li>
+                </ul>
+              </div>
             </div>
-            <ul className="mb-8 space-y-4 text-sm text-slate-700">
-              <li className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
-                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <span>Identify and document barangay youth demographics.</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
-                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <span>Inform SK programs and local youth policies.</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
-                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <span>Update the NYC National Youth Database.</span>
-              </li>
-            </ul>
             <Link
               href="/programs/kk-profiling"
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0b1d3a] px-6 py-3 text-sm font-medium text-white shadow-md transition-colors duration-200 hover:bg-[#132d56]"
             >
               Start KK Profiling
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
               </svg>
             </Link>

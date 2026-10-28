@@ -623,7 +623,7 @@ export default function KKProfilingForm() {
         if (body?.emailAlreadyRegistered) {
           setEmailError(
             body.error ||
-              "It looks like this email is already taken. Please use a different one or try logging in."
+              "This email is already registered. Please log in instead."
           );
           return;
         }
@@ -1040,7 +1040,7 @@ export default function KKProfilingForm() {
         <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <button
             type="submit"
-            disabled={submitting || (!areDocumentsReady && !manualReviewAvailable)}
+            disabled={submitting || Boolean(emailError) || (!areDocumentsReady && !manualReviewAvailable)}
             className={manualReviewAvailable
               ? "px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm disabled:opacity-60"
               : "inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"}

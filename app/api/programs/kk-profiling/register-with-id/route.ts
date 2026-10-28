@@ -61,6 +61,16 @@ function getSupabaseAdminClient() {
 
 type SupabaseStorageClient = Awaited<ReturnType<typeof createSupabaseServerClient>> | ReturnType<typeof getSupabaseAdminClient>;
 
+function isEmailUniqueConstraintError(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+    return false;
+  }
+
+  const target = error.meta?.target;
+  const fields = Array.isArray(target) ? target : [target];
+  return fields.some((field) => typeof field === "string" && field.toLowerCase().includes("email"));
+}
+
 async function uploadFile(supabase: SupabaseStorageClient, userId: string, file: File, suffix: string) {
   const safeFileName = String(file.name)
     .replace(/\s+/g, "-")
@@ -294,7 +304,7 @@ export async function POST(req: NextRequest) {
       if (!belongsToCurrentUser) {
         return NextResponse.json(
           {
-            error: "It looks like this email is already taken. Please use a different one or try logging in.",
+            error: "This email is already registered. Please log in instead.",
             emailAlreadyRegistered: true,
           },
           { status: 409 }
@@ -578,13 +588,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const errorCode = err instanceof Prisma.PrismaClientKnownRequestError ? err.code : err?.code;
-    if (errorCode === "P2002") {
+    if (isEmailUniqueConstraintError(err)) {
       return NextResponse.json(
         {
-          error: "It looks like this email is already taken. Please use a different one or try logging in.",
+          error: "This email is already registered. Please log in instead.",
           emailAlreadyRegistered: true,
         },
+        { status: 409 }
+      );
+    }
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return NextResponse.json(
+        { error: "A conflicting profile already exists. Please review your information and try again." },
         { status: 409 }
       );
     }
