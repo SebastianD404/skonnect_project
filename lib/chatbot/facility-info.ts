@@ -4,9 +4,28 @@ const FACILITY_MENTION = /\b(barangay hall|barangay pico hall|town hall|municipa
 
 const HOURS_TERMS =
   /\b(hour|hours|time|times|open|opens|opening|close|closes|closed|operating|schedule|day|days|oras|araw|bukas|aglukat|sii-lukat|saan nga aldaw)\b/i;
+const SUBMISSION_TERMS =
+  /\b(pass|submit|hand\s+in|turn\s+in|deliver|pasa|ipasa|magpasa|maipasa|isumiter|agipasa)\b/i;
+const PHYSICAL_SUBMISSION_LOCATION =
+  /\b(barangay(?:\s+pico)?\s+hall|hall|office|f2f|in[\s-]?person|mismo|idjay|sadiay)\b/i;
 
 export function isFacilityHoursQuestion(question: string) {
   return FACILITY_MENTION.test(question) && HOURS_TERMS.test(question);
+}
+
+export function isPhysicalSubmissionLocationQuestion(question: string) {
+  return SUBMISSION_TERMS.test(question)
+    && PHYSICAL_SUBMISSION_LOCATION.test(question);
+}
+
+export function formatPhysicalSubmissionLocationAnswer(language: Language) {
+  if (language === "FILIPINO") {
+    return "Oo, maaari mong ipasa ang iyong mga physical requirements nang personal sa Barangay Pico Hall tuwing oras ng opisina (Lunes hanggang Biyernes, 8:00 AM hanggang 5:00 PM, maliban kapag holiday).";
+  }
+  if (language === "ILOCANO") {
+    return "Wen, mabalinmo nga isumiter a mismo dagiti physical requirements-mo sadiay Barangay Pico Hall iti oras ti opisina (Lunes aginggana Biyernes, 8:00 AM aginggana 5:00 PM, malaksid kadagiti holiday).";
+  }
+  return "Yes, you can submit your physical requirements in person at the Barangay Pico Hall during regular operating hours (Monday to Friday, 8:00 AM to 5:00 PM, except holidays).";
 }
 
 export function formatFacilityHoursAnswer(language: Language) {

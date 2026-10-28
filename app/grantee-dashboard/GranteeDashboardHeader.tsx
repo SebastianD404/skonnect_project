@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DashboardHeaderActions } from "@/app/components/DashboardHeaderActions";
+import { SkLogo } from "@/app/components/SkLogo";
 
 function navClass(pathname: string, href: string) {
   const isActive = href === "/grantee-dashboard"
@@ -38,13 +39,11 @@ export default function GranteeDashboardHeader({ requiredRole = "GRANTEE" }: { r
           href="/grantee-dashboard"
           prefetch
           onClick={handleHomeClick}
-          className="flex items-center gap-3"
+          className="flex items-center gap-2"
           aria-label="Go to the grantee dashboard"
           title="Go to dashboard"
         >
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
-            SK
-          </div>
+          <SkLogo className="h-12 w-12" />
           <span className="text-xl font-black tracking-tight text-[#0F3D5C]">SKonnect</span>
         </Link>
 

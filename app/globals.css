@@ -108,6 +108,10 @@
   padding-top: 14px;
 }
 
+.review-card__actions--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .review-button {
   display: inline-flex;
   height: 36px;

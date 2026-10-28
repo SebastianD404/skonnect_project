@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { DashboardHeaderActions } from "./DashboardHeaderActions";
 import { useAuth } from "./AuthProvider";
+import { SkLogo } from "./SkLogo";
 
 function navLinkClass(activePath: string | null, href: string) {
   const base = "inline-flex items-center justify-center px-4 py-2 font-semibold rounded-lg transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C]/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
@@ -120,10 +121,8 @@ export function PublicHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 backdrop-blur-xl shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href={homeHref} prefetch onClick={handleHomeClick} className="flex items-center gap-3" aria-label="Go to SKonnect home" title="Go to home">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] shadow-lg text-xs font-black tracking-tighter text-white">
-            SK
-          </div>
+        <Link href={homeHref} prefetch onClick={handleHomeClick} className="flex items-center gap-2" aria-label="Go to SKonnect home" title="Go to home">
+          <SkLogo className="h-12 w-12" />
           <span className="text-xl font-black tracking-tight text-[#0F3D5C]">SKonnect</span>
         </Link>
 

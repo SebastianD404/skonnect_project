@@ -1,6 +1,25 @@
 export const SKEAP_DOCUMENT_NAMES_SYSTEM_DIRECTIVE =
   "CRITICAL RULE: When answering queries in Filipino or Ilocano, NEVER translate the names of official SKEAP requirements. Always use the exact English document names (e.g., 'Application Form', 'Birth Certificate', 'Certificate of Residency', 'Form 138'). Do not use localized terms like 'Katibayan ng Kapanganakan' or 'Katibayan ng Paninirahan'.";
 
+const REQUIREMENTS_CONTEXT =
+  /\b(requirements?|documents?|papel|papeles|dokumento|kasapulan)\b/i;
+const REQUIREMENTS_PROBLEM =
+  /\b(lacking|incomplete|missing|wrong|incorrect|invalid|correction|correct|kulang|kurang|mali|kamali|mabaliktad|salungasing|needs?\s+(?:to\s+be\s+)?(?:fixed|updated|corrected))\b/i;
+
+export function isIncompleteRequirementsQuestion(question: string) {
+  return REQUIREMENTS_CONTEXT.test(question) && REQUIREMENTS_PROBLEM.test(question);
+}
+
+export function formatIncompleteRequirementsAnswer(language: "ENGLISH" | "FILIPINO" | "ILOCANO") {
+  if (language === "FILIPINO") {
+    return "Kung kulang ang iyong mga requirements, hindi ka makakapagpatuloy sa iyong aplikasyon. Gayunpaman, kung may maling naisumiteng dokumento, maaari itong ibalik ng SK Admin sa iyo upang maiwasto at maipasa muli.";
+  }
+  if (language === "ILOCANO") {
+    return "Nu kurang dagiti requirements-mo, hanka makatultuloy iti aplikasyonmo. Ngem nu adda kamali wenno salungasing kadagiti naisumiter a dokumento, mabalin nga isubli ti SK Admin ti aplikasyonmo tapno ma-edit-mo ken maipasamo manen.";
+  }
+  return "If your requirements are lacking, you will not be able to proceed with your application. However, if any submitted document is incorrect or needs updates, the SK Admin can return your application so you can edit and resubmit it.";
+}
+
 export const SKEAP_APPLICATION_REQUIREMENT_CHUNKS = [
   {
     content: `To apply for the SKEAP, all applicants shall be required to submit the following documents for verification, as well as for the records of the Barangay:

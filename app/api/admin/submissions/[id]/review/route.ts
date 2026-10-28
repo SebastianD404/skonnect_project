@@ -134,7 +134,7 @@ export async function POST(
     }
     const existingDocumentStatus =
       documentType === "coe" ? existing.coeStatus : existing.gradesStatus;
-    if (existingDocumentStatus === "APPROVED") {
+    if (existingDocumentStatus === "APPROVED" && action !== "RETURN_FOR_UPDATE") {
       return NextResponse.json(
         { error: "This document has already been approved and cannot be changed." },
         { status: 409 }

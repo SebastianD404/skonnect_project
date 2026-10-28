@@ -280,15 +280,15 @@ function DocumentCard({
           <div className="grid grid-cols-3 gap-1.5">
             {approved ? (
               <>
-                <span title="No failing grades (5.00 or 74)" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-1.5 text-[9px] font-semibold text-emerald-700">
+                <span title="No failing grades (5.00 or 74)" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-1.5 py-1.5 text-[9px] font-semibold text-slate-600">
                   <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                   <span className="truncate">No failing</span>
                 </span>
-                <span title="No incomplete (INC) grades" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-1.5 text-[9px] font-semibold text-emerald-700">
+                <span title="No incomplete (INC) grades" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-1.5 py-1.5 text-[9px] font-semibold text-slate-600">
                   <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                   <span className="truncate">No INC</span>
                 </span>
-                <span title="No dropped subjects (DRP)" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-1.5 text-[9px] font-semibold text-emerald-700">
+                <span title="No dropped subjects (DRP)" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-1.5 py-1.5 text-[9px] font-semibold text-slate-600">
                   <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                   <span className="truncate">No DRP</span>
                 </span>
@@ -352,45 +352,66 @@ function DocumentCard({
               </>
             )}
           </div>
-          <div className="flex items-center justify-between gap-2 px-1">
-            <span className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Verified GWA:
-            </span>
-            <input
-              type="text"
-              value={verifiedGwa}
-              disabled={disabled || approved}
-              onChange={(event) => onVerifiedGwaChange?.(event.target.value)}
-              placeholder="e.g. 1.25 or 92"
-              aria-label="Verified GWA"
-              className={`h-8 w-28 rounded-xl border px-2.5 text-xs shadow-2xs outline-none transition-colors ${
-                approved
-                  ? "border-emerald-200 bg-emerald-50 font-semibold text-emerald-800"
-                  : "border-slate-200 bg-slate-50 focus:border-emerald-500"
-              }`}
-            />
-          </div>
+          {!approved ? (
+            <div className="flex items-center justify-between gap-2 px-1">
+              <span className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Verified GWA:
+              </span>
+              <input
+                type="text"
+                value={verifiedGwa}
+                disabled={disabled}
+                onChange={(event) => onVerifiedGwaChange?.(event.target.value)}
+                placeholder="e.g. 1.25 or 92"
+                aria-label="Verified GWA"
+                className="h-8 w-28 rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs shadow-2xs outline-none transition-colors focus:border-emerald-500"
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="review-card__notes">
-        <label>{notesLabel}</label>
-        <textarea
-          rows={2}
-          placeholder="Add feedback for the grantee..."
-          value={reviewNotesValue}
-          disabled={disabled || approved}
-          onChange={(event) => onNotesChange(event.target.value)}
-          className="text-slate-900 placeholder:text-slate-400"
-        />
-      </div>
+      {approved ? (
+        reviewNotesValue.trim() ? (
+          <div className="review-card__notes">
+            <label>{notesLabel}</label>
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              {reviewNotesValue}
+            </p>
+          </div>
+        ) : null
+      ) : (
+        <div className="review-card__notes">
+          <label>{notesLabel}</label>
+          <textarea
+            rows={2}
+            placeholder="Add feedback for the grantee..."
+            value={reviewNotesValue}
+            disabled={disabled}
+            onChange={(event) => onNotesChange(event.target.value)}
+            className="text-slate-900 placeholder:text-slate-400"
+          />
+        </div>
+      )}
 
-      {documentKind === "grade" ? (
+      {approved ? (
+        <div className="review-card__actions review-card__actions--single">
+          <button
+            type="button"
+            onClick={onReturn}
+            disabled={disabled}
+            className="review-button review-button--return"
+          >
+            <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+            <span>Return / Undo</span>
+          </button>
+        </div>
+      ) : documentKind === "grade" ? (
         <div className="review-card__actions">
           <button
             type="button"
             onClick={onReturn}
-            disabled={disabled || approved}
+            disabled={disabled}
             className="review-button review-button--return"
           >
             <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
@@ -401,7 +422,6 @@ function DocumentCard({
             onClick={onApprove}
             disabled={
               disabled ||
-              approved ||
               !gradeVerification.noFailing ||
               !gradeVerification.noInc ||
               !gradeVerification.noDropped ||
@@ -418,7 +438,7 @@ function DocumentCard({
           <button
             type="button"
             onClick={onReturn}
-            disabled={disabled || approved}
+            disabled={disabled}
             className="review-button review-button--return"
           >
             <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
@@ -427,7 +447,7 @@ function DocumentCard({
           <button
             type="button"
             onClick={onApprove}
-            disabled={disabled || approved}
+            disabled={disabled}
             className="review-button review-button--approve"
           >
             <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -766,9 +786,11 @@ export default function SubmissionReviewTable() {
     submission: SubmissionRow,
     docType: "coe" | "grades",
     action: "APPROVE" | "RETURN_FOR_UPDATE",
+    reviewNotesOverride?: string,
   ): Promise<boolean> {
     const documentDraft = docType === "coe" ? draft.coe : draft.grades;
-    if (action === "RETURN_FOR_UPDATE" && !documentDraft.notes.trim()) {
+    const reviewNotes = reviewNotesOverride ?? documentDraft.notes;
+    if (action === "RETURN_FOR_UPDATE" && !reviewNotes.trim()) {
       setValidationError("Add review notes before returning a document for edits.");
       return false;
     }
@@ -782,7 +804,7 @@ export default function SubmissionReviewTable() {
         docType === "grades" && action === "APPROVE"
           ? { ...currentGradeVerification }
           : undefined;
-      await postDocumentReview(submission, docType, action, documentDraft.notes.trim(), verification);
+      await postDocumentReview(submission, docType, action, reviewNotes.trim(), verification);
       updateDraft(submission.id, { [docType]: { status: "PENDING", notes: "" } });
       setActionSuccess(
         action === "APPROVE"
@@ -809,6 +831,25 @@ export default function SubmissionReviewTable() {
     } finally {
       setSavingSubmissionId(null);
     }
+  }
+
+  function returnDocumentForUpdate(
+    submission: SubmissionRow,
+    docType: "coe" | "grades",
+  ): Promise<boolean> {
+    const documentStatus = docType === "coe" ? submission.coeStatus : submission.gradesStatus;
+    const isApproved = documentStatus === "APPROVED" || submission.status === "APPROVED";
+    if (!isApproved) {
+      return submitDocumentReview(submission, docType, "RETURN_FOR_UPDATE");
+    }
+
+    const savedNotes = reviewDrafts[submission.id]?.[docType].notes || submission.reviewNotes || "";
+    const notes = window.prompt(
+      "Add review notes before returning this approved document for edits:",
+      savedNotes,
+    );
+    if (notes === null) return Promise.resolve(false);
+    return submitDocumentReview(submission, docType, "RETURN_FOR_UPDATE", notes);
   }
 
   async function submitPackageReview() {
@@ -1196,12 +1237,12 @@ export default function SubmissionReviewTable() {
                         Approved
                       </span>
                     ) : undefined}
-                    reviewNotesValue={draft.coe.notes}
+                    reviewNotesValue={draft.coe.notes || selectedSubmission.reviewNotes || ""}
                     onNotesChange={(value) => updateDraft(selectedSubmission.id, {
                       coe: { ...draft.coe, notes: value },
                     })}
                     onApprove={() => void submitDocumentReview(selectedSubmission, "coe", "APPROVE")}
-                    onReturn={() => submitDocumentReview(selectedSubmission, "coe", "RETURN_FOR_UPDATE")}
+                    onReturn={() => returnDocumentForUpdate(selectedSubmission, "coe")}
                     disabled={isSaving}
                     approved={selectedSubmission.coeStatus === "APPROVED" || selectedSubmission.status === "APPROVED"}
                   />
@@ -1232,12 +1273,12 @@ export default function SubmissionReviewTable() {
                         )}
                       </div>
                     ) : undefined}
-                    reviewNotesValue={draft.grades.notes}
+                    reviewNotesValue={draft.grades.notes || selectedSubmission.reviewNotes || ""}
                     onNotesChange={(value) => updateDraft(selectedSubmission.id, {
                       grades: { ...draft.grades, notes: value },
                     })}
                     onApprove={() => void submitDocumentReview(selectedSubmission, "grades", "APPROVE")}
-                    onReturn={() => submitDocumentReview(selectedSubmission, "grades", "RETURN_FOR_UPDATE")}
+                    onReturn={() => returnDocumentForUpdate(selectedSubmission, "grades")}
                     disabled={isSaving || !selectedSubmission.gradeFileUrl}
                     approved={gradeReportApproved}
                     gradeVerification={currentGradeVerification}

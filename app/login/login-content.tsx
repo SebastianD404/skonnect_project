@@ -6,6 +6,7 @@ import { login } from "@/app/actions/auth";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AlertCircle, Eye, EyeOff, Mail, Lock, ShieldCheck, ArrowRight } from "lucide-react";
+import { SkLogo } from "@/app/components/SkLogo";
 
 function LoginForm() {
   const [state, formAction, submitting] = useActionState(login, null);
@@ -22,9 +23,7 @@ function LoginForm() {
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,61,92,0.08),_transparent_35%),linear-gradient(180deg,#f7f9fc_0%,#f4f7fb_100%)] px-4 py-10 text-slate-900">
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-6xl flex-col items-center justify-center gap-8">
         <div className="flex items-center gap-3 text-left">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0F3D5C] text-sm font-bold text-white shadow-[0_14px_28px_rgba(15,61,92,0.22)]">
-            SK
-          </div>
+          <SkLogo className="h-12 w-12" />
           <div>
             <div className="text-xl font-semibold tracking-tight text-[#0D2E47]">SKonnect</div>
             <div className="text-sm text-slate-500">Barangay Pico Youth Services Portal</div>

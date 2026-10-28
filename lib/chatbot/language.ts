@@ -1,17 +1,20 @@
 import type { Language } from "@prisma/client";
 
 const ILOCANO_MARKERS = new Set([
-  "ania", "siasino", "sinu", "sadino", "kasano", "dagiti", "ti", "nga", "ket",
+  "ania", "an-ania", "siasino", "sinu", "sadino", "sadinno", "kasano", "dagiti", "ti", "nga", "ket",
   "wenno", "mabalin", "masapul", "adda", "dadduma", "sabali", "saludsod", "agapply", "isumiter",
-  "babaen", "apay", "manu", "mano", "maysa", "balay", "iti", "wen", "haan",
-  "awan", "papanak", "alaen", "idjay", "ijay",
+  "babaen", "apay", "manu", "mano", "maysa", "balay", "iti", "wen", "haan", "agala",
+  "awan", "papanak", "alaen", "idjay", "ijay", "kurang", "mali", "kamali",
+  "na-protektaran", "impormasyonko", "natalged", "ngata", "dagitoy", "ditoy",
 ]);
 
 const FILIPINO_MARKERS = new Set([
-  "ano", "sino", "paano", "saan", "kailan", "pwede", "puwede", "kailangan",
+  "ano", "anong", "sino", "paano", "pano", "saan", "kailan", "pwede", "puwede", "kailangan",
   "mga", "ang", "ng", "sa", "po", "ba", "yung", "ito", "iyon", "mag-apply",
   "makakakuha", "mayroon", "wala", "paki", "ilan", "isang", "pamilya",
-  "maaari", "puwedeng", "pwedeng",
+  "maaari", "puwedeng", "pwedeng", "mangyayari", "kapag", "puno", "punô",
+  "nag-apply", "nagapply", "ako", "kulang", "mali", "ipasa", "magpasa", "kukunin", "kunin",
+  "ligtas", "impormasyon",
 ]);
 
 export function detectLanguage(text: string): Language {

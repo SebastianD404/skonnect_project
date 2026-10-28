@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Mail } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
+import { SkLogo } from "@/app/components/SkLogo";
 
 export default function HomePageContent() {
   const pathname = usePathname();
@@ -418,9 +419,7 @@ export default function HomePageContent() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8 pb-8 border-b border-white/10">
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10 text-xs font-black tracking-tighter">
-                  SK
-                </div>
+                <SkLogo className="h-10 w-10" />
                 <span className="font-bold text-lg">SKonnect</span>
               </div>
               <p className="text-sm text-white/70 leading-6">
@@ -446,7 +445,12 @@ export default function HomePageContent() {
             <div>
               <h4 className="font-bold text-sm mb-3 uppercase tracking-wider">Contact</h4>
               <div className="flex flex-col gap-2 text-sm text-white/70">
-                <a href="mailto:skbarangaypico@gmail.com" className="inline-flex items-center gap-2 text-white hover:text-[#E2E8F0]">
+                <a
+                  href="https://mail.google.com/mail/?view=cm&fs=1&to=skbarangaypico@gmail.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-white hover:text-[#E2E8F0]"
+                >
                   <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10">
                     <Mail className="h-4 w-4" />
                   </span>

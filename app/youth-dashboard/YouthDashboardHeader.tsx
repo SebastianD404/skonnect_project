@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DashboardHeaderActions } from "@/app/components/DashboardHeaderActions";
+import { SkLogo } from "@/app/components/SkLogo";
 
 function navClass(pathname: string, href: string) {
   const isActive = pathname === href || pathname.startsWith(`${href}/`);
@@ -20,8 +21,8 @@ export default function YouthDashboardHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-white/50 bg-gradient-to-b from-[#FAFBFC]/95 to-[#F5F7FB]/90 shadow-sm backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href="/?from=youth-dashboard" className="flex items-center gap-3" aria-label="Go to SKonnect home" title="Go to home">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0F3D5C] to-[#0D2E47] text-xs font-black tracking-tighter text-white shadow-lg">SK</div>
+        <Link href="/?from=youth-dashboard" className="flex items-center gap-2" aria-label="Go to SKonnect home" title="Go to home">
+          <SkLogo className="h-12 w-12" />
           <span className="text-xl font-black tracking-tight text-[#0F3D5C]">SKonnect</span>
         </Link>
 

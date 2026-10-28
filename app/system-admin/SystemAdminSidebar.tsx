@@ -5,6 +5,7 @@ import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import { Cable, Database, LayoutDashboard, ScrollText, Users } from "lucide-react";
 import { SignOutButton } from "@/app/components/SignOutButton";
+import { SkLogo } from "@/app/components/SkLogo";
 import { Avatar } from "@/components/ui/Avatar";
 
 type SessionUser = {
@@ -159,9 +160,7 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
   return (
     <aside className="sticky top-0 flex h-screen w-72 shrink-0 flex-col border-r border-[#1C4B67] bg-[#0F2E47] px-4 py-6 text-[#DCE7F0]">
       <div className="flex items-center gap-3 px-2">
-        <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-[#0D4568] to-[#1E97D1] text-sm font-black text-white shadow-lg">
-          SK
-        </div>
+        <SkLogo className="h-11 w-11" />
         <div className="min-w-0">
           <p className="truncate text-base font-bold text-white">SKonnect</p>
           <p className="truncate text-xs text-[#9AB0C2]">Admin Workspace · Barangay Pico</p>
