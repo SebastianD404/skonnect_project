@@ -71,7 +71,6 @@ export function KKProfilingRegistrationsTable({
   const requestedPage = Number.isFinite(requestedPageValue) ? Math.max(1, Math.floor(requestedPageValue)) : 1;
   const requestedPageSizeValue = Number(searchParams.get("pageSize") ?? "10");
   const requestedPageSize = Number.isFinite(requestedPageSizeValue) ? requestedPageSizeValue : 10;
-  const focusedRegistrationId = searchParams.get("focus");
   const routePending = pathname === "/admin/kk-profiling" && (
     requestedStatus !== String(statusLabel ?? "Pending").toLowerCase() ||
     requestedPage !== (pageNumber ?? 1) ||
@@ -200,11 +199,7 @@ export function KKProfilingRegistrationsTable({
               {filteredRows.map((registration) => (
                 <tr
                   key={registration.id}
-                  className={`transition-colors hover:bg-slate-50/50 ${
-                    registration.id === focusedRegistrationId
-                      ? "bg-cyan-50 ring-1 ring-inset ring-cyan-200"
-                      : ""
-                  }`}
+                  className="transition-colors hover:bg-slate-50/50"
                 >
                   <td className="px-6 py-4">
                     <div className="font-semibold text-slate-900">{registration.fullName}</div>

@@ -86,5 +86,23 @@ export function splitFullName(fullName: string) {
 }
 
 export function buildTemporaryPassword() {
-  return `Pico-${globalThis.crypto.randomUUID()}`;
+  const words = [
+    "apple", "beach", "bird", "blue", "bread", "brisk", "cabin", "candle",
+    "cedar", "cloud", "copper", "coral", "crane", "daisy", "delta", "eagle",
+    "earth", "ember", "falcon", "field", "flame", "forest", "frost", "garden",
+    "globe", "gold", "harbor", "honey", "island", "ivory", "jungle", "lemon",
+    "light", "lotus", "maple", "marble", "meadow", "melon", "moon", "moss",
+    "mountain", "ocean", "olive", "orange", "panda", "pearl", "pepper", "pine",
+    "planet", "plum", "pocket", "river", "robin", "sailor", "silver", "sprout",
+    "star", "stone", "summer", "tiger", "velvet", "willow", "winter", "yellow",
+  ] as const;
+  const randomValues = new Uint32Array(5);
+  globalThis.crypto.getRandomValues(randomValues);
+  const selectedWords = Array.from(randomValues.slice(0, 4), (value) => {
+    const word = words[value & 63];
+    return `${word[0].toUpperCase()}${word.slice(1)}`;
+  });
+  const numericCode = String(randomValues[4] % 1_000_000).padStart(6, "0");
+
+  return `Pico-${selectedWords.join("-")}-${numericCode}`;
 }
