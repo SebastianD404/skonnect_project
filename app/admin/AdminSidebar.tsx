@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { Role } from "@prisma/client";
 import { Banknote, ClipboardList, Database, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
@@ -88,6 +88,7 @@ export default function AdminSidebar({
   userRole,
 }: AdminSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [liveCounts, setLiveCounts] = useState<SidebarCounts>({
     openInquiryCount,
@@ -142,6 +143,11 @@ export default function AdminSidebar({
           cache: "no-store",
           signal: controller.signal,
         });
+        if (response.status === 401) {
+          const next = `${window.location.pathname}${window.location.search}`;
+          router.replace(`/login?reason=session_expired&next=${encodeURIComponent(next)}`);
+          return;
+        }
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error || "Unable to refresh sidebar counts.");
         if (
@@ -181,7 +187,7 @@ export default function AdminSidebar({
       window.removeEventListener("admin-inquiries-updated", handleFocus);
       window.removeEventListener("admin-submissions-updated", handleFocus);
     };
-  }, [pathname, setSectionViewedTimestamp]);
+  }, [pathname, router, setSectionViewedTimestamp]);
 
   useEffect(() => {
     let mounted = true;

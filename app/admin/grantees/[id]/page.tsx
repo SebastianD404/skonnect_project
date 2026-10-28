@@ -40,10 +40,13 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
         yearLevel: true,
         generalAverage: true,
         dateEnrolled: true,
+        dateRemoved: true,
         graduatedAt: true,
+        updatedAt: true,
         ...(hasRetentionColumn ? { retentionExpiresAt: true } : {}),
         user: {
           select: {
+            role: true,
             fullName: true,
             email: true,
             phoneNumber: true,
@@ -99,14 +102,39 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
       notFound();
     }
 
-    granteeData = { grantee };
+    const restorationRows = grantee.status === "REMOVED" && grantee.user.role === "GRANTEE"
+      ? await prisma.$queryRaw<Array<{ restored: boolean }>>`
+          SELECT EXISTS (
+            SELECT 1
+            FROM "audit_logs" role_change
+            WHERE role_change."targetTable" = 'users'
+              AND role_change."targetId" = ${grantee.userId}
+              AND role_change."action" = 'UPDATE_USER_ROLE'
+              AND role_change."afterData"->>'role' = 'GRANTEE'
+              AND role_change."createdAt" >= ${grantee.updatedAt}
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "audit_logs" newer_role_change
+                WHERE newer_role_change."targetTable" = 'users'
+                  AND newer_role_change."targetId" = ${grantee.userId}
+                  AND newer_role_change."action" = 'UPDATE_USER_ROLE'
+                  AND newer_role_change."createdAt" > role_change."createdAt"
+              )
+          ) AS restored
+        `
+      : [];
+
+    granteeData = {
+      grantee,
+      effectiveStatus: restorationRows[0]?.restored ? "ACTIVE" : grantee.status,
+    };
   } catch (error) {
     unstable_rethrow(error);
     console.error("Failed to load grantee details:", error);
     return <GranteeDetailErrorState />;
   }
 
-  const { grantee } = granteeData;
+  const { grantee, effectiveStatus } = granteeData;
   const skeapApplication = grantee.user.skeapApplications[0] ?? null;
   let profileAvatarUrl = grantee.user.avatarUrl;
   if (profileAvatarUrl && !/^https?:\/\//i.test(profileAvatarUrl)) {
@@ -140,8 +168,12 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
     null;
   const localityParts = addressLineParts.filter((part) => !isSitio(part) && !isBarangay(part));
   const [municipality, ...provinceParts] = localityParts;
-  const isGraduated = grantee.status === "GRADUATED";
-  const retentionExpiryDate = getRetentionExpiryDate(grantee);
+  const isGraduated = effectiveStatus === "GRADUATED";
+  const isRemoved = effectiveStatus === "REMOVED";
+  const retentionExpiryDate = getRetentionExpiryDate({
+    ...grantee,
+    dateRemoved: grantee.dateRemoved,
+  });
   const serializedSkeapApplication: SerializableSkeapApplicationFormPayload | null =
     !skeapApplication
       ? null
@@ -192,6 +224,21 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
             ) : null}
           </div>
         ) : null}
+        {isRemoved ? (
+          <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+            <p className="text-sm font-semibold text-rose-900">
+              Archived record: this grantee was removed
+              {grantee.dateRemoved
+                ? ` on ${grantee.dateRemoved.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
+                : " (removal date not recorded)"}.
+            </p>
+            {retentionExpiryDate ? (
+              <p className="mt-1 text-xs text-rose-800">
+                Retention period ends {retentionExpiryDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       <GranteeDossierView
@@ -209,8 +256,9 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
           },
           school: normalizeSkeapSchoolName(grantee.school),
           yearLevel: grantee.yearLevel,
-          status: grantee.status,
+          status: effectiveStatus,
           dateEnrolled: grantee.dateEnrolled.toISOString(),
+          dateRemoved: grantee.dateRemoved?.toISOString() ?? null,
           graduatedAt: grantee.graduatedAt?.toISOString() ?? null,
           generalAverage: grantee.generalAverage,
           submissions: grantee.submissions.map((submission) => ({

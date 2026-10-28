@@ -72,7 +72,7 @@ export default function GraduationAction({
                 Mark as graduated?
               </h2>
               <p className="px-2 text-[13px] leading-snug text-slate-500">
-                This will archive <span className="font-bold text-slate-900">{granteeName}</span>&apos;s account, free up <span className="font-bold text-slate-900">1 active slot</span>, and notify the waitlist queue.
+                This will archive <span className="font-bold text-slate-900">{granteeName}</span>&apos;s account, free up <span className="font-bold text-slate-900">1 active slot</span>, and notify administrators that a slot is available for waitlist review.
               </p>
             </div>
             <div className="grid w-full grid-cols-2 gap-2.5">

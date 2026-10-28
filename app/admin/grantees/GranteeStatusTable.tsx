@@ -39,9 +39,8 @@ const STATUS_CLASSES: Record<GranteeTableRow["status"], string> = {
   REMOVED: "bg-rose-100 text-rose-700",
 };
 
-const FILTERS: Array<{ label: string; value: "ALL" | GranteeTableRow["status"] }> = [
-  { label: "All", value: "ALL" },
-  { label: "Active", value: "ACTIVE" },
+const FILTERS: Array<{ label: string; value: "CURRENT" | "GRADUATED" | "REMOVED" }> = [
+  { label: "Current", value: "CURRENT" },
   { label: "Graduated", value: "GRADUATED" },
   { label: "Removed", value: "REMOVED" },
 ];
@@ -70,7 +69,7 @@ export function GranteeStatusTable({
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedStatus = searchParams.get("status")?.toUpperCase();
-  const statusFilter = FILTERS.find((filter) => filter.value === requestedStatus)?.value ?? "ALL";
+  const statusFilter = FILTERS.find((filter) => filter.value === requestedStatus)?.value ?? "CURRENT";
   const handleQueryChange = (value: string) => {
     setQuery(value);
   };
@@ -85,7 +84,7 @@ export function GranteeStatusTable({
 
   const handleStatusFilterChange = (value: (typeof FILTERS)[number]["value"]) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (value === "ALL") {
+    if (value === "CURRENT") {
       params.delete("status");
     } else {
       params.set("status", value.toLowerCase());
@@ -100,11 +99,9 @@ export function GranteeStatusTable({
 
   const filteredGrantees = useMemo(() => {
     return grantees.filter((grantee) => {
-      const matchesStatus = statusFilter === "ALL" || (
-        statusFilter === "ACTIVE"
-          ? grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
-          : grantee.status === statusFilter
-      );
+      const matchesStatus = statusFilter === "CURRENT"
+        ? grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
+        : grantee.status === statusFilter;
       const lowerQuery = query.trim().toLowerCase();
       const matchesQuery =
         grantee.fullName.toLowerCase().includes(lowerQuery) ||
@@ -163,21 +160,21 @@ export function GranteeStatusTable({
             </div>
           </div>
         ) : null}
-        <table className="w-full border-collapse whitespace-nowrap text-left text-sm">
+        <table className="w-full min-w-[760px] table-fixed border-collapse text-left text-sm md:min-w-0">
           <thead className="relative z-30 bg-gradient-to-r from-slate-900 to-cyan-900">
             <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
-              <th className="px-6 py-4">Scholar</th>
-              <th className="px-6 py-4">School / Year</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Average</th>
-              <th className="px-6 py-4">Enrolled</th>
-              <th className="px-6 py-4 text-center">Action</th>
+              <th className="w-[25%] px-3 py-4 sm:px-4">Scholar</th>
+              <th className="w-[27%] px-3 py-4 sm:px-4">School / Year</th>
+              <th className="w-[12%] px-3 py-4 sm:px-4">Status</th>
+              <th className="w-[10%] px-3 py-4 sm:px-4">Average</th>
+              <th className="w-[14%] px-3 py-4 sm:px-4">Enrolled</th>
+              <th className="w-[12%] px-3 py-4 text-center sm:px-4">Action</th>
             </tr>
           </thead>
           <tbody className={`divide-y divide-slate-100 bg-white text-sm transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
             {filteredGrantees.map((grantee) => (
                   <tr key={grantee.id} className="transition-colors hover:bg-slate-50/50">
-                    <td className="px-6 py-4">
+                    <td className="min-w-0 px-3 py-4 sm:px-4">
                       <div className="group/journey relative flex items-center gap-3">
                         <AcademicJourneyHoverCard
                           fullName={grantee.fullName}
@@ -198,16 +195,18 @@ export function GranteeStatusTable({
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="text-slate-900 font-medium">{normalizeSkeapSchoolName(grantee.school)}</div>
-                      <div className="text-xs text-slate-500">{grantee.yearLevel}</div>
+                    <td className="min-w-0 px-3 py-4 sm:px-4">
+                      <div className="truncate font-medium text-slate-900" title={normalizeSkeapSchoolName(grantee.school)}>
+                        {normalizeSkeapSchoolName(grantee.school)}
+                      </div>
+                      <div className="truncate text-xs text-slate-500">{grantee.yearLevel}</div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-4 sm:px-4">
                       <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
                         {STATUS_LABELS[grantee.status]}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4">
+                    <td className="whitespace-nowrap px-3 py-4 sm:px-4">
                       {grantee.generalAverage !== null ? (
                         <span className="text-sm font-bold text-slate-900">
                           {grantee.generalAverage.toFixed(2)}
@@ -216,10 +215,10 @@ export function GranteeStatusTable({
                         <span className="text-sm font-medium text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-slate-500">
+                    <td className="whitespace-nowrap px-3 py-4 text-slate-500 sm:px-4">
                       {formatDate(grantee.dateEnrolled)}
                     </td>
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-3 py-4 text-center sm:px-4">
                       <div className="inline-flex items-center justify-center gap-2">
                         {grantee.detailsHref ? (
                           <button

@@ -41,7 +41,7 @@ export async function PATCH(
     const { id } = await params;
     const target = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, fullName: true, email: true, role: true, isActive: true },
+      select: { id: true, fullName: true, email: true, phoneNumber: true, role: true, isActive: true },
     });
 
     if (!target) {
@@ -52,12 +52,17 @@ export async function PATCH(
     const nextFullName =
       typeof body?.fullName === "string" ? body.fullName.trim() : undefined;
     const nextEmail = typeof body?.email === "string" ? body.email.trim() : undefined;
+    const nextPhoneNumber =
+      typeof body?.phoneNumber === "string"
+        ? body.phoneNumber.trim() || null
+        : undefined;
     const nextIsActive =
       typeof body?.isActive === "boolean" ? body.isActive : undefined;
 
     if (
       typeof nextFullName === "undefined" &&
       typeof nextEmail === "undefined" &&
+      typeof nextPhoneNumber === "undefined" &&
       typeof nextIsActive === "undefined"
     ) {
       return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
@@ -84,6 +89,13 @@ export async function PATCH(
       );
     }
 
+    if (typeof nextPhoneNumber === "string" && nextPhoneNumber.length > 32) {
+      return NextResponse.json(
+        { error: "Phone number must be 32 characters or fewer." },
+        { status: 400 }
+      );
+    }
+
     const existingUserWithEmail =
       typeof nextEmail !== "undefined"
         ? await prisma.user.findFirst({
@@ -103,24 +115,26 @@ export async function PATCH(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const nextUser = await (tx as any).user.update({
+      const nextUser = await tx.user.update({
         where: { id: target.id },
         data: {
           ...(typeof nextFullName !== "undefined" ? { fullName: nextFullName } : {}),
           ...(typeof nextEmail !== "undefined" ? { email: nextEmail } : {}),
+          ...(typeof nextPhoneNumber !== "undefined" ? { phoneNumber: nextPhoneNumber } : {}),
           ...(typeof nextIsActive !== "undefined" ? { isActive: nextIsActive } : {}),
         },
         select: {
           id: true,
           fullName: true,
           email: true,
+          phoneNumber: true,
           role: true,
           isActive: true,
           updatedAt: true,
         },
       });
 
-      await writeAuditLog(tx as any, {
+      await writeAuditLog(tx, {
         action: typeof nextIsActive === "boolean" ? "UPDATE_USER_STATUS" : "UPDATE_USER_PROFILE",
         actorId: actor.id,
         targetTable: "users",
@@ -128,14 +142,16 @@ export async function PATCH(
         beforeData: {
           fullName: target.fullName,
           email: target.email,
+          phoneNumber: target.phoneNumber,
           role: target.role,
           isActive: target.isActive,
         },
         afterData: {
-          fullName: updated.fullName,
-          email: updated.email,
-          role: updated.role,
-          isActive: updated.isActive,
+          fullName: nextUser.fullName,
+          email: nextUser.email,
+          phoneNumber: nextUser.phoneNumber,
+          role: nextUser.role,
+          isActive: nextUser.isActive,
         },
       });
 
@@ -177,7 +193,7 @@ export async function DELETE(
     }
 
     await prisma.$transaction(async (tx) => {
-      await writeAuditLog(tx as any, {
+      await writeAuditLog(tx, {
         action: "DELETE_USER",
         actorId: actor.id,
         targetTable: "users",
@@ -191,7 +207,7 @@ export async function DELETE(
         afterData: Prisma.JsonNull,
       });
 
-      await (tx as any).user.delete({ where: { id: target.id } });
+      await tx.user.delete({ where: { id: target.id } });
     });
 
     return NextResponse.json({ success: true });

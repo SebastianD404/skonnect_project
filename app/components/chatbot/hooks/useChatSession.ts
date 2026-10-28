@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 type MessageRole = "USER" | "ASSISTANT";
 
@@ -22,6 +22,9 @@ export function useChatSession() {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [totalHistoryMessages, setTotalHistoryMessages] = useState(0);
+  const [isLoadingOlderHistory, setIsLoadingOlderHistory] = useState(false);
+  const historyCursor = useRef<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     if (historyLoaded) {
@@ -42,7 +45,12 @@ export function useChatSession() {
         throw new Error(data?.error || "Failed to load chat history");
       }
 
-      setMessages((data.messages || []) as ChatUiMessage[]);
+      const loadedMessages = (data.messages || []) as ChatUiMessage[];
+      historyCursor.current = loadedMessages.at(-1)?.id ?? null;
+      setMessages(loadedMessages.reverse());
+      setTotalHistoryMessages(
+        typeof data.totalConversations === "number" ? data.totalConversations : 0
+      );
       setHistoryLoaded(true);
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "Failed to load chat history");
@@ -50,6 +58,40 @@ export function useChatSession() {
       setIsLoadingHistory(false);
     }
   }, [historyLoaded]);
+
+  const loadOlderHistory = useCallback(async () => {
+    if (!historyCursor.current || isLoadingOlderHistory) return;
+
+    setIsLoadingOlderHistory(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/chat/messages?limit=20&cursor=${encodeURIComponent(historyCursor.current)}`,
+        { cache: "no-store" },
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to load older chat history");
+      }
+
+      const olderMessages = (data.messages || []) as ChatUiMessage[];
+      if (olderMessages.length > 0) {
+        historyCursor.current = olderMessages.at(-1)?.id ?? historyCursor.current;
+        const chronologicalMessages = olderMessages.reverse();
+        setMessages((current) => {
+          const existingIds = new Set(current.map((message) => message.id));
+          return [...chronologicalMessages.filter((message) => !existingIds.has(message.id)), ...current]
+            .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+        });
+      } else {
+        historyCursor.current = null;
+      }
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : "Failed to load older chat history");
+    } finally {
+      setIsLoadingOlderHistory(false);
+    }
+  }, [isLoadingOlderHistory]);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -118,6 +160,9 @@ export function useChatSession() {
     isSending,
     canSend,
     loadHistory,
+    loadOlderHistory,
+    totalHistoryMessages,
+    isLoadingOlderHistory,
     sendMessage,
     startNewConversation,
   };

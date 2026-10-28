@@ -5,6 +5,7 @@ import {
   extractDocxEmbeddedImages,
   getSkeapDocumentKeywordMatches,
   getKkProfilingValidIdMatches,
+  isSkeapFamilyIncomeDocument,
 } from "../lib/skeap-document-keywords";
 import { SKEAP_UPLOAD_KEY } from "../lib/skeap-upload";
 
@@ -49,6 +50,34 @@ describe("POST /api/validate-document SKEAP DOCX validation", () => {
   ])("matches family income documents containing %s", (text, keyword) => {
     expect(getSkeapDocumentKeywordMatches(text, SKEAP_UPLOAD_KEY.FAMILY_INCOME))
       .toContain(keyword);
+  });
+
+  it("does not mistake a low-income certificate from Barangay Pico for residency proof", () => {
+    const text = "CERTIFICATE OF LOW INCOME OF PARENTS OR GUARDIAN BARANGAY PICO";
+
+    expect(isSkeapFamilyIncomeDocument(text)).toBe(true);
+    expect(getSkeapDocumentKeywordMatches(text, SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY))
+      .toHaveLength(0);
+    expect(getSkeapDocumentKeywordMatches(text, SKEAP_UPLOAD_KEY.FAMILY_INCOME))
+      .toContain("certificate of low income");
+  });
+
+  it.each([
+    "CERTIFICATE OF LOW-INCOME OF PARENTS OR GUARDIAN",
+    "CERTIFICATE FOR PARENTS / GUARDIAN - FAMILY INCOME",
+    "BARANGAY CERTIFICATION: FAMILY INCOME OF PARENTS",
+  ])("rejects income-related wording in the residency slot: %s", (text) => {
+    expect(getSkeapDocumentKeywordMatches(text, SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY))
+      .toHaveLength(0);
+  });
+
+  it.each([
+    "CERTIFICATE OF RESIDENCY - Barangay Pico",
+    "This certifies that Maria is a bona fide resident of Barangay Pico",
+    "Barangay Pico residency certification",
+  ])("recognizes residency-specific wording: %s", (text) => {
+    expect(getSkeapDocumentKeywordMatches(text, SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY))
+      .not.toHaveLength(0);
   });
 
   it.each([

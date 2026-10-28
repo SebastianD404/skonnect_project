@@ -35,6 +35,12 @@ export function AuthProvider({
   const hasLoadedRef = useRef(initialUser !== undefined);
   const refreshRequestRef = useRef(0);
   const previousPathnameRef = useRef(pathname);
+  const currentUserRef = useRef<AuthUser | null>(initialUser ?? null);
+  const currentPathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    currentPathnameRef.current = pathname;
+  }, [pathname]);
 
   const refresh = useCallback(async (showLoading = false) => {
     const requestId = ++refreshRequestRef.current;
@@ -53,8 +59,18 @@ export function AuthProvider({
       if (requestId !== refreshRequestRef.current) return;
 
       if (profile) {
+        const previousUser = currentUserRef.current;
+        currentUserRef.current = profile;
         setUser(profile);
+        if (
+          previousUser?.role === "YOUTH" &&
+          profile.role === "GRANTEE" &&
+          !currentPathnameRef.current.startsWith("/grantee-dashboard")
+        ) {
+          router.replace("/grantee-dashboard");
+        }
       } else {
+        currentUserRef.current = null;
         setUser(null);
       }
     } catch (error) {
@@ -67,7 +83,24 @@ export function AuthProvider({
         setLoading(false);
       }
     }
-  }, []);
+  }, [router]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const refreshVisibleSession = () => {
+      if (document.visibilityState === "visible") {
+        void refresh();
+      }
+    };
+    const intervalId = window.setInterval(refreshVisibleSession, 10_000);
+    document.addEventListener("visibilitychange", refreshVisibleSession);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", refreshVisibleSession);
+    };
+  }, [refresh, user?.id]);
 
   useEffect(() => {
     const initialRefresh = window.setTimeout(() => {
@@ -93,6 +126,7 @@ export function AuthProvider({
       }
 
       if (event === "SIGNED_OUT") {
+        currentUserRef.current = null;
         setUser(null);
       }
       router.refresh();

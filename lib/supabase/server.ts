@@ -38,10 +38,16 @@ export async function createClient(options: { rememberMe?: boolean } = {}) {
                 ...(options.rememberMe ? { maxAge: 400 * 24 * 60 * 60 } : {}),
               });
             }
-          } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+          } catch (error) {
+            if (options.rememberMe !== undefined) {
+              console.error("Failed to persist Supabase auth cookies during login.", error);
+              throw error;
+            }
+
+            console.warn(
+              "Could not persist Supabase auth cookies in this rendering context.",
+              error,
+            );
           }
         },
       },

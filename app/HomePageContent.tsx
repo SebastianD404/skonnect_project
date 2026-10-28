@@ -5,20 +5,41 @@ import HeroCtaButton from "@/app/components/HeroCtaButton";
 import OrdinancesSection from "@/components/OrdinancesSection";
 import { useAuth } from "@/app/components/AuthProvider";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Mail } from "lucide-react";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 export default function HomePageContent() {
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const searchQuery = searchParams.toString();
   const { user, loading: authLoading } = useAuth();
   const [activeLink, setActiveLink] = useState<string>(pathname);
   const [youthCount, setYouthCount] = useState<number | null>(null);
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [skeapApplicationState, setSkeapApplicationState] = useState<{
     userId: string;
     hasApplication: boolean;
   } | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchQuery);
+    if (params.get("error") !== "unauthorized_role") return;
+
+    const notificationTimer = window.setTimeout(() => {
+      setAccessError("You do not have the required permissions to view that page.");
+    }, 0);
+    params.delete("error");
+    const remainingQuery = params.toString();
+    router.replace(
+      remainingQuery ? `${pathname}?${remainingQuery}` : pathname,
+      { scroll: false },
+    );
+    return () => window.clearTimeout(notificationTimer);
+  }, [pathname, router, searchQuery]);
 
   useEffect(() => {
     let mounted = true;
@@ -120,6 +141,13 @@ export default function HomePageContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
+      {accessError ? (
+        <FloatingFeedback
+          message={accessError}
+          type="error"
+          onDismiss={() => setAccessError(null)}
+        />
+      ) : null}
       {/* ── HERO ── */}
       <section className="relative overflow-hidden pt-12 md:pt-24 pb-20">
         {/* Animated gradient orbs */}

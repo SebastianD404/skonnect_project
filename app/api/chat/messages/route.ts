@@ -5,6 +5,63 @@ import { createClient } from "@/lib/supabase/server";
 import { detectLanguage } from "@/lib/chatbot/language";
 import { runRagAnswer } from "@/lib/chatbot/rag";
 import { checkChatIpRateLimit } from "@/lib/chatbot/ip-rate-limit";
+import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
+import type { LiveSubmissionSchedules } from "@/lib/chatbot/submission-schedule";
+
+function formatLiveDate(value: string | null) {
+  if (!value) return "Not configured";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not configured";
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: "Asia/Manila",
+  }).format(date);
+}
+
+function formatManilaNow(value: Date) {
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "long",
+    timeStyle: "long",
+    timeZone: "Asia/Manila",
+  }).format(value);
+}
+
+function buildLiveSystemContext(params: {
+  activeGranteeCount: number;
+  academicTermWindow: Awaited<ReturnType<typeof getAcademicTermScheduleState>>["window"];
+  activeAdminNotice: { title: string; content: string } | null;
+  currentTime: Date;
+}) {
+  const { academicTermWindow, activeAdminNotice } = params;
+  const announcement = activeAdminNotice
+    ? JSON.stringify(`${activeAdminNotice.title}: ${activeAdminNotice.content}`.slice(0, 1200))
+    : "None";
+
+  return [
+    "[LIVE SYSTEM CONFIGURATION & SCHEDULES]",
+    "[LIVE SYSTEM SCHEDULE]",
+    `- Current System Time: ${formatManilaNow(params.currentTime)} (Asia/Manila).`,
+    `- Active Term Name: ${academicTermWindow.semester ?? "No active or upcoming term configured"}.`,
+    `- Schedule Status: ${academicTermWindow.status}.`,
+    `- Term Opens On: ${formatLiveDate(academicTermWindow.opensAt)}.`,
+    `- Term Deadline: ${formatLiveDate(academicTermWindow.closesAt)}.`,
+    "[END LIVE SYSTEM SCHEDULE]",
+    "- SKEAP Scholarship Submissions Currently Open: YES (SKEAP currently accepts applications; no separate admin-managed application dates are configured).",
+    "- SKEAP Application Start Date: Not configured.",
+    "- SKEAP Application End Date: Not configured.",
+    "- KK Profiling Submissions Currently Open: YES (no admin-managed opening or closing dates are configured).",
+    "- KK Profiling Start Date: Not configured.",
+    "- KK Profiling End Date: Not configured.",
+    `- Grantee Academic Document Submission Schedule: ${academicTermWindow.status}.`,
+    `- Academic Submission Term: ${academicTermWindow.semester ?? "Not configured"}.`,
+    `- Academic Submission Opens: ${formatLiveDate(academicTermWindow.opensAt)}.`,
+    `- Academic Submission Closes: ${formatLiveDate(academicTermWindow.closesAt)}.`,
+    `- Active Admin Notice: ${announcement}.`,
+    `- Current Active SKEAP Scholars: ${params.activeGranteeCount}.`,
+    "[END LIVE SYSTEM CONFIGURATION]",
+  ].join("\n");
+}
 
 type AuthorizedUser = {
   id: string;
@@ -54,27 +111,56 @@ export async function GET(request: NextRequest) {
   try {
     const authorizedUser = await getAuthorizedUser();
     if (!authorizedUser) {
-      return NextResponse.json({ messages: [] });
+      return NextResponse.json({ messages: [], totalConversations: 0 });
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = Math.min(Number(searchParams.get("limit") || 20), 50);
+    const requestedLimit = Number(searchParams.get("limit") || 20);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.floor(requestedLimit), 1), 50)
+      : 20;
+    const cursorId = searchParams.get("cursor");
+    const cursorMessage = cursorId
+      ? await prisma.chatMessage.findFirst({
+          where: { id: cursorId, userId: authorizedUser.id },
+          select: { id: true, createdAt: true },
+        })
+      : null;
 
-    const messages = await prisma.chatMessage.findMany({
-      where: { userId: authorizedUser.id },
-      orderBy: { createdAt: "desc" },
-      take: Number.isFinite(limit) ? limit : 20,
-      select: {
-        id: true,
-        role: true,
-        content: true,
-        language: true,
-        createdAt: true,
-      },
-    });
+    const messageWhere = cursorMessage
+      ? {
+          userId: authorizedUser.id,
+          OR: [
+            { createdAt: { lt: cursorMessage.createdAt } },
+            {
+              createdAt: cursorMessage.createdAt,
+              id: { lt: cursorMessage.id },
+            },
+          ],
+        }
+      : { userId: authorizedUser.id };
+
+    const [messages, totalConversations] = await Promise.all([
+      prisma.chatMessage.findMany({
+        where: messageWhere,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit,
+        select: {
+          id: true,
+          role: true,
+          content: true,
+          language: true,
+          createdAt: true,
+        },
+      }),
+      prisma.chatMessage.count({
+        where: { userId: authorizedUser.id, role: "USER" },
+      }),
+    ]);
 
     return NextResponse.json({
-      messages: messages.reverse(),
+      messages,
+      totalConversations,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load messages";
@@ -114,11 +200,25 @@ export async function POST(request: NextRequest) {
     }
 
     const language = detectLanguage(userMessage);
-    const db = prisma;
-    const activeGranteeCount = await db.grantee.count({
-      where: {
-        status: "ACTIVE",
-      },
+    const [activeGranteeCount, { window: academicTermWindow }, activeAdminNotice] = await Promise.all([
+      prisma.grantee.count({ where: { status: "ACTIVE" } }),
+      getAcademicTermScheduleState(),
+      prisma.announcement.findFirst({
+        where: { isPublished: true },
+        orderBy: { publishedAt: "desc" },
+        select: { title: true, content: true },
+      }),
+    ]);
+    const liveSubmissionSchedules: LiveSubmissionSchedules = {
+      skeap: { isOpen: true, startDate: null, endDate: null },
+      kkProfiling: { isOpen: true, startDate: null, endDate: null },
+      academicTerm: academicTermWindow,
+    };
+    const liveSystemContext = buildLiveSystemContext({
+      activeGranteeCount,
+      academicTermWindow,
+      activeAdminNotice,
+      currentTime: new Date(),
     });
 
     if (!authorizedUser) {
@@ -126,7 +226,8 @@ export async function POST(request: NextRequest) {
         question: userMessage,
         language,
         history: [],
-        liveSystemContext: `Current Update: We are currently supporting ${activeGranteeCount} active SKEAP scholars this semester. If the user asks about the current count, use this number and ignore any conflicting figures from older context.`,
+        liveSystemContext,
+        liveSubmissionSchedules,
       });
 
       await prisma.chatLog.create({
@@ -195,7 +296,8 @@ export async function POST(request: NextRequest) {
         role: message.role === "ASSISTANT" ? "assistant" : "user",
         content: message.content,
       })),
-      liveSystemContext: `Current Update: We are currently supporting ${activeGranteeCount} active SKEAP scholars this semester. If the user asks about the current count, use this number and ignore any conflicting figures from older context.`,
+      liveSystemContext,
+      liveSubmissionSchedules,
     });
 
     const createdAssistantMessage = await prisma.chatMessage.create({

@@ -1038,6 +1038,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
                 placeholder="Enter middle name"
                 dataRequired="profile"
                 required
+                readOnly={!allowManualProfileDetails}
                 invalid={invalidFields.has("middleName")}
               />
             </div>
@@ -1223,7 +1224,6 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
             </label>
             <div className="mt-2 md:col-span-2">
               <p className="mb-2 block text-sm font-semibold text-slate-900">2x2 Photo (ID) <span className="text-black" aria-hidden="true">*</span></p>
-              <p className="mb-4 text-sm text-slate-500">Upload a clear portrait photo. We will crop it to 2x2 for you.</p>
               <SmartPortraitDropzone
                 invalid={invalidFields.has("photoFile")}
                 uploadedUrl={photoFileUrl}

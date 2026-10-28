@@ -3,6 +3,7 @@ type RetentionDateValue = string | Date | null | undefined;
 type GranteeRetentionDates = {
   retentionExpiresAt?: RetentionDateValue;
   graduatedAt?: RetentionDateValue;
+  dateRemoved?: RetentionDateValue;
 };
 
 function parseRetentionDate(value: RetentionDateValue): Date | null {
@@ -19,21 +20,21 @@ export function getRetentionExpiryDate(grantee: GranteeRetentionDates): Date | n
   const storedExpiry = parseRetentionDate(grantee.retentionExpiresAt);
   if (storedExpiry) return storedExpiry;
 
-  const graduatedAt = parseRetentionDate(grantee.graduatedAt);
-  if (!graduatedAt) return null;
+  const archivedAt = parseRetentionDate(grantee.graduatedAt) ?? parseRetentionDate(grantee.dateRemoved);
+  if (!archivedAt) return null;
 
-  const year = graduatedAt.getUTCFullYear() + 5;
-  const month = graduatedAt.getUTCMonth();
-  const day = graduatedAt.getUTCDate();
+  const year = archivedAt.getUTCFullYear() + 5;
+  const month = archivedAt.getUTCMonth();
+  const day = archivedAt.getUTCDate();
   const lastDayOfTargetMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
 
   return new Date(Date.UTC(
     year,
     month,
     Math.min(day, lastDayOfTargetMonth),
-    graduatedAt.getUTCHours(),
-    graduatedAt.getUTCMinutes(),
-    graduatedAt.getUTCSeconds(),
-    graduatedAt.getUTCMilliseconds()
+    archivedAt.getUTCHours(),
+    archivedAt.getUTCMinutes(),
+    archivedAt.getUTCSeconds(),
+    archivedAt.getUTCMilliseconds()
   ));
 }

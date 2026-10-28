@@ -49,6 +49,7 @@ type DossierGrantee = {
   yearLevel: string;
   status: string;
   dateEnrolled: string;
+  dateRemoved: string | null;
   graduatedAt: string | null;
   generalAverage: number | null;
   submissions: Array<{

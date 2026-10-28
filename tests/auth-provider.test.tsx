@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "@/app/components/AuthProvider";
 
+const mockedRouter = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  replace: vi.fn(),
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
-  useRouter: () => ({ refresh: vi.fn() }),
+  useRouter: () => mockedRouter,
 }));
 
 vi.mock("@/lib/supabase/browser", () => ({
@@ -30,7 +35,9 @@ function AuthState() {
 
 describe("AuthProvider", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
 
   it("loads the signed-in profile from the session endpoint", async () => {
@@ -73,5 +80,35 @@ describe("AuthProvider", () => {
     );
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("redirects a signed-in youth to the grantee dashboard when their role is promoted", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        user: { id: "user-3", email: "applicant@example.com", role: "GRANTEE" },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AuthProvider
+        initialUser={{
+          id: "user-3",
+          email: "applicant@example.com",
+          role: "YOUTH",
+        }}
+      >
+        <AuthState />
+      </AuthProvider>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(screen.getByTestId("auth-state")).toHaveTextContent('"role":"GRANTEE"');
+    expect(mockedRouter.replace).toHaveBeenCalledWith("/grantee-dashboard");
   });
 });

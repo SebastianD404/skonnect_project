@@ -143,7 +143,11 @@ export default async function ApplicationPage({ params }: Props) {
   }
 
   if (application.reviewStatus?.toUpperCase() === "APPROVED") {
-    redirect("/grantee-dashboard");
+    redirect(
+      appUserProfile.role === "YOUTH"
+        ? `/applications/${id}/history`
+        : "/grantee-dashboard"
+    );
   }
 
   return (

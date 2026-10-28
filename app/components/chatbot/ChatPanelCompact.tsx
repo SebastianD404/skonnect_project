@@ -24,11 +24,14 @@ type Props = {
   messages: ChatUiMessage[];
   isSending: boolean;
   isLoadingHistory: boolean;
+  isLoadingOlderHistory: boolean;
+  totalHistoryMessages: number;
   error: string | null;
   canSend: boolean;
   onClose: () => void;
   onSend: (value: string) => Promise<void> | void;
   onStartNewConversation: () => void;
+  onLoadOlderHistory: () => Promise<void> | void;
 };
 
 export function ChatPanelCompact({
@@ -38,11 +41,14 @@ export function ChatPanelCompact({
   messages,
   isSending,
   isLoadingHistory,
+  isLoadingOlderHistory,
+  totalHistoryMessages,
   error,
   canSend,
   onClose,
   onSend,
   onStartNewConversation,
+  onLoadOlderHistory,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -50,6 +56,7 @@ export function ChatPanelCompact({
   const [draft, setDraft] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [showFullHistory, setShowFullHistory] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(10);
 
   useEffect(() => {
     if (!isOpen) {
@@ -126,8 +133,14 @@ export function ChatPanelCompact({
     return messageList.slice(-recentWindow);
   }, [messageList, showFullHistory]);
   const historyMessages = useMemo(
-    () => messageList.filter((message) => message.role === "USER"),
+    () => messageList
+      .filter((message) => message.role === "USER")
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
     [messageList],
+  );
+  const visibleHistoryMessages = useMemo(
+    () => historyMessages.slice(0, visibleCount),
+    [historyMessages, visibleCount],
   );
 
   const sendDraft = async () => {
@@ -186,7 +199,10 @@ export function ChatPanelCompact({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setShowHistory((current) => !current)}
+            onClick={() => setShowHistory((current) => {
+              if (!current) setVisibleCount(10);
+              return !current;
+            })}
             className={`rounded-md p-2 transition ${
               showHistory
                 ? "bg-slate-100 text-[#0F3D5C]"
@@ -223,6 +239,7 @@ export function ChatPanelCompact({
                   onStartNewConversation();
                   setShowHistory(false);
                   setShowFullHistory(false);
+                  setVisibleCount(10);
                 }}
                 className="text-xs font-medium text-[#0F3D5C] hover:underline"
               >
@@ -236,7 +253,7 @@ export function ChatPanelCompact({
                 No past conversations yet.
               </p>
             ) : (
-              historyMessages.map((message) => (
+              visibleHistoryMessages.map((message) => (
                 <button
                   key={message.id}
                   type="button"
@@ -257,6 +274,27 @@ export function ChatPanelCompact({
                 </button>
               ))
             )}
+            {!isLoadingHistory && visibleCount < totalHistoryMessages ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVisibleCount = visibleCount + 10;
+                  setVisibleCount(nextVisibleCount);
+                  if (
+                    historyMessages.length < totalHistoryMessages &&
+                    nextVisibleCount > historyMessages.length
+                  ) {
+                    void onLoadOlderHistory();
+                  }
+                }}
+                disabled={isLoadingOlderHistory}
+                className="mt-2 w-full rounded-xl bg-slate-100 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isLoadingOlderHistory
+                  ? "Loading older conversations..."
+                  : `Load older conversations (${Math.max(totalHistoryMessages - visibleCount, 0)} remaining)`}
+              </button>
+            ) : null}
           </div>
         ) : isLoadingHistory ? (
           <p className="text-xs text-slate-500">Loading recent messages...</p>

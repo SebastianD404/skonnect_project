@@ -61,6 +61,12 @@ const CERTIFICATE_TERMS = [
 const CERTIFICATE_DOCUMENT_TERMS = [
   "Certificate of Residency", "certificate", "residency", "resident", "residing",
 ];
+const NON_RESIDENCY_CERTIFICATE_TERMS =
+  /\b(?:low[\s-]*income|indigency|indigence)\b/i;
+const RESIDENCY_CERTIFICATE_TITLE =
+  /\b(?:certificate\s+of\s+(?:residency|residence)|(?:residency|residence)\s+certificate|proof\s+of\s+(?:residency|residence))\b/i;
+const BARANGAY_RESIDENCY_STATEMENT =
+  /\b(?:resident|residing|resided|living|lived)\b[\s\S]{0,80}\b(?:barangay|brgy\.?|pico)\b|\b(?:barangay|brgy\.?|pico)\b[\s\S]{0,80}\b(?:resident|residing|resided|living|lived)\b/i;
 
 type BrowserOcrWorker = Awaited<ReturnType<typeof createBrowserWorker>>;
 
@@ -216,7 +222,17 @@ export function validateRecognizedText(
   const matchedKeywords = findMatches(normalizedText, CERTIFICATE_TERMS);
   const hasEight = /\b(8|08|eight)\b/i.test(normalizedText);
   const hasMonths = /\b(months?|mos\.?)\b/i.test(normalizedText);
-  if (matchedKeywords.length === 0 || !hasEight || !hasMonths) {
+  const isNonResidencyCertificate = NON_RESIDENCY_CERTIFICATE_TERMS.test(normalizedText);
+  const hasResidencyEvidence =
+    RESIDENCY_CERTIFICATE_TITLE.test(normalizedText) ||
+    BARANGAY_RESIDENCY_STATEMENT.test(normalizedText);
+  if (
+    isNonResidencyCertificate ||
+    matchedKeywords.length === 0 ||
+    !hasResidencyEvidence ||
+    !hasEight ||
+    !hasMonths
+  ) {
     return invalidResult(
       "Unrecognized Document",
       "We couldn't verify this as a Certificate of Residency that confirms at least eight months of residency.",

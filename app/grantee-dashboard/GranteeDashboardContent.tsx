@@ -64,7 +64,7 @@ export default async function GranteeDashboardContent() {
   }
 
   if (!appUser || appUser.role !== "GRANTEE") {
-    redirect("/login");
+    redirect("/?error=unauthorized_role");
   }
 
   let journeyPhotoUrl: string | undefined;

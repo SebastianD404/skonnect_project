@@ -2,7 +2,7 @@ import type { Language } from "@prisma/client";
 
 const ILOCANO_MARKERS = new Set([
   "ania", "siasino", "sinu", "sadino", "kasano", "dagiti", "ti", "nga", "ket",
-  "wenno", "mabalin", "masapul", "adda", "saludsod", "agapply", "isumiter",
+  "wenno", "mabalin", "masapul", "adda", "dadduma", "sabali", "saludsod", "agapply", "isumiter",
   "babaen", "apay", "manu", "mano", "maysa", "balay", "iti", "wen", "haan",
   "awan", "papanak", "alaen", "idjay", "ijay",
 ]);

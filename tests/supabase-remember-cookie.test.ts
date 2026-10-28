@@ -8,6 +8,13 @@ describe("getSessionCookieOptions", () => {
     expect(getSessionCookieOptions(options, true)).toEqual(options);
   });
 
+  it("adds a persistent lifetime if Supabase omits cookie options", () => {
+    expect(getSessionCookieOptions(undefined, true)).toEqual({
+      path: "/",
+      maxAge: 400 * 24 * 60 * 60,
+    });
+  });
+
   it("uses a browser-session cookie when remember me is disabled", () => {
     expect(
       getSessionCookieOptions({ path: "/", maxAge: 400 * 24 * 60 * 60 }, false),

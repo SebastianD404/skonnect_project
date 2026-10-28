@@ -369,9 +369,6 @@ export default function SkeapApplicationsClient({
   const [applicationCounts, setApplicationCounts] = useState<ApplicationCounts | undefined>(counts);
   const [selectedAppId, setSelectedAppId] = useState<string>(initialApplications[0]?.id ?? "");
   const [viewFilter, setViewFilter] = useState<"pending" | "resubmitted" | "returned" | "approved">("pending");
-  const [verificationFilter, setVerificationFilter] = useState<
-    "all" | "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW"
-  >("all");
   const [selectedAcademicYear, setSelectedAcademicYear] = useState(initialAcademicYear);
   const itemsPerPage = 10;
   const [currentPage, setCurrentPage] = useState(1);
@@ -687,13 +684,6 @@ export default function SkeapApplicationsClient({
     });
   }, [verifyUploadGroups, selectedApplication, documentMapByUrl, selectedStatus]);
 
-  const filteredVerifyDocuments = useMemo(
-    () => verificationFilter === "all"
-      ? visibleVerifyDocuments
-      : visibleVerifyDocuments.filter((doc) => doc.verificationStatus === verificationFilter),
-    [visibleVerifyDocuments, verificationFilter]
-  );
-
   const verifiedCount = useMemo(
     () => visibleVerifyDocuments.filter((doc) => doc.verified).length,
     [visibleVerifyDocuments]
@@ -746,7 +736,15 @@ export default function SkeapApplicationsClient({
 
   const handleRefresh = useCallback(async (
     academicYear = selectedAcademicYear,
-    { refreshServerData = true, silent = false }: { refreshServerData?: boolean; silent?: boolean } = {}
+    {
+      refreshServerData = true,
+      silent = false,
+      preserveApplication,
+    }: {
+      refreshServerData?: boolean;
+      silent?: boolean;
+      preserveApplication?: ApplicationRecord;
+    } = {}
   ) => {
     if (isRefreshingRef.current || isFetchingNextPageRef.current) return;
 
@@ -778,12 +776,18 @@ export default function SkeapApplicationsClient({
           ];
         });
       } else {
-        setApplications(page.applications);
+        const refreshedApplications = preserveApplication
+          ? [
+              preserveApplication,
+              ...page.applications.filter((application) => application.id !== preserveApplication.id),
+            ]
+          : page.applications;
+        setApplications(refreshedApplications);
         setCurrentPage(1);
         setSelectedAppId((currentId) =>
-          page.applications.some((application) => application.id === currentId)
+          refreshedApplications.some((application) => application.id === currentId)
             ? currentId
-            : page.applications[0]?.id ?? ""
+            : refreshedApplications[0]?.id ?? ""
         );
       }
       setCursor(page.nextCursor);
@@ -1171,31 +1175,32 @@ export default function SkeapApplicationsClient({
       router.refresh();
       const reviewThread = result?.reviewThread;
       const resultingStatus = result?.reviewStatus ?? "Approved";
-      if (reviewThread) {
-        updateSelectedApplication((application) => ({
-          ...application,
-          status: resultingStatus,
-          messages: [
-            ...reviewThread,
-          ],
-        }));
-      } else {
-        updateSelectedApplication((application) => ({
-          ...application,
-          status: resultingStatus,
-          messages: [
-            {
-              id: `msg-${Date.now()}`,
-              role: "admin",
-              createdAt: new Date().toISOString(),
-              text: result?.response ?? approvalText,
-            },
-            ...application.messages,
-          ],
-        }));
-      }
+      const updatedApplication: ApplicationRecord = {
+        ...selectedApplication,
+        status: resultingStatus,
+        messages: reviewThread ?? [
+          {
+            id: `msg-${Date.now()}`,
+            role: "admin",
+            createdAt: new Date().toISOString(),
+            text: result?.response ?? approvalText,
+          },
+          ...selectedApplication.messages,
+        ],
+      };
+      updateSelectedApplication(() => updatedApplication);
 
-      await handleRefresh(selectedAcademicYear, { refreshServerData: false });
+      if (normalizeApplicationStatus(resultingStatus) === "Approved") {
+        setViewFilter("approved");
+        setCurrentPage(1);
+        setSelectedAppId(selectedApplication.id);
+        await handleRefresh(selectedAcademicYear, {
+          refreshServerData: false,
+          preserveApplication: updatedApplication,
+        });
+      } else {
+        await handleRefresh(selectedAcademicYear, { refreshServerData: false });
+      }
     } catch (error) {
       setApprovalError(error instanceof Error ? error.message : "Unable to approve application.");
       console.error(error);
@@ -1693,17 +1698,6 @@ export default function SkeapApplicationsClient({
                           <h2 className="mt-1 text-xl font-semibold text-slate-950">Documents to verify</h2>
                         </div>
                         <div className="flex items-center gap-3">
-                          <label className="sr-only" htmlFor="skeap-ocr-filter">Filter documents by OCR status</label>
-                          <select
-                            id="skeap-ocr-filter"
-                            value={verificationFilter}
-                            onChange={(event) => setVerificationFilter(event.currentTarget.value as typeof verificationFilter)}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
-                          >
-                            <option value="all">All OCR statuses</option>
-                            <option value="AUTO_VERIFIED">Auto-verified</option>
-                            <option value="PENDING_ADMIN_REVIEW">Pending admin review</option>
-                          </select>
                           <div className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
                             {verifiedCount}/{verifyDocumentCount}
                           </div>
@@ -1712,7 +1706,7 @@ export default function SkeapApplicationsClient({
 
                       <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
                         <div className="divide-y divide-slate-200 bg-white">
-                          {filteredVerifyDocuments.map((doc) => {
+                          {visibleVerifyDocuments.map((doc) => {
                             const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
                             const isResubmittedDoc = doc.updated || (selectedStatus === "Resubmitted" && docStatus === "Returned");
                             const badgeClass = isReviewFinalized || doc.verified
@@ -1803,7 +1797,7 @@ export default function SkeapApplicationsClient({
                               </div>
                             );
                           })}
-                          {filteredVerifyDocuments.length === 0 ? (
+                          {visibleVerifyDocuments.length === 0 ? (
                             <p className="px-4 py-8 text-center text-sm text-slate-500">
                               No documents match this OCR status.
                             </p>
@@ -2321,24 +2315,31 @@ export default function SkeapApplicationsClient({
 
       {showApprovePreview && selectedApplication && !isReviewFinalized ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-2xl rounded-[2rem] bg-white p-6 shadow-2xl">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.35em] text-emerald-500">Approval preview</p>
-                <h2 className="mt-3 text-3xl font-bold text-slate-950">Approve this applicant</h2>
+          <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="absolute inset-x-0 top-0 h-[6px] bg-gradient-to-r from-emerald-600 via-emerald-300 to-emerald-100" aria-hidden="true" />
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                  <CheckCircle className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.35em] text-emerald-500">Approval preview</p>
+                  <h2 className="mt-1 text-3xl font-bold text-slate-950">Approve this applicant</h2>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowApprovePreview(false)}
-                className="rounded-full border border-slate-200 bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200"
+                className="p-2 text-slate-400 transition hover:text-slate-600"
+                aria-label="Close approval preview"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-8 rounded-[1.5rem] border border-emerald-100 bg-emerald-50 p-6 text-slate-900">
+            <div className="mt-8 rounded-xl border border-emerald-200 bg-emerald-50/50 p-6 text-slate-900">
               <div className="flex items-center gap-3 text-sm font-semibold text-emerald-700">
-                <CheckCircle2 className="h-4 w-4" />
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-700" aria-hidden="true" />
                 {approvalCapacityFull ? "Waitlist Assignment Preview" : "Active Acceptance Preview"}
               </div>
               <p className="mt-4 leading-7">
@@ -2349,11 +2350,11 @@ export default function SkeapApplicationsClient({
             </div>
             {approvalError ? <p role="alert" className="mt-4 text-sm text-rose-600">{approvalError}</p> : null}
 
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
               <button
                 type="button"
                 onClick={() => setShowApprovePreview(false)}
-                className="inline-flex items-center justify-center rounded-3xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                className="inline-flex items-center justify-center px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:text-slate-900"
               >
                 Cancel
               </button>
@@ -2361,10 +2362,10 @@ export default function SkeapApplicationsClient({
                 type="button"
                 onClick={handleApprove}
                 disabled={isApproving}
-                className="inline-flex items-center justify-center gap-2 rounded-3xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition transform hover:bg-emerald-700 hover:shadow-md active:scale-95 active:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:cursor-wait disabled:opacity-70"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition transform hover:bg-emerald-700 hover:shadow-md active:scale-95 active:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:cursor-wait disabled:opacity-70"
               >
-                <ArrowUpRight className="h-4 w-4" />
                 {isApproving ? "Confirming..." : "Confirm approval"}
+                <ArrowRight className="h-4 w-4" />
               </button>
             </div>
           </div>

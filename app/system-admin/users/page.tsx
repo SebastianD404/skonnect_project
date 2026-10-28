@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/prisma";
+import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
+import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import UserRoleManager from "../UserRoleManager";
@@ -22,6 +23,7 @@ export default async function SystemAdminUsersPage({
   const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
     ? requestedPageSize
     : 10;
+  const hasRetentionColumn = await hasGranteeRetentionColumn();
   const [totalCount, users] = await Promise.all([
     prisma.user.count(),
     prisma.user.findMany({
@@ -36,6 +38,23 @@ export default async function SystemAdminUsersPage({
         role: true,
         isActive: true,
         createdAt: true,
+        updatedAt: true,
+        username: true,
+        phoneNumber: true,
+        barangay: true,
+        languagePref: true,
+        grantee: {
+          select: {
+            status: true,
+            school: true,
+            yearLevel: true,
+            generalAverage: true,
+            dateEnrolled: true,
+            dateRemoved: true,
+            graduatedAt: true,
+            ...(hasRetentionColumn ? { retentionExpiresAt: true } : {}),
+          },
+        },
       },
     }),
   ]);
@@ -74,6 +93,20 @@ export default async function SystemAdminUsersPage({
           avatarUrl: user.avatarUrl,
           role: user.role,
           isActive: user.isActive,
+          granteeStatus: user.grantee?.status ?? null,
+          username: user.username,
+          phoneNumber: user.phoneNumber,
+          barangay: user.barangay,
+          languagePref: user.languagePref,
+          updatedAt: user.updatedAt.toISOString(),
+          granteeSchool: user.grantee?.school ?? null,
+          granteeYearLevel: user.grantee?.yearLevel ?? null,
+          granteeGeneralAverage: user.grantee?.generalAverage ?? null,
+          granteeDateEnrolled: user.grantee?.dateEnrolled.toISOString() ?? null,
+          granteeArchivedAt: (user.grantee?.graduatedAt ?? user.grantee?.dateRemoved)?.toISOString() ?? null,
+          granteeRetentionExpiresAt: user.grantee
+            ? getRetentionExpiryDate(user.grantee)?.toISOString() ?? null
+            : null,
           createdAt: user.createdAt.toISOString(),
         }))}
       />

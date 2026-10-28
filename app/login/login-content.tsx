@@ -15,6 +15,7 @@ function LoginForm() {
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const next = search.get("next") ?? "";
+  const sessionExpired = search.get("reason") === "session_expired";
   const kkProfilingHref = `/programs/kk-profiling${next ? `?redirect=${encodeURIComponent(next)}` : ""}`;
 
   return (
@@ -41,6 +42,11 @@ function LoginForm() {
             onSubmit={() => setDismissedError(null)}
             className="mt-6 space-y-5"
           >
+            {sessionExpired ? (
+              <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900" role="status">
+                Your session expired. Please sign in again to continue.
+              </div>
+            ) : null}
             {state?.error && state.error !== dismissedError ? (
               <div
                 role="alert"

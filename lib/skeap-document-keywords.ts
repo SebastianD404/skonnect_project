@@ -97,15 +97,31 @@ export const DOCUMENT_KEYWORDS: Partial<Record<SkeapUploadKey, string[]>> = {
     ...BIRTH_CERTIFICATE_KEYWORDS,
   ],
   [SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY]: [
-    "barangay",
-    "residency",
-    "certification",
-    "clearance",
-    "residente",
-    "pico",
+    "certificate of residency",
+    "certificate of residence",
+    "residency certificate",
+    "residence certificate",
+    "certification of residency",
+    "residency certification",
+    "proof of residency",
+    "barangay residency",
+    "resident of barangay",
+    "resident of brgy",
+    "resident of pico",
+    "residing in barangay",
+    "residing in brgy",
+    "residing in pico",
+    "bona fide resident",
+    "bonafide resident",
   ],
   [SKEAP_UPLOAD_KEY.ENROLLMENT_CERT]: [
     "certificate of enrollment",
+    "certificate of enrolment",
+    "enrollment certificate",
+    "enrolment certificate",
+    "certificate of registration",
+    "registration certificate",
+    "certificate of matriculation",
     "registration form",
     "enrolled",
     "semester",
@@ -114,13 +130,18 @@ export const DOCUMENT_KEYWORDS: Partial<Record<SkeapUploadKey, string[]>> = {
     "notice of admission",
   ],
   [SKEAP_UPLOAD_KEY.GRADE_REPORT]: [
+    "grade report",
+    "report card",
+    "transcript of records",
     "grade",
     "grades",
     "transcript",
     "gwa",
+    "form 138",
     "report of rating",
     "cor",
     "final rating",
+    "final grade",
   ],
   [SKEAP_UPLOAD_KEY.FAMILY_INCOME]: [
     "family income certificate",
@@ -273,10 +294,22 @@ export function getSkeapDocumentKeywordMatches(text: string, docType: SkeapUploa
     return getBirthCertificateMatches(text);
   }
 
+  if (
+    docType === SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY &&
+    isSkeapFamilyIncomeDocument(text)
+  ) {
+    return [];
+  }
+
   const keywords = DOCUMENT_KEYWORDS[docType] ?? [];
   return keywords.filter((keyword) =>
     phraseMatchesWithOCRNoise(text, normalizeOCRText(keyword).trim())
   );
+}
+
+export function isSkeapFamilyIncomeDocument(text: string) {
+  const normalizedText = normalizeOCRText(text);
+  return /\b(?:income|inco\s+me|indigenc(?:y|e)|tax\s+exemption)\b/.test(normalizedText);
 }
 
 export function extractDocxTextFromBuffer(buffer: ArrayBuffer | Uint8Array) {

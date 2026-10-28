@@ -127,7 +127,19 @@ function ChatWidgetContent() {
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
 
-  const { messages, error, isLoadingHistory, isSending, canSend, loadHistory, sendMessage, startNewConversation } = useChatSession();
+  const {
+    messages,
+    error,
+    isLoadingHistory,
+    isLoadingOlderHistory,
+    totalHistoryMessages,
+    isSending,
+    canSend,
+    loadHistory,
+    loadOlderHistory,
+    sendMessage,
+    startNewConversation,
+  } = useChatSession();
 
   useEffect(() => {
     const portalFrame = window.requestAnimationFrame(() => {
@@ -249,12 +261,15 @@ function ChatWidgetContent() {
           isMobile={isMobile}
           messages={messages}
           isLoadingHistory={isLoadingHistory}
+          isLoadingOlderHistory={isLoadingOlderHistory}
+          totalHistoryMessages={totalHistoryMessages}
           isSending={isSending}
           error={error}
           canSend={canSend}
           onClose={() => setIsOpen(false)}
           onSend={sendMessage}
           onStartNewConversation={() => startNewConversation()}
+          onLoadOlderHistory={loadOlderHistory}
         />,
         portalContainer,
       )}

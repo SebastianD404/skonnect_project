@@ -540,11 +540,7 @@ export default function GranteeDocumentsClient({
       }
 
       if (kind === "coe") {
-        const normalizedText = text.toLowerCase();
-        const gradeKeywords = ["gwa", "transcript", "form 138", "report card", "final grade"];
-        const isGradeReport = gradeKeywords.some((keyword) => normalizedText.includes(keyword));
-
-        if (isGradeReport) {
+        if (validateGradeReport(text, file.name)) {
           setForm((prev) => ({ ...prev, coeFile: file, coeFileUrl: "" }));
           setCoeOcrStatus("WARNING");
           setCoeOcrWarning("This looks like your Grade Report. Please verify your file.");
@@ -555,16 +551,16 @@ export default function GranteeDocumentsClient({
       }
 
       const matches = kind === "grade"
-        ? validateGradeReport(text)
-        : validateCertificateOfEnrollment(text);
+      ? validateGradeReport(text, file.name)
+      : validateCertificateOfEnrollment(text, file.name);
       if (matches === true) {
         setStatus("SUCCESS");
       } else {
         setStatus("WARNING");
         setWarning(
           kind === "grade"
-            ? "This document doesn't look like a Grade Report. Please verify your file."
-            : "This document doesn't look like a Certificate of Enrollment. Please verify your file."
+            ? "We couldn't confidently verify this as a Grade Report. Please check the file; SK admin can still review it."
+            : "We couldn't confidently verify this as a Certificate of Enrollment. Please check the file; SK admin can still review it."
         );
       }
       return true;

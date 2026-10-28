@@ -62,7 +62,7 @@ export async function PATCH(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const nextUser = await (tx as any).user.update({
+      const nextUser = await tx.user.update({
         where: { id: target.id },
         data: { role: requestedRole },
         select: {
@@ -77,13 +77,14 @@ export async function PATCH(
               id: true,
               school: true,
               yearLevel: true,
+              status: true,
             },
           },
         },
       });
 
       if (requestedRole === Role.GRANTEE) {
-        await (tx as any).grantee.upsert({
+        const grantee = await tx.grantee.upsert({
           where: { userId: target.id },
           create: {
             userId: target.id,
@@ -91,11 +92,41 @@ export async function PATCH(
             yearLevel: GRANTEE_PLACEHOLDER_YEAR_LEVEL,
             status: "ACTIVE",
           },
-          update: {},
+          update: nextUser.grantee?.status === "REMOVED"
+            ? {
+                status: "ACTIVE",
+                dateRemoved: null,
+              }
+            : {},
+          select: { status: true },
+        });
+        if (nextUser.grantee?.status === "REMOVED") {
+          await writeAuditLog(tx, {
+            action: "GRANTEE_STATUS_CHANGED",
+            actorId: actor.id,
+            targetTable: "grantees",
+            targetId: nextUser.grantee.id,
+            beforeData: { status: "REMOVED" },
+            afterData: { status: grantee.status },
+            metadata: {
+              target: target.id,
+              targetUserName: target.fullName,
+              targetUserEmail: target.email,
+              reason: "Reinstated when user role was changed to GRANTEE",
+            },
+          });
+        }
+      } else if (nextUser.grantee && nextUser.grantee.status !== "GRADUATED") {
+        await tx.grantee.update({
+          where: { userId: target.id },
+          data: {
+            status: "REMOVED",
+            dateRemoved: new Date(),
+          },
         });
       }
 
-      await writeAuditLog(tx as any, {
+      await writeAuditLog(tx, {
         action: "UPDATE_USER_ROLE",
         actorId: actor.id,
         targetTable: "users",

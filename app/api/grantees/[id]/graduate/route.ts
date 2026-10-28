@@ -29,12 +29,37 @@ export async function PATCH(
         select: {
           id: true,
           status: true,
-          user: { select: { fullName: true } },
+          userId: true,
+          updatedAt: true,
+          user: { select: { fullName: true, role: true } },
         },
       });
 
       if (!grantee) throw new Error("GRANTEE_NOT_FOUND");
-      if (grantee.status !== GranteeStatus.ACTIVE && grantee.status !== GranteeStatus.PROBATIONARY) {
+      const restoredRows = grantee.status === GranteeStatus.REMOVED && grantee.user.role === Role.GRANTEE
+        ? await tx.$queryRaw<Array<{ restored: boolean }>>`
+            SELECT EXISTS (
+              SELECT 1
+              FROM "audit_logs" role_change
+              WHERE role_change."targetTable" = 'users'
+                AND role_change."targetId" = ${grantee.userId}
+                AND role_change."action" = 'UPDATE_USER_ROLE'
+                AND role_change."afterData"->>'role' = 'GRANTEE'
+                AND role_change."createdAt" >= ${grantee.updatedAt}
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM "audit_logs" newer_role_change
+                  WHERE newer_role_change."targetTable" = 'users'
+                    AND newer_role_change."targetId" = ${grantee.userId}
+                    AND newer_role_change."action" = 'UPDATE_USER_ROLE'
+                    AND newer_role_change."createdAt" > role_change."createdAt"
+                )
+            ) AS restored
+          `
+        : [];
+      const isRestored = restoredRows[0]?.restored === true;
+      const isActive = grantee.status === GranteeStatus.ACTIVE || grantee.status === GranteeStatus.PROBATIONARY;
+      if ((!isActive && !isRestored) || grantee.user.role !== Role.GRANTEE) {
         throw new Error("GRANTEE_NOT_ACTIVE");
       }
 
@@ -43,7 +68,10 @@ export async function PATCH(
       const updateResult = await tx.grantee.updateMany({
         where: {
           id,
-          status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+          status: isRestored
+            ? GranteeStatus.REMOVED
+            : { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+          user: { is: { role: Role.GRANTEE } },
         },
         data: {
           status: GranteeStatus.GRADUATED,
@@ -56,7 +84,7 @@ export async function PATCH(
       await tx.adminNotification.create({
         data: {
           title: "Scholarship Slot Freed",
-          message: `${grantee.user.fullName} has graduated. 1 slot is now available for the waitlist.`,
+          message: `${grantee.user.fullName} has graduated. 1 slot is now available for administrator waitlist review.`,
           type: "SLOT_RECLAIMED",
         },
       });

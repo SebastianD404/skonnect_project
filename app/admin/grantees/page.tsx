@@ -30,17 +30,40 @@ export default async function AdminGranteesPage({ searchParams }: {
     ? requestedPageSize
     : 10;
   const requestedStatus = String(rawStatus || "").toUpperCase();
-  const statusFilter = ["ACTIVE", "GRADUATED", "REMOVED"].includes(requestedStatus)
+  const statusFilter = ["GRADUATED", "REMOVED"].includes(requestedStatus)
     ? requestedStatus
-    : "ALL";
+    : "CURRENT";
   const skip = (page - 1) * pageSize;
   const hasRetentionColumn = await hasGranteeRetentionColumn();
-  const profileStatusSql = statusFilter === "ALL"
-    ? ""
-    : statusFilter === "ACTIVE"
-    ? `AND g."status"::text IN ('ACTIVE', 'PROBATIONARY')`
+  const restoredAfterRemovalSql = `EXISTS (
+    SELECT 1
+    FROM "audit_logs" role_change
+    WHERE role_change."targetTable" = 'users'
+      AND role_change."targetId" = profile_user."id"
+      AND role_change."action" = 'UPDATE_USER_ROLE'
+      AND role_change."afterData"->>'role' = 'GRANTEE'
+      AND role_change."createdAt" >= g."updatedAt"
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "audit_logs" newer_role_change
+        WHERE newer_role_change."targetTable" = 'users'
+          AND newer_role_change."targetId" = profile_user."id"
+          AND newer_role_change."action" = 'UPDATE_USER_ROLE'
+          AND newer_role_change."createdAt" > role_change."createdAt"
+      )
+  )`;
+  const profileStatusSql = statusFilter === "CURRENT"
+    ? `AND profile_user."role"::text = 'GRANTEE' AND (
+         g."status"::text IN ('ACTIVE', 'PROBATIONARY')
+         OR (g."status"::text = 'REMOVED' AND ${restoredAfterRemovalSql})
+       )`
+    : statusFilter === "REMOVED"
+    ? `AND (
+         (g."status"::text = 'REMOVED' AND NOT (profile_user."role"::text = 'GRANTEE' AND ${restoredAfterRemovalSql}))
+         OR (profile_user."role"::text <> 'GRANTEE' AND g."status"::text <> 'GRADUATED')
+       )`
     : `AND g."status"::text = '${statusFilter}'`;
-  const fallbackStatusSql = statusFilter === "ALL" || statusFilter === "ACTIVE" ? "" : "AND FALSE";
+  const fallbackStatusSql = statusFilter === "CURRENT" ? "" : "AND FALSE";
   const pageKeys = await prisma.$queryRawUnsafe<Array<{
     source: "profile" | "fallback";
     recordId: string;
@@ -110,6 +133,7 @@ export default async function AdminGranteesPage({ searchParams }: {
             email: true,
             avatarUrl: true,
             role: true,
+            updatedAt: true,
             inquiries: {
               orderBy: { createdAt: "desc" },
               take: 1,
@@ -174,7 +198,14 @@ export default async function AdminGranteesPage({ searchParams }: {
       yearLevel: grantee.yearLevel,
       currentJourneySemesterIndex: journeyProgress.currentSemesterIndex,
       validatedJourneySemesterIndexes: journeyProgress.validatedSemesterIndexes,
-      status: grantee.status,
+      status:
+        grantee.user.role === "GRANTEE" &&
+        grantee.status === "REMOVED" &&
+        statusFilter === "CURRENT"
+          ? "ACTIVE"
+          : grantee.user.role !== "GRANTEE" && grantee.status !== "GRADUATED"
+          ? "REMOVED"
+          : grantee.status,
       generalAverage:
         latestSubmission?.generalAverage ?? latestInquiry?.application?.gwa ?? grantee.generalAverage,
       dateEnrolled: grantee.dateEnrolled.toISOString(),

@@ -202,10 +202,19 @@ export async function login(
   const rememberMe = formData.get("remember") === "on";
   const supabase = await createClient({ rememberMe });
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  let signInResult;
+  try {
+    signInResult = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+  } catch (error) {
+    console.error("Login could not persist the authenticated session.", error);
+    return {
+      error: "We couldn't save your sign-in session. Please try again.",
+    };
+  }
+  const { data, error } = signInResult;
 
   if (error) {
     return { error: error.message };

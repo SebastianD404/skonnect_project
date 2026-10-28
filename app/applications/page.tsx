@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, CircleDashed, Clock3, ArrowRight } from "lucide-react";
+import { useAuth } from "@/app/components/AuthProvider";
 
 type ApplicationRecord = {
   id: string;
@@ -51,6 +52,7 @@ function StatusIndicator({ status }: { status: ApplicationCardStatus }) {
 }
 
 export default function ApplicationsPage() {
+  const { user } = useAuth();
   const [kkStatus, setKkStatus] = useState<ApplicationCardStatus | null>(null);
   const [skeapApplication, setSkeapApplication] = useState<ApplicationRecord | null>(null);
   const [skeapStatus, setSkeapStatus] = useState<ApplicationCardStatus | null>(null);
@@ -96,6 +98,10 @@ export default function ApplicationsPage() {
       active = false;
     };
   }, []);
+
+  const isHistoricalGranteeApplication =
+    user?.role === "YOUTH" &&
+    skeapApplication?.reviewStatus?.trim().toUpperCase() === "APPROVED";
 
   return (
     <main className="min-h-screen bg-[#F3F7FB] px-4 py-12 text-slate-900 sm:px-6 lg:px-8">
@@ -143,13 +149,31 @@ export default function ApplicationsPage() {
             </p>
             <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 pt-5">
               <div aria-live="polite">
-                {skeapStatus ? <StatusIndicator status={skeapStatus} /> : <span className="text-sm text-slate-500">Checking status...</span>}
+                {isHistoricalGranteeApplication ? (
+                  <StatusIndicator status={{ label: "Past Grantee", tone: "slate" }} />
+                ) : skeapStatus ? (
+                  <StatusIndicator status={skeapStatus} />
+                ) : (
+                  <span className="text-sm text-slate-500">Checking status...</span>
+                )}
               </div>
               <Link
-                href={skeapApplication ? `/applications/${skeapApplication.id}` : "/programs/skeap-scholarship"}
+                href={
+                  skeapApplication
+                    ? isHistoricalGranteeApplication
+                      ? "/programs/skeap/history"
+                      : `/applications/${skeapApplication.id}`
+                    : "/programs/skeap-scholarship"
+                }
                 className="inline-flex items-center gap-2 rounded-lg bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition-colors duration-300 hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 group-hover:bg-[#0D2E47]"
               >
-                <span>{skeapApplication ? "View Application" : "Apply Now"}</span>
+                <span>
+                  {skeapApplication
+                    ? isHistoricalGranteeApplication
+                      ? "View History"
+                      : "View Application"
+                    : "Apply Now"}
+                </span>
                 <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" aria-hidden="true" />
               </Link>
             </div>

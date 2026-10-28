@@ -83,7 +83,9 @@ export async function PATCH(
         where: { id, status: { not: "GRADUATED" } },
         data: {
           status: nextStatus as "ACTIVE" | "REMOVED",
-          ...(nextStatus === "ACTIVE" ? { graduatedAt: null } : {}),
+          ...(nextStatus === "ACTIVE"
+            ? { graduatedAt: null, dateRemoved: null }
+            : current.status !== "REMOVED" ? { dateRemoved: new Date() } : {}),
         },
       });
       if (updateResult.count !== 1) throw new Error("GRANTEE_ARCHIVED");
@@ -94,7 +96,7 @@ export async function PATCH(
       });
       if (!saved) throw new Error("GRANTEE_NOT_FOUND");
 
-      await writeAuditLog(tx as any, {
+      await writeAuditLog(tx, {
         action: "GRANTEE_STATUS_CHANGED",
         actorId: auth.user.id,
         targetTable: "grantees",
@@ -140,20 +142,74 @@ export async function DELETE(
       return auth.error;
     }
 
-    const grantee = await prisma.grantee.findUnique({ where: { id }, select: { status: true } });
-    if (!grantee) {
+    const rawForwardedFor = req.headers.get("x-forwarded-for") || "";
+    const ipAddress = rawForwardedFor.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
+    const userAgent = req.headers.get("user-agent") || "unknown";
+    const deletedGrantee = await prisma.$transaction(async (tx) => {
+      const current = await tx.grantee.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          school: true,
+          yearLevel: true,
+          dateEnrolled: true,
+          dateRemoved: true,
+          graduatedAt: true,
+          user: {
+            select: {
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      if (!current) return { status: "NOT_FOUND" as const };
+      if (current.status === "GRADUATED") return { status: "RETAINED" as const };
+
+      const deleteResult = await tx.grantee.deleteMany({
+        where: { id, status: { not: "GRADUATED" } },
+      });
+      if (deleteResult.count !== 1) return { status: "RETAINED" as const };
+
+      await writeAuditLog(tx, {
+        action: "DELETE_GRANTEE_RECORD",
+        actorId: auth.user.id,
+        targetTable: "grantees",
+        targetId: current.id,
+        beforeData: {
+          status: current.status,
+          userId: current.userId,
+          fullName: current.user.fullName,
+          email: current.user.email,
+          school: current.school,
+          yearLevel: current.yearLevel,
+          dateEnrolled: current.dateEnrolled.toISOString(),
+          dateRemoved: current.dateRemoved?.toISOString() ?? null,
+          graduatedAt: current.graduatedAt?.toISOString() ?? null,
+        },
+        metadata: {
+          target: current.user.fullName,
+          targetEmail: current.user.email,
+          targetId: current.id,
+          previousStatus: current.status,
+          ipAddress,
+          userAgent,
+        },
+      });
+
+      return { status: "DELETED" as const };
+    });
+
+    if (deletedGrantee.status === "NOT_FOUND") {
       return NextResponse.json({ error: "Grantee not found" }, { status: 404 });
     }
-    if (grantee.status === "GRADUATED") {
+    if (deletedGrantee.status === "RETAINED") {
       return NextResponse.json({ error: "Graduated grantee records cannot be deleted during statutory retention." }, { status: 409 });
     }
 
-    const deleteResult = await prisma.grantee.deleteMany({
-      where: { id, status: { not: "GRADUATED" } },
-    });
-    if (deleteResult.count !== 1) {
-      return NextResponse.json({ error: "Graduated grantee records cannot be deleted during statutory retention." }, { status: 409 });
-    }
     return NextResponse.json({ success: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

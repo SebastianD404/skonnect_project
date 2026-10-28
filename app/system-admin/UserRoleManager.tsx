@@ -1,17 +1,23 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import type { Role } from "@prisma/client";
 import {
   Download,
   Eye,
   Filter,
+  CheckCircle,
+  GraduationCap,
   LoaderCircle,
+  MoreHorizontal,
   Pencil,
   Search,
   Trash2,
+  UserX,
   X,
+  XCircle,
 } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { Avatar } from "@/components/ui/Avatar";
@@ -23,6 +29,18 @@ type UserItem = {
   avatarUrl: string | null;
   role: Role;
   isActive: boolean;
+  granteeStatus: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | null;
+  username: string | null;
+  phoneNumber: string | null;
+  barangay: string;
+  languagePref: string;
+  updatedAt: string;
+  granteeSchool: string | null;
+  granteeYearLevel: string | null;
+  granteeGeneralAverage: number | null;
+  granteeDateEnrolled: string | null;
+  granteeArchivedAt: string | null;
+  granteeRetentionExpiresAt: string | null;
   createdAt: string;
 };
 
@@ -40,6 +58,75 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "SUPER_ADMIN", label: "SUPER_ADMIN" },
 ];
 
+const SCHOLAR_STATUS_BADGES = {
+  ACTIVE: {
+    label: "Active",
+    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    Icon: CheckCircle,
+  },
+  PROBATIONARY: {
+    label: "Active",
+    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    Icon: CheckCircle,
+  },
+  GRADUATED: {
+    label: "Graduated",
+    className: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    Icon: GraduationCap,
+  },
+  REMOVED: {
+    label: "Removed",
+    className: "bg-red-50 text-red-700 border-red-200",
+    Icon: XCircle,
+  },
+} as const;
+
+const ACCOUNT_STATUS_BADGES = {
+  ACTIVE: {
+    label: "Active",
+    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    Icon: CheckCircle,
+  },
+  INACTIVE: {
+    label: "Inactive",
+    className: "bg-red-50 text-red-700 border-red-200",
+    Icon: XCircle,
+  },
+} as const;
+
+function formatDetailDate(value: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDetailDateOnly(value: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function DetailItem({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</dt>
+      <dd className="mt-1 break-words text-sm font-medium text-slate-700">{children}</dd>
+    </div>
+  );
+}
+
 export default function UserRoleManager({ users, totalCount }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -47,8 +134,15 @@ export default function UserRoleManager({ users, totalCount }: Props) {
   const [showRoleFilterMenu, setShowRoleFilterMenu] = useState(false);
   const [viewingUser, setViewingUser] = useState<UserItem | null>(null);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+  const [statusCandidate, setStatusCandidate] = useState<UserItem | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<UserItem | null>(null);
+  const [openActionsUserId, setOpenActionsUserId] = useState<string | null>(null);
+  const [actionsMenuPosition, setActionsMenuPosition] = useState({ top: 0, left: 0 });
+  const actionsTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const [editFullName, setEditFullName] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editPhoneNumber, setEditPhoneNumber] = useState("");
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [draftRoles, setDraftRoles] = useState<Record<string, Role>>(() =>
@@ -56,6 +150,53 @@ export default function UserRoleManager({ users, totalCount }: Props) {
   );
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!openActionsUserId) return;
+
+    function closeOnOutsideClick(event: PointerEvent) {
+      const target = event.target as Node;
+      if (!actionsMenuRef.current?.contains(target) && !actionsTriggerRef.current?.contains(target)) {
+        setOpenActionsUserId(null);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpenActionsUserId(null);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openActionsUserId]);
+
+  useLayoutEffect(() => {
+    if (!openActionsUserId) return;
+
+    function updateMenuPosition() {
+      const trigger = actionsTriggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = 192;
+      const menuHeight = 190;
+      const top = rect.bottom + menuHeight + 8 <= window.innerHeight
+        ? rect.bottom + 6
+        : Math.max(8, rect.top - menuHeight - 6);
+      const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
+      setActionsMenuPosition({ top, left });
+    }
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [openActionsUserId]);
 
   const filteredUsers = useMemo(() => {
     const value = query.toLowerCase().trim();
@@ -181,6 +322,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
     setEditingUser(user);
     setEditFullName(user.fullName);
     setEditEmail(user.email);
+    setEditPhoneNumber(user.phoneNumber ?? "");
   }
 
   function submitEditUser() {
@@ -194,7 +336,11 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         const response = await fetch(`/api/system-admin/users/${editingUser.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fullName: editFullName, email: editEmail }),
+          body: JSON.stringify({
+            fullName: editFullName,
+            email: editEmail,
+            phoneNumber: editPhoneNumber,
+          }),
         });
 
         const result = await response.json();
@@ -214,11 +360,16 @@ export default function UserRoleManager({ users, totalCount }: Props) {
     });
   }
 
-  function toggleUserStatus(user: UserItem) {
+  function requestUserStatusChange(user: UserItem) {
+    setStatusCandidate(user);
+    setMessage(null);
+  }
+
+  function toggleUserStatus() {
+    if (!statusCandidate) return;
+    const user = statusCandidate;
     const nextIsActive = !user.isActive;
     const action = nextIsActive ? "Reactivate" : "Deactivate";
-    const confirmed = window.confirm(`${action} ${user.fullName}?`);
-    if (!confirmed) return;
 
     setPendingUserId(user.id);
     setMessage(null);
@@ -237,6 +388,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         }
 
         setMessage({ type: "success", text: `User ${nextIsActive ? "reactivated" : "deactivated"}.` });
+        setStatusCandidate(null);
         router.refresh();
       } catch (error) {
         const text = error instanceof Error ? error.message : `Failed to ${action.toLowerCase()} user`;
@@ -247,10 +399,14 @@ export default function UserRoleManager({ users, totalCount }: Props) {
     });
   }
 
-  function deleteUser(user: UserItem) {
-    const confirmed = window.confirm(`Delete ${user.fullName}? This cannot be undone.`);
-    if (!confirmed) return;
+  function requestUserDeletion(user: UserItem) {
+    setDeleteCandidate(user);
+    setMessage(null);
+  }
 
+  function deleteUser() {
+    if (!deleteCandidate) return;
+    const user = deleteCandidate;
     setPendingUserId(user.id);
     setMessage(null);
 
@@ -266,6 +422,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         }
 
         setMessage({ type: "success", text: "User deleted successfully." });
+        setDeleteCandidate(null);
         router.refresh();
       } catch (error) {
         const text = error instanceof Error ? error.message : "Failed to delete user";
@@ -282,6 +439,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         <FloatingFeedback
           message={message.text}
           type={message.type}
+          autoDismissMs={message.type === "error" ? 3000 : 4500}
           onDismiss={() => setMessage(null)}
         />
       ) : null}
@@ -370,20 +528,24 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         </div>
         {filteredUsers.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[1080px] text-sm">
               <thead className="bg-slate-900 text-[11px] font-bold tracking-wider text-white uppercase">
                 <tr className="text-left">
-                  <th className="px-6 py-4">User / Email</th>
+                  <th className="py-4 pl-[72px] pr-6">User / Email</th>
                   <th className="px-6 py-4">Current Role</th>
                   <th className="px-6 py-4">Account Status</th>
+                  <th className="px-6 py-4">SKEAP Status</th>
                   <th className="px-6 py-4">Joined Date</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
+                  <th className="px-6 py-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredUsers.map((user) => {
                   const draftRole = draftRoles[user.id] ?? user.role;
                   const busy = isPending && pendingUserId === user.id;
+                  const scholarStatusBadge = user.granteeStatus
+                    ? SCHOLAR_STATUS_BADGES[user.granteeStatus]
+                    : null;
                   return (
                     <tr key={user.id} className="transition hover:bg-slate-50/50">
                       <td className="px-6 py-4">
@@ -415,58 +577,120 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                               </option>
                             ))}
                           </select>
-                          {busy ? <LoaderCircle className="h-4 w-4 animate-spin text-slate-500" aria-label="Updating role" /> : null}
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center" aria-live="polite">
+                            {busy ? (
+                              <LoaderCircle className="h-4 w-4 animate-spin text-cyan-700" aria-label="Updating role" />
+                            ) : null}
+                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${user.isActive ? "text-emerald-700" : "text-slate-500"}`}>
-                            <span className={`h-1.5 w-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
-                            {user.isActive ? "Active" : "Inactive"}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => toggleUserStatus(user)}
-                            disabled={busy}
-                            className="text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline disabled:opacity-50"
-                          >
-                            {user.isActive ? "Deactivate" : "Reactivate"}
-                          </button>
+                        <div className={`flex items-center gap-1.5 text-sm font-medium ${user.isActive ? "text-emerald-700" : "text-slate-500"}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
+                          {user.isActive ? "Active" : "Inactive"}
                         </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {scholarStatusBadge ? (
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold ${scholarStatusBadge.className}`}
+                          >
+                            <scholarStatusBadge.Icon className="h-3 w-3" aria-hidden="true" />
+                            {scholarStatusBadge.label}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-md border border-slate-100 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-400">
+                            N/A
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-xs tabular-nums text-slate-500">
                         {new Date(user.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex justify-end gap-1">
+                        <div className="flex items-center justify-center">
                           <button
                             type="button"
-                            onClick={() => setViewingUser(user)}
-                            title={`View ${user.fullName}`}
-                            aria-label={`View ${user.fullName}`}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                            onClick={() => setOpenActionsUserId((current) => current === user.id ? null : user.id)}
+                            title={`Actions for ${user.fullName}`}
+                            aria-label={`Actions for ${user.fullName}`}
+                            aria-haspopup="menu"
+                            aria-expanded={openActionsUserId === user.id}
+                            ref={openActionsUserId === user.id ? actionsTriggerRef : null}
+                            className="rounded-md p-2 text-slate-500 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
                           >
-                            <Eye className="h-4 w-4" />
+                            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => openEditUser(user)}
-                            title={`Edit ${user.fullName}`}
-                            aria-label={`Edit ${user.fullName}`}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteUser(user)}
-                            title={`Delete ${user.fullName}`}
-                            aria-label={`Delete ${user.fullName}`}
-                            disabled={busy}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {openActionsUserId === user.id && typeof document !== "undefined" ? createPortal(
+                            <div
+                              ref={actionsMenuRef}
+                              role="menu"
+                              aria-label={`Actions for ${user.fullName}`}
+                              className="fixed z-[100] w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
+                              style={actionsMenuPosition}
+                            >
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOpenActionsUserId(null);
+                                  setViewingUser(user);
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                              >
+                                <Eye className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                                View details
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOpenActionsUserId(null);
+                                  openEditUser(user);
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                              >
+                                <Pencil className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                                Edit profile
+                              </button>
+                              <div className="my-1.5 border-t border-slate-100" role="separator" />
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOpenActionsUserId(null);
+                                  requestUserStatusChange(user);
+                                }}
+                                disabled={busy}
+                                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                  user.isActive
+                                    ? "text-red-600 hover:bg-red-50 hover:text-red-700"
+                                    : "text-emerald-700 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {user.isActive ? (
+                                  <UserX className="h-4 w-4" aria-hidden="true" />
+                                ) : (
+                                  <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                                )}
+                                {user.isActive ? "Suspend Account" : "Reactivate Account"}
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOpenActionsUserId(null);
+                                  requestUserDeletion(user);
+                                }}
+                                disabled={busy}
+                                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                Delete User
+                              </button>
+                            </div>,
+                            document.body
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -487,25 +711,120 @@ export default function UserRoleManager({ users, totalCount }: Props) {
 
       {viewingUser ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/35 px-4">
-          <div className="w-full max-w-md rounded-2xl border border-[#D6E1EC] bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">User details</h3>
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#D6E1EC] bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar
+                  src={viewingUser.avatarUrl}
+                  alt={viewingUser.fullName || "User"}
+                  size={48}
+                  className="h-12 w-12 shrink-0 bg-slate-100 text-slate-600"
+                />
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-bold text-slate-900">
+                    {viewingUser.fullName || "Unnamed User"}
+                  </h3>
+                  <p className="truncate text-sm text-slate-500">{viewingUser.email}</p>
+                </div>
+              </div>
               <button
                 type="button"
-                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+                className="shrink-0 rounded-lg p-1 text-slate-500 hover:bg-slate-100"
                 onClick={() => setViewingUser(null)}
                 aria-label="Close"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="space-y-3 text-sm">
-              <p><span className="font-semibold text-slate-700">Name:</span> {viewingUser.fullName}</p>
-              <p><span className="font-semibold text-slate-700">Email:</span> {viewingUser.email}</p>
-              <p><span className="font-semibold text-slate-700">Role:</span> {viewingUser.role}</p>
-              <p><span className="font-semibold text-slate-700">Status:</span> {viewingUser.isActive ? "ACTIVE" : "INACTIVE"}</p>
-              <p><span className="font-semibold text-slate-700">Joined:</span> {new Date(viewingUser.createdAt).toLocaleString()}</p>
+            <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-slate-100 pt-6 sm:grid-cols-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">System Role</span>
+                <div className="mt-1.5">
+                  <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                    {viewingUser.role}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Account Access</span>
+                {(() => {
+                  const badge = ACCOUNT_STATUS_BADGES[viewingUser.isActive ? "ACTIVE" : "INACTIVE"];
+                  return (
+                    <div className="mt-1.5">
+                      <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold ${badge.className}`}>
+                        <badge.Icon className="h-3 w-3" aria-hidden="true" />
+                        {badge.label}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">SKEAP Status</span>
+                <div className="mt-1.5">
+                  {viewingUser.granteeStatus ? (
+                    (() => {
+                      const badge = SCHOLAR_STATUS_BADGES[viewingUser.granteeStatus];
+                      return (
+                        <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold ${badge.className}`}>
+                          <badge.Icon className="h-3 w-3" aria-hidden="true" />
+                          {badge.label}
+                        </span>
+                      );
+                    })()
+                  ) : (
+                    <span className="inline-flex items-center rounded-md border border-slate-100 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-400">
+                      N/A
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Joined</span>
+                <p className="mt-1.5 text-sm font-medium text-slate-700">
+                  {formatDetailDate(viewingUser.createdAt)}
+                </p>
+              </div>
             </div>
+            <section className="mt-6 border-t border-slate-100 pt-5">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Account information</h4>
+              <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+                <DetailItem label="Username">{viewingUser.username || "Not set"}</DetailItem>
+                <DetailItem label="Phone number">{viewingUser.phoneNumber || "Not provided"}</DetailItem>
+                <DetailItem label="Barangay">{viewingUser.barangay || "—"}</DetailItem>
+                <DetailItem label="Language preference">{viewingUser.languagePref}</DetailItem>
+                <DetailItem label="Last account update">{formatDetailDate(viewingUser.updatedAt)}</DetailItem>
+              </dl>
+            </section>
+            {viewingUser.granteeStatus ? (
+              <section className="mt-6 border-t border-slate-100 pt-5">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">SKEAP scholar details</h4>
+                <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+                  <DetailItem label="School">{viewingUser.granteeSchool || "—"}</DetailItem>
+                  <DetailItem label="Year level">{viewingUser.granteeYearLevel || "—"}</DetailItem>
+                  <DetailItem label="General average">
+                    {viewingUser.granteeGeneralAverage !== null
+                      ? viewingUser.granteeGeneralAverage.toFixed(2)
+                      : "No record"}
+                  </DetailItem>
+                  <DetailItem label="Enrollment date">
+                    {formatDetailDateOnly(viewingUser.granteeDateEnrolled)}
+                  </DetailItem>
+                  {viewingUser.granteeArchivedAt ? (
+                    <>
+                      <DetailItem label={viewingUser.granteeStatus === "GRADUATED" ? "Graduation date" : "Removal date"}>
+                        {formatDetailDateOnly(viewingUser.granteeArchivedAt)}
+                      </DetailItem>
+                      {viewingUser.granteeRetentionExpiresAt ? (
+                        <DetailItem label="Retention ends">
+                          {formatDetailDateOnly(viewingUser.granteeRetentionExpiresAt)}
+                        </DetailItem>
+                      ) : null}
+                    </>
+                  ) : null}
+                </dl>
+              </section>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -514,7 +833,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/35 px-4">
           <div className="w-full max-w-md rounded-2xl border border-[#D6E1EC] bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Edit user</h3>
+              <h3 className="text-lg font-semibold text-slate-900">Edit user profile</h3>
               <button
                 type="button"
                 className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
@@ -525,12 +844,26 @@ export default function UserRoleManager({ users, totalCount }: Props) {
               </button>
             </div>
 
+            <p className="mb-4 text-sm text-slate-500">
+              Update the user&apos;s name and contact details. Manage system role separately in the role selector.
+            </p>
             <div className="space-y-4">
               <label className="block text-sm">
                 <span className="mb-1 block text-slate-600">Full name</span>
                 <input
                   value={editFullName}
                   onChange={(event) => setEditFullName(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-[#CFDBE7] px-3 text-sm outline-none focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
+                />
+              </label>
+
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-600">Phone number</span>
+                <input
+                  type="tel"
+                  maxLength={32}
+                  value={editPhoneNumber}
+                  onChange={(event) => setEditPhoneNumber(event.target.value)}
                   className="h-10 w-full rounded-lg border border-[#CFDBE7] px-3 text-sm outline-none focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
                 />
               </label>
@@ -559,6 +892,124 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                   onClick={submitEditUser}
                 >
                   {isPending && pendingUserId === editingUser.id ? "Saving..." : "Save changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {statusCandidate ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="user-status-title"
+            aria-describedby="user-status-description"
+            className="w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className={`border-t-4 p-5 ${statusCandidate.isActive ? "border-amber-500" : "border-emerald-600"}`}>
+              <div className="flex items-start gap-3">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${statusCandidate.isActive ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+                  {statusCandidate.isActive ? (
+                    <UserX className="h-[18px] w-[18px]" aria-hidden="true" />
+                  ) : (
+                    <CheckCircle className="h-[18px] w-[18px]" aria-hidden="true" />
+                  )}
+                </div>
+                <div className="min-w-0 pt-0.5">
+                  <h2 id="user-status-title" className="text-base font-semibold text-slate-950">
+                    {statusCandidate.isActive ? "Deactivate account?" : "Reactivate account?"}
+                  </h2>
+                  <p id="user-status-description" className="mt-1.5 text-[13px] leading-5 text-slate-600">
+                    {statusCandidate.isActive ? (
+                      <>
+                        Deactivating <span className="font-semibold text-slate-900">{statusCandidate.fullName}</span>&apos;s account prevents sign-in until it is reactivated.
+                      </>
+                    ) : (
+                      <>
+                        Reactivating <span className="font-semibold text-slate-900">{statusCandidate.fullName}</span>&apos;s account restores their access to SKonnect.
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setStatusCandidate(null)}
+                  disabled={pendingUserId === statusCandidate.id}
+                  className="rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleUserStatus}
+                  disabled={pendingUserId === statusCandidate.id}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${statusCandidate.isActive ? "bg-amber-700 hover:bg-amber-800" : "bg-emerald-700 hover:bg-emerald-800"}`}
+                >
+                  {pendingUserId === statusCandidate.id ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : statusCandidate.isActive ? (
+                    <UserX className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {pendingUserId === statusCandidate.id
+                    ? "Updating..."
+                    : statusCandidate.isActive ? "Deactivate account" : "Reactivate account"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteCandidate ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-user-title"
+            aria-describedby="delete-user-description"
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className="border-t-4 border-rose-600 p-6">
+              <div className="flex items-start gap-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-700">
+                  <Trash2 className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <h2 id="delete-user-title" className="text-lg font-semibold text-slate-950">
+                    Delete user?
+                  </h2>
+                  <p id="delete-user-description" className="mt-2 text-sm leading-6 text-slate-600">
+                    Delete <span className="font-semibold text-slate-900">{deleteCandidate.fullName}</span>? This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-3 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setDeleteCandidate(null)}
+                  disabled={pendingUserId === deleteCandidate.id}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={deleteUser}
+                  disabled={pendingUserId === deleteCandidate.id}
+                  className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pendingUserId === deleteCandidate.id ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {pendingUserId === deleteCandidate.id ? "Deleting..." : "Delete user"}
                 </button>
               </div>
             </div>

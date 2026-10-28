@@ -185,7 +185,7 @@ export default function SmartPortraitDropzone({
           <div className="flex min-w-0 items-center gap-3">
             <Upload className="h-5 w-5 shrink-0 text-slate-400" aria-hidden="true" />
             <span className="text-sm text-slate-600">
-              {status === "error" ? errorMessage : "Upload a clear portrait photo."}
+              {status === "error" ? errorMessage : "Choose a clear portrait photo."}
             </span>
           </div>
           <button

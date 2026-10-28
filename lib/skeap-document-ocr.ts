@@ -5,6 +5,7 @@ import {
   DOCUMENT_KEYWORDS,
   extractDocxTextFromBuffer,
   getSkeapDocumentKeywordMatches,
+  isSkeapFamilyIncomeDocument,
 } from "@/lib/skeap-document-keywords";
 
 export type DocumentOCRResult =
@@ -408,7 +409,10 @@ export async function validateDocumentOCR(
         status: "review",
         extractedText: text,
         confidence,
-        reason: isPdf && text.trim().length < 20
+        reason: docType === SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY &&
+          isSkeapFamilyIncomeDocument(text)
+          ? "This appears to be a low-income or indigency certificate, not a Certificate of Residency. Upload the correct document or submit this file for administrator review."
+          : isPdf && text.trim().length < 20
           ? "This PDF may contain an image instead of readable text. Upload the original JPG, PNG, or WebP photo for automatic verification, or proceed to manual review."
           : "The document text does not clearly match this upload slot.",
       };

@@ -1,3 +1,6 @@
+import { getSkeapDocumentKeywordMatches } from "@/lib/skeap-document-keywords";
+import { SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
+
 const COE_ENROLLMENT_INDICATORS = ["enrollment", "enrolled", "registration"];
 const COE_CONTEXT_INDICATORS = [
   "certificate",
@@ -11,16 +14,22 @@ const COE_CONTEXT_INDICATORS = [
   "schedule",
 ];
 
-const GRADE_REPORT_NEGATIVE_KEYWORDS = [
+const GRADE_REPORT_HARD_NEGATIVE_KEYWORDS = [
   "application form",
   "scholarship application",
+  "journal",
+  "chapter 1",
+  "article info",
+];
+
+const GRADE_REPORT_SOFT_NEGATIVE_KEYWORDS = [
   "abstract",
   "issn",
   "methodology",
   "references",
-  "journal",
-  "chapter 1",
-  "article info",
+];
+
+const GRADE_REPORT_CLINICAL_KEYWORDS = [
   "patient",
   "vital signs",
   "intake",
@@ -32,7 +41,7 @@ const GRADE_REPORT_NEGATIVE_KEYWORDS = [
   "ivf",
 ];
 
-const COE_NEGATIVE_KEYWORDS = [
+const COE_CLINICAL_KEYWORDS = [
   "patient",
   "vital signs",
   "intake",
@@ -81,12 +90,33 @@ function containsKeyword(text: string, keyword: string) {
   return new RegExp(`\\b${pattern}\\b`).test(text);
 }
 
-export function validateCertificateOfEnrollment(text: string) {
+function normalizeFileName(fileName: string) {
+  return fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
+}
+
+function isCertificateOfEnrollmentFileName(fileName: string) {
+  const normalizedFileName = normalizeFileName(fileName);
+  return /\b(?:coe|coee|certificate of (?:enrollment|enrolment|registration)|(?:enrollment|enrolment|registration) certificate)\b/.test(
+    normalizedFileName
+  );
+}
+
+function isGradeReportFileName(fileName: string) {
+  return /\b(?:grade report|report card|transcript|form 138)\b/.test(
+    normalizeFileName(fileName)
+  );
+}
+
+function getClinicalMatchCount(text: string, keywords: string[]) {
+  return keywords.filter((keyword) => containsKeyword(text.toLowerCase(), keyword)).length;
+}
+
+export function validateCertificateOfEnrollment(text: string, fileName = "") {
   const normalizedText = text.toLowerCase();
-  if (
-    /\b(application form|scholarship application)\b/.test(normalizedText) ||
-    COE_NEGATIVE_KEYWORDS.some((keyword) => containsKeyword(normalizedText, keyword))
-  ) {
+  if (/\b(application form|scholarship application)\b/.test(normalizedText)) {
     return false;
   }
 
@@ -100,21 +130,57 @@ export function validateCertificateOfEnrollment(text: string) {
     containsKeyword(normalizedText, keyword)
   );
 
-  return isExplicitEnrollmentCertificate || (hasEnrollmentIndicator && hasAcademicContext);
+  const hasFuzzyEnrollmentCertificateTitle = getSkeapDocumentKeywordMatches(
+    text,
+    SKEAP_UPLOAD_KEY.ENROLLMENT_CERT
+  ).some((keyword) =>
+    /^(certificate of (?:enrollment|enrolment|registration|matriculation)|(?:enrollment|enrolment|registration) certificate)$/.test(
+      keyword
+    )
+  );
+  const hasEnrollmentFileName = isCertificateOfEnrollmentFileName(fileName);
+  const hasStrongEnrollmentEvidence =
+    isExplicitEnrollmentCertificate || hasFuzzyEnrollmentCertificateTitle || hasEnrollmentFileName;
+  const hasConflictingClinicalContent =
+    getClinicalMatchCount(text, COE_CLINICAL_KEYWORDS) >= 3 && !hasEnrollmentFileName;
+
+  if (hasConflictingClinicalContent) return false;
+  return hasStrongEnrollmentEvidence || (hasEnrollmentIndicator && hasAcademicContext);
 }
 
-export function validateGradeReport(text: string) {
+export function validateGradeReport(text: string, fileName = "") {
   const normalizedText = text.toLowerCase();
-  if (GRADE_REPORT_NEGATIVE_KEYWORDS.some((keyword) => containsKeyword(normalizedText, keyword))) {
+  if (GRADE_REPORT_HARD_NEGATIVE_KEYWORDS.some((keyword) => containsKeyword(normalizedText, keyword))) {
     return false;
   }
 
+  const hasGradeReportFileName = isGradeReportFileName(fileName);
+  if (
+    !hasGradeReportFileName &&
+    GRADE_REPORT_SOFT_NEGATIVE_KEYWORDS.some((keyword) => containsKeyword(normalizedText, keyword))
+  ) {
+    return false;
+  }
+
+  const hasFuzzyGradeReportTitle = getSkeapDocumentKeywordMatches(
+    text,
+    SKEAP_UPLOAD_KEY.GRADE_REPORT
+  ).some((keyword) =>
+    /^(grade report|report card|transcript|transcript of records|form 138|report of rating|final rating|final grade)$/.test(
+      keyword
+    )
+  );
   const hasPrimaryKeyword = PRIMARY_GRADE_KEYWORDS.some((keyword) =>
     containsKeyword(normalizedText, keyword)
   );
   const secondaryMatchCount = SECONDARY_GRADE_KEYWORDS.filter((keyword) =>
     containsKeyword(normalizedText, keyword)
   ).length;
+  const hasStrongGradeReportTitle = hasFuzzyGradeReportTitle || hasGradeReportFileName;
+  const hasConflictingClinicalContent =
+    getClinicalMatchCount(text, GRADE_REPORT_CLINICAL_KEYWORDS) >= 2 &&
+    !hasStrongGradeReportTitle;
 
-  return hasPrimaryKeyword || secondaryMatchCount >= 3;
+  if (hasConflictingClinicalContent) return false;
+  return hasPrimaryKeyword || hasFuzzyGradeReportTitle || secondaryMatchCount >= 3 || hasGradeReportFileName;
 }

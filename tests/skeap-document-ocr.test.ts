@@ -133,6 +133,25 @@ describe("validateDocumentOCR", () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
+  it("rejects a low-income certificate in the Certificate of Residency slot", async () => {
+    worker.recognize.mockResolvedValue({
+      data: {
+        text: "CERTIFICATE OF LOW INCOME OF PARENTS OR GUARDIAN BARANGAY PICO",
+        confidence: 87,
+      },
+    });
+
+    const result = await validateDocumentOCR(
+      { type: "image/webp", name: "CLI.webp" } as File,
+      SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY
+    );
+
+    expect(result).toMatchObject({
+      status: "review",
+      reason: expect.stringContaining("not a Certificate of Residency"),
+    });
+  });
+
   it("accepts a clearly recognized birth-certificate heading at moderate OCR confidence", async () => {
     worker.recognize.mockResolvedValue({
       data: { text: "CERTIFICATE OF LIVE BIRTH PSA", confidence: 42 },
