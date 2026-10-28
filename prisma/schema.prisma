@@ -67,57 +67,57 @@ model KKProfile {
 }
 
 model Grantee {
-  id             String        @id @default(uuid())
-  userId         String        @unique
-  status         GranteeStatus @default(ACTIVE)
-  yearLevel      String
-  school         String
-  generalAverage Float?
-  dateEnrolled   DateTime      @default(now())
-  dateRemoved    DateTime?
-  graduatedAt    DateTime?
+  id                 String            @id @default(uuid())
+  userId             String            @unique
+  status             GranteeStatus     @default(ACTIVE)
+  yearLevel          String
+  school             String
+  generalAverage     Float?
+  dateEnrolled       DateTime          @default(now())
+  dateRemoved        DateTime?
+  remarks            String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  graduatedAt        DateTime?
   retentionExpiresAt DateTime?
-  remarks        String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  submissions    Submission[]
-  payout         AccountingPayout?
+  payout             AccountingPayout?
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submissions        Submission[]
 
   @@index([status, updatedAt(sort: Desc)])
   @@map("grantees")
 }
 
 model Submission {
-  id                String           @id @default(uuid())
-  granteeId         String
-  semester          String
-  gradeFileUrl      String
-  coeFileUrl        String
-  generalAverage    Float?
-  status            SubmissionStatus @default(PENDING)
-  reviewedById      String?
-  reviewNotes       String?
-  submittedAt       DateTime         @default(now())
-  reviewedAt        DateTime?
-  flaggedFields     String[]         @default([])
-  resubmittedFields String[]         @default([])
-  coeStatus         SubmissionStatus @default(PENDING)
-  gradesStatus      SubmissionStatus @default(PENDING)
-  coeSubmittedAt    DateTime         @default(now())
-  coeApprovedAt     DateTime?
-  gradesSubmittedAt DateTime?
-  gradesApprovedAt  DateTime?
-  gradeRows         Json?
-  gradeReportSemester String?
-  ocrRawText        String?          @db.Text
-  ocrParsedRows     Json?
-  ocrGwa            Float?
-  ocrTotalUnits     Float?
-  ocrConfidence     Float?
-  ocrStatus         SubmissionOcrStatus @default(OCR_PENDING)
-  requiresStrictManualReview Boolean    @default(false)
-  grantee           Grantee          @relation(fields: [granteeId], references: [id], onDelete: Cascade)
+  id                         String              @id @default(uuid())
+  granteeId                  String
+  semester                   String
+  gradeFileUrl               String
+  coeFileUrl                 String
+  generalAverage             Float?
+  status                     SubmissionStatus    @default(PENDING)
+  reviewedById               String?
+  reviewNotes                String?
+  submittedAt                DateTime            @default(now())
+  reviewedAt                 DateTime?
+  flaggedFields              String[]            @default([])
+  coeStatus                  SubmissionStatus    @default(PENDING)
+  gradesStatus               SubmissionStatus    @default(PENDING)
+  coeSubmittedAt             DateTime            @default(now())
+  coeApprovedAt              DateTime?
+  gradesSubmittedAt          DateTime?
+  gradesApprovedAt           DateTime?
+  gradeRows                  Json?
+  gradeReportSemester        String?
+  ocrConfidence              Float?
+  ocrGwa                     Float?
+  ocrParsedRows              Json?
+  ocrRawText                 String?
+  ocrStatus                  SubmissionOcrStatus @default(OCR_PENDING)
+  ocrTotalUnits              Float?
+  requiresStrictManualReview Boolean             @default(false)
+  resubmittedFields          String[]            @default([])
+  grantee                    Grantee             @relation(fields: [granteeId], references: [id], onDelete: Cascade)
 
   @@index([status, submittedAt(sort: Desc)])
   @@index([granteeId, submittedAt(sort: Desc)])
@@ -126,52 +126,45 @@ model Submission {
   @@map("submissions")
 }
 
-enum SubmissionOcrStatus {
-  OCR_PENDING
-  OCR_DONE
-  OCR_NEEDS_REVIEW
-  OCR_FAILED
-}
-
 model SkeapApplication {
-  id                String           @id @default(uuid())
-  userId            String
-  currentCourse     String
-  yearLevel         String
-  gwa               Float?
-  enrollmentFileUrl String
-  reportCardFileUrl String
-  status            SubmissionStatus @default(PENDING)
-  submittedAt       DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  applicantName     String?
-  permanentAddress  String?
-  dateOfBirth       DateTime?
-  placeOfBirth      String?
-  fathersName       String?
-  fathersOccupation String?
-  fathersContact    String?
-  mothersMaidenName String?
-  mothersOccupation String?
-  contactNumber     String?
-  emailAddress      String?
-  uploadedFiles     Json?
-  photoFileUrl      String?
-  age               Int?
-  civilStatus       String?
-  registeredVoter   Boolean?
+  id                       String           @id @default(uuid())
+  userId                   String
+  currentCourse            String
+  yearLevel                String
+  gwa                      Float?
+  enrollmentFileUrl        String
+  reportCardFileUrl        String
+  status                   SubmissionStatus @default(PENDING)
+  submittedAt              DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  applicantName            String?
+  permanentAddress         String?
+  dateOfBirth              DateTime?
+  placeOfBirth             String?
+  fathersName              String?
+  fathersOccupation        String?
+  fathersContact           String?
+  mothersMaidenName        String?
+  mothersOccupation        String?
+  contactNumber            String?
+  emailAddress             String?
+  uploadedFiles            Json?
+  photoFileUrl             String?
+  age                      Int?
+  civilStatus              String?
+  mothersContact           String?
+  school                   String
+  gender                   String?
+  grades                   Json?
+  timeline                 Json?
+  waitlistPosition         Int?
+  educationalBackground    Json?
+  registeredVoter          Boolean?
   totalFamilyMonthlyIncome String?
-  signatureUrl      String?
-  mothersContact    String?
-  school            String
-  educationLevel    String?
-  gender            String?
-  grades            Json?
-  timeline          Json?
-  educationalBackground  Json?
-  waitlistPosition  Int?
-  inquiry           Inquiry?
-  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signatureUrl             String?
+  educationLevel           String?
+  inquiry                  Inquiry?
+  user                     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, submittedAt(sort: Desc)])
   @@index([status, waitlistPosition])
@@ -214,13 +207,13 @@ model ProfilingRegistration {
   submittedAt                       DateTime @default(now())
   reviewStatus                      String   @default("Pending")
   reviewNotes                       String?
-  requiresManualReview              Boolean  @default(false) @map("requires_manual_review")
   idBackFileUrl                     String?
   idDocumentType                    String?
   idFrontFileUrl                    String?
   idSingleFileUrl                   String?
   residencyStatementAcknowledgement Boolean  @default(false)
   middleName                        String   @default("")
+  requiresManualReview              Boolean  @default(false) @map("requires_manual_review")
   user                              User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([reviewStatus, submittedAt(sort: Desc)])
@@ -359,7 +352,7 @@ model MessageTemplate {
   type      MessageTemplateType
   channel   MessageTemplateChannel
   subject   String                 @default("")
-  body      String                 @db.Text
+  body      String
   createdAt DateTime               @default(now())
   updatedAt DateTime               @updatedAt
 
@@ -439,11 +432,11 @@ model Semester {
 model AccountingPayout {
   id        String    @id @default(uuid())
   granteeId String    @unique
-  grantee   Grantee   @relation(fields: [granteeId], references: [id])
   amount    Int
   semester  String?
   claimedAt DateTime? @map("claimed_at")
   createdAt DateTime  @default(now()) @map("created_at")
+  grantee   Grantee   @relation(fields: [granteeId], references: [id])
 
   @@map("accounting_payouts")
 }
@@ -462,6 +455,13 @@ model registrations {
   users         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, userId])
+}
+
+enum SubmissionOcrStatus {
+  OCR_PENDING
+  OCR_DONE
+  OCR_NEEDS_REVIEW
+  OCR_FAILED
 }
 
 enum ReminderType {
