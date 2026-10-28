@@ -214,6 +214,7 @@ model ProfilingRegistration {
   submittedAt                       DateTime @default(now())
   reviewStatus                      String   @default("Pending")
   reviewNotes                       String?
+  requiresManualReview              Boolean  @default(false) @map("requires_manual_review")
   idBackFileUrl                     String?
   idDocumentType                    String?
   idFrontFileUrl                    String?

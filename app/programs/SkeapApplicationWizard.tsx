@@ -755,8 +755,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         }
       }
 
-      const uploaded = await uploadPendingFile(id, file, normalizedKey);
-      return uploaded ? null : "We couldn't upload this file. Please try again.";
+      return uploadPendingFile(id, file, normalizedKey);
     } catch (err) {
       const text = err instanceof Error ? err.message : "Upload failed";
       console.error("SKEAP upload failed", { requirement, error: text, rawError: err });
@@ -767,13 +766,13 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
     }
   }
 
-  async function uploadPendingFile(id: string, file?: File, requirement?: SkeapUploadKey): Promise<boolean> {
+  async function uploadPendingFile(id: string, file?: File, requirement?: SkeapUploadKey): Promise<string | null> {
     const pendingFile = file ?? files.find((item) => item.id === id)?.file;
     if (!pendingFile) {
       const errorText = "Please choose this file again before uploading.";
       setFiles((prev) => prev.map((item) => item.id === id ? { ...item, status: "error", error: errorText } : item));
       console.error("SKEAP upload could not start because the selected local file is unavailable.", { id });
-      return false;
+      return errorText;
     }
 
     setFiles((prev) => prev.map((item) => item.id === id
@@ -788,7 +787,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         : item));
 
       if (requirement) markFieldValid(requirement);
-      return true;
+      return null;
     } catch (error) {
       const errorText = error instanceof Error && error.message.trim()
         ? error.message
@@ -803,7 +802,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
       setFiles((prev) => prev.map((item) => item.id === id
         ? { ...item, status: "error", error: errorText }
         : item));
-      return false;
+      return errorText;
     }
   }
 

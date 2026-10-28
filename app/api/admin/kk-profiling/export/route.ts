@@ -46,6 +46,9 @@ export async function GET(request: NextRequest) {
       youthClassification: true,
       workStatus: true,
       registeredSKVoter: true,
+      requiresManualReview: await hasProfilingRegistrationColumn("requires_manual_review")
+        ? true
+        : undefined,
       reviewStatus: true,
       submittedAt: true,
     },

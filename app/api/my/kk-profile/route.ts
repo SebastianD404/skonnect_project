@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
 import { databaseUnavailableResponse } from "@/lib/database-errors";
 
 function computeAge(birthDate: Date) {
@@ -111,7 +112,10 @@ async function getKKProfile() {
     },
   });
 
-  const status = latestRegistration?.reviewStatus || (profile.kkProfile.isVerified ? "Approved" : "Pending verification");
+  const status = getKKProfilingReviewStatus(
+    latestRegistration?.reviewStatus,
+    profile.kkProfile.isVerified,
+  );
 
   return NextResponse.json({
     profile: {

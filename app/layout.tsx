@@ -8,6 +8,7 @@ import { AuthProvider } from "./components/AuthProvider";
 import {
   createClient,
   isAuthSessionMissingError,
+  isRefreshTokenMissingError,
 } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 
@@ -60,6 +61,9 @@ async function getInitialAuthUser() {
   } = await supabase.auth.getSession();
 
   if (sessionError) {
+    if (isRefreshTokenMissingError(sessionError)) {
+      return null;
+    }
     throw sessionError;
   }
 
@@ -80,7 +84,7 @@ async function getInitialAuthUser() {
 
     authUser = user;
   } catch (error) {
-    if (isAuthSessionMissingError(error)) {
+    if (isAuthSessionMissingError(error) || isRefreshTokenMissingError(error)) {
       return null;
     }
 

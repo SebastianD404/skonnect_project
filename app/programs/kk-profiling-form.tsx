@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, ChangeEvent } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase/browser";
@@ -143,8 +143,11 @@ export default function KKProfilingForm() {
   const router = useRouter();
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
-  const [manualReviewAvailable, setManualReviewAvailable] = useState(false);
-  const manualReviewRequestRef = useRef(false);
+  const [failedOcrAttempts, setFailedOcrAttempts] = useState({
+    frontId: 0,
+    backId: 0,
+    certResidency: 0,
+  });
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -172,6 +175,7 @@ export default function KKProfilingForm() {
   const areDocumentsReady = Object.values(ocrValidationState).every(
     (state) => state.status === "success"
   );
+  const manualReviewAvailable = Object.values(failedOcrAttempts).some((attempts) => attempts >= 3);
 
   useEffect(() => {
     let active = true;
@@ -420,6 +424,14 @@ export default function KKProfilingForm() {
     }));
   }
 
+  function recordFailedOcrAttempt(key: DocumentOCRKey) {
+    const attemptKey = key === "front" ? "frontId" : key === "back" ? "backId" : "certResidency";
+    setFailedOcrAttempts((current) => ({
+      ...current,
+      [attemptKey]: current[attemptKey] + 1,
+    }));
+  }
+
   async function handleTriggerMagicLink(email: string) {
     if (!email.trim()) {
       setMessage("Please enter your email to receive a one-time access link.");
@@ -490,7 +502,7 @@ export default function KKProfilingForm() {
     }
 
     if (!areDocumentsReady && !manualReview) {
-      return "Please upload each document and complete its OCR check, or submit for manual review after two unsuccessful scans.";
+      return "Please upload each document and complete its OCR check, or submit for manual review after three unsuccessful scans on a document.";
     }
 
     if (!manualReview && !doesProfileNameMatchIdText()) {
@@ -506,8 +518,7 @@ export default function KKProfilingForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const manualReview = manualReviewRequestRef.current;
-    manualReviewRequestRef.current = false;
+    const manualReview = manualReviewAvailable;
     setMessage(null);
     setActionError(null);
     setEmailError(null);
@@ -563,7 +574,7 @@ export default function KKProfilingForm() {
       formData.append("consent", String(form.consent));
       formData.append("fullName", fullName);
       formData.append("address", address);
-      formData.append("manualReviewRequested", String(manualReview));
+      formData.append("requires_manual_review", String(manualReview));
 
       // Add ID files
       formData.append("frontFile", idFiles.front as File);
@@ -582,7 +593,7 @@ export default function KKProfilingForm() {
         window.sessionStorage.removeItem(KK_PROFILING_DRAFT_KEY);
         void clearProfilingFiles().catch((error) => console.warn("Unable to clear KK profiling documents", error));
         setIdFiles({ front: null, back: null, residency: null });
-        setManualReviewAvailable(false);
+        setFailedOcrAttempts({ frontId: 0, backId: 0, certResidency: 0 });
         setOcrValidationState({
           front: { status: "idle", file: null },
           back: { status: "idle", file: null },
@@ -954,7 +965,12 @@ export default function KKProfilingForm() {
             handleIdFileChange(field as keyof typeof idFiles, null);
           }}
           onValidationChange={setOcrValidationState}
-          onManualReviewAvailable={setManualReviewAvailable}
+          failedOcrAttempts={{
+            front: failedOcrAttempts.frontId,
+            back: failedOcrAttempts.backId,
+            residency: failedOcrAttempts.certResidency,
+          }}
+          onFailedOcrAttempt={recordFailedOcrAttempt}
         />
           </div>
 
@@ -1020,38 +1036,27 @@ export default function KKProfilingForm() {
           )}
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-3">
-        {manualReviewAvailable ? (
-          <p className="w-full text-sm text-amber-900">
-            The scanner could not verify your documents after two attempts. You can submit them for SK Admin review.
-          </p>
-        ) : null}
-        <button
-          type="submit"
-          onClick={() => {
-            manualReviewRequestRef.current = false;
-          }}
-          disabled={submitting || !areDocumentsReady}
-          className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
-        >
-          {submitting ? "Submitting..." : "Submit"}
-        </button>
+      <div className="flex flex-col items-start gap-3">
+        <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <button
+            type="submit"
+            disabled={submitting || (!areDocumentsReady && !manualReviewAvailable)}
+            className={manualReviewAvailable
+              ? "px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm disabled:opacity-60"
+              : "inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"}
+          >
+            {submitting ? "Submitting..." : manualReviewAvailable ? "Submit for Manual Review" : "Submit"}
+          </button>
+          {manualReviewAvailable ? (
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-500 m-0">
+              Maximum verification attempts reached. You may proceed by submitting your application for manual review by an SK Admin.
+            </p>
+          ) : null}
+        </div>
         {actionError ? (
           <p role="alert" className="min-w-0 flex-1 text-sm leading-relaxed text-rose-600">
             {actionError}
           </p>
-        ) : null}
-        {manualReviewAvailable ? (
-          <button
-            type="submit"
-            onClick={() => {
-              manualReviewRequestRef.current = true;
-            }}
-            disabled={submitting}
-            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
-          >
-            {submitting ? "Submitting..." : "Submit for Manual Review"}
-          </button>
         ) : null}
         {message && <p className="text-sm text-slate-700">{message}</p>}
       </div>

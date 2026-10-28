@@ -4,6 +4,7 @@ import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { getSupportedSkeapDocumentType } from "@/lib/skeap-upload";
+import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 
@@ -26,7 +27,10 @@ export async function POST(request: NextRequest) {
     if (!isSkeapTestAccount(user.email)) {
       const profile = await prisma.user.findUnique({
         where: { id: appUser.id },
-        select: { kkProfileId: true },
+        select: {
+          kkProfileId: true,
+          kkProfile: { select: { isVerified: true } },
+        },
       });
 
       if (!profile?.kkProfileId) {
@@ -39,7 +43,11 @@ export async function POST(request: NextRequest) {
         select: { reviewStatus: true },
       });
 
-      if (latestRegistration?.reviewStatus !== "Approved") {
+      const reviewStatus = getKKProfilingReviewStatus(
+        latestRegistration?.reviewStatus,
+        profile.kkProfile?.isVerified ?? false,
+      );
+      if (reviewStatus !== "Approved") {
         return NextResponse.json(
           { error: "Your KK profiling registration must be approved before you can apply for SKEAP." },
           { status: 403 }

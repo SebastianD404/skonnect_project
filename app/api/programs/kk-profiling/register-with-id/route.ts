@@ -246,7 +246,9 @@ export async function POST(req: NextRequest) {
       consent: formData.get("consent") === "true",
       residencyStatementAcknowledgement: formData.get("residencyStatementAcknowledgement") === "true",
       address: formData.get("address"),
-      manualReviewRequested: formData.get("manualReviewRequested") === "true",
+      requiresManualReview:
+        formData.get("requires_manual_review") === "true" ||
+        formData.get("manualReviewRequested") === "true",
     };
 
     if (!body.consent) {
@@ -541,7 +543,8 @@ export async function POST(req: NextRequest) {
           idBackFileUrl,
           idSingleFileUrl,
           reviewStatus: "Pending",
-          reviewNotes: body.manualReviewRequested ? KK_PROFILING_MANUAL_REVIEW_NOTE : null,
+          reviewNotes: body.requiresManualReview ? KK_PROFILING_MANUAL_REVIEW_NOTE : null,
+          requiresManualReview: body.requiresManualReview,
         },
       });
 
@@ -559,7 +562,7 @@ export async function POST(req: NextRequest) {
       message:
         !createdAuthUserId
           ? "Your KK Profiling request and documents were submitted. An account already exists for this email, so sign in with your current password to access your status and secure your account."
-          : body.manualReviewRequested
+          : body.requiresManualReview
           ? "Your KK Profiling request and documents were submitted for manual SK Admin review. You can monitor your status from your SKonnect account."
           : "Your KK Profiling request has been received with your ID documents and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates.",
     });

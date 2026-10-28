@@ -1,46 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { isAuthSessionMissingError, isRefreshTokenMissingError } from "./auth-errors";
+import { getSessionCookieOptions, REMEMBER_SESSION_COOKIE } from "./remember-cookie";
 
-function normalizeError(error: unknown) {
-  if (!error || typeof error !== "object") {
-    return undefined;
-  }
+export { isAuthSessionMissingError, isRefreshTokenMissingError } from "./auth-errors";
 
-  const maybeError = error as { code?: string; status?: number; message?: string };
-  return {
-    code: typeof maybeError.code === "string" ? maybeError.code : undefined,
-    status: typeof maybeError.status === "number" ? maybeError.status : undefined,
-    message: typeof maybeError.message === "string" ? maybeError.message : undefined,
-  };
-}
-
-export function isAuthSessionMissingError(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-
-  const authError = error as { name?: unknown; message?: unknown };
-  return (
-    authError.name === "AuthSessionMissingError" ||
-    authError.message === "Auth session missing!"
-  );
-}
-
-export function isRefreshTokenMissingError(error: unknown) {
-  const normalized = normalizeError(error);
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    normalized.code === "refresh_token_not_found" ||
-    normalized.message?.toLowerCase().includes("refresh token") &&
-      normalized.message?.toLowerCase().includes("not found")
-  );
-}
-
-export async function createClient() {
+export async function createClient(options: { rememberMe?: boolean } = {}) {
   const cookieStore = await cookies();
+  const rememberMe =
+    options.rememberMe ??
+    cookieStore.get(REMEMBER_SESSION_COOKIE)?.value !== "false";
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,9 +21,23 @@ export async function createClient() {
         },
         setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
+            cookiesToSet.forEach(({ name, value, options: cookieOptions }) => {
+              cookieStore.set(
+                name,
+                value,
+                getSessionCookieOptions(cookieOptions, rememberMe),
+              );
+            });
+
+            if (options.rememberMe !== undefined) {
+              cookieStore.set(REMEMBER_SESSION_COOKIE, String(options.rememberMe), {
+                path: "/",
+                sameSite: "lax",
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                ...(options.rememberMe ? { maxAge: 400 * 24 * 60 * 60 } : {}),
+              });
+            }
           } catch {
             // The `setAll` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
@@ -64,6 +47,38 @@ export async function createClient() {
       },
     }
   );
+
+  const clearInvalidSession = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.warn("Could not clear an invalid Supabase session.", error);
+    }
+  };
+
+  const originalGetSession = supabase.auth.getSession.bind(supabase.auth);
+  supabase.auth.getSession = (async () => {
+    try {
+      const result = await originalGetSession();
+      if (result.error && isRefreshTokenMissingError(result.error)) {
+        await clearInvalidSession();
+        return {
+          data: { session: null },
+          error: null,
+        } as Awaited<ReturnType<typeof originalGetSession>>;
+      }
+      return result;
+    } catch (error) {
+      if (!isRefreshTokenMissingError(error)) {
+        throw error;
+      }
+      await clearInvalidSession();
+      return {
+        data: { session: null },
+        error: null,
+      } as Awaited<ReturnType<typeof originalGetSession>>;
+    }
+  }) as typeof supabase.auth.getSession;
 
   const originalGetUser = supabase.auth.getUser.bind(supabase.auth);
   supabase.auth.getUser = (async (jwt?: string) => {
@@ -77,6 +92,13 @@ export async function createClient() {
           error: null,
         } as Awaited<ReturnType<typeof originalGetUser>>;
       }
+      if (isRefreshTokenMissingError(error)) {
+        await clearInvalidSession();
+        return {
+          data: { user: null as never },
+          error: null,
+        } as Awaited<ReturnType<typeof originalGetUser>>;
+      }
 
       throw error;
     }
@@ -84,11 +106,7 @@ export async function createClient() {
     const { data, error } = result;
 
     if (error && isRefreshTokenMissingError(error)) {
-      try {
-        await supabase.auth.signOut();
-      } catch {
-        // Ignore sign-out cleanup errors.
-      }
+      await clearInvalidSession();
 
       return { data: { user: null as never }, error: null } as Awaited<ReturnType<typeof originalGetUser>>;
     }

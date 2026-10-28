@@ -199,7 +199,8 @@ export async function login(
     return { error: "Email and password are required." };
   }
 
-  const supabase = await createClient();
+  const rememberMe = formData.get("remember") === "on";
+  const supabase = await createClient({ rememberMe });
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email,

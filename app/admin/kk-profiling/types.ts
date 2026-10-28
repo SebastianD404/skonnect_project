@@ -27,5 +27,6 @@ export interface KKProfilingRegistration {
   idSingleFileUrl?: string | null;
   reviewStatus?: string;
   reviewNotes?: string | null;
+  requiresManualReview?: boolean;
   submittedAt: string | Date;
 }

@@ -92,6 +92,7 @@ export function KKProfilingRegistrationsTable({
         registration.youthClassification,
         registration.registeredSKVoter,
         registration.reviewStatus,
+        registration.requiresManualReview ? "manual review requested" : "",
       ]
         .join(" ")
         .toLowerCase();
@@ -231,7 +232,7 @@ export function KKProfilingRegistrationsTable({
                     ) : (
                       <div className="flex flex-col items-start gap-1">
                         <span className="capitalize text-slate-700">{registration.reviewStatus || "Pending"}</span>
-                        {isKKProfilingManualReview(registration.reviewNotes) ? (
+                        {registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (
                           <span
                             title={registration.reviewNotes ?? undefined}
                             className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800"

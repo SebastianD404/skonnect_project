@@ -26,7 +26,8 @@ type DocumentOCRValidationExampleProps = {
   profileBirthDate?: string;
   onFileSelected?: (key: DocumentOCRKey, file: File | null) => void;
   onValidationChange?: (state: Record<DocumentOCRKey, DocumentOCRState>) => void;
-  onManualReviewAvailable?: (available: boolean) => void;
+  failedOcrAttempts?: Record<DocumentOCRKey, number>;
+  onFailedOcrAttempt?: (key: DocumentOCRKey) => void;
   onRemoveFile?: (key: DocumentOCRKey) => void;
   className?: string;
 };
@@ -39,7 +40,8 @@ export default function DocumentOCRValidationExample({
   initialFiles,
   onFileSelected,
   onValidationChange,
-  onManualReviewAvailable,
+  failedOcrAttempts,
+  onFailedOcrAttempt,
   onRemoveFile,
   showDebug = false,
   className,
@@ -65,7 +67,6 @@ export default function DocumentOCRValidationExample({
     residency: false,
   });
   const [modalKey, setModalKey] = useState<DocumentOCRKey | null>(null);
-  const failedScanCountRef = useRef(0);
 
   const inputRefs = useRef<Record<DocumentOCRKey, HTMLInputElement | null>>({
     front: null,
@@ -99,18 +100,6 @@ export default function DocumentOCRValidationExample({
   useEffect(() => {
     onValidationChange?.(docs);
   }, [docs, onValidationChange]);
-
-  const recordFailedScan = () => {
-    failedScanCountRef.current += 1;
-    if (failedScanCountRef.current >= 2) {
-      onManualReviewAvailable?.(true);
-    }
-  };
-
-  const recordSuccessfulScan = () => {
-    failedScanCountRef.current = 0;
-    onManualReviewAvailable?.(false);
-  };
 
   const setDoc = (key: DocumentOCRKey, patch: Partial<DocumentOCRState>) => {
     setDocs((d) => ({ ...d, [key]: { ...d[key], ...patch } }));
@@ -240,10 +229,8 @@ export default function DocumentOCRValidationExample({
       });
 
       if (generation !== previewGenerationRef.current[key]) return;
-      if (result.status !== "success" || !result.isValid) {
-        recordFailedScan();
-      } else {
-        recordSuccessfulScan();
+      if (result.errorCode === "LOW_CONFIDENCE" || result.errorCode === "UNRECOGNIZED_DOCUMENT") {
+        onFailedOcrAttempt?.(key);
       }
       setDoc(key, {
         status: result.status === "success" ? "success" : "error",
@@ -256,7 +243,6 @@ export default function DocumentOCRValidationExample({
       });
     } catch (err: unknown) {
       if (generation !== previewGenerationRef.current[key]) return;
-      recordFailedScan();
       setDoc(key, {
         status: "error",
         badgeText: "Scanner Unavailable",
@@ -309,6 +295,9 @@ export default function DocumentOCRValidationExample({
     const isError = state.status === "error";
     const isSuccess = state.status === "success";
     const isScanning = state.status === "scanning";
+    const failedAttempts = failedOcrAttempts?.[key] ?? 0;
+    const isCountedOcrFailure =
+      state.errorCode === "LOW_CONFIDENCE" || state.errorCode === "UNRECOGNIZED_DOCUMENT";
 
     const handleImageClick = () => {
       if (hasFile) {
@@ -391,10 +380,16 @@ export default function DocumentOCRValidationExample({
             <div className="flex w-full items-start gap-2 border-t border-amber-200 bg-amber-50 p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
               <p className="text-xs leading-snug text-amber-900">
-                <span className="font-medium">
-                  {state.errorCode === "UNRECOGNIZED_DOCUMENT" ? "Unrecognized document." : `${feedbackTitle}.`}
-                </span>{" "}
-                {feedbackText}
+                {isCountedOcrFailure && failedAttempts > 0 && failedAttempts < 3
+                  ? "Unrecognized document. Please upload a clearer photo or double-check the document type."
+                  : (
+                    <>
+                      <span className="font-medium">
+                        {state.errorCode === "UNRECOGNIZED_DOCUMENT" ? "Unrecognized document." : `${feedbackTitle}.`}
+                      </span>{" "}
+                      {feedbackText}
+                    </>
+                  )}
               </p>
             </div>
           ) : null}
