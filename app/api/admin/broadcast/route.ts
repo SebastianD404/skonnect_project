@@ -98,6 +98,7 @@ export async function POST(request: Request) {
 
     let emailed = 0;
     let emailFailed = 0;
+    let emailSkipped = 0;
 
     try {
       const transporter = createGmailTransporter();
@@ -106,6 +107,7 @@ export async function POST(request: Request) {
           try {
             const result = await sendBroadcastEmail(transporter, grantee.id, grantee.email, subject, body);
             if (result) emailed += 1;
+            else emailSkipped += 1;
           } catch (error) {
             emailFailed += 1;
             console.error("Nodemailer error:", error);
@@ -113,7 +115,7 @@ export async function POST(request: Request) {
         })
       );
     } catch (error) {
-      emailFailed = recipients.length - emailed;
+      emailFailed = recipients.length - emailed - emailSkipped;
       console.error("Nodemailer error:", error);
     }
 
@@ -121,6 +123,7 @@ export async function POST(request: Request) {
       sent: recipients.length,
       emailed,
       emailFailed,
+      emailSkipped,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal Server Error";

@@ -182,7 +182,13 @@ export default function BroadcastPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subject, body: message, audienceType, granteeIds: selectedGranteeIds }),
       });
-      const data = await readJsonResponse(response) as { error?: string; sent?: number };
+      const data = await readJsonResponse(response) as {
+        error?: string;
+        sent?: number;
+        emailed?: number;
+        emailFailed?: number;
+        emailSkipped?: number;
+      };
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to send broadcast.");
@@ -193,7 +199,15 @@ export default function BroadcastPage() {
       setAudienceType("ALL");
       setSelectedGranteeIds([]);
       window.localStorage.removeItem(BROADCAST_DRAFT_KEY);
-      setSuccess(`Broadcast sent to ${data.sent ?? 0} active grantee${data.sent === 1 ? "" : "s"}.`);
+      const sent = data.sent ?? 0;
+      const emailed = data.emailed ?? 0;
+      const failed = data.emailFailed ?? 0;
+      const skipped = data.emailSkipped ?? 0;
+      const emailSummary = `Email requests accepted for delivery: ${emailed}; not sent because email notifications are off: ${skipped}; failed: ${failed}.`;
+      const failureGuidance = failed > 0 ? " Check Gmail configuration and server logs." : "";
+      setSuccess(
+        `Broadcast posted for ${sent} active grantee${sent === 1 ? "" : "s"}. ${emailSummary}${failureGuidance}`
+      );
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to send broadcast.");
     } finally {
@@ -245,7 +259,7 @@ export default function BroadcastPage() {
           <span>{loadError}</span>
         </div>
       ) : null}
-      {success ? <FloatingFeedback message={success} type="success" autoDismissMs={3000} onDismiss={() => setSuccess(null)} /> : null}
+      {success ? <FloatingFeedback message={success} type="success" autoDismissMs={6000} onDismiss={() => setSuccess(null)} /> : null}
 
       <div className="flex flex-col rounded-3xl border border-slate-200/80 bg-white shadow-sm">
         <form onSubmit={handleSubmit}>

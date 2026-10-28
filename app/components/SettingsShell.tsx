@@ -44,7 +44,7 @@ export function SettingsShell({
 
 	return (
 		<main className="flex min-h-screen flex-col justify-start bg-[#F0F2F5] text-slate-900">
-			<div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 lg:px-6">
+			<div className="mx-auto w-full max-w-7xl px-3 py-3 sm:px-4 lg:px-6">
 				<div className="mb-4 flex items-center justify-between rounded-[2rem] border border-slate-200 bg-white px-4 py-3 shadow-sm">
 					<Link
 						href="/grantee-dashboard"
@@ -60,8 +60,8 @@ export function SettingsShell({
 					</div>
 				</div>
 
-				<div className="grid items-stretch gap-4 lg:grid-cols-[320px_1fr]">
-					<aside className="flex h-full flex-col rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
+				<div className="grid w-full items-stretch gap-4 lg:min-h-[34rem] lg:grid-cols-[320px_1fr]">
+					<aside className="flex h-full flex-col rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm lg:min-h-[34rem]">
 						<nav className="flex flex-1 flex-col gap-1.5">
 							{settingsNavItems.map(({ href, label, description: itemDescription, icon: Icon }) => {
 								const isActive = pathname === href || pathname.startsWith(`${href}/`);
@@ -86,7 +86,7 @@ export function SettingsShell({
 						</nav>
 					</aside>
 
-					<section className="flex h-full min-w-0 flex-col justify-between overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+					<section className="flex h-full min-w-0 flex-col justify-between overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm lg:min-h-[34rem]">
 						<div className="border-b border-slate-100 p-6">
 							<p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</p>
 							{headerTitle ? <h2 className="text-xl font-bold text-slate-900">{headerTitle}</h2> : null}

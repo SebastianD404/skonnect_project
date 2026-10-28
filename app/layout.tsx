@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 import { HeaderShell } from "./components/HeaderShell";
 import { ChatWidget } from "./components/chatbot/ChatWidget";
@@ -11,17 +10,6 @@ import {
   isRefreshTokenMissingError,
 } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
-
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-serif",
-  weight: ["500", "600", "700"],
-});
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-sans",
-});
 
 export const metadata: Metadata = {
   title: "SKonnect — SK Barangay Pico Youth Services",
@@ -38,9 +26,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
-      <body
-        className={`${fraunces.variable} ${inter.variable} font-sans antialiased`}
-      >
+      <body className="font-sans antialiased">
         <AuthProvider initialUser={initialAuthUser}>
           <NotificationProvider>
             <HeaderShell />
