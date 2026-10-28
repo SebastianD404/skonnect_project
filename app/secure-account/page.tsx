@@ -23,13 +23,18 @@ function getRedirectLabel(redirect?: string) {
   return "your requested page";
 }
 
-export default async function SecureAccountPage({ searchParams }: { searchParams?: { [key: string]: string | undefined } }) {
+export default async function SecureAccountPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ [key: string]: string | undefined }>;
+}) {
+  const resolvedSearchParams = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const redirectParam = searchParams?.redirect ?? undefined;
+  const redirectParam = resolvedSearchParams?.redirect ?? undefined;
   const redirectQuery = redirectParam ? `?redirect=${encodeURIComponent(redirectParam)}` : "";
   const redirectLabel = getRedirectLabel(redirectParam);
 

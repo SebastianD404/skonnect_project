@@ -4,10 +4,10 @@ import { ensureProfile } from "@/lib/auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-type Props = { params: { id?: string } };
+type Props = { params: Promise<{ id?: string }> };
 
 export default async function InquiryPage({ params }: Props) {
-  const { id } = params;
+  const { id } = await params;
   if (!id) {
     notFound();
   }
