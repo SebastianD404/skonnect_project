@@ -6,6 +6,7 @@ import ImageModule from "docxtemplater-image-module-free";
 import PizZip from "pizzip";
 import sharp from "sharp";
 import { formatSkeapPermanentAddress, type PermanentAddressParts } from "@/lib/grantee-address";
+import { downloadPrivateDocument, getPrivateDocumentPath } from "@/lib/private-documents";
 import { getPhotoUploadGroup } from "@/lib/skeap-upload";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
@@ -279,6 +280,19 @@ async function fetchProfilePhoto(urls: string[]) {
     ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname
     : null;
   for (const url of urls) {
+    const privatePath = getPrivateDocumentPath(url);
+    if (privatePath) {
+      try {
+        const file = await downloadPrivateDocument(privatePath);
+        const buffer = Buffer.from(await file.arrayBuffer());
+        await sharp(buffer).metadata();
+        return { url, buffer };
+      } catch (error) {
+        console.warn("Skipping private SKEAP profile photo after a download or image validation failure.", error);
+        continue;
+      }
+    }
+
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(url);

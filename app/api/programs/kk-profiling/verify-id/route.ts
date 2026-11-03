@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { uploadPrivateDocument } from "@/lib/private-documents";
 
 const ALLOWED_TYPES = new Set([
   "application/pdf",
@@ -15,28 +16,9 @@ function isImageType(type: string) {
   return type.startsWith("image/");
 }
 
-async function uploadFile(supabase: Awaited<ReturnType<typeof createClient>>, userId: string, file: File, suffix: string) {
-  const safeFileName = String(file.name)
-    .replace(/\s+/g, "-")
-    .replace(/[^a-zA-Z0-9._-]/g, "")
-    .slice(0, 200);
-  const path = `kk-verification/${userId}/${Date.now()}-${suffix}-${safeFileName}`;
-  const fileBuffer = await file.arrayBuffer();
-
-  const { error: uploadError } = await supabase.storage.from("public image").upload(path, fileBuffer, {
-    contentType: file.type,
-    cacheControl: "3600",
-    upsert: false,
-  });
-
-  if (uploadError) {
-    throw new Error(uploadError.message);
-  }
-
-  const { data: publicUrlData } = await supabase.storage.from("public image").getPublicUrl(path);
-  const publicUrl = publicUrlData?.publicUrl;
-
-  return { path, url: publicUrl ?? null };
+async function uploadFile(userId: string, file: File, suffix: string) {
+  const result = await uploadPrivateDocument(userId, file, "kk-verification", suffix);
+  return { path: result.path, url: result.url };
 }
 
 export async function POST(request: NextRequest) {
@@ -120,7 +102,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const result = await uploadFile(supabase, user.id, upload.file, upload.label);
+      const result = await uploadFile(user.id, upload.file, upload.label);
       uploadedFiles.push({ label: upload.label, path: result.path, url: result.url });
     }
 

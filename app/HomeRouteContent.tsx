@@ -12,12 +12,7 @@ export default async function HomeRouteContent() {
 
   if (user) {
     const appUser = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { authId: user.id },
-          ...(user.email ? [{ email: user.email }] : []),
-        ],
-      },
+      where: { authId: user.id, isActive: true },
       select: { role: true },
     });
     const destination = getRoleHomePath(appUser?.role);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { isSkeapApplicationRejected, isSkeapApplicationReturned } from "@/lib/skeap-applications";
+import { removePrivateDocument, uploadPrivateDocument } from "@/lib/private-documents";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { CORE_UPLOAD_KEYS, mergeSkeapDraftReplacement } from "@/lib/skeap-upload";
@@ -87,25 +88,11 @@ export async function POST(
       return NextResponse.json({ error: "File size must not exceed 15MB." }, { status: 400 });
     }
 
-    const safeName = file.name.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]/g, "") || "upload";
-    const filePath = `skeap-applications/${user.id}/${Date.now()}-${safeName}`;
-    const { error: uploadError } = await supabase.storage
-      .from("public image")
-      .upload(filePath, await file.arrayBuffer(), {
-        contentType: file.type,
-        cacheControl: "3600",
-        upsert: false,
-      });
-    if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
-    }
-
-    const { data } = supabase.storage.from("public image").getPublicUrl(filePath);
-    if (!data.publicUrl) {
-      const { error: cleanupError } = await supabase.storage.from("public image").remove([filePath]);
-      if (cleanupError) console.error("Failed to remove unreferenced SKEAP replacement upload:", cleanupError);
-      return NextResponse.json({ error: "Failed to generate file URL." }, { status: 500 });
-    }
+    const { path: filePath, url: fileUrl } = await uploadPrivateDocument(
+      user.id,
+      file,
+      "skeap-applications",
+    );
 
     let result: "saved" | "status-changed" | "missing-application";
     try {
@@ -133,7 +120,7 @@ export async function POST(
 
         const uploadedFiles = mergeSkeapDraftReplacement(currentApplication.uploadedFiles, {
           slotId,
-          fileUrl: data.publicUrl,
+          fileUrl,
           fileName: file.name,
           fileType: file.type,
         });
@@ -144,20 +131,26 @@ export async function POST(
         return "saved";
       });
     } catch (error) {
-      const { error: cleanupError } = await supabase.storage.from("public image").remove([filePath]);
-      if (cleanupError) console.error("Failed to remove unreferenced SKEAP replacement upload:", cleanupError);
+      try {
+        await removePrivateDocument(filePath);
+      } catch (cleanupError) {
+        console.error("Failed to remove unreferenced private SKEAP replacement upload:", cleanupError);
+      }
       throw error;
     }
 
     if (result !== "saved") {
-      const { error: cleanupError } = await supabase.storage.from("public image").remove([filePath]);
-      if (cleanupError) console.error("Failed to remove unreferenced SKEAP replacement upload:", cleanupError);
+      try {
+        await removePrivateDocument(filePath);
+      } catch (cleanupError) {
+        console.error("Failed to remove unreferenced private SKEAP replacement upload:", cleanupError);
+      }
       return result === "missing-application"
         ? NextResponse.json({ error: "The linked application document record could not be found." }, { status: 409 })
         : NextResponse.json({ error: "The application status changed. Refresh the page and try again." }, { status: 409 });
     }
 
-    return NextResponse.json({ success: true, url: data.publicUrl, fileName: file.name, fileType: file.type });
+    return NextResponse.json({ success: true, url: fileUrl, fileName: file.name, fileType: file.type });
   } catch (error) {
     console.error("SKEAP replacement upload failed:", error);
     const message = error instanceof Error ? error.message : "Upload failed.";

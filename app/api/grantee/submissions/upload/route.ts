@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     const appUser = await prisma.user.findFirst({
-      where: { OR: [{ authId: user.id }, { email: user.email ?? "" }] },
+      where: { authId: user.id, isActive: true },
       select: { role: true, grantee: { select: { id: true, status: true } } },
     });
     if (!appUser || appUser.role !== "GRANTEE" || !appUser.grantee) {

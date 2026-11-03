@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Role } from "@prisma/client";
+import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
 import {
   generateSkeapApplicationDocx,
 } from "@/lib/docx/skeap-application-template";
@@ -14,6 +17,19 @@ type RouteContext = {
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const appUser = await ensureProfile(user);
+    if (appUser?.role !== Role.SK_OFFICIAL && appUser?.role !== Role.SUPER_ADMIN) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const { id } = await context.params;
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 

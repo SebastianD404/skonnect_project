@@ -18,23 +18,13 @@ export default async function GranteeDocumentsPage() {
 
   const appUser = await prisma.user.findFirst({
     where: {
-      OR: [{ authId: user.id }, { email: user.email ?? "" }],
+      authId: user.id,
+      isActive: true,
     },
     include: {
       grantee: true,
     },
   });
-
-  if (appUser && appUser.authId !== user.id) {
-    try {
-      await prisma.user.update({
-        where: { id: appUser.id },
-        data: { authId: user.id },
-      });
-    } catch {
-      // Ignore relink failures and continue with fetched account data.
-    }
-  }
 
   if (!appUser || appUser.role !== "GRANTEE") {
     redirect("/login");

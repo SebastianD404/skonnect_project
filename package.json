@@ -18,6 +18,8 @@
     "reconcile:users": "node scripts/reconcile-auth-users.js",
     "reconcile:users:apply": "node scripts/reconcile-auth-users.js --apply",
     "patch:averages": "node scripts/patch-missing-submission-averages.js",
+    "storage:private-documents:setup": "node scripts/setup-private-documents-bucket.mjs",
+    "storage:private-documents:migrate": "tsx scripts/migrate-public-sensitive-documents.ts",
     "postinstall": "prisma generate --schema prisma/schema.prisma"
   },
   "dependencies": {
@@ -43,6 +45,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.9.2",
+    "server-only": "^0.0.1",
     "sharp": "^0.35.5",
     "string-similarity": "^4.0.4",
     "tesseract.js": "^7.0.0",

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { uploadPrivateDocument } from "@/lib/private-documents";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 import { KK_PROFILING_MANUAL_REVIEW_NOTE } from "@/lib/kk-profiling-review";
 import {
@@ -59,8 +60,6 @@ function getSupabaseAdminClient() {
   });
 }
 
-type SupabaseStorageClient = Awaited<ReturnType<typeof createSupabaseServerClient>> | ReturnType<typeof getSupabaseAdminClient>;
-
 function isEmailUniqueConstraintError(error: unknown) {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
     return false;
@@ -71,28 +70,8 @@ function isEmailUniqueConstraintError(error: unknown) {
   return fields.some((field) => typeof field === "string" && field.toLowerCase().includes("email"));
 }
 
-async function uploadFile(supabase: SupabaseStorageClient, userId: string, file: File, suffix: string) {
-  const safeFileName = String(file.name)
-    .replace(/\s+/g, "-")
-    .replace(/[^a-zA-Z0-9._-]/g, "")
-    .slice(0, 200);
-  const path = `kk-verification/${userId}/${Date.now()}-${suffix}-${safeFileName}`;
-  const fileBuffer = await file.arrayBuffer();
-
-  const { error: uploadError } = await supabase.storage.from("public image").upload(path, fileBuffer, {
-    contentType: file.type,
-    cacheControl: "3600",
-    upsert: false,
-  });
-
-  if (uploadError) {
-    throw new Error(uploadError.message);
-  }
-
-  const { data: publicUrlData } = await supabase.storage.from("public image").getPublicUrl(path);
-  const publicUrl = publicUrlData?.publicUrl;
-
-  return { path, url: publicUrl ?? null };
+async function uploadFile(userId: string, file: File, suffix: string) {
+  return uploadPrivateDocument(userId, file, "kk-verification", suffix);
 }
 
 async function findExistingAuthIdByEmail(email: string) {
@@ -431,8 +410,6 @@ export async function POST(req: NextRequest) {
     let idSingleFileUrl: string | null = null;
 
     const storageUserId = currentUser?.id ?? authId;
-    const storageClient = currentUser?.id ? supabase : getSupabaseAdminClient();
-
     for (const upload of uploads) {
       if (upload.file.size > 10 * 1024 * 1024) {
         return NextResponse.json(
@@ -441,7 +418,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const result = await uploadFile(storageClient, storageUserId, upload.file, upload.label);
+      const result = await uploadFile(storageUserId, upload.file, upload.label);
       if (upload.label === "front") {
         idFrontFileUrl = result.url;
       } else if (upload.label === "back") {

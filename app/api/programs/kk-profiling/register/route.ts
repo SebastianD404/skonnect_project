@@ -55,84 +55,6 @@ function getSupabaseAdminClient() {
   });
 }
 
-async function findExistingAuthIdByEmail(email: string) {
-  const existingUser = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
-    select: { authId: true },
-  });
-
-  if (existingUser?.authId) {
-    try {
-      const admin = getSupabaseAdminClient();
-      const { data, error } = await admin.auth.admin.getUserById(existingUser.authId);
-      if (!error && data?.user && String(data.user.email || "").toLowerCase() === email.toLowerCase()) {
-        return existingUser.authId;
-      }
-    } catch {
-      // If the Auth user no longer exists or cannot be verified, continue to the full search.
-    }
-  }
-
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return null;
-  }
-
-  try {
-    const admin = getSupabaseAdminClient();
-    let page: number | undefined = 1;
-    const perPage = 100;
-
-    while (true) {
-      const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-      if (error || !data?.users || data.users.length === 0) {
-        return null;
-      }
-
-      type SupabaseUserRecord = { id?: string; email?: string | null };
-      const match = (data.users as SupabaseUserRecord[]).find(
-        (user) => String(user.email || "").toLowerCase() === email.toLowerCase()
-      );
-      if (match?.id) {
-        // Double-check the matched auth user still exists and has the same email.
-        try {
-          const adminVerify = getSupabaseAdminClient();
-          const { data: vdata, error: verror } = await adminVerify.auth.admin.getUserById(match.id);
-          if (!verror && vdata?.user && String(vdata.user.email || "").toLowerCase() === email.toLowerCase()) {
-            return match.id;
-          }
-          // If verification fails, continue searching further pages rather than treating it as a match.
-        } catch {
-          // Ignore verification errors and continue searching pages.
-        }
-      }
-
-      const hasMorePage: boolean = typeof data.nextPage === "number" && (page === undefined || data.nextPage > page);
-      if (!hasMorePage && data.users.length < perPage) {
-        return null;
-      }
-
-      page = hasMorePage ? (typeof data.nextPage === "number" ? data.nextPage : page) : (page === undefined ? undefined : page + 1);
-    }
-  } catch {
-    return null;
-  }
-}
-
-async function updateExistingAuthUserPassword(authId: string, password: string, metadata: Record<string, unknown>) {
-  const admin = getSupabaseAdminClient();
-  const { data, error } = await admin.auth.admin.updateUserById(authId, {
-    password,
-    email_confirm: true,
-    user_metadata: metadata,
-  });
-
-  if (error || !data.user) {
-    throw new Error(error?.message || "Unable to update existing user credentials.");
-  }
-
-  return data.user.id;
-}
-
 async function signInAndSetSession(email: string, password: string) {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -192,6 +114,8 @@ function isDuplicateAuthError(message?: string | null) {
     normalized.includes("email already")
   );
 }
+
+class ExistingApplicationAccountError extends Error {}
 
 function parseLegacyAddress(rawAddress: string) {
   const normalized = rawAddress.trim().replace(/\s+/g, " ");
@@ -306,6 +230,17 @@ export async function POST(req: Request) {
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
+    const existingApplicationAccount = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (existingApplicationAccount) {
+      return NextResponse.json(
+        { error: "This email already belongs to an account. Please sign in instead.", emailAlreadyRegistered: true },
+        { status: 409 }
+      );
+    }
+
     const latestRegistration = await prisma.profilingRegistration.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
       orderBy: { submittedAt: "desc" },
@@ -355,17 +290,10 @@ export async function POST(req: Request) {
 
       if (authCreateError || !createdAuth.user) {
         if (isDuplicateAuthError(authCreateError?.message)) {
-          const existingAuthId = await findExistingAuthIdByEmail(email);
-          if (!existingAuthId) {
-            return NextResponse.json(
-              {
-                error: "Unable to create account credentials. Please try again or contact support.",
-              },
-              { status: 400 }
-            );
-          }
-
-          authId = await updateExistingAuthUserPassword(existingAuthId, temporaryPassword, metadata);
+          return NextResponse.json(
+            { error: "An account already exists for this email. Please sign in or use account recovery." },
+            { status: 409 }
+          );
         } else {
           return NextResponse.json(
             { error: authCreateError?.message || "Unable to create account credentials." },
@@ -387,24 +315,10 @@ export async function POST(req: Request) {
 
       if (signupError || !signupData.user) {
         if (isDuplicateAuthError(signupError?.message)) {
-          const existingAuthId = await findExistingAuthIdByEmail(email);
-          if (!existingAuthId) {
-            return NextResponse.json(
-              {
-                error: "Unable to create account credentials. Please try again or contact support.",
-              },
-              { status: 400 }
-            );
-          }
-
-          if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-            return NextResponse.json(
-              { error: "Unable to create account. Please contact support." },
-              { status: 400 }
-            );
-          }
-
-          authId = await updateExistingAuthUserPassword(existingAuthId, temporaryPassword, metadata);
+          return NextResponse.json(
+            { error: "An account already exists for this email. Please sign in or use account recovery." },
+            { status: 409 }
+          );
         } else {
           return NextResponse.json(
             { error: signupError?.message || "Unable to provision account credentials." },
@@ -415,13 +329,6 @@ export async function POST(req: Request) {
         authId = signupData.user.id;
         createdAuthUserId = authId;
       }
-    }
-
-    let signedInUserId: string | null = null;
-    try {
-      signedInUserId = await signInAndSetSession(email, temporaryPassword);
-    } catch (loginError) {
-      console.error("KK profiling auto-login failed", loginError);
     }
 
     const created = await prisma.$transaction(async (tx) => {
@@ -448,20 +355,7 @@ export async function POST(req: Request) {
 
       let appUser;
       if (existingByEmail) {
-        appUser = await (tx as any).user.update({
-          where: { id: existingByEmail.id },
-          data: {
-            authId,
-            email,
-            username,
-            fullName: names.fullName,
-            phoneNumber: contactNumber,
-            barangay: BARANGAY_PICO,
-            kkProfileId: kkProfile.id,
-            mustSecureAccount: true,
-            usesTemporaryPassword: true,
-          },
-        });
+        throw new ExistingApplicationAccountError("An account already exists for this email.");
       } else {
         appUser = await (tx as any).user.create({
           data: {
@@ -514,6 +408,13 @@ export async function POST(req: Request) {
       return { kkProfileId: kkProfile.id, userId: appUser.id };
     });
 
+    let signedInUserId: string | null = null;
+    try {
+      signedInUserId = await signInAndSetSession(email, temporaryPassword);
+    } catch (loginError) {
+      console.error("KK profiling auto-login failed", loginError);
+    }
+
     return NextResponse.json({
       success: true,
       kkProfileId: created.kkProfileId,
@@ -539,6 +440,13 @@ export async function POST(req: Request) {
       } catch {
         // best-effort cleanup if app database write fails after auth user creation
       }
+    }
+
+    if (err instanceof ExistingApplicationAccountError) {
+      return NextResponse.json(
+        { error: "This email already belongs to an account. Please sign in instead.", emailAlreadyRegistered: true },
+        { status: 409 }
+      );
     }
 
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

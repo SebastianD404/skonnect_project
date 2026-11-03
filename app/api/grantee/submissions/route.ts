@@ -23,21 +23,11 @@ export async function POST(request: NextRequest) {
 
     const appUser = await prisma.user.findFirst({
       where: {
-        OR: [{ authId: user.id }, { email: user.email ?? "" }],
+        authId: user.id,
+        isActive: true,
       },
       include: { grantee: true },
     });
-
-    if (appUser && appUser.authId !== user.id) {
-      try {
-        await prisma.user.update({
-          where: { id: appUser.id },
-          data: { authId: user.id },
-        });
-      } catch {
-        // Ignore relink failures; request can proceed with resolved user.
-      }
-    }
 
     if (!appUser || appUser.role !== "GRANTEE" || !appUser.grantee) {
       return NextResponse.json({ error: "Only grantee accounts can submit documents" }, { status: 403 });

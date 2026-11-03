@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { ensureProfile, getRoleHomePath } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AuthState = {
   error?: string;
@@ -150,6 +151,16 @@ export async function signup(
     return { error: "All fields are required." };
   }
 
+  const existingProfile = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (existingProfile) {
+    return {
+      error: "A profile already exists for this email. Please sign in or contact support to recover access.",
+    };
+  }
+
   const supabase = await createClient();
 
   // 1. Create the Supabase Auth identity
@@ -180,7 +191,25 @@ export async function signup(
     });
   } catch (dbError) {
     console.error("Failed to create User row:", dbError);
-    return { error: "Account created but profile setup failed. Please contact support." };
+    try {
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) {
+        console.error("Could not clear the session after signup profile creation failed:", signOutError);
+      }
+    } catch (signOutError) {
+      console.error("Could not clear the session after signup profile creation failed:", signOutError);
+    }
+
+    try {
+      const { error: deleteError } = await createAdminClient().auth.admin.deleteUser(authData.user.id);
+      if (deleteError && deleteError.status !== 404) {
+        console.error("Could not remove the orphaned Supabase signup identity:", deleteError);
+      }
+    } catch (cleanupError) {
+      console.error("Could not remove the orphaned Supabase signup identity:", cleanupError);
+    }
+
+    return { error: "Account profile setup failed. Please contact support before trying again." };
   }
 
   const next = (formData.get("next") as string) || "";

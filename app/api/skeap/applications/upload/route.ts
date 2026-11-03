@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { isSkeapTestAccount } from "@/lib/skeap-test-access";
+import { uploadPrivateDocument } from "@/lib/private-documents";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { getSupportedSkeapDocumentType } from "@/lib/skeap-upload";
@@ -76,27 +77,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File size must not exceed 15MB" }, { status: 400 });
     }
 
-    const safeName = file.name.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]/g, "") || "upload";
-    const filePath = `skeap-applications/${user.id}/${Date.now()}-${safeName}`;
-    const { error: uploadError } = await supabase.storage
-      .from("public image")
-      .upload(filePath, await file.arrayBuffer(), {
-        contentType,
-        cacheControl: "3600",
-        upsert: false,
-      });
+    const { path, url } = await uploadPrivateDocument(user.id, file, "skeap-applications");
 
-    if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
-    }
-
-    const { data: publicUrlData } = supabase.storage.from("public image").getPublicUrl(filePath);
-    const publicUrl = publicUrlData.publicUrl;
-    if (!publicUrl) {
-      return NextResponse.json({ error: "Failed to generate file URL" }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true, url: publicUrl, path: filePath });
+    return NextResponse.json({ success: true, url, path });
   } catch (error) {
     console.error("SKEAP applicant upload failed:", error);
     const message = error instanceof Error ? error.message : "Upload failed";

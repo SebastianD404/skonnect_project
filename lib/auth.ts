@@ -53,6 +53,7 @@ export async function ensureProfile(authUser: SupabaseUser) {
     usesTemporaryPassword: true,
     phoneNumber: true,
     kkProfileId: true,
+    isActive: true,
   };
 
   try {
@@ -61,31 +62,15 @@ export async function ensureProfile(authUser: SupabaseUser) {
       select: selectFields,
     });
     if (existingByAuthId) {
-      return existingByAuthId;
+      return existingByAuthId.isActive ? existingByAuthId : null;
     }
 
     const existingByEmail = await prisma.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
-      select: selectFields,
+      select: { id: true },
     });
-
     if (existingByEmail) {
-      try {
-        return await prisma.user.update({
-          where: { id: existingByEmail.id },
-          data: { authId },
-          select: selectFields,
-        });
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === "P2002"
-        ) {
-          // Fall through to lookup below when authId/email conflicts happen.
-        } else {
-          throw error;
-        }
-      }
+      return null;
     }
 
     try {
@@ -118,15 +103,7 @@ export async function ensureProfile(authUser: SupabaseUser) {
         select: selectFields,
       });
       if (fallbackProfile) {
-        return fallbackProfile;
-      }
-
-      const fallbackByEmail = await prisma.user.findFirst({
-        where: { email: { equals: email, mode: "insensitive" } },
-        select: selectFields,
-      });
-      if (fallbackByEmail) {
-        return fallbackByEmail;
+        return fallbackProfile.isActive ? fallbackProfile : null;
       }
     }
 
@@ -185,7 +162,7 @@ export async function requireRole(allowedRoles: readonly Role[]) {
   }
 
   const appUser = await ensureProfile(user);
-  if (!appUser) {
+  if (!appUser || !appUser.isActive) {
     redirect("/login");
   }
 

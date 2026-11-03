@@ -39,7 +39,8 @@ export default async function GranteeDashboardContent() {
 
   const appUser = await db.user.findFirst({
     where: {
-      OR: [{ authId: user.id }, { email: user.email ?? "" }],
+      authId: user.id,
+      isActive: true,
     },
     include: {
       grantee: {
@@ -51,17 +52,6 @@ export default async function GranteeDashboardContent() {
       },
     },
   });
-
-  if (appUser && appUser.authId !== user.id) {
-    try {
-      await db.user.update({
-        where: { id: appUser.id },
-        data: { authId: user.id },
-      });
-    } catch {
-      // Ignore relink failures and continue with fetched account data.
-    }
-  }
 
   if (!appUser || appUser.role !== "GRANTEE") {
     redirect("/?error=unauthorized_role");

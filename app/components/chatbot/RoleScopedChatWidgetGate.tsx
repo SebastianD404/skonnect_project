@@ -14,24 +14,14 @@ export async function RoleScopedChatWidgetGate() {
 
   const appUser = await prisma.user.findFirst({
     where: {
-      OR: [{ authId: user.id }, { email: user.email ?? "" }],
+      authId: user.id,
+      isActive: true,
     },
-    select: { id: true, authId: true, role: true },
+    select: { id: true, role: true },
   });
 
   if (!appUser) {
     return null;
-  }
-
-  if (appUser.authId !== user.id) {
-    try {
-      await prisma.user.update({
-        where: { id: appUser.id },
-        data: { authId: user.id },
-      });
-    } catch {
-      // Best-effort relink only.
-    }
   }
 
   if (appUser.role !== "YOUTH" && appUser.role !== "GRANTEE") {

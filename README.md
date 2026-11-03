@@ -62,3 +62,20 @@ Keep schema changes in committed Prisma migrations; do not use `prisma db push` 
 5. Confirm `npm run db:status` reports that the database is up to date. In Vercel, configure the production environment with the correct `DATABASE_URL` and `DIRECT_URL`; keep preview/staging deployments connected to a separate database. Use a direct or session-mode database connection for migrations, not a transaction-pool URL.
 
 `db:deploy` applies committed, unapplied migrations; it does not create migrations or repair schema drift. If migration status reports failed migrations or drift, stop and investigate before deploying rather than using `db push` or manually changing migration history.
+
+### Private application documents
+
+KK profiling identity/residency documents and SKEAP application uploads use the private `private-documents` Supabase Storage bucket. Before deploying these upload changes, configure the target environment's Supabase URL and server-only `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`, then create the bucket:
+
+```bash
+npm run storage:private-documents:setup
+```
+
+Existing sensitive uploads in the public `public image` bucket must also be migrated. First run the migration in dry-run mode, review the number of objects, then apply it against the intended database and Supabase project:
+
+```bash
+npm run storage:private-documents:migrate
+npm run storage:private-documents:migrate -- --apply
+```
+
+The migration updates database references and removes the corresponding public objects. Do not remove the legacy public-read policy until all other intentionally public assets have been verified.

@@ -262,6 +262,8 @@ export async function DELETE(
       { bucket: "grantee-submissions", path: `grantee-submissions/${target.authId}` },
       { bucket: "public image", path: `skeap-applications/${target.authId}` },
       { bucket: "public image", path: `kk-verification/${target.authId}` },
+      { bucket: "private-documents", path: `skeap-applications/${target.authId}` },
+      { bucket: "private-documents", path: `kk-verification/${target.authId}` },
     ];
     for (const { bucket, path } of storagePrefixes) {
       const files = await listStorageObjects(storage, bucket, path);
