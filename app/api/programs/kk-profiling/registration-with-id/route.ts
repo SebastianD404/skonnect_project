@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { uploadPrivateDocument } from "@/lib/private-documents";
+import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
 
 const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp"]);
 
@@ -47,6 +48,9 @@ export async function PUT(request: NextRequest) {
   }
 
   const payload = {
+    firstName: String(formData.get("firstName") || ""),
+    middleName: String(formData.get("middleInitial") || ""),
+    lastName: String(formData.get("lastName") || ""),
     fullName: String(formData.get("fullName") || registration.fullName),
     address: String(formData.get("address") || registration.address),
     sex: String(formData.get("sex") || registration.sex),
@@ -67,6 +71,16 @@ export async function PUT(request: NextRequest) {
     assemblyTimes: formData.get("assemblyTimes") ? String(formData.get("assemblyTimes")) : registration.assemblyTimes,
     noAssemblyReason: formData.get("noAssemblyReason") ? String(formData.get("noAssemblyReason")) : registration.noAssemblyReason,
   };
+
+  if (![payload.firstName, payload.middleName, payload.lastName].every(isValidNameInput)) {
+    return NextResponse.json(
+      { error: "First, middle, and last names must each contain at least two letters and no numbers." },
+      { status: 400 }
+    );
+  }
+  if (!isValidContactNumber(payload.contactNumber)) {
+    return NextResponse.json({ error: "Contact number can contain numbers only." }, { status: 400 });
+  }
 
   const uploads: Array<{ label: string; file: File }> = [];
   const frontFile = formData.get("frontFile") as File | null;

@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
+import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
 import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
@@ -173,7 +174,8 @@ export async function POST(req: Request) {
 
     const firstNameInput = String(body.firstName || "").trim();
     const lastNameInput = String(body.lastName || "").trim();
-    const middleNameInput = String(body.middleInitial || "")
+    const middleNameRaw = String(body.middleInitial || "").trim();
+    const middleNameInput = middleNameRaw
       .replace(/[^a-zA-Z\s.'-]/g, "")
       .replace(/\s+/g, " ")
       .trim();
@@ -202,6 +204,12 @@ export async function POST(req: Request) {
 
     if (!firstNameInput || !middleNameInput || !lastNameInput) {
       return NextResponse.json({ error: "First, middle, and last name are required" }, { status: 400 });
+    }
+    if (![firstNameInput, middleNameRaw, lastNameInput].every(isValidNameInput)) {
+      return NextResponse.json(
+        { error: "First, middle, and last names must each contain at least two letters and no numbers." },
+        { status: 400 }
+      );
     }
     if (!purok) {
       return NextResponse.json(
@@ -254,6 +262,9 @@ export async function POST(req: Request) {
     }
     if (!contactNumber) {
       return NextResponse.json({ error: "Contact number is required" }, { status: 400 });
+    }
+    if (!isValidContactNumber(contactNumber)) {
+      return NextResponse.json({ error: "Contact number can contain numbers only." }, { status: 400 });
     }
     if (!birthDate || Number.isNaN(birthDate.getTime())) {
       return NextResponse.json({ error: "Valid birth date is required" }, { status: 400 });

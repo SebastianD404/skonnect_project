@@ -235,12 +235,11 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
             <Database className="h-4 w-4 text-[#9AB0C2]" />
             Database
           </div>
-          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${databaseStatus === "connected" ? "text-emerald-300" : "text-rose-300"}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${databaseStatus === "connected" ? "bg-emerald-300" : "bg-rose-300"}`} />
+          <span className={`inline-flex items-center gap-1.5 text-sm ${databaseStatus === "connected" ? "font-normal text-slate-400" : "font-semibold text-rose-300"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${databaseStatus === "connected" ? "animate-pulse bg-emerald-300" : "bg-rose-300"}`} />
             {databaseStatus === "connected" ? "Connected" : "Unavailable"}
           </span>
         </div>
-        <p className="mt-2 text-xs text-[#9AB0C2]">Live database connectivity check</p>
       </div>
 
       <div className="mt-auto border-t border-[#1C4B67] px-2 pt-4">

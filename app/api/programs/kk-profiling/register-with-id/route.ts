@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { uploadPrivateDocument } from "@/lib/private-documents";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 import { KK_PROFILING_MANUAL_REVIEW_NOTE } from "@/lib/kk-profiling-review";
+import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
 import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
@@ -252,6 +253,18 @@ export async function POST(req: NextRequest) {
 
     if (!firstNameInput || !middleNameInput || !lastNameInput) {
       return NextResponse.json({ error: "First, middle, and last name are required" }, { status: 400 });
+    }
+    if (![firstNameInput, middleNameInput, lastNameInput].every(isValidNameInput)) {
+      return NextResponse.json(
+        { error: "First, middle, and last names must each contain at least two letters and no numbers." },
+        { status: 400 }
+      );
+    }
+    if (!contactNumber) {
+      return NextResponse.json({ error: "Contact number is required" }, { status: 400 });
+    }
+    if (!isValidContactNumber(contactNumber)) {
+      return NextResponse.json({ error: "Contact number can contain numbers only." }, { status: 400 });
     }
 
     if (!email) {

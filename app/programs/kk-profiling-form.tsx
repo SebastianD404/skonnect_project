@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
+import {
+  isValidContactNumber,
+  isValidNameInput,
+  keepContactNumberDigits,
+  removeNameNumbers,
+} from "@/lib/kk-profiling-inputs";
 import DocumentOCRValidationExample, { type DocumentOCRKey, type DocumentOCRState } from "@/app/components/DocumentOCRValidationExample";
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { ChevronDown, Eye, EyeOff } from "lucide-react";
@@ -41,6 +47,7 @@ const KK_PROFILING_DRAFT_KEY = "skonnect:kk-profiling-draft";
 const KK_PROFILING_FILES_DB = "skonnect-kk-profiling-files";
 const KK_PROFILING_FILES_STORE = "documents";
 type ProfilingDocumentKey = "front" | "back" | "residency";
+type NameField = "lastName" | "firstName" | "middleInitial";
 
 function openProfilingFilesDb() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -151,6 +158,11 @@ export default function KKProfilingForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [touchedNameFields, setTouchedNameFields] = useState<Record<NameField, boolean>>({
+    lastName: false,
+    firstName: false,
+    middleInitial: false,
+  });
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [idFiles, setIdFiles] = useState<{ front?: File | null; back?: File | null; residency?: File | null }>({ front: null, back: null, residency: null });
@@ -176,6 +188,9 @@ export default function KKProfilingForm() {
     (state) => state.status === "success"
   );
   const manualReviewAvailable = Object.values(failedOcrAttempts).some((attempts) => attempts >= 3);
+  const lastNameError = getNameFieldError("lastName");
+  const firstNameError = getNameFieldError("firstName");
+  const middleNameError = getNameFieldError("middleInitial");
 
   useEffect(() => {
     let active = true;
@@ -291,6 +306,16 @@ export default function KKProfilingForm() {
       .replace(/[^a-zA-Z\s.'-]/g, "")
       .replace(/\s+/g, " ")
       .slice(0, 80);
+  }
+
+  function getNameFieldError(field: NameField) {
+    if (!touchedNameFields[field]) return null;
+
+    const label = field === "middleInitial" ? "Middle name" : field === "lastName" ? "Last name" : "First name";
+    const value = form[field].trim();
+    if (!value) return `${label} is required.`;
+    if (!isValidNameInput(value)) return `${label} must contain at least two letters.`;
+    return null;
   }
 
   function normalizeText(value: string) {
@@ -466,6 +491,9 @@ export default function KKProfilingForm() {
     if (!form.lastName.trim()) return "Last name is required";
     if (!form.firstName.trim()) return "First name is required";
     if (!form.middleInitial.trim()) return "Middle name is required";
+    if (![form.firstName, form.middleInitial, form.lastName].every(isValidNameInput)) {
+      return "First, middle, and last names must each contain at least two letters and no numbers.";
+    }
     if (!form.sitio.trim()) return "Sitio is required";
     if (!form.barangay.trim()) return "Barangay is required";
     if (!form.municipality.trim()) return "Municipality is required";
@@ -476,6 +504,7 @@ export default function KKProfilingForm() {
     if (!form.email.trim()) return "Email is required";
     if (!form.facebook.trim()) return "Facebook account name is required";
     if (!form.contactNumber.trim()) return "Contact number is required";
+    if (!isValidContactNumber(form.contactNumber)) return "Contact number can contain numbers only.";
     if (!form.civilStatus) return "Civil status is required";
     if (!form.youthClassification) return "Youth classification is required";
     if (!form.youthAgeGroup) return "Youth age group is required";
@@ -680,12 +709,32 @@ export default function KKProfilingForm() {
       <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-3">
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Last Name *</span>
-          <input value={form.lastName} onChange={(e) => setField("lastName", e.target.value)} required className="rounded-lg border px-3 py-2" />
+          <input
+            value={form.lastName}
+            onChange={(e) => setField("lastName", removeNameNumbers(e.target.value))}
+            onBlur={() => setTouchedNameFields((current) => ({ ...current, lastName: true }))}
+            minLength={2}
+            required
+            aria-invalid={Boolean(lastNameError)}
+            aria-describedby={lastNameError ? "last-name-error" : undefined}
+            className={`rounded-lg border px-3 py-2 ${lastNameError ? "border-red-500" : ""}`}
+          />
+          {lastNameError ? <span id="last-name-error" className="text-sm text-red-600" role="alert">{lastNameError}</span> : null}
         </label>
 
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">First Name *</span>
-          <input value={form.firstName} onChange={(e) => setField("firstName", e.target.value)} required className="rounded-lg border px-3 py-2" />
+          <input
+            value={form.firstName}
+            onChange={(e) => setField("firstName", removeNameNumbers(e.target.value))}
+            onBlur={() => setTouchedNameFields((current) => ({ ...current, firstName: true }))}
+            minLength={2}
+            required
+            aria-invalid={Boolean(firstNameError)}
+            aria-describedby={firstNameError ? "first-name-error" : undefined}
+            className={`rounded-lg border px-3 py-2 ${firstNameError ? "border-red-500" : ""}`}
+          />
+          {firstNameError ? <span id="first-name-error" className="text-sm text-red-600" role="alert">{firstNameError}</span> : null}
         </label>
 
         <label className="flex flex-col gap-1.5">
@@ -693,10 +742,15 @@ export default function KKProfilingForm() {
           <input
             value={form.middleInitial}
             onChange={(e) => setField("middleInitial", normalizedMiddleInitial(e.target.value))}
+            onBlur={() => setTouchedNameFields((current) => ({ ...current, middleInitial: true }))}
             maxLength={80}
+            minLength={2}
             required
-            className="rounded-lg border px-3 py-2"
+            aria-invalid={Boolean(middleNameError)}
+            aria-describedby={middleNameError ? "middle-name-error" : undefined}
+            className={`rounded-lg border px-3 py-2 ${middleNameError ? "border-red-500" : ""}`}
           />
+          {middleNameError ? <span id="middle-name-error" className="text-sm text-red-600" role="alert">{middleNameError}</span> : null}
         </label>
       </div>
 
@@ -797,7 +851,7 @@ export default function KKProfilingForm() {
 
       <label className="flex flex-col gap-1.5">
         <span className="text-sm font-semibold">Contact Number *</span>
-        <input value={form.contactNumber} onChange={(e) => setField("contactNumber", e.target.value)} required className="rounded-lg border px-3 py-2" />
+        <input value={form.contactNumber} onChange={(e) => setField("contactNumber", keepContactNumberDigits(e.target.value))} inputMode="numeric" required className="rounded-lg border px-3 py-2" />
       </label>
 
         </div>
@@ -814,11 +868,8 @@ export default function KKProfilingForm() {
           <option>Single</option>
           <option>Married</option>
           <option>Widowed</option>
-          <option>Divorced</option>
-          <option>Separated</option>
           <option>Annulled</option>
-          <option>Unknown</option>
-          <option>Live-in</option>
+          <option>Divorced</option>
         </SelectWithChevron>
       </label>
 
@@ -830,7 +881,6 @@ export default function KKProfilingForm() {
           <option>Out of School Youth</option>
           <option>Working Youth</option>
           <option>Person w/ Disability</option>
-          <option>Children In Conflict with Law</option>
           <option>Indigenous People</option>
         </SelectWithChevron>
       </label>
@@ -863,17 +913,9 @@ export default function KKProfilingForm() {
         <span className="text-sm font-semibold">Educational Background *</span>
         <SelectWithChevron value={form.educationalBackground} onChange={(e) => setField("educationalBackground", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
-          <option>Elementary Level</option>
-          <option>Elementary Graduate</option>
           <option>High school Level</option>
           <option>High school Graduate</option>
-          <option>Vocational Graduate</option>
           <option>College Level</option>
-          <option>College Graduate</option>
-          <option>Masters Level</option>
-          <option>Masters Graduate</option>
-          <option>Doctorate Level</option>
-          <option>Doctorate Graduate</option>
         </SelectWithChevron>
       </label>
 

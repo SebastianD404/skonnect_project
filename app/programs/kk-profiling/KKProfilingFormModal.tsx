@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { CheckCircle2, Eye, LoaderCircle, Upload, X } from "lucide-react";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
+import {
+  isValidContactNumber,
+  isValidNameInput,
+  keepContactNumberDigits,
+  removeNameNumbers,
+} from "@/lib/kk-profiling-inputs";
 import { scanDocument } from "@/lib/ocrValidation";
 
 type KKProfilingRegistrationData = {
@@ -344,7 +350,7 @@ function getEditFormValues(registration: KKProfilingRegistrationData) {
     birthDate: registration.birthDate ? registration.birthDate.slice(0, 10) : "",
     email: registration.email ?? "",
     facebook: registration.facebook ?? "",
-    contactNumber: registration.contactNumber ?? "",
+    contactNumber: keepContactNumberDigits(registration.contactNumber ?? ""),
     civilStatus: registration.civilStatus ?? "",
     youthClassification: registration.youthClassification ?? "",
     youthAgeGroup: registration.youthAgeGroup ?? "",
@@ -398,11 +404,15 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
   function validate() {
     if (!form.lastName.trim() || !form.firstName.trim() || !form.middleName.trim()) return "First, middle, and last name are required.";
+    if (![form.firstName, form.middleName, form.lastName].every(isValidNameInput)) {
+      return "First, middle, and last names must each contain at least two letters and no numbers.";
+    }
     if (!form.sitio.trim() || !form.barangay.trim() || !form.municipality.trim() || !form.province.trim()) return "Complete address details are required.";
     if (!form.sex.trim()) return "Sex is required.";
     if (!form.birthDate.trim()) return "Birth date is required.";
     if (!form.email.trim()) return "Email is required.";
     if (!form.contactNumber.trim()) return "Contact number is required.";
+    if (!isValidContactNumber(form.contactNumber)) return "Contact number can contain numbers only.";
     if (!form.civilStatus.trim()) return "Civil status is required.";
     if (!form.youthClassification.trim()) return "Youth classification is required.";
     if (!form.youthAgeGroup.trim()) return "Youth age group is required.";
@@ -527,7 +537,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               <input
                 id="edit-last-name"
                 value={form.lastName}
-                onChange={(e) => setField("lastName", e.target.value)}
+                onChange={(e) => setField("lastName", removeNameNumbers(e.target.value))}
+                minLength={2}
                 className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
               />
             </div>
@@ -536,7 +547,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               <input
                 id="edit-first-name"
                 value={form.firstName}
-                onChange={(e) => setField("firstName", e.target.value)}
+                onChange={(e) => setField("firstName", removeNameNumbers(e.target.value))}
+                minLength={2}
                 className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
               />
             </div>
@@ -545,7 +557,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               <input
                 id="edit-middle-name"
                 value={form.middleName}
-                onChange={(e) => setField("middleName", e.target.value)}
+                onChange={(e) => setField("middleName", removeNameNumbers(e.target.value))}
+                minLength={2}
                 className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
               />
             </div>
@@ -624,7 +637,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
             <span className="text-sm font-semibold">Contact number</span>
             <input
               value={form.contactNumber}
-              onChange={(e) => setField("contactNumber", e.target.value)}
+              onChange={(e) => setField("contactNumber", keepContactNumberDigits(e.target.value))}
+              inputMode="numeric"
               className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
             />
           </label>
@@ -645,10 +659,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 <option>Single</option>
                 <option>Married</option>
                 <option>Widowed</option>
-                <option>Divorced</option>
-                <option>Separated</option>
                 <option>Annulled</option>
-                <option>Live-in</option>
+                <option>Divorced</option>
               </select>
             </label>
             <label className="flex flex-col">
@@ -663,7 +675,6 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 <option>Out of School Youth</option>
                 <option>Working Youth</option>
                 <option>Person w/ Disability</option>
-                <option>Children In Conflict with Law</option>
                 <option>Indigenous People</option>
               </select>
             </label>
@@ -708,17 +719,9 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"
             >
               <option value="">Select</option>
-              <option>Elementary Level</option>
-              <option>Elementary Graduate</option>
               <option>High school Level</option>
               <option>High school Graduate</option>
-              <option>Vocational Graduate</option>
               <option>College Level</option>
-              <option>College Graduate</option>
-              <option>Masters Level</option>
-              <option>Masters Graduate</option>
-              <option>Doctorate Level</option>
-              <option>Doctorate Graduate</option>
             </select>
           </label>
 

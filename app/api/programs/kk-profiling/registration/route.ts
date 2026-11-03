@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
 
 export async function PUT(request: NextRequest) {
   const supabase = await createClient();
@@ -55,6 +56,13 @@ export async function PUT(request: NextRequest) {
     assemblyTimes,
     noAssemblyReason,
   } = payload;
+
+  if (fullName !== undefined && !isValidNameInput(String(fullName))) {
+    return NextResponse.json({ error: "Name must contain at least two letters and no numbers." }, { status: 400 });
+  }
+  if (contactNumber !== undefined && !isValidContactNumber(String(contactNumber))) {
+    return NextResponse.json({ error: "Contact number can contain numbers only." }, { status: 400 });
+  }
 
   const updated = await prisma.profilingRegistration.update({
     where: { id: registration.id },
