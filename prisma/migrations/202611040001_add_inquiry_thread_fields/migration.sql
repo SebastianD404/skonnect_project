@@ -1,0 +1,5 @@
+ALTER TABLE "inquiries"
+  ADD COLUMN IF NOT EXISTS "reviewThread" JSONB,
+  ADD COLUMN IF NOT EXISTS "lastUpdatedBy" TEXT,
+  ADD COLUMN IF NOT EXISTS "resubmittedAt" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "reviewStatus" TEXT NOT NULL DEFAULT 'Pending review';

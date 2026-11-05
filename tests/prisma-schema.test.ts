@@ -15,4 +15,32 @@ describe("Prisma auth fields", () => {
     expect(normalized).toContain("mustSecureAccount Boolean @default(false)");
     expect(normalized).toContain("usesTemporaryPassword Boolean @default(false)");
   });
+
+  it("uses the mapped users table when locking a user for inquiry submission", () => {
+    const schema = readFileSync(path.resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const inquiryRoute = readFileSync(
+      path.resolve(process.cwd(), "app/api/inquiries/route.ts"),
+      "utf8",
+    );
+
+    expect(schema).toMatch(/model User \{[\s\S]*?@@map\("users"\)/);
+    expect(inquiryRoute).toContain('SELECT "id" FROM "users"');
+  });
+
+  it("migrates the inquiry thread fields used by the inbox APIs", () => {
+    const migration = readFileSync(
+      path.resolve(
+        process.cwd(),
+        "prisma/migrations/202611040001_add_inquiry_thread_fields/migration.sql",
+      ),
+      "utf8",
+    );
+
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "reviewThread" JSONB');
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "lastUpdatedBy" TEXT');
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "resubmittedAt" TIMESTAMP(3)');
+    expect(migration).toContain(
+      `ADD COLUMN IF NOT EXISTS "reviewStatus" TEXT NOT NULL DEFAULT 'Pending review'`,
+    );
+  });
 });

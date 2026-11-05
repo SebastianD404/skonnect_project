@@ -139,9 +139,9 @@ const STEP_STATUS_CONFIG: Record<
   },
   validated: {
     label: "Validated",
-    badgeClassName: "border-transparent bg-emerald-600 text-white shadow-sm",
-    badgeIconClassName: "text-white",
-    activeNodeClassName: "border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-600/20",
+    badgeClassName: "border-emerald-200/60 bg-emerald-100/80 text-emerald-700",
+    badgeIconClassName: "text-emerald-700",
+    activeNodeClassName: "border-emerald-500 bg-emerald-50 text-emerald-600 shadow-sm",
     activeNodeCoreClassName: "bg-emerald-600",
     compactActiveNodeClassName: "bg-emerald-500 ring-4 ring-emerald-500/30 ring-offset-2 ring-offset-slate-900 shadow-[0_0_10px_rgba(16,185,129,0.5)]",
     activeLabelClassName: "text-emerald-300",
@@ -617,13 +617,13 @@ export default function AcademicJourneyMap({
                   <div
                     tabIndex={0}
                     aria-label={`${term.year}, ${term.semester}: ${stateLabel}`}
-                    className={`relative flex items-center justify-center rounded-full transition-all duration-300 ${
+                    className={`relative z-10 flex items-center justify-center rounded-full transition-all duration-300 ${
                       compact ? "h-4 w-4 border-2" : "h-10 w-10 border-2"
                     } ${
                       isCompleted
                         ? compact
                           ? "border-emerald-500 bg-emerald-500 text-white"
-                          : "border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-600/20 hover:scale-110"
+                          : "border-emerald-500 bg-emerald-50 text-emerald-600 shadow-sm hover:ring-4 focus-visible:ring-4 ring-emerald-500/10"
                         : isCurrent
                           ? compact
                             ? `${stepStatusConfig.compactActiveNodeClassName} h-4 w-4 border-2`
@@ -640,7 +640,7 @@ export default function AcademicJourneyMap({
                     onBlur={() => setHoveredIndex(null)}
                   >
                     {isCompleted ? (
-                      <Check className={compact ? "h-2.5 w-2.5" : "h-5 w-5 stroke-[3]"} aria-hidden="true" />
+                      <Check className={compact ? "h-2.5 w-2.5" : "h-5 w-5 text-emerald-600 stroke-[2.5]"} aria-hidden="true" />
                     ) : isCurrent ? (
                       <span className={`rounded-full ${stepStatusConfig.activeNodeCoreClassName} ${compact ? "h-1.5 w-1.5" : "h-3.5 w-3.5 animate-pulse"}`} aria-hidden="true" />
                     ) : isMissed ? (
@@ -659,7 +659,11 @@ export default function AcademicJourneyMap({
                     {term.label}
                   </span>
 
-                  {!compact && isCurrent ? (() => {
+                  {!compact && isCompleted ? (
+                    <span className="mt-1 whitespace-nowrap rounded-full border border-emerald-200/60 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                      VALIDATED
+                    </span>
+                  ) : !compact && isCurrent ? (() => {
                     const { badgeClassName, badgeIconClassName, Icon } = stepStatusConfig;
                     return (
                       <span className={`mt-1 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${badgeClassName}`}>

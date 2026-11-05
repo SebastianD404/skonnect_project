@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Cable, Database, LayoutDashboard, ScrollText, Users } from "lucide-react";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { SkLogo } from "@/app/components/SkLogo";
@@ -57,6 +57,7 @@ function deriveDisplayName(fullName?: string | null, email?: string | null) {
 
 export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: Props) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [unreadAuditCount, setUnreadAuditCount] = useState(
     pathname.startsWith("/system-admin/audit") ? 0 : roleUpdateCount,
@@ -83,17 +84,42 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
       const response = await fetch(`/api/system-admin/audit/unread-count${query}`, {
         cache: "no-store",
       });
-      const data = await response.json();
-      if (!response.ok || !Number.isInteger(data?.count) || data.count < 0) {
-        throw new Error(data?.error || "Unable to refresh unread audit count.");
+      if (response.status === 401 || response.status === 403) {
+        const next = `${window.location.pathname}${window.location.search}`;
+        const reason = response.status === 401 ? "session_expired" : "access_denied";
+        router.replace(`/login?reason=${reason}&next=${encodeURIComponent(next)}`);
+        return;
       }
-      setUnreadAuditCount(data.count);
+
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(`Unable to refresh unread audit count (${response.status}).`);
+      }
+
+      const data: unknown = await response.json();
+      const payload =
+        typeof data === "object" && data !== null ? data : {};
+      const count = "count" in payload ? payload.count : undefined;
+      const error = "error" in payload ? payload.error : undefined;
+      if (
+        !response.ok ||
+        typeof count !== "number" ||
+        !Number.isInteger(count) ||
+        count < 0
+      ) {
+        throw new Error(
+          typeof error === "string"
+            ? error
+            : "Unable to refresh unread audit count.",
+        );
+      }
+      setUnreadAuditCount(count);
     } catch (error) {
       console.error("Failed to refresh unread audit count:", error);
     } finally {
       countRequest.current = false;
     }
-  }, [pathname]);
+  }, [pathname, router]);
 
   useEffect(() => {
     if (pathname.startsWith("/system-admin/audit")) {

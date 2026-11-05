@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     const inquiry = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT "id" FROM "User" WHERE "id" = ${appUser.id} FOR UPDATE
+        SELECT "id" FROM "users" WHERE "id" = ${appUser.id} FOR UPDATE
       `;
 
       const supportInquiryFilter: Prisma.InquiryWhereInput = {

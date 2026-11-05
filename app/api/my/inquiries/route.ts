@@ -15,38 +15,43 @@ function getPositiveInteger(value: string | null, fallback: number, maximum = Nu
 }
 
 export async function GET(request: Request) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) return NextResponse.json({ inquiries: [], totalCount: 0 });
+    if (!user) return NextResponse.json({ inquiries: [], totalCount: 0 });
 
-  const appUser = await ensureProfile(user);
-  if (!appUser) return NextResponse.json({ inquiries: [], totalCount: 0 });
+    const appUser = await ensureProfile(user);
+    if (!appUser) return NextResponse.json({ inquiries: [], totalCount: 0 });
 
-  const url = new URL(request.url);
-  const page = getPositiveInteger(url.searchParams.get("page"), 1);
-  const limit = getPositiveInteger(url.searchParams.get("limit"), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-  const skeapOnly = url.searchParams.get("skeapOnly") === "1";
-  const where: Prisma.InquiryWhereInput = {
-    userId: appUser.id,
-  };
+    const url = new URL(request.url);
+    const page = getPositiveInteger(url.searchParams.get("page"), 1);
+    const limit = getPositiveInteger(url.searchParams.get("limit"), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+    const skeapOnly = url.searchParams.get("skeapOnly") === "1";
+    const where: Prisma.InquiryWhereInput = {
+      userId: appUser.id,
+    };
 
-  if (skeapOnly) {
-    where.subject = { contains: "SKEAP application", mode: "insensitive" };
-  } else {
-    where.NOT = { subject: { contains: "SKEAP application", mode: "insensitive" } };
+    if (skeapOnly) {
+      where.subject = { contains: "SKEAP application", mode: "insensitive" };
+    } else {
+      where.NOT = { subject: { contains: "SKEAP application", mode: "insensitive" } };
+    }
+
+    const [inquiries, totalCount] = await Promise.all([
+      db.inquiry.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: { id: true, subject: true, createdAt: true, isResolved: true, response: true, respondedAt: true, reviewStatus: true },
+      }),
+      db.inquiry.count({ where }),
+    ]);
+
+    return NextResponse.json({ inquiries, totalCount, page, limit });
+  } catch (error) {
+    console.error("Failed to load user inquiries:", error);
+    return NextResponse.json({ error: "Unable to load inquiries." }, { status: 500 });
   }
-
-  const [inquiries, totalCount] = await Promise.all([
-    db.inquiry.findMany({
-      where,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      skip: (page - 1) * limit,
-      take: limit,
-      select: { id: true, subject: true, createdAt: true, isResolved: true, response: true, respondedAt: true, reviewStatus: true },
-    }),
-    db.inquiry.count({ where }),
-  ]);
-
-  return NextResponse.json({ inquiries, totalCount, page, limit });
 }
