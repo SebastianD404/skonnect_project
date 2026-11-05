@@ -97,7 +97,7 @@ export async function GET(request: Request) {
 
     let totalRowIndexBeforeInsert = 0;
     worksheet.eachRow((row) => {
-      const label = String(row.getCell(2).text ?? row.getCell(2).value ?? "").trim().toUpperCase();
+      const label = String(row.getCell(2).value ?? "").trim().toUpperCase();
       if (label === "TOTAL" && totalRowIndexBeforeInsert === 0) {
         totalRowIndexBeforeInsert = row.number;
       }
@@ -109,55 +109,44 @@ export async function GET(request: Request) {
     let headerRowIndex = 0;
     for (let rowIndex = 1; rowIndex < totalRowIndexBeforeInsert; rowIndex += 1) {
       const row = worksheet.getRow(rowIndex);
-      const hasNumberHeader = String(row.getCell(1).text ?? row.getCell(1).value ?? "").trim().toUpperCase() === "NO.";
-      const hasNameHeader = String(row.getCell(2).text ?? row.getCell(2).value ?? "").trim().toUpperCase() === "NAME";
+      const hasNumberHeader = String(row.getCell(1).value ?? "").trim().toUpperCase() === "NO.";
+      const hasNameHeader = String(row.getCell(2).value ?? "").trim().toUpperCase() === "NAME";
       if (hasNumberHeader && hasNameHeader) headerRowIndex = rowIndex;
     }
 
-    const startRow = headerRowIndex > 0
-      ? headerRowIndex + 1
-      : Math.min(7, totalRowIndexBeforeInsert);
+    if (headerRowIndex === 0) {
+      return NextResponse.json({ error: "The payroll template is missing its scholar table header." }, { status: 500 });
+    }
+
+    const startRow = headerRowIndex + 1;
     const grantees = Array.from(uniqueGrantees.values());
+    const availableDataRows = totalRowIndexBeforeInsert - startRow;
+    if (availableDataRows < 1) {
+      return NextResponse.json({ error: "The payroll template is missing its scholar data rows." }, { status: 500 });
+    }
+
+    const additionalRows = Math.max(0, grantees.length - availableDataRows);
+    if (additionalRows > 0) {
+      worksheet.duplicateRow(totalRowIndexBeforeInsert - 1, additionalRows, true);
+    }
+
     const grantAmount = 5000;
 
     grantees.forEach((applicantName, index) => {
-      const row = worksheet.insertRow(startRow + index, [
-        index + 1,
-        applicantName,
-        "Scholar",
-        grantAmount,
-        "",
-        "",
-        grantAmount,
-        grantAmount,
-        "",
-      ]);
-
-      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        cell.font = { name: "Times New Roman", size: 12 };
-        cell.border = {
-          top: { style: "thin" },
-          left: { style: "thin" },
-          bottom: { style: "thin" },
-          right: { style: "thin" },
-        };
-        cell.alignment = {
-          vertical: "middle",
-          horizontal: colNumber === 2 ? "left" : "center",
-        };
-
-        if ([4, 7, 8].includes(colNumber)) {
-          cell.numFmt = "#,##0.00";
-        }
-      });
+      const rowIndex = startRow + index;
+      worksheet.getCell(rowIndex, 1).value = index + 1;
+      worksheet.getCell(rowIndex, 2).value = applicantName;
+      worksheet.getCell(rowIndex, 3).value = "Scholar";
+      worksheet.getCell(rowIndex, 4).value = grantAmount;
+      worksheet.getCell(rowIndex, 7).value = grantAmount;
+      worksheet.getCell(rowIndex, 8).value = grantAmount;
     });
 
-    const totalRowIndex = totalRowIndexBeforeInsert + grantees.length;
+    const totalRowIndex = totalRowIndexBeforeInsert + additionalRows;
     const totalAmount = grantees.length * grantAmount;
     for (const column of ["G", "H"]) {
       const totalCell = worksheet.getCell(`${column}${totalRowIndex}`);
       totalCell.value = totalAmount;
-      totalCell.numFmt = "#,##0.00";
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
