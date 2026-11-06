@@ -18,12 +18,12 @@ import {
 } from "lucide-react";
 import ReturnedForEditCard from "./ReturnedForEditCard";
 import GranteeWelcomeGate from "./GranteeWelcomeGate";
+import AcademicJourneySetup from "./AcademicJourneySetup";
 import { buildSemesterTracker } from "@/lib/semester-progress";
 import {
   getAcademicJourneyProgress,
   resolveScheduledJourneyStepStatus,
 } from "@/lib/academic-journey";
-import AcademicJourneyMap from "@/app/components/AcademicJourneyMap";
 import { getAcademicTermScheduleState, getAcademicTermDeadlineTarget } from "@/lib/academic-term-schedule";
 
 export default async function GranteeDashboardContent() {
@@ -162,12 +162,12 @@ export default async function GranteeDashboardContent() {
                 <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-sky-500/20 blur-3xl" />
                 <div className="absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl" />
                 <div className="relative">
-                  <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ring-1 ring-inset ${
+                  <div className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wider border backdrop-blur-sm shadow-sm ${
                     isTermOpen
-                      ? "bg-rose-500/20 text-rose-200 ring-rose-200/20"
-                      : "bg-white/10 text-cyan-100 ring-white/15"
+                      ? "bg-amber-400/10 text-amber-300 border-amber-500/20"
+                      : "border-white/15 bg-white/10 text-cyan-100"
                   }`}>
-                    <Sparkles className="h-3 w-3" />
+                    <Sparkles className={`h-3 w-3 ${isTermOpen ? "text-amber-400" : "text-cyan-200"}`} />
                     {targetTerm ? (isTermOpen ? "ACTION REQUIRED" : "NEXT UP") : "NEXT UP"}
                   </div>
                   <h3 className="mt-4 text-2xl font-semibold tracking-tight">
@@ -227,17 +227,21 @@ export default async function GranteeDashboardContent() {
         </section>
 
         <section className="grantee-dashboard-enter grantee-dashboard-enter-activity mt-8">
-          <AcademicJourneyMap
-            studentName={appUser.fullName}
-            photoUrl={journeyPhotoUrl}
-            currentSemesterIndex={journeyProgress.currentSemesterIndex}
-            validatedSemesterIndexes={journeyProgress.validatedSemesterIndexes}
-            currentStepStatus={currentStepStatus}
-            currentStepOpensAt={
-              currentStepSchedule && now < currentStepSchedule.opensAt
-                ? currentStepSchedule.opensAt.toISOString()
-                : null
-            }
+          <AcademicJourneySetup
+            journeyConfigured={Boolean(appUser.grantee?.journeyStart && appUser.grantee?.journeyEnd)}
+            journeyStart={appUser.grantee?.journeyStart ?? null}
+            journeyEnd={appUser.grantee?.journeyEnd ?? null}
+            mapProps={{
+              studentName: appUser.fullName,
+              photoUrl: journeyPhotoUrl,
+              currentSemesterIndex: journeyProgress.currentSemesterIndex,
+              validatedSemesterIndexes: journeyProgress.validatedSemesterIndexes,
+              currentStepStatus,
+              currentStepOpensAt:
+                currentStepSchedule && now < currentStepSchedule.opensAt
+                  ? currentStepSchedule.opensAt.toISOString()
+                  : null,
+            }}
           />
         </section>
 
@@ -368,15 +372,6 @@ export default async function GranteeDashboardContent() {
           </div>
         </section>
       </div>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-white/10 bg-white/5 px-2 py-2">
-      <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</div>
-      <div className="mt-0.5 text-base font-semibold text-white">{value}</div>
     </div>
   );
 }

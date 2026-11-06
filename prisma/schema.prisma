@@ -1,6 +1,6 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  previewFeatures = ["postgresqlExtensions", "views"]
 }
 
 datasource db {
@@ -71,6 +71,8 @@ model Grantee {
   userId             String            @unique
   status             GranteeStatus     @default(ACTIVE)
   yearLevel          String
+  journeyStart       String?
+  journeyEnd         String?
   school             String
   generalAverage     Float?
   dateEnrolled       DateTime          @default(now())
@@ -86,6 +88,23 @@ model Grantee {
 
   @@index([status, updatedAt(sort: Desc)])
   @@map("grantees")
+}
+
+view inactive_grantees_view {
+  id             String        @unique
+  userId         String
+  status         GranteeStatus
+  yearLevel      String
+  school         String
+  generalAverage Float?
+  dateEnrolled   DateTime
+  dateRemoved    DateTime?
+  remarks        String?
+  createdAt      DateTime
+  updatedAt      DateTime
+  graduatedAt    DateTime?
+
+  @@map("inactive_grantees_view")
 }
 
 model Submission {
@@ -206,6 +225,8 @@ model ProfilingRegistration {
   consent                           Boolean  @default(true)
   submittedAt                       DateTime @default(now())
   reviewStatus                      String   @default("Pending")
+  archivedReason                    String?  @map("archived_reason")
+  archivedAt                        DateTime? @map("archived_at")
   reviewNotes                       String?
   idBackFileUrl                     String?
   idDocumentType                    String?
@@ -217,6 +238,7 @@ model ProfilingRegistration {
   user                              User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([reviewStatus, submittedAt(sort: Desc)])
+  @@index([reviewStatus, birthDate])
   @@map("kk_profiling_registrations")
 }
 

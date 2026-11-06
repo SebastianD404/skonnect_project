@@ -1,8 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Loader2, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, Loader2, Search } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
 import type { KKProfilingRegistration } from "./types";
@@ -34,14 +35,24 @@ export function KKProfilingRegistrationsTable({
   registrations,
   statusLabel,
   flat = false,
+  fitContainer = false,
+  archiveAction = false,
+  showMemberRoleColumn = false,
+  memberTypeFilter = "all",
   exportHref,
+  exportMenu,
   pageNumber,
   pageSize,
 }: {
   registrations: KKProfilingRegistration[];
   statusLabel?: string;
   flat?: boolean;
+  fitContainer?: boolean;
+  archiveAction?: boolean;
+  showMemberRoleColumn?: boolean;
+  memberTypeFilter?: "all" | "grantees" | "kk";
   exportHref?: string;
+  exportMenu?: ReactNode;
   pageNumber?: number;
   pageSize?: number;
 }) {
@@ -64,6 +75,9 @@ export function KKProfilingRegistrationsTable({
   const searchParams = useSearchParams();
   const activeTableQuery = pageSearch?.query ?? tableQuery;
   const setActiveTableQuery = pageSearch?.setQuery ?? setTableQuery;
+  const cellPadding = fitContainer
+    ? showMemberRoleColumn ? "px-3 py-3.5" : "px-3.5 py-3.5"
+    : "px-6 py-4";
   const deferredTableQuery = useDeferredValue(activeTableQuery);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const requestedStatus = (searchParams.get("status") ?? "pending").toLowerCase();
@@ -77,6 +91,15 @@ export function KKProfilingRegistrationsTable({
     requestedPageSize !== (pageSize ?? 10)
   );
   const isLoading = routePending;
+
+  const updateMemberTypeFilter = (value: "all" | "grantees" | "kk") => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === "all") params.delete("memberType");
+    else params.set("memberType", value);
+    params.delete("page");
+    const search = params.toString();
+    router.replace(`${pathname}${search ? `?${search}` : ""}`, { scroll: false });
+  };
 
   const filteredRows = useMemo(() => {
     const workspaceQuery = deferredSearchQuery.trim().toLowerCase();
@@ -113,6 +136,21 @@ export function KKProfilingRegistrationsTable({
     }
   };
 
+  const handleArchive = async (id: string) => {
+    const response = await fetch(`/api/admin/members/${id}/archive`, { method: "PATCH" });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload?.error || "Failed to archive profile");
+    }
+
+    setRowState((current) => ({
+      ...current,
+      rows: current.rows.filter((row) => row.id !== id),
+    }));
+    setError(null);
+    router.refresh();
+  };
+
   const handleUpdate = (updatedRegistration: KKProfilingRegistration) => {
     const normalizedTab = String(statusLabel ?? "").toLowerCase();
     const normalizedUpdated = String(updatedRegistration.reviewStatus ?? "").toLowerCase();
@@ -145,29 +183,54 @@ export function KKProfilingRegistrationsTable({
       {error ? <FloatingFeedback message={error} type="error" onDismiss={() => setError(null)} /> : null}
       <div className={flat ? "relative" : "relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"}>
         {!pageSearch && (
-          <div className="flex flex-col items-stretch justify-between gap-3 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row sm:items-center">
-            <label className="relative block w-full sm:w-80">
-              <span className="sr-only">Filter the current profiling table</span>
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={activeTableQuery}
-                onChange={(event) => setActiveTableQuery(event.target.value)}
-                placeholder="Filter by name, email, or classification..."
-                title="Filters rows in the current table view"
-                className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 placeholder:text-slate-400"
+          <div className={`relative flex flex-col items-stretch justify-between gap-3 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row sm:items-center ${fitContainer ? "z-40" : ""}`}>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <label className="relative block w-full sm:w-80">
+                <span className="sr-only">Filter the current profiling table</span>
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={activeTableQuery}
+                  onChange={(event) => setActiveTableQuery(event.target.value)}
+                  placeholder="Filter by name, email, or classification..."
+                  title="Filters rows in the current table view"
+                  className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 placeholder:text-slate-400"
+                />
+              </label>
+              {showMemberRoleColumn ? (
+                <div className="relative w-full sm:w-auto">
+                  <select
+                    aria-label="Filter members by SKEAP status"
+                    value={memberTypeFilter}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (value === "all" || value === "grantees" || value === "kk") {
+                        updateMemberTypeFilter(value);
+                      }
+                    }}
+                    className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-9 text-xs font-medium text-slate-700 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 sm:w-auto"
+                  >
+                    <option value="all">All Members</option>
+                    <option value="grantees">SKEAP Grantees</option>
+                    <option value="kk">Not a SKEAP Grantee</option>
+                  </select>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500"
+                  />
+                </div>
+              ) : null}
+            </div>
+            {exportMenu ?? (exportHref ? (
+              <AdminExportButton
+                href={exportHref}
+                className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 sm:self-auto"
+                iconClassName="h-3.5 w-3.5 text-slate-400"
               />
-            </label>
-            {exportHref ? (
-            <AdminExportButton
-              href={exportHref}
-              className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 sm:self-auto"
-              iconClassName="h-3.5 w-3.5 text-slate-400"
-            />
-            ) : null}
+            ) : null)}
           </div>
         )}
-        <div className="relative w-full overflow-x-auto">
+        <div className={fitContainer ? "relative w-full" : "relative w-full overflow-x-auto"}>
           {isLoading ? (
             <div
               role="status"
@@ -180,19 +243,50 @@ export function KKProfilingRegistrationsTable({
               </div>
             </div>
           ) : null}
-          <table className="min-w-full border-collapse whitespace-nowrap text-left text-sm">
+          <table className={fitContainer
+            ? "w-full table-fixed border-collapse text-left text-sm"
+            : "min-w-full border-collapse whitespace-nowrap text-left text-sm"}
+          >
+          {fitContainer ? (
+            showMemberRoleColumn ? (
+              <colgroup>
+                <col className="w-[24%]" />
+                <col className="w-[20%]" />
+                <col className="w-[16%]" />
+                <col className="w-[12%]" />
+                <col className="w-[14%]" />
+                <col className="w-[14%]" />
+              </colgroup>
+            ) : (
+              <colgroup>
+                <col className="w-[26%]" />
+                <col className="w-[16%]" />
+                <col className="w-[16%]" />
+                <col className="w-[9%]" />
+                <col className="w-[11%]" />
+                <col className="w-[12%]" />
+                <col className="w-[10%]" />
+              </colgroup>
+            )
+          ) : null}
           <thead className={`relative z-30 ${flat ? "bg-gradient-to-r from-slate-900 to-cyan-900" : "bg-slate-50 text-slate-600"}`}>
             <tr className={flat
               ? "border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50"
               : "text-[11px] font-bold uppercase tracking-wider text-slate-600"}
             >
-              <th className="px-6 py-4">Name</th>
-              <th className="px-6 py-4">Age group</th>
-              <th className="px-6 py-4">Classification</th>
-              <th className="px-6 py-4">SK Voter</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Submitted</th>
-              <th className="px-6 py-4 text-right">Actions</th>
+              <th className={cellPadding}>Name</th>
+              <th className={`${cellPadding} ${showMemberRoleColumn ? "pr-5" : ""}`}>Age group</th>
+              <th className={`${cellPadding} ${showMemberRoleColumn ? "pl-5" : ""}`}>Classification</th>
+              <th className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>SK Voter</th>
+              {showMemberRoleColumn ? (
+                <th className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>SKEAP Status</th>
+              ) : (
+                <>
+                  <th className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>Status</th>
+                  <th className={`${cellPadding} ${fitContainer ? "whitespace-nowrap" : ""}`}>Submitted</th>
+                </>
+              )}
+              <th className={`${fitContainer ? showMemberRoleColumn ? "pr-8 pl-2.5 py-3.5" : "px-2.5 py-3.5" : "px-6 py-4"} text-right`}>Actions</th>
             </tr>
           </thead>
           <tbody className={`divide-y divide-slate-100 bg-white text-slate-700 transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
@@ -201,52 +295,76 @@ export function KKProfilingRegistrationsTable({
                   key={registration.id}
                   className="transition-colors hover:bg-slate-50/50"
                 >
-                  <td className="px-6 py-4">
+                  <td className={`${cellPadding} ${fitContainer ? "break-words" : ""}`}>
                     <div className="font-semibold text-slate-900">{registration.fullName}</div>
-                    <div className="text-xs text-slate-500">{registration.email}</div>
+                    <div className={`text-xs text-slate-500 ${fitContainer ? "block truncate" : ""}`} title={fitContainer ? registration.email : undefined}>
+                      {registration.email}
+                    </div>
                   </td>
-                  <td className="px-6 py-4">{registration.youthAgeGroup}</td>
-                  <td className="px-6 py-4">{registration.youthClassification}</td>
-                  <td className="px-6 py-4">{registration.registeredSKVoter}</td>
-                  <td className="px-6 py-4">
-                    {String(registration.reviewStatus || "Pending").toLowerCase() === "approved" ? (
-                      <span className="inline-flex items-center rounded-full border border-emerald-200/60 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
-                        Approved
-                      </span>
-                    ) : String(registration.reviewStatus || "").toLowerCase() === "rejected" ? (
-                      <div className="flex flex-col items-start gap-1">
-                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700">
-                          Rejected
+                  <td className={`${cellPadding} ${fitContainer ? "break-words" : ""} ${showMemberRoleColumn ? "pr-5" : ""}`}>
+                    {registration.youthAgeGroup}
+                  </td>
+                  <td className={`${cellPadding} ${fitContainer ? "break-words" : ""} ${showMemberRoleColumn ? "pl-5" : ""}`}>
+                    {registration.youthClassification}
+                  </td>
+                  <td className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>{registration.registeredSKVoter}</td>
+                  {!showMemberRoleColumn ? (
+                    <td className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>
+                      {String(registration.reviewStatus || "Pending").toLowerCase() === "approved" ? (
+                        <span className={`inline-flex max-w-full items-center rounded-full border border-emerald-200/60 bg-emerald-50 ${fitContainer ? "break-words px-2.5 py-0.5 text-xs font-medium" : "px-2.5 py-1 text-[10px] font-bold"} text-emerald-700`}>
+                          Approved
                         </span>
-                        {registration.reviewNotes ? (
-                          <span className="max-w-56 truncate text-xs text-slate-500" title={registration.reviewNotes}>
-                            Reason: {registration.reviewNotes}
+                      ) : String(registration.reviewStatus || "").toLowerCase() === "rejected" ? (
+                        <div className="flex flex-col items-start gap-1">
+                          <span className={`inline-flex max-w-full items-center rounded-full border border-rose-200 bg-rose-50 ${fitContainer ? "break-words px-2.5 py-0.5 text-xs font-medium" : "px-2.5 py-1 text-[10px] font-bold"} text-rose-700`}>
+                            Rejected
                           </span>
-                        ) : null}
-                      </div>
-                    ) : (
-                      registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (
-                        <span
-                          title={registration.reviewNotes ?? "This registration needs manual review."}
-                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-900"
-                        >
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                          Manual Review
+                          {registration.reviewNotes ? (
+                            <span className="max-w-56 truncate text-xs text-slate-500" title={registration.reviewNotes}>
+                              Reason: {registration.reviewNotes}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (
+                          <span
+                            title={registration.reviewNotes ?? "This registration needs manual review."}
+                            className={`inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 ${fitContainer ? "break-words px-2.5 py-0.5 text-xs font-medium" : "whitespace-nowrap px-2.5 py-1 text-[10px] font-bold"} text-amber-900`}
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            Manual Review
+                          </span>
+                        ) : (
+                          <span className="capitalize text-slate-700">{registration.reviewStatus || "Pending"}</span>
+                        )
+                      )}
+                    </td>
+                  ) : null}
+                  {showMemberRoleColumn ? (
+                    <td className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>
+                      {["ACTIVE", "PROBATIONARY"].includes(registration.user?.grantee?.status ?? "") ? (
+                        <span className="whitespace-nowrap text-xs font-semibold tracking-tight text-[#0F3D5C]">
+                          Grantee
                         </span>
                       ) : (
-                        <span className="capitalize text-slate-700">{registration.reviewStatus || "Pending"}</span>
-                      )
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-slate-500">
-                    {formatDate(registration.submittedAt)}
-                  </td>
-                  <td className="px-6 py-4 text-right">
+                        <span className="whitespace-nowrap text-xs font-medium tracking-tight text-slate-500">
+                          Not a grantee
+                        </span>
+                      )}
+                    </td>
+                  ) : (
+                    <td className={`${cellPadding} text-slate-500 ${fitContainer ? "whitespace-nowrap" : ""}`}>
+                      {formatDate(registration.submittedAt)}
+                    </td>
+                  )}
+                  <td className={`${fitContainer ? showMemberRoleColumn ? "pr-8 pl-2.5 py-3.5" : "px-2.5 py-3.5" : "px-6 py-4"} text-right`}>
                     <KKProfilingRowActions
                       registration={registration}
                       onDelete={handleDelete}
                       onUpdate={handleUpdate}
                       onStatusUpdate={handleStatusUpdate}
+                      compact={fitContainer}
+                      onArchive={archiveAction ? handleArchive : undefined}
                     />
                   </td>
                 </tr>

@@ -15,12 +15,11 @@ import { getAcademicJourneyProgress } from "@/lib/academic-journey";
 const PAGE_SIZES = [10, 20, 50] as const;
 
 export default async function AdminGranteesPage({ searchParams }: {
-  searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; status?: string | string[]; q?: string | string[] }>;
+  searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; q?: string | string[] }>;
 }) {
   const resolvedSearchParams = await searchParams;
   const rawPage = Array.isArray(resolvedSearchParams.page) ? resolvedSearchParams.page[0] : resolvedSearchParams.page;
   const rawPageSize = Array.isArray(resolvedSearchParams.pageSize) ? resolvedSearchParams.pageSize[0] : resolvedSearchParams.pageSize;
-  const rawStatus = Array.isArray(resolvedSearchParams.status) ? resolvedSearchParams.status[0] : resolvedSearchParams.status;
   const rawQuery = Array.isArray(resolvedSearchParams.q) ? resolvedSearchParams.q[0] : resolvedSearchParams.q;
   const query = String(rawQuery || "").trim();
   const requestedPage = Number(rawPage || 1);
@@ -29,10 +28,6 @@ export default async function AdminGranteesPage({ searchParams }: {
   const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
     ? requestedPageSize
     : 10;
-  const requestedStatus = String(rawStatus || "").toUpperCase();
-  const statusFilter = ["GRADUATED", "REMOVED"].includes(requestedStatus)
-    ? requestedStatus
-    : "CURRENT";
   const skip = (page - 1) * pageSize;
   const hasRetentionColumn = await hasGranteeRetentionColumn();
   const restoredAfterRemovalSql = `EXISTS (
@@ -52,18 +47,10 @@ export default async function AdminGranteesPage({ searchParams }: {
           AND newer_role_change."createdAt" > role_change."createdAt"
       )
   )`;
-  const profileStatusSql = statusFilter === "CURRENT"
-    ? `AND profile_user."role"::text = 'GRANTEE' AND (
-         g."status"::text IN ('ACTIVE', 'PROBATIONARY')
-         OR (g."status"::text = 'REMOVED' AND ${restoredAfterRemovalSql})
-       )`
-    : statusFilter === "REMOVED"
-    ? `AND (
-         (g."status"::text = 'REMOVED' AND NOT (profile_user."role"::text = 'GRANTEE' AND ${restoredAfterRemovalSql}))
-         OR (profile_user."role"::text <> 'GRANTEE' AND g."status"::text <> 'GRADUATED')
-       )`
-    : `AND g."status"::text = '${statusFilter}'`;
-  const fallbackStatusSql = statusFilter === "CURRENT" ? "" : "AND FALSE";
+  const profileStatusSql = `AND profile_user."role"::text = 'GRANTEE' AND (
+       g."status"::text IN ('ACTIVE', 'PROBATIONARY')
+       OR (g."status"::text = 'REMOVED' AND ${restoredAfterRemovalSql})
+     )`;
   const pageKeys = await prisma.$queryRawUnsafe<Array<{
     source: "profile" | "fallback";
     recordId: string;
@@ -79,7 +66,6 @@ export default async function AdminGranteesPage({ searchParams }: {
      FROM "users" u
      WHERE u."role"::text = 'GRANTEE'
        AND NOT EXISTS (SELECT 1 FROM "grantees" g WHERE g."userId" = u."id")
-       ${fallbackStatusSql}
        AND ($3 = '' OR concat_ws(' ', u."fullName", u."email") ILIKE '%' || $3 || '%')
      ORDER BY "updatedAt" DESC, "recordId" ASC
      LIMIT $1 OFFSET $2`,
@@ -99,7 +85,6 @@ export default async function AdminGranteesPage({ searchParams }: {
        FROM "users" u
        WHERE u."role"::text = 'GRANTEE'
          AND NOT EXISTS (SELECT 1 FROM "grantees" g WHERE g."userId" = u."id")
-         ${fallbackStatusSql}
          AND ($1 = '' OR concat_ws(' ', u."fullName", u."email") ILIKE '%' || $1 || '%')
      ) matching_grantees`,
     query
@@ -199,13 +184,11 @@ export default async function AdminGranteesPage({ searchParams }: {
       currentJourneySemesterIndex: journeyProgress.currentSemesterIndex,
       validatedJourneySemesterIndexes: journeyProgress.validatedSemesterIndexes,
       status:
-        grantee.user.role === "GRANTEE" &&
-        grantee.status === "REMOVED" &&
-        statusFilter === "CURRENT"
+        grantee.user.role === "GRANTEE" && grantee.status === "REMOVED"
           ? "ACTIVE"
           : grantee.user.role !== "GRANTEE" && grantee.status !== "GRADUATED"
-          ? "REMOVED"
-          : grantee.status,
+            ? "REMOVED"
+            : grantee.status,
       generalAverage:
         latestSubmission?.generalAverage ?? latestInquiry?.application?.gwa ?? grantee.generalAverage,
       dateEnrolled: grantee.dateEnrolled.toISOString(),

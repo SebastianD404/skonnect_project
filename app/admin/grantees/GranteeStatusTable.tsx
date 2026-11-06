@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Eye, Loader2, Search, Trash2 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
@@ -39,12 +39,6 @@ const STATUS_CLASSES: Record<GranteeTableRow["status"], string> = {
   REMOVED: "bg-rose-100 text-rose-700",
 };
 
-const FILTERS: Array<{ label: string; value: "CURRENT" | "GRADUATED" | "REMOVED" }> = [
-  { label: "Current", value: "CURRENT" },
-  { label: "Graduated", value: "GRADUATED" },
-  { label: "Removed", value: "REMOVED" },
-];
-
 export function GranteeStatusTable({
   grantees,
   page,
@@ -65,11 +59,7 @@ export function GranteeStatusTable({
   const [query, setQuery] = useState("");
   const [pendingGranteeId, setPendingGranteeId] = useState<string | null>(null);
   const [isViewingGrantee, startViewTransition] = useTransition();
-  const pathname = usePathname();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const requestedStatus = searchParams.get("status")?.toUpperCase();
-  const statusFilter = FILTERS.find((filter) => filter.value === requestedStatus)?.value ?? "CURRENT";
   const handleQueryChange = (value: string) => {
     setQuery(value);
   };
@@ -82,35 +72,17 @@ export function GranteeStatusTable({
     startViewTransition(() => router.push(href));
   };
 
-  const handleStatusFilterChange = (value: (typeof FILTERS)[number]["value"]) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value === "CURRENT") {
-      params.delete("status");
-    } else {
-      params.set("status", value.toLowerCase());
-    }
-    params.set("page", "1");
-
-    const queryString = params.toString();
-    startNavigation(() => {
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
-    });
-  };
-
   const filteredGrantees = useMemo(() => {
     return grantees.filter((grantee) => {
-      const matchesStatus = statusFilter === "CURRENT"
-        ? grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
-        : grantee.status === statusFilter;
       const lowerQuery = query.trim().toLowerCase();
       const matchesQuery =
         grantee.fullName.toLowerCase().includes(lowerQuery) ||
         grantee.email.toLowerCase().includes(lowerQuery) ||
         grantee.school.toLowerCase().includes(lowerQuery) ||
         grantee.yearLevel.toLowerCase().includes(lowerQuery);
-      return matchesStatus && matchesQuery;
+      return matchesQuery;
     });
-  }, [grantees, query, statusFilter]);
+  }, [grantees, query]);
 
   return (
     <div className="mt-4 flex h-fit flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
@@ -127,24 +99,6 @@ export function GranteeStatusTable({
             className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm text-slate-700 shadow-sm outline-none placeholder:text-slate-400 transition-colors focus:border-cyan-500"
           />
         </label>
-
-        <div className="flex w-full shrink-0 items-center overflow-x-auto rounded-xl bg-slate-100 p-1 sm:w-auto">
-          {FILTERS.map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              onClick={() => handleStatusFilterChange(filter.value)}
-              aria-pressed={statusFilter === filter.value}
-              className={`shrink-0 rounded-lg px-4 py-1.5 text-sm transition-all ${
-                statusFilter === filter.value
-                  ? "bg-white font-semibold text-slate-900 shadow-sm"
-                  : "font-medium text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className={`relative w-full overflow-x-auto ${isLoading ? "min-h-[200px]" : ""}`}>
@@ -163,7 +117,7 @@ export function GranteeStatusTable({
         <table className="w-full min-w-[760px] table-fixed border-collapse text-left text-sm md:min-w-0">
           <thead className="relative z-30 bg-gradient-to-r from-slate-900 to-cyan-900">
             <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
-              <th className="w-[25%] px-3 py-4 sm:px-4">Scholar</th>
+              <th className="w-[25%] px-3 py-4 sm:px-4">Name</th>
               <th className="w-[27%] px-3 py-4 sm:px-4">School / Year</th>
               <th className="w-[12%] px-3 py-4 sm:px-4">Status</th>
               <th className="w-[10%] px-3 py-4 sm:px-4">Average</th>

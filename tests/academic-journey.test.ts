@@ -1,11 +1,65 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACADEMIC_JOURNEY_END_OPTIONS,
+  ACADEMIC_JOURNEY_START_OPTIONS,
+  getAcademicJourneyLabels,
   getAcademicJourneyProgress,
   getAcademicJourneyTerms,
   getApprovedSemesterCount,
+  isValidAcademicJourneyRange,
   normalizeAcademicJourneyStepStatus,
   resolveScheduledJourneyStepStatus,
 } from "@/lib/academic-journey";
+
+describe("academic journey configuration", () => {
+  it("allows high-school journeys to continue through college graduation", () => {
+    expect(isValidAcademicJourneyRange("college-3", "college-4")).toBe(true);
+    expect(isValidAcademicJourneyRange("grade-12", "grade-7")).toBe(false);
+    expect(isValidAcademicJourneyRange("grade-11", "college-4")).toBe(true);
+    expect(isValidAcademicJourneyRange("grade-7", "college-5")).toBe(true);
+    expect(isValidAcademicJourneyRange("college-4", "college-3")).toBe(false);
+    expect(isValidAcademicJourneyRange("other-1", "other-2")).toBe(false);
+  });
+
+  it("only offers grade-school and college journey points", () => {
+    expect(ACADEMIC_JOURNEY_START_OPTIONS.every(({ value }) => !value.startsWith("vocational-"))).toBe(true);
+    expect(ACADEMIC_JOURNEY_END_OPTIONS.every(({ value }) => !value.startsWith("vocational-"))).toBe(true);
+    expect(ACADEMIC_JOURNEY_START_OPTIONS.map(({ value }) => value)).toEqual([
+      "grade-7", "grade-8", "grade-9", "grade-10", "grade-11", "grade-12",
+      "college-1", "college-2", "college-3",
+    ]);
+    expect(ACADEMIC_JOURNEY_END_OPTIONS.map(({ value }) => value)).toEqual(["college-4", "college-5"]);
+  });
+
+  it("generates every semester between the selected college years", () => {
+    expect(getAcademicJourneyLabels("college-3", "college-4")).toEqual([
+      "Y3 S1", "Y3 S2", "Y4 S1", "Y4 S2",
+    ]);
+  });
+
+  it("labels the transition from high school through college", () => {
+    expect(getAcademicJourneyLabels("grade-11", "college-4")).toEqual([
+      "G11 S1", "G11 S2", "G12 S1", "G12 S2",
+      "Y1 S1", "Y1 S2", "Y2 S1", "Y2 S2",
+      "Y3 S1", "Y3 S2", "Y4 S1", "Y4 S2",
+    ]);
+  });
+
+  it("can still display journeys saved with the previous Grade 12 target", () => {
+    expect(getAcademicJourneyLabels("grade-11", "grade-12")).toEqual([
+      "G11 S1", "G11 S2", "G12 S1", "G12 S2",
+    ]);
+  });
+
+  it("generates all 20 sequential semesters from Grade 7 through 4th year college", () => {
+    expect(getAcademicJourneyLabels("grade-7", "college-4")).toEqual([
+      "G7 S1", "G7 S2", "G8 S1", "G8 S2", "G9 S1", "G9 S2",
+      "G10 S1", "G10 S2", "G11 S1", "G11 S2", "G12 S1", "G12 S2",
+      "Y1 S1", "Y1 S2", "Y2 S1", "Y2 S2", "Y3 S1", "Y3 S2",
+      "Y4 S1", "Y4 S2",
+    ]);
+  });
+});
 
 describe("getAcademicJourneyTerms", () => {
   it("creates two semesters for every requested year", () => {

@@ -9,7 +9,7 @@ import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
-import { isSkeapEducationLevel, isValidSkeapYearLevel } from "@/lib/skeap-education";
+import { isEligibleSkeapApplicantYearLevel, isSkeapEducationLevel } from "@/lib/skeap-education";
 
 const EDUCATION_LEVELS = ["elementary", "highSchool", "college", "vocational"] as const;
 const EDUCATION_FIELDS = [
@@ -320,7 +320,13 @@ export async function POST(request: NextRequest) {
     if (!isSkeapEducationLevel(educationLevel)) {
       return NextResponse.json({ error: "Select a valid education level." }, { status: 400 });
     }
-    if (!isValidSkeapYearLevel(educationLevel, yearLevel)) {
+    if (!isEligibleSkeapApplicantYearLevel(educationLevel, yearLevel)) {
+      if (educationLevel === "College" && ["4th Year", "5th Year", "6th Year"].includes(yearLevel)) {
+        return NextResponse.json(
+          { error: "Applicants must be in 3rd year college or below to apply." },
+          { status: 400 }
+        );
+      }
       return NextResponse.json(
         { error: "Select a valid year level for the selected education level." },
         { status: 400 }

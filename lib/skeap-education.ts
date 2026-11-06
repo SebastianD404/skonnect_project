@@ -25,3 +25,9 @@ export function isSkeapEducationLevel(value: string): value is SkeapEducationLev
 export function isValidSkeapYearLevel(educationLevel: string, yearLevel: string) {
   return isSkeapEducationLevel(educationLevel) && SKEAP_YEAR_LEVELS[educationLevel].includes(yearLevel);
 }
+
+export function isEligibleSkeapApplicantYearLevel(educationLevel: string, yearLevel: string) {
+  if (!isValidSkeapYearLevel(educationLevel, yearLevel)) return false;
+  if (educationLevel !== "College") return true;
+  return ["Incoming Freshman", "1st Year", "2nd Year", "3rd Year"].includes(yearLevel);
+}

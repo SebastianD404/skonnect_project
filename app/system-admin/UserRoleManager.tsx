@@ -14,7 +14,6 @@ import {
   MoreHorizontal,
   Pencil,
   Search,
-  Trash2,
   UserX,
   X,
   XCircle,
@@ -135,7 +134,6 @@ export default function UserRoleManager({ users, totalCount }: Props) {
   const [viewingUser, setViewingUser] = useState<UserItem | null>(null);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
   const [statusCandidate, setStatusCandidate] = useState<UserItem | null>(null);
-  const [deleteCandidate, setDeleteCandidate] = useState<UserItem | null>(null);
   const [openActionsUserId, setOpenActionsUserId] = useState<string | null>(null);
   const [actionsMenuPosition, setActionsMenuPosition] = useState({ top: 0, left: 0 });
   const actionsTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -181,7 +179,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
       if (!trigger) return;
       const rect = trigger.getBoundingClientRect();
       const menuWidth = 192;
-      const menuHeight = 190;
+      const menuHeight = 150;
       const top = rect.bottom + menuHeight + 8 <= window.innerHeight
         ? rect.bottom + 6
         : Math.max(8, rect.top - menuHeight - 6);
@@ -369,6 +367,11 @@ export default function UserRoleManager({ users, totalCount }: Props) {
     if (!statusCandidate) return;
     const user = statusCandidate;
     const nextIsActive = !user.isActive;
+    if (user.role === "SUPER_ADMIN" && !nextIsActive) {
+      setStatusCandidate(null);
+      setMessage({ type: "error", text: "SUPER_ADMIN accounts cannot be deactivated." });
+      return;
+    }
     const action = nextIsActive ? "Reactivate" : "Deactivate";
 
     setPendingUserId(user.id);
@@ -392,40 +395,6 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         router.refresh();
       } catch (error) {
         const text = error instanceof Error ? error.message : `Failed to ${action.toLowerCase()} user`;
-        setMessage({ type: "error", text });
-      } finally {
-        setPendingUserId(null);
-      }
-    });
-  }
-
-  function requestUserDeletion(user: UserItem) {
-    setDeleteCandidate(user);
-    setMessage(null);
-  }
-
-  function deleteUser() {
-    if (!deleteCandidate) return;
-    const user = deleteCandidate;
-    setPendingUserId(user.id);
-    setMessage(null);
-
-    startTransition(async () => {
-      try {
-        const response = await fetch(`/api/system-admin/users/${user.id}`, {
-          method: "DELETE",
-        });
-
-        const result = await response.json();
-        if (!response.ok) {
-          throw new Error(result?.error || "Failed to delete user");
-        }
-
-        setMessage({ type: "success", text: "User account and associated files deleted successfully." });
-        setDeleteCandidate(null);
-        router.refresh();
-      } catch (error) {
-        const text = error instanceof Error ? error.message : "Failed to delete user";
         setMessage({ type: "error", text });
       } finally {
         setPendingUserId(null);
@@ -654,40 +623,29 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                                 Edit profile
                               </button>
                               <div className="my-1.5 border-t border-slate-100" role="separator" />
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setOpenActionsUserId(null);
-                                  requestUserStatusChange(user);
-                                }}
-                                disabled={busy}
-                                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                                  user.isActive
-                                    ? "text-red-600 hover:bg-red-50 hover:text-red-700"
-                                    : "text-emerald-700 hover:bg-emerald-50"
-                                }`}
-                              >
-                                {user.isActive ? (
-                                  <UserX className="h-4 w-4" aria-hidden="true" />
-                                ) : (
-                                  <CheckCircle className="h-4 w-4" aria-hidden="true" />
-                                )}
-                                {user.isActive ? "Deactivate" : "Reactivate Account"}
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setOpenActionsUserId(null);
-                                  requestUserDeletion(user);
-                                }}
-                                disabled={busy}
-                                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                <Trash2 className="h-4 w-4" aria-hidden="true" />
-                                Delete User
-                              </button>
+                              {(!user.isActive || user.role !== "SUPER_ADMIN") && (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setOpenActionsUserId(null);
+                                    requestUserStatusChange(user);
+                                  }}
+                                  disabled={busy}
+                                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    user.isActive
+                                      ? "text-red-600 hover:bg-red-50 hover:text-red-700"
+                                      : "text-emerald-700 hover:bg-emerald-50"
+                                  }`}
+                                >
+                                  {user.isActive ? (
+                                    <UserX className="h-4 w-4" aria-hidden="true" />
+                                  ) : (
+                                    <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                                  )}
+                                  {user.isActive ? "Deactivate Account" : "Reactivate Account"}
+                                </button>
+                              )}
                             </div>,
                             document.body
                           ) : null}
@@ -966,56 +924,6 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         </div>
       ) : null}
 
-      {deleteCandidate ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-user-title"
-            aria-describedby="delete-user-description"
-            className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-          >
-            <div className="border-t-4 border-rose-600 p-6">
-              <div className="flex items-start gap-4">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-700">
-                  <Trash2 className="h-5 w-5" aria-hidden="true" />
-                </div>
-                <div>
-                  <h2 id="delete-user-title" className="text-lg font-semibold text-slate-950">
-                    Delete user?
-                  </h2>
-                  <p id="delete-user-description" className="mt-2 text-sm leading-6 text-slate-600">
-                    Permanently delete <span className="font-semibold text-slate-900">{deleteCandidate.fullName}</span>&apos;s sign-in access, profile, related records, and uploaded files? This action cannot be undone.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-6 flex justify-end gap-3 border-t border-slate-200 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setDeleteCandidate(null)}
-                  disabled={pendingUserId === deleteCandidate.id}
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={deleteUser}
-                  disabled={pendingUserId === deleteCandidate.id}
-                  className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {pendingUserId === deleteCandidate.id ? (
-                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  {pendingUserId === deleteCandidate.id ? "Deleting..." : "Delete user"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }

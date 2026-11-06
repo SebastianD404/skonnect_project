@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { NextResponse } from "next/server";
 import path from "node:path";
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { ensureProfile } from "@/lib/auth";
 import { logAuditEvent } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
@@ -39,8 +39,13 @@ export async function GET(request: Request) {
   const searchParams = new URL(request.url).searchParams;
   const semesterId = searchParams.get("semesterId")?.trim();
   const semesterName = searchParams.get("semester")?.trim();
+  const payoutStatus = searchParams.get("payoutStatus");
+  const search = searchParams.get("search")?.trim() ?? "";
   if (!semesterId && !semesterName) {
     return NextResponse.json({ error: "A semester is required." }, { status: 400 });
+  }
+  if (payoutStatus && !["pending", "received"].includes(payoutStatus)) {
+    return NextResponse.json({ error: "Invalid payout status filter." }, { status: 400 });
   }
 
   try {
@@ -58,35 +63,69 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "A valid semester is required." }, { status: 400 });
     }
 
-    const submissions = await prisma.submission.findMany({
-      where: {
-        semester: { equals: selectedSemester, mode: "insensitive" },
-        status: "APPROVED",
-      },
-      orderBy: [{ granteeId: "asc" }, { submittedAt: "desc" }],
-      select: {
-        granteeId: true,
-        grantee: {
-          select: {
+    const semesterSubmissionFilter = {
+      semester: { equals: selectedSemester, mode: "insensitive" as const },
+    };
+    const where: Prisma.GranteeWhereInput = {
+      submissions: { some: { ...semesterSubmissionFilter, status: "APPROVED" } },
+      ...(search
+        ? {
             user: {
-              select: {
-                fullName: true,
-                kkProfile: { select: { firstName: true, lastName: true } },
+              is: {
+                fullName: { contains: search, mode: Prisma.QueryMode.insensitive },
               },
             },
+          }
+        : {}),
+    };
+
+    if (payoutStatus === "received") {
+      where.payout = { is: { claimedAt: { not: null } } };
+    } else if (payoutStatus === "pending") {
+      where.OR = [
+        { payout: { is: null } },
+        { payout: { is: { claimedAt: null } } },
+      ];
+    }
+
+    const grantees = await prisma.grantee.findMany({
+      where,
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: {
+        user: {
+          select: {
+            fullName: true,
+            kkProfile: { select: { firstName: true, lastName: true } },
           },
         },
+        submissions: {
+          where: semesterSubmissionFilter,
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: { semester: true, status: true },
+        },
+        payout: { select: { claimedAt: true } },
       },
     });
 
-    const uniqueGrantees = new Map(
-      submissions.map((submission) => [
-        submission.granteeId,
-        formatGranteeName(submission.grantee.user.fullName, submission.grantee.user.kkProfile),
-      ])
-    );
+    if (grantees.length === 0) {
+      return NextResponse.json(
+        { error: "No grantee records match the selected report filters." },
+        { status: 404 },
+      );
+    }
+
+    const reportRows = grantees.map((grantee) => ({
+      name: formatGranteeName(grantee.user.fullName, grantee.user.kkProfile),
+      status: grantee.payout?.claimedAt ? "Received" : "Pending",
+      semester: grantee.submissions[0]?.semester ?? selectedSemester,
+    }));
+
+    const semesterSlug =
+      selectedSemester.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "") || "semester";
 
     const workbook = new ExcelJS.Workbook();
+
     const templatePath = path.join(process.cwd(), "public", "SKEAP-PAYROLL-2026.xlsx");
     await workbook.xlsx.readFile(templatePath);
 
@@ -119,23 +158,21 @@ export async function GET(request: Request) {
     }
 
     const startRow = headerRowIndex + 1;
-    const grantees = Array.from(uniqueGrantees.values());
     const availableDataRows = totalRowIndexBeforeInsert - startRow;
     if (availableDataRows < 1) {
       return NextResponse.json({ error: "The payroll template is missing its scholar data rows." }, { status: 500 });
     }
 
-    const additionalRows = Math.max(0, grantees.length - availableDataRows);
+    const additionalRows = Math.max(0, reportRows.length - availableDataRows);
     if (additionalRows > 0) {
       worksheet.duplicateRow(totalRowIndexBeforeInsert - 1, additionalRows, true);
     }
 
     const grantAmount = 5000;
-
-    grantees.forEach((applicantName, index) => {
+    reportRows.forEach((applicant, index) => {
       const rowIndex = startRow + index;
       worksheet.getCell(rowIndex, 1).value = index + 1;
-      worksheet.getCell(rowIndex, 2).value = applicantName;
+      worksheet.getCell(rowIndex, 2).value = applicant.name;
       worksheet.getCell(rowIndex, 3).value = "Scholar";
       worksheet.getCell(rowIndex, 4).value = grantAmount;
       worksheet.getCell(rowIndex, 7).value = grantAmount;
@@ -143,22 +180,27 @@ export async function GET(request: Request) {
     });
 
     const totalRowIndex = totalRowIndexBeforeInsert + additionalRows;
-    const totalAmount = grantees.length * grantAmount;
+    const totalAmount = reportRows.length * grantAmount;
     for (const column of ["G", "H"]) {
-      const totalCell = worksheet.getCell(`${column}${totalRowIndex}`);
-      totalCell.value = totalAmount;
+      worksheet.getCell(`${column}${totalRowIndex}`).value = totalAmount;
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const filenameSemester = selectedSemester.replace(/[^a-zA-Z0-9._ -]/g, "_").trim() || "semester";
-    const filename = `SKEAP-PAYROLL-${filenameSemester}.xlsx`;
+    const filename = payoutStatus === "pending"
+      ? "SKEAP-Pending-Payouts.xlsx"
+      : payoutStatus === "received"
+        ? "SKEAP-Received-Payouts.xlsx"
+        : `SKEAP-PAYROLL-${semesterSlug}.xlsx`;
 
     logAuditEvent({
       actorId: admin.id,
       actorEmail: admin.email,
       action: "RECORDS_EXPORTED",
       resource: "accounting-payroll",
-      metadata: { recordCount: uniqueGrantees.size, filters: { semester: selectedSemester } },
+      metadata: {
+        recordCount: reportRows.length,
+        filters: { semester: selectedSemester, payoutStatus, search: search || undefined },
+      },
     });
 
     return new NextResponse(buffer, {

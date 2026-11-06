@@ -7,6 +7,7 @@ import { logAuditEvent } from "@/lib/audit/logger";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, DEFAULT_SKEAP_MAX_SLOTS, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -116,23 +117,37 @@ export async function POST(
         id: application.id,
         applicantId: application.userId,
         applicantName: application.applicantName,
+        granteeStatusChanged: existingGrantee?.status === "REMOVED",
       };
     });
+
+    const { granteeStatusChanged, ...promotedApplication } = promoted;
+    if (granteeStatusChanged) {
+      try {
+        await refreshInactiveGranteesView();
+      } catch (error) {
+        console.error("SKEAP promotion completed, but the grantee archive view could not be refreshed:", error);
+        return NextResponse.json(
+          { error: "SKEAP promotion completed, but the grantee archive report could not be refreshed." },
+          { status: 503 }
+        );
+      }
+    }
 
     logAuditEvent({
       actorId: auth.user.id,
       actorEmail: auth.user.email,
       action: "APPLICATION_PROMOTED",
       resource: "skeap_applications",
-      resourceId: promoted.id,
+      resourceId: promotedApplication.id,
       metadata: {
-        applicantId: promoted.applicantId,
-        target: promoted.applicantName || promoted.applicantId,
+        applicantId: promotedApplication.applicantId,
+        target: promotedApplication.applicantName || promotedApplication.applicantId,
         resultingStatus: "APPROVED",
       },
     });
 
-    return NextResponse.json({ success: true, application: promoted });
+    return NextResponse.json({ success: true, application: promotedApplication });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to promote application.";
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });

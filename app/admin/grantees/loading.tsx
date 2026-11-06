@@ -1,6 +1,5 @@
 const granteeRows = Array.from({ length: 5 }, (_, index) => index);
 const tableColumns = Array.from({ length: 6 }, (_, index) => index);
-const statusFilters = Array.from({ length: 4 }, (_, index) => index);
 
 export default function AdminGranteesLoading() {
   return (
@@ -15,17 +14,15 @@ export default function AdminGranteesLoading() {
           <div className="mb-1 h-7 w-64 max-w-full rounded bg-slate-300" />
           <div className="h-4 w-96 max-w-full rounded bg-slate-200" />
         </div>
-        <div className="h-10 w-32 shrink-0 rounded-lg bg-slate-200" />
+        <div className="flex gap-2">
+          <div className="h-10 w-32 shrink-0 rounded-lg bg-slate-200" />
+          <div className="h-10 w-32 shrink-0 rounded-lg bg-slate-200" />
+        </div>
       </header>
 
       <section className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
         <div className="flex flex-col items-center justify-between gap-4 border-b border-slate-100 bg-white p-4 sm:flex-row sm:p-5">
           <div className="h-10 w-72 max-w-full rounded-lg bg-slate-200" />
-          <div className="flex gap-2">
-            {statusFilters.map((filter) => (
-              <div key={filter} className="h-9 w-20 rounded-full bg-slate-200" />
-            ))}
-          </div>
         </div>
 
         <div className="w-full overflow-x-auto p-4">

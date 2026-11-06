@@ -15,7 +15,12 @@ import SmartPortraitDropzone from "@/components/SmartPortraitDropzone";
 import type { KKProfile } from "@/lib/kk-profile-client";
 import { validateDocumentOCR } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
-import { SKEAP_APPLICATION_EDUCATION_LEVELS, SKEAP_YEAR_LEVELS, type SkeapEducationLevel } from "@/lib/skeap-education";
+import {
+  isEligibleSkeapApplicantYearLevel,
+  SKEAP_APPLICATION_EDUCATION_LEVELS,
+  SKEAP_YEAR_LEVELS,
+  type SkeapEducationLevel,
+} from "@/lib/skeap-education";
 
 type UploadedFile = {
   id: string;
@@ -417,7 +422,9 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
   );
   const [totalFamilyMonthlyIncome, setTotalFamilyMonthlyIncome] = useState("");
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
-  const yearLevels = educationLevel ? SKEAP_YEAR_LEVELS[educationLevel] : [];
+  const yearLevels = educationLevel
+    ? SKEAP_YEAR_LEVELS[educationLevel].filter((year) => isEligibleSkeapApplicantYearLevel(educationLevel, year))
+    : [];
   const isJuniorHighSchool = educationLevel === "Junior High School";
   const isSeniorHighSchool = educationLevel === "Senior High School";
   const isIncomingFreshman = yearLevel === "Incoming Freshman";
@@ -521,8 +528,13 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         addError("course", isSeniorHighSchool ? "Academic / TVL strand is required." : "Course is required.");
       }
       if (!yearLevel.trim()) addError("yearLevel", "Year level is required.");
-      else if (!educationLevel || !SKEAP_YEAR_LEVELS[educationLevel].includes(yearLevel)) {
-        addError("yearLevel", "Select a year level for the chosen education level.");
+      else if (!educationLevel || !isEligibleSkeapApplicantYearLevel(educationLevel, yearLevel)) {
+        addError(
+          "yearLevel",
+          educationLevel === "College"
+            ? "Applicants must be in 3rd year college or below."
+            : "Select a year level for the chosen education level.",
+        );
       }
       if (!fathersName.trim()) addError("fathersName", "Father's name is required.");
       if (!fathersOccupation.trim()) addError("fathersOccupation", "Father's occupation is required.");

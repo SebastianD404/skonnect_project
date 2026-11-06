@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { ReactNode } from "react";
@@ -8,6 +8,8 @@ import type { SubmissionStatus } from "@prisma/client";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  Download,
   ExternalLink,
   FileText,
   GraduationCap,
@@ -619,6 +621,30 @@ export default function SubmissionReviewTable() {
   const [deleteToast, setDeleteToast] = useState<{ message: string; isWarning: boolean } | null>(null);
   const [completedSemesterFilter, setCompletedSemesterFilter] = useState("all");
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !exportMenuRef.current?.contains(event.target)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsExportMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isExportMenuOpen]);
 
   useEffect(() => {
     if (!deleteToast) return;
@@ -727,6 +753,55 @@ export default function SubmissionReviewTable() {
     setCompletedSemesterFilter("all");
     setSelectedSubmissionId(selectedId);
     setIsLoading(true);
+  }
+
+  async function exportReport(reportType: "current" | "missing_incomplete" | "pending_review" | "fully_cleared") {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    setIsExportMenuOpen(false);
+
+    try {
+      const params = new URLSearchParams({ reportType });
+      if (reportType === "current") {
+        params.set("status", activeTab);
+        params.set("search", query.trim());
+        if (activeTab === "cleared") params.set("semester", completedSemesterFilter);
+      } else if (reportType === "missing_incomplete") {
+        params.set("search", query.trim());
+      } else if (reportType === "pending_review") {
+        params.set("search", query.trim());
+      } else if (reportType === "fully_cleared") {
+        params.set("search", query.trim());
+        if (completedSemesterFilter !== "all") params.set("semester", completedSemesterFilter);
+      }
+
+      const response = await fetch(`/api/admin/submissions/export?${params.toString()}`, {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || "Unable to export submissions.");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const filename = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/i)?.[1]
+        ?? "SKEAP-Submissions.xlsx";
+      link.href = objectUrl;
+      link.download = filename;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Unable to export submissions.");
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   function updateDraft(submissionId: string, updates: Partial<ReviewDraft>) {
@@ -922,6 +997,9 @@ export default function SubmissionReviewTable() {
 
   return (
     <section className="w-full">
+      {exportError ? (
+        <FloatingFeedback message={exportError} type="error" onDismiss={() => setExportError(null)} />
+      ) : null}
       {deleteToast ? (
         deleteToast.isWarning ? (
           <div
@@ -950,7 +1028,7 @@ export default function SubmissionReviewTable() {
         )
       ) : null}
       <div className="p-4 sm:p-5">
-        <div className="flex h-10 items-center gap-4 overflow-x-auto">
+        <div className="flex min-h-10 flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <label className="relative block w-full max-w-sm shrink-0">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -1013,6 +1091,42 @@ export default function SubmissionReviewTable() {
                 </span>
               </button>
             ))}
+            <div ref={exportMenuRef} className="relative ml-1">
+              <button
+                type="button"
+                aria-expanded={isExportMenuOpen}
+                aria-controls="submissions-export-menu"
+                aria-busy={isExporting}
+                disabled={isExporting}
+                onClick={() => setIsExportMenuOpen((open) => !open)}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+              >
+                {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {isExporting ? "Exporting..." : "Export Submissions"}
+                {!isExporting ? <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isExportMenuOpen ? "rotate-180" : ""}`} /> : null}
+              </button>
+              {isExportMenuOpen ? (
+                <div
+                  id="submissions-export-menu"
+                  role="group"
+                  aria-label="Export submission reports"
+                  className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                >
+                  <button type="button" onClick={() => void exportReport("current")} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50">
+                    Export Current View
+                  </button>
+                  <button type="button" onClick={() => void exportReport("missing_incomplete")} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50">
+                    Missing/Incomplete Submissions
+                  </button>
+                  <button type="button" onClick={() => void exportReport("pending_review")} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50">
+                    Pending Review List
+                  </button>
+                  <button type="button" onClick={() => void exportReport("fully_cleared")} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50">
+                    Fully Cleared List
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="mt-3 flex justify-end">

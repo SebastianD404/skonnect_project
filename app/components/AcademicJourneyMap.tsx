@@ -11,18 +11,20 @@ import {
   GraduationCap,
   Lock,
   MoveHorizontal,
+  Settings,
   Star,
   Upload,
   TriangleAlert,
 } from "lucide-react";
 import {
   getAcademicJourneyTerms,
+  getAcademicJourneyTermsForRange,
   normalizeAcademicJourneyStepStatus,
   type AcademicJourneyStepStatus,
 } from "@/lib/academic-journey";
 import type { LucideIcon } from "lucide-react";
 
-type AcademicJourneyMapProps = {
+export type AcademicJourneyMapProps = {
   studentName?: string;
   photoUrl?: string;
   totalYears?: number;
@@ -30,6 +32,9 @@ type AcademicJourneyMapProps = {
   validatedSemesterIndexes: number[];
   currentStepStatus?: AcademicJourneyStepStatus;
   currentStepOpensAt?: string | null;
+  journeyStart?: string | null;
+  journeyEnd?: string | null;
+  onConfigureJourney?: () => void;
   compact?: boolean;
 };
 
@@ -51,7 +56,6 @@ const STEP_STATUS_CONFIG: Record<
     lightActiveLabelClassName: string;
     activePathClassName: string;
     pathColor: string;
-    glowClassName: string;
     avatarClassName: string;
     avatarPointerClassName: string;
     Icon: LucideIcon;
@@ -68,7 +72,6 @@ const STEP_STATUS_CONFIG: Record<
     lightActiveLabelClassName: "text-slate-700",
     activePathClassName: "bg-slate-200",
     pathColor: "#e2e8f0",
-    glowClassName: "bg-slate-500/10",
     avatarClassName: "border-slate-300",
     avatarPointerClassName: "fill-slate-300",
     Icon: Lock,
@@ -84,7 +87,6 @@ const STEP_STATUS_CONFIG: Record<
     lightActiveLabelClassName: "text-slate-700",
     activePathClassName: "bg-slate-300",
     pathColor: "#cbd5e1",
-    glowClassName: "bg-slate-400/10",
     avatarClassName: "border-slate-400 animate-pulse",
     avatarPointerClassName: "fill-slate-400",
     Icon: Clock3,
@@ -100,7 +102,6 @@ const STEP_STATUS_CONFIG: Record<
     lightActiveLabelClassName: "text-amber-800",
     activePathClassName: "bg-amber-500",
     pathColor: "#f59e0b",
-    glowClassName: "bg-amber-500/10",
     avatarClassName: "border-amber-500",
     avatarPointerClassName: "fill-amber-500",
     Icon: Upload,
@@ -116,7 +117,6 @@ const STEP_STATUS_CONFIG: Record<
     lightActiveLabelClassName: "text-indigo-700",
     activePathClassName: "bg-indigo-400",
     pathColor: "#818cf8",
-    glowClassName: "bg-indigo-500/10",
     avatarClassName: "border-indigo-400",
     avatarPointerClassName: "fill-indigo-400",
     Icon: Clock3,
@@ -132,7 +132,6 @@ const STEP_STATUS_CONFIG: Record<
     lightActiveLabelClassName: "text-amber-800",
     activePathClassName: "bg-amber-500",
     pathColor: "#f59e0b",
-    glowClassName: "bg-amber-500/10",
     avatarClassName: "border-amber-500",
     avatarPointerClassName: "fill-amber-500",
     Icon: TriangleAlert,
@@ -148,7 +147,6 @@ const STEP_STATUS_CONFIG: Record<
     lightActiveLabelClassName: "text-emerald-800",
     activePathClassName: "bg-emerald-500",
     pathColor: "#10b981",
-    glowClassName: "bg-emerald-500/10",
     avatarClassName: "border-emerald-500",
     avatarPointerClassName: "fill-emerald-500",
     Icon: CheckCircle2,
@@ -163,6 +161,9 @@ export default function AcademicJourneyMap({
   validatedSemesterIndexes,
   currentStepStatus = "scheduled_locked",
   currentStepOpensAt,
+  journeyStart,
+  journeyEnd,
+  onConfigureJourney,
   compact = false,
 }: AcademicJourneyMapProps) {
   const neonGlowId = `neon-glow-${useId().replace(/:/g, "")}`;
@@ -170,11 +171,16 @@ export default function AcademicJourneyMap({
   const viewportRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [hasMoreRight, setHasMoreRight] = useState(false);
-  const [activeNodeOffset, setActiveNodeOffset] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null);
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
-  const terms = useMemo(() => getAcademicJourneyTerms(years), [years]);
+  const terms = useMemo(
+    () => journeyStart && journeyEnd
+      ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd)
+      : getAcademicJourneyTerms(years),
+    [journeyEnd, journeyStart, years],
+  );
+  const journeyYears = terms.length / 2;
   const termCount = terms.length;
   const stepStatusConfig =
     STEP_STATUS_CONFIG[normalizeAcademicJourneyStepStatus(currentStepStatus)];
@@ -226,10 +232,12 @@ export default function AcademicJourneyMap({
         return `${path} C ${midX} ${previous.y}, ${midX} ${point.y}, ${point.x} ${point.y}`;
       }, "")
     : "";
-  const totalTrackYears = `${years} year${years === 1 ? "" : "s"}`;
+  const totalTrackYears = `${journeyYears} year${journeyYears === 1 ? "" : "s"}`;
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.pointerType !== "mouse" || event.button !== 0) return;
+    event.currentTarget.style.scrollBehavior = "auto";
+    event.currentTarget.scrollLeft = event.currentTarget.scrollLeft;
     dragStart.current = {
       pointerId: event.pointerId,
       x: event.clientX,
@@ -248,6 +256,7 @@ export default function AcademicJourneyMap({
   function handlePointerEnd(event: React.PointerEvent<HTMLDivElement>) {
     if (!dragStart.current || dragStart.current.pointerId !== event.pointerId) return;
     dragStart.current = null;
+    event.currentTarget.style.removeProperty("scroll-behavior");
     setIsDragging(false);
   }
 
@@ -256,11 +265,11 @@ export default function AcademicJourneyMap({
     if (!viewport) return;
 
     const centerCurrentNode = () => {
+      if (dragStart.current) return;
       const node = nodeRefs.current[focusedIndex];
       if (!node) return;
       const nodeBounds = node.getBoundingClientRect();
       const viewportBounds = viewport.getBoundingClientRect();
-      setActiveNodeOffset(nodeBounds.left + nodeBounds.width / 2 - viewportBounds.left);
       const targetScrollLeft =
         viewport.scrollLeft +
         nodeBounds.left +
@@ -272,16 +281,14 @@ export default function AcademicJourneyMap({
     const updateRightFade = () => {
       setHasMoreRight(viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 1);
     };
-    const updateActiveNodeOffset = () => {
-      const node = nodeRefs.current[focusedIndex];
-      if (!node) return;
-      const nodeBounds = node.getBoundingClientRect();
-      const viewportBounds = viewport.getBoundingClientRect();
-      setActiveNodeOffset(nodeBounds.left + nodeBounds.width / 2 - viewportBounds.left);
-    };
+    let scrollFrame = 0;
     const handleScroll = () => {
-      updateRightFade();
-      updateActiveNodeOffset();
+      if (scrollFrame) return;
+      scrollFrame = window.requestAnimationFrame(() => {
+        scrollFrame = 0;
+        if (!viewport.isConnected) return;
+        updateRightFade();
+      });
     };
 
     const frame = window.requestAnimationFrame(() => {
@@ -295,6 +302,7 @@ export default function AcademicJourneyMap({
 
     return () => {
       window.cancelAnimationFrame(frame);
+      if (scrollFrame) window.cancelAnimationFrame(scrollFrame);
       resizeObserver.disconnect();
       viewport.removeEventListener("scroll", handleScroll);
       window.removeEventListener("resize", centerCurrentNode);
@@ -368,53 +376,55 @@ export default function AcademicJourneyMap({
   }
 
   return (
-    <div className={compact ? "relative" : "relative rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)] md:p-8"}>
+    <div className={compact ? "relative w-full overflow-hidden" : "relative w-full overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm"}>
       {!compact ? (
-        <div
-          className="pointer-events-none absolute inset-0 opacity-60"
-          style={{
-            backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
-            backgroundSize: "16px 16px",
-          }}
-          aria-hidden="true"
-        />
-      ) : null}
-
-      {activeNodeOffset !== null ? (
-        <div
-          className={`pointer-events-none absolute rounded-full blur-3xl transition-all duration-500 ${stepStatusConfig.glowClassName} ${
-            compact ? "hidden" : "h-72 w-72"
-          }`}
-          style={compact ? undefined : {
-            left: `${activeNodeOffset}px`,
-            top: "58%",
-            transform: "translate(-50%, -50%)",
-          }}
-          aria-hidden="true"
-        />
+        <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden="true">
+          <div
+            className="absolute inset-0 opacity-60"
+            style={{
+              backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+              backgroundSize: "16px 16px",
+            }}
+          />
+        </div>
       ) : null}
 
       {!compact ? (
-        <div className="relative z-10 mb-5 flex flex-col justify-between gap-3 md:mb-3 md:flex-row md:items-center">
+        <div className="relative z-20 flex flex-col items-start justify-between gap-3 p-6 md:flex-row md:items-center">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-slate-900">Academic Journey</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold tracking-tight text-slate-900">Academic Journey</h2>
+              {onConfigureJourney ? (
+                <button
+                  type="button"
+                  onClick={onConfigureJourney}
+                  aria-label="Edit academic journey setup"
+                  title="Edit academic journey setup"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                >
+                  <Settings className="h-4 w-4" aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
             <p className="mt-0.5 text-xs text-slate-500">
               Track validated semesters across your {totalTrackYears} toward graduation.
             </p>
           </div>
-          <span className="inline-flex self-start rounded-full border border-emerald-200/60 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 shadow-2xs md:self-auto">
-            {validatedIndexes.size} of {termCount} semesters validated
-          </span>
-          {isExtendedCourse ? (
-            <span className="hidden items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-400 sm:inline-flex">
-              <MoveHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Drag map to explore</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex self-start rounded-full border border-emerald-200/60 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 shadow-2xs md:self-auto">
+              {validatedIndexes.size} of {termCount} semesters validated
             </span>
-          ) : null}
+            {isExtendedCourse ? (
+              <span className="hidden items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-400 sm:inline-flex">
+                <MoveHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Drag map to explore</span>
+              </span>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
-      <div className="relative z-10">
+      <div className="relative z-10 w-full">
         <div
           ref={viewportRef}
           onPointerDown={isExtendedCourse ? handlePointerDown : undefined}
@@ -422,11 +432,11 @@ export default function AcademicJourneyMap({
           onPointerUp={isExtendedCourse ? handlePointerEnd : undefined}
           onPointerCancel={isExtendedCourse ? handlePointerEnd : undefined}
           onLostPointerCapture={isExtendedCourse ? handlePointerEnd : undefined}
-          className={`scrollbar-hide snap-x snap-mandatory overflow-x-auto scroll-smooth ${
+          className={`scrollbar-hide hide-scrollbar relative w-full overflow-x-auto overflow-y-hidden whitespace-nowrap ${
             isExtendedCourse
-              ? `select-none ${isDragging ? "cursor-grabbing snap-none" : "cursor-grab"}`
-              : ""
-          } ${compact ? "" : "pt-16"}`}
+              ? `select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`
+              : "cursor-grab"
+          } ${compact ? "pb-0 pt-2" : "pb-8 pt-12"}`}
           style={{ touchAction: "pan-x" }}
         >
           <div
@@ -543,8 +553,8 @@ export default function AcademicJourneyMap({
                     : "locked";
               const yearNumber = Math.floor(index / 2) + 1;
               const isYearMilestone = index % 2 === 0;
-              const isMidpoint = yearNumber === Math.ceil(years / 2) && isYearMilestone && years > 2;
-              const isFinalYear = yearNumber === years && isYearMilestone;
+              const isMidpoint = yearNumber === Math.ceil(journeyYears / 2) && isYearMilestone && journeyYears > 2;
+              const isFinalYear = yearNumber === journeyYears && isYearMilestone;
               const milestoneIcon = isYearMilestone
                 ? isMidpoint
                   ? Star
@@ -568,6 +578,13 @@ export default function AcademicJourneyMap({
                   onFocus={() => setHoveredIndex(index)}
                   onBlur={() => setHoveredIndex(null)}
                 >
+                  {!compact && isCurrent ? (
+                    <div
+                      className="pointer-events-none absolute -inset-8 -z-10 animate-pulse rounded-full bg-emerald-500/20 blur-2xl"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+
                   {!compact && hoveredIndex === index ? (
                     <div className={`pointer-events-none absolute z-30 px-3 py-2 bg-slate-900/95 backdrop-blur-sm border border-slate-700/50 text-white rounded-xl shadow-xl whitespace-nowrap animate-in fade-in zoom-in-95 duration-150 ${
                       isCurrent ? "top-16" : "-top-14"
@@ -736,7 +753,7 @@ export default function AcademicJourneyMap({
           {validatedIndexes.size} of {termCount} semesters validated
         </p>
       ) : (
-        <div className="relative z-10 mt-2 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+        <div className="relative z-10 mt-2 flex items-center justify-center gap-1.5 px-6 pb-5 text-[11px] text-slate-400">
           <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
           <span>{validatedIndexes.size} of {termCount} semesters validated</span>
         </div>

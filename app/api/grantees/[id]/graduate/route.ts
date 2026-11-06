@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
+import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { createClient } from "@/lib/supabase/server";
 
 export async function PATCH(
@@ -91,6 +92,16 @@ export async function PATCH(
 
       return { id: grantee.id, status: GranteeStatus.GRADUATED, graduatedAt, retentionExpiresAt };
     });
+
+    try {
+      await refreshInactiveGranteesView();
+    } catch (error) {
+      console.error("Grantee was graduated, but the archive view could not be refreshed:", error);
+      return NextResponse.json(
+        { error: "Grantee was graduated, but the archive report could not be refreshed." },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json({ success: true, grantee: graduatedGrantee });
   } catch (error) {

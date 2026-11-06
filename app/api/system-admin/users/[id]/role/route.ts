@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -61,7 +62,8 @@ export async function PATCH(
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
+      let granteeStatusChanged = false;
       const nextUser = await tx.user.update({
         where: { id: target.id },
         data: { role: requestedRole },
@@ -84,6 +86,7 @@ export async function PATCH(
       });
 
       if (requestedRole === Role.GRANTEE) {
+        granteeStatusChanged = nextUser.grantee?.status === "REMOVED";
         const grantee = await tx.grantee.upsert({
           where: { userId: target.id },
           create: {
@@ -124,6 +127,7 @@ export async function PATCH(
             dateRemoved: new Date(),
           },
         });
+        granteeStatusChanged = true;
       }
 
       await writeAuditLog(tx, {
@@ -152,10 +156,22 @@ export async function PATCH(
         },
       });
 
-      return nextUser;
+      return { user: nextUser, granteeStatusChanged };
     });
 
-    return NextResponse.json({ success: true, user: updated });
+    if (result.granteeStatusChanged) {
+      try {
+        await refreshInactiveGranteesView();
+      } catch (error) {
+        console.error("User role was updated, but the grantee archive view could not be refreshed:", error);
+        return NextResponse.json(
+          { error: "User role was updated, but the grantee archive report could not be refreshed." },
+          { status: 503 }
+        );
+      }
+    }
+
+    return NextResponse.json({ success: true, user: result.user });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update role";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -1,18 +1,25 @@
-import { Role } from "@prisma/client";
+import { GranteeStatus, Prisma, Role } from "@prisma/client";
 import { BookOpen, BriefcaseBusiness, GraduationCap, Users } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { prisma, listProfilingRegistrations, getProfilingRegistrationCountByStatus } from "@/lib/prisma";
+import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
 import { KKProfilingRegistrationsTable } from "../kk-profiling/KKProfilingRegistrationsTable";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
+import { MembersExportMenu } from "./MembersExportMenu";
 
 const PAGE_SIZES = [10, 20, 50] as const;
 
-export default async function AdminMembersPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[] }> }) {
-  await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
+export default async function AdminMembersPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; memberType?: string | string[] }> }) {
+  const admin = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
+  await checkAndArchiveAgedOutMembers(admin.id);
 
   const resolved = await searchParams;
   const rawPage = Array.isArray(resolved.page) ? resolved.page[0] : resolved.page;
   const rawPageSize = Array.isArray(resolved.pageSize) ? resolved.pageSize[0] : resolved.pageSize;
+  const rawMemberType = Array.isArray(resolved.memberType) ? resolved.memberType[0] : resolved.memberType;
+  const memberTypeFilter = rawMemberType === "grantees" || rawMemberType === "kk"
+    ? rawMemberType
+    : "all";
   const requestedPage = Number(rawPage || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(rawPageSize);
@@ -21,15 +28,52 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
     : 10;
   const skip = (page - 1) * pageSize;
 
+  const activeGranteeStatuses = [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY];
+  const membersWhere: Prisma.ProfilingRegistrationWhereInput = { reviewStatus: "Approved" };
+  if (memberTypeFilter === "grantees") {
+    membersWhere.user = {
+      is: {
+        grantee: {
+          is: {
+            status: { in: activeGranteeStatuses },
+          },
+        },
+      },
+    };
+  } else if (memberTypeFilter === "kk") {
+    membersWhere.OR = [
+      { user: { is: null } },
+      { user: { is: { grantee: { is: null } } } },
+      {
+        user: {
+          is: {
+            grantee: {
+              is: {
+                status: { notIn: activeGranteeStatuses },
+              },
+            },
+          },
+        },
+      },
+    ];
+  }
   const [totalCount, approvedMembers, classificationGroups] = await Promise.all([
-    getProfilingRegistrationCountByStatus("Approved"),
+    memberTypeFilter === "all"
+      ? getProfilingRegistrationCountByStatus("Approved")
+      : prisma.profilingRegistration.count({ where: membersWhere }),
     listProfilingRegistrations({
-      where: { reviewStatus: "Approved" },
+      where: membersWhere,
       orderBy: { submittedAt: "desc" },
       take: pageSize,
       skip,
       include: {
-        user: { select: { fullName: true, email: true } },
+        user: {
+          select: {
+            fullName: true,
+            email: true,
+            grantee: { select: { id: true, status: true } },
+          },
+        },
       },
     }),
     prisma.profilingRegistration.groupBy({
@@ -86,13 +130,17 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
           ))}
         </div>
 
-        <section className="mt-4 flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-          <div className="w-full overflow-x-auto">
+        <section className="relative z-10 mt-4 flex flex-col overflow-visible rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="w-full overflow-visible">
             <KKProfilingRegistrationsTable
               registrations={approvedMembers}
               statusLabel="Approved"
               flat
-              exportHref="/api/admin/members/export"
+              fitContainer
+              archiveAction
+              showMemberRoleColumn
+              memberTypeFilter={memberTypeFilter}
+              exportMenu={<MembersExportMenu key="members-export-menu" />}
             />
           </div>
 

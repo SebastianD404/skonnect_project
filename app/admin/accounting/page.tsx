@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Wallet, Search, Download, LoaderCircle } from "lucide-react";
+import { Check, Wallet, Search, SearchX, Inbox, Download, LoaderCircle, ChevronDown } from "lucide-react";
 import { getRecentSemesters } from "@/lib/semester";
 import { formatDate } from "@/lib/utils";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
@@ -43,8 +43,11 @@ export default function AdminAccountingPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportingReport, setExportingReport] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const savedTimeoutRef = useRef<number | null>(null);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [processingIds, setProcessingIds] = useState<Record<string, boolean>>({});
   const formatter = useMemo(
@@ -60,6 +63,26 @@ export default function AdminAccountingPage() {
   useEffect(() => () => {
     if (savedTimeoutRef.current !== null) window.clearTimeout(savedTimeoutRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !exportMenuRef.current?.contains(event.target)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsExportMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isExportMenuOpen]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -78,16 +101,19 @@ export default function AdminAccountingPage() {
     if (claimedFilter === 'pending') list = list.filter((g) => g.status !== 'Claimed');
     return list;
   }, [filtered, submissionFilter, claimedFilter]);
+  const hasActiveFilters =
+    query.trim().length > 0 || submissionFilter !== "all" || claimedFilter !== "all";
 
   // Pagination
   const [currentPage, setCurrentPage] = useState<number>(1);
   const rowsPerPage = 10;
   const totalPages = Math.max(1, Math.ceil(filteredWithSubmission.length / rowsPerPage));
+  const displayPage = Math.min(currentPage, totalPages);
 
   const pagedRows = useMemo(() => {
-    const start = (currentPage - 1) * rowsPerPage;
+    const start = (displayPage - 1) * rowsPerPage;
     return filteredWithSubmission.slice(start, start + rowsPerPage);
-  }, [filteredWithSubmission, currentPage]);
+  }, [filteredWithSubmission, displayPage]);
 
   const budgetSemesterParam = useMemo(() => {
     const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
@@ -233,23 +259,30 @@ export default function AdminAccountingPage() {
     }
   }
 
-  async function handleExportOfficialPayrollExcel() {
+  async function handleExportReport(
+    reportLabel: string,
+    filters: { payoutStatus?: "pending" | "received" } = {},
+  ) {
     if (isExporting) return;
 
     const currentSemester = String(selectedSemester ?? "")
       .replace(/\s*\(Current\)$/i, "")
       .trim();
     setIsExporting(true);
+    setExportingReport(reportLabel);
     setErrorMessage(null);
 
     try {
-      const response = await fetch(
-        `/api/admin/accounting/export?semesterId=${encodeURIComponent(currentSemester)}`,
-        { credentials: "same-origin" }
-      );
+      const params = new URLSearchParams({ semesterId: currentSemester });
+      if (filters.payoutStatus) params.set("payoutStatus", filters.payoutStatus);
+      if (reportLabel === "current view" && query.trim()) params.set("search", query.trim());
+
+      const response = await fetch(`/api/admin/accounting/export?${params.toString()}`, {
+        credentials: "same-origin",
+      });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "Unable to export payroll.");
+        throw new Error(data?.error || `Unable to export ${reportLabel.toLowerCase()}.`);
       }
 
       const blob = await response.blob();
@@ -269,6 +302,7 @@ export default function AdminAccountingPage() {
       setErrorMessage(error instanceof Error ? error.message : "Unable to export payroll.");
     } finally {
       setIsExporting(false);
+      setExportingReport(null);
     }
   }
 
@@ -337,16 +371,58 @@ export default function AdminAccountingPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleExportOfficialPayrollExcel}
-            disabled={isExporting}
-            aria-busy={isExporting}
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
-          >
-            {isExporting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {isExporting ? "Exporting..." : "Export Payroll"}
-          </button>
+          <div ref={exportMenuRef} className="relative">
+            <button
+              type="button"
+              aria-expanded={isExportMenuOpen}
+              aria-controls="accounting-export-menu"
+              disabled={isExporting}
+              onClick={() => setIsExportMenuOpen((open) => !open)}
+              aria-busy={isExporting}
+              className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+            >
+              {isExporting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {isExporting ? `Exporting ${exportingReport ?? "report"}...` : "Export Payroll"}
+              {!isExporting ? <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isExportMenuOpen ? "rotate-180" : ""}`} /> : null}
+            </button>
+            {isExportMenuOpen ? <div id="accounting-export-menu" role="group" aria-label="Export reports" className="absolute right-0 z-30 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={() => {
+                  setIsExportMenuOpen(false);
+                  void handleExportReport("current view", {
+                    ...(claimedFilter !== "all" ? { payoutStatus: claimedFilter === "pending" ? "pending" : "received" } : {}),
+                  });
+                }}
+                className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Export Current View
+              </button>
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={() => {
+                  setIsExportMenuOpen(false);
+                  void handleExportReport("master payroll");
+                }}
+                className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Master Payroll (All)
+              </button>
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={() => {
+                  setIsExportMenuOpen(false);
+                  void handleExportReport("pending payouts report", { payoutStatus: "pending" });
+                }}
+                className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Pending Payouts
+              </button>
+            </div> : null}
+          </div>
 
           <div className="w-72">
             <label className="sr-only">Semester</label>
@@ -549,43 +625,42 @@ export default function AdminAccountingPage() {
                 <div className="rounded-t-2xl overflow-hidden">
               {loading ? (
                 <div className="p-6 text-sm text-slate-500">Loading grantees…</div>
-              ) : filtered.length === 0 ? (
-                <div className="p-6 text-sm text-slate-500">No active grantees found for this semester.</div>
-                ) : (
-                  <>
-                  <div role="table" aria-label="Disbursement list" className="min-w-[960px]">
-                    <div role="row" className="sticky top-0 z-10 grid grid-cols-12 items-center border-b border-slate-100 bg-slate-50/80 px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                      <div role="columnheader" className="col-span-3 flex items-center gap-3">
-                        <span className="whitespace-nowrap">Student name</span>
-                      </div>
-                      <div role="columnheader" className="col-span-3 whitespace-nowrap">Semester</div>
-                      <div role="columnheader" className="col-span-2 whitespace-nowrap">Submission status</div>
-                      <div role="columnheader" className="col-span-2 whitespace-nowrap">Payout status</div>
-                      <div role="columnheader" className="col-span-2 whitespace-nowrap">Claimed at</div>
-                    </div>
-                    <div role="rowgroup" className="divide-y divide-slate-100">
-                      {pagedRows.map((g, idx) => (
-                        <div
+              ) : (
+                <>
+                  <table aria-label="Disbursement list" className="w-full min-w-[960px] border-collapse">
+                    <thead className="sticky top-0 z-10 border-b border-slate-100 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      <tr>
+                        <th scope="col" className="px-6 py-3 text-left">Student name</th>
+                        <th scope="col" className="px-6 py-3 text-left">Semester</th>
+                        <th scope="col" className="px-6 py-3 text-left">Submission status</th>
+                        <th scope="col" className="px-6 py-3 text-left">Payout status</th>
+                        <th scope="col" className="px-6 py-3 text-left">Claimed at</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredWithSubmission.length > 0 ? pagedRows.map((g, idx) => (
+                        <tr
                           key={g.id}
-                          role="row"
-                          className={`grid grid-cols-12 items-center px-6 py-4 text-xs text-slate-700 transition-colors hover:bg-slate-50/50 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}
+                          className={`text-xs text-slate-700 transition-colors hover:bg-slate-50/50 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}
                         >
-                          <div role="cell" className="col-span-3 flex min-w-0 items-center gap-3 pr-2">
-                            <input
-                              type="checkbox"
-                              checked={g.status === "Claimed"}
-                              onChange={() => toggleClaimed(g.id)}
-                              aria-label={`Mark ${g.name} as ${g.status === "Claimed" ? "pending" : "claimed"}`}
-                              aria-busy={processingIds[g.id] ? true : undefined}
-                              className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-900"
-                            />
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
-                              {g.name.split(" ").map((namePart) => namePart[0]).slice(0, 2).join("").toUpperCase()}
+                          <td className="px-6 py-4">
+                            <div className="flex min-w-0 items-center gap-3 pr-2">
+                              <input
+                                type="checkbox"
+                                checked={g.status === "Claimed"}
+                                onChange={() => toggleClaimed(g.id)}
+                                aria-label={`Mark ${g.name} as ${g.status === "Claimed" ? "pending" : "claimed"}`}
+                                aria-busy={processingIds[g.id] ? true : undefined}
+                                className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                              />
+                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                                {g.name.split(" ").map((namePart) => namePart[0]).slice(0, 2).join("").toUpperCase()}
+                              </div>
+                              <span className="truncate font-bold text-slate-900">{g.name}</span>
                             </div>
-                            <span className="truncate font-bold text-slate-900">{g.name}</span>
-                          </div>
-                          <div role="cell" className="col-span-3 truncate pr-2 text-slate-600">{g.semester}</div>
-                          <div role="cell" className="col-span-2">
+                          </td>
+                          <td className="truncate px-6 py-4 pr-2 text-slate-600">{g.semester}</td>
+                          <td className="px-6 py-4">
                             {g.submissionState === "Approved" ? (
                               <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Approved</span>
                             ) : g.submissionState === "Pending review" ? (
@@ -593,47 +668,85 @@ export default function AdminAccountingPage() {
                             ) : (
                               <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Not submitted</span>
                             )}
-                          </div>
-                          <div role="cell" className="col-span-2">
+                          </td>
+                          <td className="px-6 py-4">
                             {g.status === "Claimed" ? (
                               <span className="inline-flex items-center rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700">Received</span>
                             ) : (
                               <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending</span>
                             )}
-                          </div>
-                          <div role="cell" className="col-span-2 whitespace-nowrap font-medium text-slate-500">
+                          </td>
+                          <td className="whitespace-nowrap px-6 py-4 font-medium text-slate-500">
                             {formatDate(g.claimedAt)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                          </td>
+                        </tr>
+                      )) : (
+                        <tr>
+                          <td colSpan={5} className="py-16 text-center">
+                            {hasActiveFilters ? (
+                              <>
+                                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                                  <SearchX className="h-6 w-6" aria-hidden="true" />
+                                </div>
+                                <h2 className="text-sm font-semibold text-slate-900">No matching disbursements</h2>
+                                <p className="mx-auto mt-1 max-w-xs text-xs text-slate-500">
+                                  No grantee records match your active search query or filter criteria.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuery("");
+                                    setSubmissionFilter("all");
+                                    setClaimedFilter("all");
+                                    setCurrentPage(1);
+                                  }}
+                                  className="mt-4 rounded-lg border border-emerald-200/60 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+                                >
+                                  Clear filters
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                                  <Inbox className="h-6 w-6" aria-hidden="true" />
+                                </div>
+                                <h2 className="text-sm font-semibold text-slate-900">No disbursements recorded</h2>
+                                <p className="mx-auto mt-1 max-w-xs text-xs text-slate-500">
+                                  There are no grantee payout records for this semester yet.
+                                </p>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
 
-                  <div className="px-6 py-3 flex items-center justify-between">
+                  {filteredWithSubmission.length > 0 ? <div className="flex items-center justify-between px-6 py-3">
                     <div className="text-sm text-slate-600">
-                      Showing {(filteredWithSubmission.length === 0) ? 0 : (currentPage - 1) * rowsPerPage + 1} - {Math.min(currentPage * rowsPerPage, filteredWithSubmission.length)} of {filteredWithSubmission.length}
+                      Showing {(displayPage - 1) * rowsPerPage + 1} - {Math.min(displayPage * rowsPerPage, filteredWithSubmission.length)} of {filteredWithSubmission.length}
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
+                        onClick={() => setCurrentPage((p) => Math.max(1, Math.min(p, totalPages) - 1))}
+                        disabled={filteredWithSubmission.length === 0 || displayPage === 1}
                         className="px-3 py-1 rounded-md border border-slate-200 bg-white text-sm text-slate-700 disabled:opacity-50"
                       >
                         Prev
                       </button>
-                      <div className="text-sm text-slate-700">Page {currentPage} of {totalPages}</div>
+                      <div className="text-sm text-slate-700">Page {displayPage} of {totalPages}</div>
                       <button
                         type="button"
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, Math.min(p, totalPages) + 1))}
+                        disabled={filteredWithSubmission.length === 0 || displayPage === totalPages}
                         className="px-3 py-1 rounded-md border border-slate-200 bg-white text-sm text-slate-700 disabled:opacity-50"
                       >
                         Next
                       </button>
                     </div>
-                  </div>
-                  </>
+                  </div> : null}
+                </>
               )}
             </div>
             </div>

@@ -1,5 +1,85 @@
 import { getCurrentAcademicSemester } from "./semester-progress";
 
+export const ACADEMIC_JOURNEY_START_OPTIONS = [
+  { value: "grade-7", label: "Grade 7" },
+  { value: "grade-8", label: "Grade 8" },
+  { value: "grade-9", label: "Grade 9" },
+  { value: "grade-10", label: "Grade 10" },
+  { value: "grade-11", label: "Grade 11" },
+  { value: "grade-12", label: "Grade 12" },
+  { value: "college-1", label: "1st Year College" },
+  { value: "college-2", label: "2nd Year College" },
+  { value: "college-3", label: "3rd Year College" },
+] as const;
+
+export const ACADEMIC_JOURNEY_END_OPTIONS = [
+  { value: "college-4", label: "4th Year College" },
+  { value: "college-5", label: "5th Year College" },
+] as const;
+
+type JourneyPoint = {
+  track: "grade" | "college";
+  year: number;
+};
+
+function parseJourneyPoint(value: string): JourneyPoint | null {
+  const match = /^(grade|college)-(\d+)$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[2]);
+  if (!Number.isInteger(year)) return null;
+  if (match[1] === "grade" && year >= 7 && year <= 12) return { track: "grade", year };
+  if (match[1] === "college" && year >= 1 && year <= 5) return { track: "college", year };
+  return null;
+}
+
+export function isValidAcademicJourneyRange(start: string, end: string) {
+  const startPoint = parseJourneyPoint(start);
+  const endPoint = parseJourneyPoint(end);
+  return Boolean(
+    startPoint &&
+    endPoint &&
+    endPoint.track === "college" &&
+    (startPoint.track === "grade" || startPoint.year <= endPoint.year),
+  );
+}
+
+export function getAcademicJourneyLabels(start: string, end: string) {
+  return getAcademicJourneyTermsForRange(start, end).map((term) => term.label);
+}
+
+export function getAcademicJourneyTermsForRange(start: string, end: string) {
+  const startPoint = parseJourneyPoint(start);
+  const endPoint = parseJourneyPoint(end);
+  const isLegacyGradeTarget = Boolean(
+    startPoint &&
+    endPoint &&
+    startPoint.track === "grade" &&
+    endPoint.track === "grade" &&
+    endPoint.year === 12 &&
+    startPoint.year <= endPoint.year,
+  );
+  if (!startPoint || !endPoint || (!isValidAcademicJourneyRange(start, end) && !isLegacyGradeTarget)) {
+    throw new Error("Choose a valid starting point and graduation target.");
+  }
+
+  const startStage = startPoint.track === "grade" ? startPoint.year : 12 + startPoint.year;
+  const endStage = endPoint.track === "grade" ? endPoint.year : 12 + endPoint.year;
+  const yearOrdinal = (year: number) =>
+    `${year}${year === 1 ? "st" : year === 2 ? "nd" : year === 3 ? "rd" : "th"}`;
+
+  return Array.from({ length: (endStage - startStage + 1) * 2 }, (_, index) => {
+    const stage = startStage + Math.floor(index / 2);
+    const semester = (index % 2) + 1;
+    const label = stage <= 12 ? `G${stage} S${semester}` : `Y${stage - 12} S${semester}`;
+    const year = stage <= 12 ? `Grade ${stage}` : `${yearOrdinal(stage - 12)} Year`;
+    return {
+      label,
+      year,
+      semester: `${semester}${semester === 1 ? "st" : "nd"} Sem`,
+    };
+  });
+}
+
 export type AcademicJourneySubmission = {
   semester: string;
   status: string;

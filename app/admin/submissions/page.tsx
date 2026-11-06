@@ -16,16 +16,6 @@ export default async function AdminSubmissionsPage() {
               Approve compliant uploads or return specific files for correction with clear guidance.
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2.5">
-            {/* This API endpoint returns a file download, so use a native anchor. */}
-            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-            <a
-              href="/api/admin/submissions/export"
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50"
-            >
-              Export Submissions
-            </a>
-          </div>
         </header>
 
         <SubmissionReviewTable />

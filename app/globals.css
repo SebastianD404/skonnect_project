@@ -251,11 +251,13 @@ html {
   background-color: #cbd5e1;
 }
 
-.scrollbar-hide {
+.scrollbar-hide,
+.hide-scrollbar {
   scrollbar-width: none;
 }
 
-.scrollbar-hide::-webkit-scrollbar {
+.scrollbar-hide::-webkit-scrollbar,
+.hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
 

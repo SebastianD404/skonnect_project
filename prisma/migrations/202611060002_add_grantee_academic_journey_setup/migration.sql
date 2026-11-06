@@ -1,0 +1,3 @@
+ALTER TABLE "grantees"
+  ADD COLUMN IF NOT EXISTS "journeyStart" TEXT,
+  ADD COLUMN IF NOT EXISTS "journeyEnd" TEXT;

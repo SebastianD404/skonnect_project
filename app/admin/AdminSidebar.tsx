@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { Role } from "@prisma/client";
-import { Banknote, ClipboardList, Database, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users } from "lucide-react";
+import { Archive, Banknote, ClipboardList, Database, FileCheck, FileText, Inbox, LayoutDashboard, Radio, Settings, Users } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { Avatar } from "@/components/ui/Avatar";
@@ -126,7 +126,11 @@ export default function AdminSidebar({
     let mounted = true;
     let controller: AbortController | null = null;
 
-    const activeBadgeSection = BADGE_SECTIONS.find((section) => pathname.startsWith(section.href));
+    const activeBadgeSection = BADGE_SECTIONS.find((section) =>
+      section.href === "/admin/grantees"
+        ? pathname.startsWith(section.href) && !pathname.startsWith("/admin/grantees/records")
+        : pathname.startsWith(section.href)
+    );
     if (activeBadgeSection) setSectionViewedTimestamp(activeBadgeSection.href);
 
     async function refreshCounts() {
@@ -238,7 +242,7 @@ export default function AdminSidebar({
       title: "People Management",
       items: [
         { label: "Members", href: "/admin/members", icon: Users, badge: liveCounts.approvedMemberCount },
-            { label: "Grantees", href: "/admin/grantees", icon: Users, badge: liveCounts.newGranteeCount },
+        { label: "Grantees", href: "/admin/grantees", icon: Users, badge: liveCounts.newGranteeCount },
         { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: liveCounts.profilingRegistrationCount },
       ],
     },
@@ -272,6 +276,13 @@ export default function AdminSidebar({
         }]
       : []),
     {
+      title: "Archives",
+      items: [
+        { label: "Grantee Archives", href: "/admin/grantees/records", icon: Archive },
+        { label: "Member Archives", href: "/admin/members/records", icon: Archive },
+      ],
+    },
+    {
       title: "System",
       items: [
         { label: "Settings", href: "/admin/settings", icon: Settings },
@@ -293,7 +304,10 @@ export default function AdminSidebar({
                 {section.items.map((item) => {
                   const isActive =
                     pathname === item.href ||
-                    (item.href !== "/admin" && pathname.startsWith(item.href));
+                    (item.href !== "/admin" &&
+                      pathname.startsWith(item.href) &&
+                      !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees/records")) &&
+                      !(item.href === "/admin/members" && pathname.startsWith("/admin/members/records")));
 
                   const Icon = item.icon;
 

@@ -42,8 +42,6 @@ export default function AdminGranteesPageClient({
     return () => window.clearTimeout(timeout);
   }, [pathname, router, searchParams, searchQuery, startTransition]);
   const exportParams = new URLSearchParams();
-  const status = searchParams.get("status");
-  if (status) exportParams.set("status", status);
   if (searchQuery.trim()) exportParams.set("q", searchQuery.trim());
   const exportHref = `/api/admin/grantees/export${exportParams.size ? `?${exportParams.toString()}` : ""}`;
   const [deleteCandidate, setDeleteCandidate] = useState<GranteeTableRow | null>(null);
@@ -94,11 +92,13 @@ export default function AdminGranteesPageClient({
               See the latest status, academic average, and enrollment details for every approved grantee.
             </p>
           </div>
-          <AdminExportButton
-            href={exportHref}
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
-            iconClassName="h-4 w-4 text-slate-400"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <AdminExportButton
+              href={exportHref}
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
+              iconClassName="h-4 w-4 text-slate-400"
+            />
+          </div>
         </header>
 
         <GranteeStatusTable

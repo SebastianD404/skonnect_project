@@ -1,5 +1,13 @@
 export interface KKProfilingRegistration {
   id: string;
+  user?: {
+    fullName?: string | null;
+    email?: string | null;
+    grantee?: {
+      id: string;
+      status: string;
+    } | null;
+  } | null;
   fullName: string;
   email: string;
   address: string;
@@ -26,6 +34,8 @@ export interface KKProfilingRegistration {
   idBackFileUrl?: string | null;
   idSingleFileUrl?: string | null;
   reviewStatus?: string;
+  archivedReason?: string | null;
+  archivedAt?: string | Date | null;
   reviewNotes?: string | null;
   requiresManualReview?: boolean;
   submittedAt: string | Date;

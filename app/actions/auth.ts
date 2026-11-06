@@ -252,14 +252,38 @@ export async function login(
   const authUser = data.user;
 
   if (!authUser) {
-    return { error: "Login succeeded, but no authenticated user was returned." };
+    return { error: "We couldn't complete your sign-in. Please try again or contact support." };
+  }
+
+  const profileByAuthId = await prisma.user.findUnique({
+    where: { authId: authUser.id },
+    select: { isActive: true },
+  });
+  const existingProfile = profileByAuthId ?? (authUser.email
+    ? await prisma.user.findFirst({
+        where: { email: { equals: authUser.email, mode: "insensitive" } },
+        select: { isActive: true },
+      })
+    : null);
+  if (existingProfile && !existingProfile.isActive) {
+    try {
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) {
+        console.error("Could not clear the session for a deactivated account.", {
+          code: signOutError.code,
+          status: signOutError.status,
+        });
+      }
+    } catch (signOutError) {
+      console.error("Could not clear the session for a deactivated account.", signOutError);
+    }
+    return { error: "ACCOUNT_DEACTIVATED" };
   }
 
   const profile = await ensureProfile(authUser);
   if (!profile) {
     return {
-      error:
-        "Your account is authenticated, but profile setup failed. Please contact support.",
+      error: "We couldn't access your account profile. Please contact support.",
     };
   }
 

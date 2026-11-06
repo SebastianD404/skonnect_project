@@ -2,22 +2,35 @@
 
 import { Suspense, useState } from "react";
 import { useActionState } from "react";
-import { login } from "@/app/actions/auth";
+import { login, type AuthState } from "@/app/actions/auth";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, Eye, EyeOff, Mail, Lock, ShieldCheck, ArrowRight } from "lucide-react";
+import { AlertCircle, ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck, UserX } from "lucide-react";
 import { SkLogo } from "@/app/components/SkLogo";
 
 function LoginForm() {
-  const [state, formAction, submitting] = useActionState(login, null);
-  const search = useSearchParams();
+  const ACCOUNT_DEACTIVATED_ERROR = "ACCOUNT_DEACTIVATED";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [state, formAction, submitting] = useActionState(
+    async (previousState: AuthState, formData: FormData) => {
+      const result = await login(previousState, formData);
+      if (result?.error === ACCOUNT_DEACTIVATED_ERROR) {
+        setPassword("");
+        setShowPassword(false);
+        setDismissedError(null);
+      }
+      return result;
+    },
+    null
+  );
+  const search = useSearchParams();
   const next = search.get("next") ?? "";
   const sessionExpired = search.get("reason") === "session_expired";
   const kkProfilingHref = `/programs/kk-profiling${next ? `?redirect=${encodeURIComponent(next)}` : ""}`;
+  const accountDeactivated = !submitting && state?.error === ACCOUNT_DEACTIVATED_ERROR;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,61,92,0.08),_transparent_35%),linear-gradient(180deg,#f7f9fc_0%,#f4f7fb_100%)] px-4 py-10 text-slate-900">
@@ -46,7 +59,17 @@ function LoginForm() {
                 Your session expired. Please sign in again to continue.
               </div>
             ) : null}
-            {state?.error && state.error !== dismissedError ? (
+            {accountDeactivated && state?.error !== dismissedError ? (
+              <div
+                role="alert"
+                className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-2xs animate-in fade-in slide-in-from-top-1 duration-200"
+              >
+                <UserX className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                <span className="leading-relaxed">
+                  Account Deactivated: Your SKonnect account is currently inactive. If you need to restore your access, please contact the SK Barangay Pico administration.
+                </span>
+              </div>
+            ) : !submitting && state?.error && state.error !== dismissedError ? (
               <div
                 role="alert"
                 className="mb-5 flex items-center gap-2.5 rounded-xl border border-rose-200/80 bg-rose-50/80 p-3.5 text-xs font-medium text-rose-800 shadow-2xs animate-in fade-in slide-in-from-top-1 duration-200"

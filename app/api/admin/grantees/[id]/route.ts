@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 
 async function authorizeUser() {
   const supabase = await createClient();
@@ -113,6 +114,15 @@ export async function PATCH(
       return saved;
     });
 
+    try {
+      await refreshInactiveGranteesView();
+    } catch (error) {
+      console.error("Grantee status was updated, but the archive view could not be refreshed:", error);
+      return NextResponse.json(
+        { error: "Grantee status was updated, but the archive report could not be refreshed." },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ success: true, grantee: updated });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -210,6 +220,15 @@ export async function DELETE(
       return NextResponse.json({ error: "Graduated grantee records cannot be deleted during statutory retention." }, { status: 409 });
     }
 
+    try {
+      await refreshInactiveGranteesView();
+    } catch (error) {
+      console.error("Grantee was deleted, but the archive view could not be refreshed:", error);
+      return NextResponse.json(
+        { error: "Grantee record was deleted, but the archive report could not be refreshed." },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

@@ -22,6 +22,7 @@ import {
   isPhysicalSubmissionLocationQuestion,
 } from "@/lib/chatbot/facility-info";
 import { formatSkeapGrantAmountAnswer, isSkeapGrantAmountQuestion } from "@/lib/chatbot/grant-info";
+import { formatHouseholdLimitAnswer, isHouseholdLimitQuestion } from "@/lib/chatbot/household-limit";
 import {
   formatDualScholarshipAnswer,
   formatKkProfilingInfoAnswer,
@@ -311,6 +312,10 @@ describe("SKEAP grant amount", () => {
     expect(isSkeapGrantAmountQuestion("How much is the bus fare?")).toBe(false);
   });
 
+  it("does not mistake an Ilocano household count for a grant amount question", () => {
+    expect(isSkeapGrantAmountQuestion("Manu ti mabalin a scholar ti maysa a balay?")).toBe(false);
+  });
+
   it("returns the exact grant amount response in English, Filipino, and Ilocano", () => {
     expect(formatSkeapGrantAmountAnswer("ENGLISH")).toBe(
       "SKEAP grantees will receive a financial grant of ₱5,000."
@@ -320,6 +325,29 @@ describe("SKEAP grant amount", () => {
     );
     expect(formatSkeapGrantAmountAnswer("ILOCANO")).toBe(
       "Makaawat ti ₱5,000 a grant dagiti aprubado a SKEAP grantees."
+    );
+  });
+});
+
+describe("SKEAP household limit", () => {
+  it.each([
+    "How many scholars are allowed per household?",
+    "Ilan ang iskolar na puwede sa bawat pamilya?",
+    "Manu ti mabalin a scholar ti maysa a balay?",
+    "Manu ti iskolar iti tunggal pamilia?",
+  ])("recognizes multilingual household-limit questions: %s", (question) => {
+    expect(isHouseholdLimitQuestion(question)).toBe(true);
+  });
+
+  it("returns the exact household-limit answer in English, Filipino, and Ilocano", () => {
+    expect(formatHouseholdLimitAnswer("ENGLISH")).toBe(
+      "Only one (1) scholar is allowed per household."
+    );
+    expect(formatHouseholdLimitAnswer("FILIPINO")).toBe(
+      "Isang (1) iskolar lamang ang pinapayagan sa bawat bahay o pamilya."
+    );
+    expect(formatHouseholdLimitAnswer("ILOCANO")).toBe(
+      "Maysa (1) laeng a scholar ti mabalin iti tunggal balay wenno pamilia."
     );
   });
 });

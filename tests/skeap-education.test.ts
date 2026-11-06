@@ -4,6 +4,7 @@ import {
   SKEAP_EDUCATION_LEVELS,
   SKEAP_YEAR_LEVELS,
   isSkeapEducationLevel,
+  isEligibleSkeapApplicantYearLevel,
   isValidSkeapYearLevel,
 } from "@/lib/skeap-education";
 
@@ -52,5 +53,13 @@ describe("SKEAP education options", () => {
     expect(isValidSkeapYearLevel("College", "Grade 12")).toBe(false);
     expect(isValidSkeapYearLevel("Senior High School", "Grade 7")).toBe(false);
     expect(isValidSkeapYearLevel("Vocational", "4th Year")).toBe(true);
+  });
+
+  it("allows college applicants through third year and rejects fourth year or above", () => {
+    expect(isEligibleSkeapApplicantYearLevel("College", "Incoming Freshman")).toBe(true);
+    expect(isEligibleSkeapApplicantYearLevel("College", "3rd Year")).toBe(true);
+    expect(isEligibleSkeapApplicantYearLevel("College", "4th Year")).toBe(false);
+    expect(isEligibleSkeapApplicantYearLevel("College", "5th Year")).toBe(false);
+    expect(isEligibleSkeapApplicantYearLevel("College", "6th Year")).toBe(false);
   });
 });
