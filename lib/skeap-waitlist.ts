@@ -1,6 +1,25 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+
+export async function reindexSkeapWaitlist(tx: Prisma.TransactionClient) {
+  const remaining = await tx.skeapApplication.findMany({
+    where: { status: "WAITLISTED" },
+    orderBy: [{ waitlistPosition: "asc" }, { submittedAt: "asc" }],
+    select: { id: true, waitlistPosition: true },
+  });
+
+  for (const [index, application] of remaining.entries()) {
+    const position = index + 1;
+    if (application.waitlistPosition !== position) {
+      await tx.skeapApplication.update({
+        where: { id: application.id },
+        data: { waitlistPosition: position },
+      });
+    }
+  }
+}
 
 export type SkeapWaitlistApplication = {
   id: string;

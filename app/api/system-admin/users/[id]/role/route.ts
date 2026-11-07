@@ -62,6 +62,19 @@ export async function PATCH(
       );
     }
 
+    if (requestedRole === Role.GRANTEE) {
+      const [hasApprovedApplication, hasWaitlistedApplication] = await Promise.all([
+        prisma.skeapApplication.count({ where: { userId: target.id, status: "APPROVED" } }),
+        prisma.skeapApplication.count({ where: { userId: target.id, status: "WAITLISTED" } }),
+      ]);
+      if (hasWaitlistedApplication > 0 && hasApprovedApplication === 0) {
+        return NextResponse.json(
+          { error: "Waitlisted users must be promoted from the waitlist before receiving the GRANTEE role." },
+          { status: 409 }
+        );
+      }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       let granteeStatusChanged = false;
       const nextUser = await tx.user.update({

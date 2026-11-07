@@ -23,8 +23,8 @@ export function MembersExportMenu() {
       }}
       className="relative shrink-0 self-start sm:self-auto"
     >
-      <summary className="inline-flex cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900">
-        <Download aria-hidden="true" className="h-3.5 w-3.5 text-slate-400" />
+      <summary className="inline-flex cursor-pointer list-none items-center justify-center gap-2 rounded-xl bg-[#0F3D5C] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47]">
+        <Download aria-hidden="true" className="h-3.5 w-3.5" />
         <span>Export Profiles</span>
       </summary>
       <div className="absolute right-0 z-30 mt-2 flex w-56 flex-col gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 
 export async function PATCH(
   _request: Request,
@@ -33,14 +34,67 @@ export async function PATCH(
         return { error: "Only approved profiles can be archived", status: 409 as const };
       }
 
+      const archiveReason = "Archived by administrator";
       const archived = await tx.profilingRegistration.update({
         where: { id },
         data: {
           reviewStatus: "Archived",
-          archivedReason: "Archived by administrator",
+          archivedReason: archiveReason,
           archivedAt: new Date(),
         },
       });
+
+      if (registration.userId) {
+        const waitlistedApplications = await tx.skeapApplication.findMany({
+          where: {
+            userId: registration.userId,
+            status: "WAITLISTED",
+          },
+          select: { id: true, waitlistPosition: true, applicantName: true },
+        });
+
+        if (waitlistedApplications.length > 0) {
+          const waitlistRemark = `Automatically removed from waitlist due to KK Member Profile archival (Reason: ${archiveReason}).`;
+          const removalResult = await tx.skeapApplication.updateMany({
+            where: {
+              userId: registration.userId,
+              status: "WAITLISTED",
+            },
+            data: {
+              status: "REMOVED",
+              waitlistPosition: null,
+              waitlistRemark,
+            },
+          });
+          if (removalResult.count !== waitlistedApplications.length) {
+            throw new Error("WAITLIST_CHANGED");
+          }
+          await reindexSkeapWaitlist(tx);
+
+          for (const application of waitlistedApplications) {
+            await writeAuditLog(tx, {
+              action: "APPLICATION_REMOVED_FROM_WAITLIST",
+              actorId: admin.id,
+              targetTable: "skeap_applications",
+              targetId: application.id,
+              beforeData: {
+                status: "WAITLISTED",
+                waitlistPosition: application.waitlistPosition,
+              },
+              afterData: {
+                status: "REMOVED",
+                waitlistPosition: null,
+                waitlistRemark,
+              },
+              metadata: {
+                target: application.applicantName || registration.fullName,
+                reason: archiveReason,
+                profileId: registration.id,
+              },
+            });
+          }
+        }
+      }
 
       const grantee = registration.user?.grantee;
       let granteeStatusChanged = false;
@@ -115,6 +169,12 @@ export async function PATCH(
     if (error instanceof Error && error.message === "GRANTEE_STATUS_CHANGED") {
       return NextResponse.json(
         { error: "The linked grantee status changed. Refresh the page and try again." },
+        { status: 409 }
+      );
+    }
+    if (error instanceof Error && error.message === "WAITLIST_CHANGED") {
+      return NextResponse.json(
+        { error: "The waitlist changed while this profile was being archived. Refresh the page and try again." },
         { status: 409 }
       );
     }

@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
+import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { getAuditRoleChangeContext } from "@/lib/audit/metadata";
+import { getAuditRoleChangeContext, getAuditTargetContext } from "@/lib/audit/metadata";
 import { getAuditStartDate, isAuditTimeRange } from "@/lib/audit/time-range";
+import { formatPhilippineTime } from "@/lib/audit/time";
 import { ensureProfile } from "@/lib/auth";
 
-function csvEscape(value: unknown): string {
-  const raw = String(value ?? "");
-  if (!/[",\n]/.test(raw)) return raw;
-  return `"${raw.replace(/"/g, '""')}"`;
+function getColumnWidth(values: string[], minimum: number): number {
+  const longestValue = values.reduce((longest, value) => Math.max(longest, value.length), 0);
+  return Math.max(minimum, longestValue + 2);
 }
 
 export async function GET(request: NextRequest) {
@@ -81,52 +82,49 @@ export async function GET(request: NextRequest) {
         })
       : audits;
 
-    const header = [
-      "recorded_at_utc",
-      "action",
-      "actor_name",
-      "actor_email",
-      "target_label",
-      "target_id",
-      "old_role",
-      "new_role",
-      "ip_address",
-      "target_table",
-      "metadata_json",
-      "meta_json",
-    ];
-
     const rows = filteredAudits.map((audit) => {
-      const roleContext = getAuditRoleChangeContext(audit);
-      const targetLabel =
-        audit.action === "UPDATE_USER_ROLE"
-          ? roleContext.targetUserName || roleContext.targetUserEmail || "Unknown user"
-          : audit.targetTable;
+      const target = getAuditTargetContext(audit);
 
       return [
-        new Date(audit.createdAt).toISOString(),
         audit.action,
-        audit.actor.fullName,
-        audit.actor.email,
-        targetLabel,
-        audit.targetId,
-        roleContext.oldRole,
-        roleContext.newRole,
-        roleContext.ipAddress,
-        audit.targetTable,
-        JSON.stringify(audit.metadata ?? {}),
-        JSON.stringify(audit.meta ?? {}),
-      ].map(csvEscape);
+        [audit.actor.fullName, audit.actor.email].filter(Boolean).join(" | ") || "System",
+        [target.label, target.secondary].filter(Boolean).join(" | "),
+        formatPhilippineTime(audit.createdAt),
+      ];
     });
 
-    const csv = [header.map(csvEscape).join(","), ...rows.map((row) => row.join(","))].join("\n");
-    const filename = `audit-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "SKonnect";
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet("Audit Logs");
+    const headers = ["ACTION", "ACTOR", "TARGET", "RECORDED DATE & TIME"];
+    worksheet.addRow(headers);
+    rows.forEach((row) => worksheet.addRow(row));
 
-    return new NextResponse(csv, {
+    worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+    worksheet.getRow(1).alignment = { vertical: "middle" };
+    worksheet.autoFilter = {
+      from: "A1",
+      to: `D${Math.max(1, rows.length + 1)}`,
+    };
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+    worksheet.columns = [
+      { key: "action", width: getColumnWidth([headers[0], ...rows.map((row) => row[0])], 18) },
+      { key: "actor", width: getColumnWidth([headers[1], ...rows.map((row) => row[1])], 24) },
+      { key: "target", width: getColumnWidth([headers[2], ...rows.map((row) => row[2])], 24) },
+      { key: "recordedAt", width: getColumnWidth([headers[3], ...rows.map((row) => row[3])], 24) },
+    ];
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const filename = `SKonnect_Audit_Logs_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    return new NextResponse(buffer, {
       status: 200,
       headers: {
-        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename=\"${filename}\"`,
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {

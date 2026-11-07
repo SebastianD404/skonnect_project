@@ -2,6 +2,9 @@
 
 import { Check, ChevronDown, Edit2, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import AddKnowledgeChunkModal, {
+  type NewKnowledgeBaseDocument,
+} from "@/app/admin/knowledge-base/AddKnowledgeChunkModal";
 
 const EXCLUDED_CATEGORIES = new Set(["events", "governance", "technical", "system_overview"]);
 
@@ -15,8 +18,10 @@ type KnowledgeBaseDocument = {
 
 export default function KnowledgeBaseAudit({
   documents,
+  databaseCategories,
 }: {
   documents: KnowledgeBaseDocument[];
+  databaseCategories: string[];
 }) {
   const [knowledgeBaseDocuments, setKnowledgeBaseDocuments] = useState(documents);
   const [query, setQuery] = useState("");
@@ -31,13 +36,16 @@ export default function KnowledgeBaseAudit({
       "All",
       ...Array.from(
         new Set(
-          knowledgeBaseDocuments
-            .map((document) => document.sourceType.trim())
+          [
+            ...databaseCategories,
+            ...knowledgeBaseDocuments.map((document) => document.sourceType),
+          ]
+            .map((category) => category.trim())
             .filter((category) => category && !EXCLUDED_CATEGORIES.has(category.toLowerCase()))
         )
       ).sort((left, right) => left.localeCompare(right)),
     ],
-    [knowledgeBaseDocuments]
+    [databaseCategories, knowledgeBaseDocuments]
   );
   const languages = ["All", "ENGLISH", "FILIPINO", "ILOCANO"];
   const filteredDocuments = useMemo(() => {
@@ -84,6 +92,13 @@ export default function KnowledgeBaseAudit({
     setSaveError(null);
   }
 
+  function addDocument(document: NewKnowledgeBaseDocument) {
+    setKnowledgeBaseDocuments((current) => [document, ...current]);
+    setQuery("");
+    setSelectedCategory("All");
+    setSelectedLanguage("All");
+  }
+
   async function saveDocument(document: KnowledgeBaseDocument) {
     const content = editedContent.trim();
     if (!content) {
@@ -125,6 +140,19 @@ export default function KnowledgeBaseAudit({
 
   return (
     <section>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">AI Assistant</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+            RAG Knowledge Base Audit
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Review and manage knowledge articles used by the AI assistant to answer youth inquiries.
+          </p>
+        </div>
+        <AddKnowledgeChunkModal onCreated={addDocument} />
+      </div>
+
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <label className="sr-only" htmlFor="knowledge-base-search">Search knowledge base</label>
         <input
@@ -136,7 +164,7 @@ export default function KnowledgeBaseAudit({
           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 sm:max-w-xl"
         />
         <p className="text-sm text-slate-500" aria-live="polite">
-          Showing {filteredDocuments.length} of {knowledgeBaseDocuments.length} chunks
+          Showing {filteredDocuments.length} of {knowledgeBaseDocuments.length} articles
         </p>
       </div>
 
@@ -194,7 +222,7 @@ export default function KnowledgeBaseAudit({
 
       {filteredDocuments.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-          No current knowledge-base chunks match your search. ID search only finds chunks that still exist in the database.
+          No knowledge articles match your search. ID search only finds articles that still exist in the database.
         </div>
       ) : (
         <div className="space-y-4">

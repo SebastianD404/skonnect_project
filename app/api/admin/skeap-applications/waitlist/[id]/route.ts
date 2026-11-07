@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -61,19 +62,7 @@ export async function DELETE(
         });
       }
 
-      const remaining = await tx.skeapApplication.findMany({
-        where: { status: SubmissionStatus.WAITLISTED },
-        orderBy: [{ waitlistPosition: "asc" }, { submittedAt: "asc" }],
-        select: { id: true, waitlistPosition: true },
-      });
-      for (const [index, item] of remaining.entries()) {
-        if (item.waitlistPosition !== index + 1) {
-          await tx.skeapApplication.update({
-            where: { id: item.id },
-            data: { waitlistPosition: index + 1 },
-          });
-        }
-      }
+      await reindexSkeapWaitlist(tx);
 
       await writeAuditLog(tx, {
         action: "APPLICATION_REMOVED_FROM_WAITLIST",

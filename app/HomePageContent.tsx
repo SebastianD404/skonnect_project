@@ -140,6 +140,16 @@ export default function HomePageContent() {
   const navLinkClass = (href: string) =>
     `px-4 py-2 font-semibold transition-all rounded-lg ${activeLink === href ? "text-[#0F3D5C] bg-[#0F3D5C]/10" : "text-[#3C3C3C] hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5"}`;
 
+  const handleFooterHomeClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (pathname !== "/" || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+
+    event.preventDefault();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.history.replaceState(null, "", "/");
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
       {accessError ? (
@@ -150,7 +160,7 @@ export default function HomePageContent() {
         />
       ) : null}
       {/* ── HERO ── */}
-      <section className="relative overflow-hidden pt-12 md:pt-24 pb-20">
+      <section className="relative overflow-hidden pt-8 md:pt-16 pb-20">
         {/* Animated gradient orbs */}
         <div className="absolute top-20 right-0 w-96 h-96 bg-gradient-to-br from-[#0F3D5C]/10 to-[#00B4E5]/5 rounded-full blur-3xl -z-10 animate-pulse"></div>
         <div className="absolute top-40 -left-40 w-80 h-80 bg-gradient-to-br from-[#D4A574]/8 to-transparent rounded-full blur-3xl -z-10"></div>
@@ -159,8 +169,8 @@ export default function HomePageContent() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             {/* Left Content */}
             <div className="space-y-8">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#b8d0df] bg-[#eaf6fb] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#123f5f]">
-                <span className="h-2 w-2 rounded-full bg-[#164f70]"></span>
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-[#b8d0df] bg-[#eaf6fb] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#123f5f]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#164f70]"></span>
                 Sangguniang Kabataan · Barangay Pico
               </div>
               
@@ -457,9 +467,10 @@ export default function HomePageContent() {
             </div>
             <div>
               <h4 className="font-bold text-sm mb-3 uppercase tracking-wider">Links</h4>
-              <ul className="space-y-2 text-sm text-white/70">
-                <li><a href="#programs" className="hover:text-white transition-colors">Programs</a></li>
-                <li><Link href="/about" className="hover:text-white transition-colors">About</Link></li>
+              <ul className="space-y-2">
+                <li><Link href="/" onClick={handleFooterHomeClick} className="text-xs text-slate-400 hover:text-white transition-colors">Home</Link></li>
+                <li><Link href="/about" className="text-xs text-slate-400 hover:text-white transition-colors">About</Link></li>
+                <li><Link href="/applications" className="text-xs text-slate-400 hover:text-white transition-colors">Applications</Link></li>
               </ul>
             </div>
             <div>

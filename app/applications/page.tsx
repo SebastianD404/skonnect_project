@@ -70,9 +70,16 @@ export default function ApplicationsPage() {
 
       if (kkResult.status === "fulfilled" && kkResult.value.ok) {
         const data = await kkResult.value.json();
-        const label = typeof data.profile?.status === "string" ? data.profile.status : "Status unavailable";
-        setKkStatus({ label, tone: getStatusTone(label) });
-      } else if (kkResult.status === "fulfilled" && kkResult.value.status === 404) {
+        if (typeof data.profile?.status === "string") {
+          const label = data.profile.status;
+          setKkStatus({ label, tone: getStatusTone(label) });
+        } else {
+          setKkStatus(notStartedStatus);
+        }
+      } else if (
+        kkResult.status === "fulfilled" &&
+        (kkResult.value.status === 401 || kkResult.value.status === 404)
+      ) {
         setKkStatus(notStartedStatus);
       } else {
         setKkStatus({ label: "Status unavailable", tone: "slate" });

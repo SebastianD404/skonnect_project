@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma, Role } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
-import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { logAuditEvent, writeAuditLog } from "@/lib/audit/logger";
 import { ensureThreadMessage } from "@/lib/inquiries/thread";
 import { normalizeUploadedFiles } from "@/lib/skeap-upload";
@@ -332,62 +331,6 @@ export async function PATCH(
           });
         }
 
-        if (approvalStatus === "APPROVED") {
-        const targetUser = await tx.user.findUnique({
-          where: { id: currentInquiry.userId },
-          select: { id: true, role: true },
-        });
-
-        if (targetUser?.role === Role.YOUTH || targetUser?.role === Role.GRANTEE) {
-          const previousRole = targetUser.role;
-
-          await tx.user.update({
-            where: { id: targetUser.id },
-            data: {
-              role: Role.GRANTEE,
-            },
-          });
-
-          await writeAuditLog(tx, {
-            action: "APPROVE_SKEAP_APPLICATION",
-            actorId: appUser.id,
-            targetTable: "users",
-            targetId: targetUser.id,
-            beforeData: {
-              role: previousRole,
-            },
-            afterData: {
-              role: Role.GRANTEE,
-            },
-            metadata: {
-              target: currentInquiry.application?.applicantName || currentInquiry.userId,
-              targetId: targetUser.id,
-              targetEmail: undefined,
-              applicantName: currentInquiry.application?.applicantName,
-            },
-          });
-
-          await tx.grantee.upsert({
-            where: { userId: targetUser.id },
-            create: {
-              userId: targetUser.id,
-              school:
-                currentInquiry.application?.school ||
-                currentInquiry.application?.currentCourse ||
-                GRANTEE_PLACEHOLDER_SCHOOL,
-              yearLevel: currentInquiry.application?.yearLevel ?? GRANTEE_PLACEHOLDER_YEAR_LEVEL,
-              status: "ACTIVE",
-            },
-            update: {
-              school:
-                currentInquiry.application?.school ||
-                currentInquiry.application?.currentCourse ||
-                GRANTEE_PLACEHOLDER_SCHOOL,
-              yearLevel: currentInquiry.application?.yearLevel ?? GRANTEE_PLACEHOLDER_YEAR_LEVEL,
-            },
-          });
-        }
-        }
       }
 
       return updated;

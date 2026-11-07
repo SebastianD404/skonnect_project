@@ -24,9 +24,8 @@ export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpd
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<KKProfilingRegistration>(registration);
-  const isActiveGrantee = ["ACTIVE", "PROBATIONARY"].includes(
-    registration.user?.grantee?.status ?? ""
-  );
+  const isActiveGrantee =
+    (registration.skeapStatus ?? registration.user?.grantee?.status)?.toUpperCase() === "ACTIVE";
 
   useEffect(() => {
     setEditForm(registration);

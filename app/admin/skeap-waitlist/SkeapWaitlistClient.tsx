@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, LoaderCircle, Plus, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -29,7 +29,7 @@ async function readJsonResponse(response: Response) {
   try {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
-    return { error: text.slice(0, 300) };
+    return { error: "The server returned an unexpected response. Please try again." };
   }
 }
 
@@ -258,37 +258,45 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
             Applicants are ordered by the time they joined the queue. Promote the next applicant when an active scholarship slot becomes available.
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-4 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-sm">
-          <div className="flex items-baseline gap-1.5 whitespace-nowrap">
-            <span className="text-xl font-black leading-none text-cyan-700">{capacity.activeCount}</span>
-            <span className="text-xl font-black leading-none text-slate-300">/</span>
-            <span className="text-xl font-black leading-none text-slate-900">{capacity.maxSlots}</span>
-            <span className="ml-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Active Slots</span>
-          </div>
-          <div className="mx-1 h-6 w-px bg-slate-200" />
-          {!editingCapacity ? (
-            <button type="button" onClick={() => setEditingCapacity(true)} className="whitespace-nowrap text-xs font-semibold text-slate-600 transition-colors hover:text-slate-900">
-              Edit Slot Limit
-            </button>
-          ) : (
-            <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                max={100000}
-                value={slotLimitDraft}
-                onChange={(event) => setSlotLimitDraft(event.target.value)}
-                className="h-9 w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-900 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-                aria-label="Maximum SKEAP slots"
-              />
-              <button type="button" onClick={() => void saveCapacity()} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
-                {savingCapacity ? "Saving..." : "Save Changes"}
-              </button>
-              <button type="button" onClick={() => { setEditingCapacity(false); setSlotLimitDraft(String(capacity.maxSlots)); }} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
-                Cancel
-              </button>
+        <div className="flex shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-sm">
+            <div
+              className="whitespace-nowrap"
+              title={`${Math.max(0, capacity.maxSlots - capacity.activeCount)} slots remaining`}
+              aria-label={`${capacity.activeCount} of ${capacity.maxSlots} active slots; ${Math.max(0, capacity.maxSlots - capacity.activeCount)} slots remaining`}
+            >
+              <span className="text-xl font-bold align-baseline leading-none text-[#086b7d]">{capacity.activeCount}</span>
+              <span className="mx-1 text-xl font-bold align-baseline leading-none text-slate-800">/</span>
+              <span className="mr-2 text-xl font-bold align-baseline leading-none text-slate-900">{capacity.maxSlots}</span>
+              <span className="text-[10px] font-semibold uppercase align-baseline leading-none tracking-wider text-slate-400 sm:text-xs">
+                Active Slots
+              </span>
             </div>
-          )}
+            <div className="mx-1 h-6 border-l border-slate-200" />
+            {!editingCapacity ? (
+              <button type="button" onClick={() => setEditingCapacity(true)} className="whitespace-nowrap text-xs font-semibold text-slate-600 transition-colors hover:text-slate-900">
+                Edit Slot Limit
+              </button>
+            ) : (
+              <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={100000}
+                  value={slotLimitDraft}
+                  onChange={(event) => setSlotLimitDraft(event.target.value)}
+                  className="h-9 w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-900 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                  aria-label="Maximum SKEAP slots"
+                />
+                <button type="button" onClick={() => void saveCapacity()} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
+                  {savingCapacity ? "Saving..." : "Save Changes"}
+                </button>
+                <button type="button" onClick={() => { setEditingCapacity(false); setSlotLimitDraft(String(capacity.maxSlots)); }} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -378,10 +386,11 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                           type="button"
                           onClick={() => openPromotionModal(application)}
                           disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
-                          title={isCapacityExceeded ? "Capacity full. Increase slot limit to promote." : "Promote applicant"}
-                          className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Promote to Grantee"
+                          title={isCapacityExceeded ? "Capacity full. Increase slot limit to promote." : "Promote to active Grantee"}
+                          className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          Promote to Grantee
+                          <UserCheck className="h-4 w-4" aria-hidden="true" />
                         </button>
                         <button
                           type="button"
@@ -389,7 +398,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                           disabled={waitlistActionId !== null}
                           aria-label={`Remove ${application.applicantName} from the waitlist`}
                           title="Remove from waitlist and return to pending review"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-rose-200 bg-white text-rose-700 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Trash2 className="h-4 w-4" aria-hidden="true" />
                         </button>
@@ -671,18 +680,25 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
             role="dialog"
             aria-modal="true"
             aria-labelledby="remove-waitlist-title"
-            className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"
+            className="relative w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl"
           >
-            <h2 id="remove-waitlist-title" className="text-base font-bold text-slate-900">Remove from waitlist?</h2>
-            <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              <span className="font-semibold text-slate-900">{pendingRemoval.applicantName}</span> will be removed from the queue and returned to pending application review. Their application and uploaded documents will not be deleted.
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="flex items-start gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 id="remove-waitlist-title" className="text-base font-bold tracking-tight text-slate-900">Remove from waitlist?</h2>
+                <p className="mt-1.5 text-sm leading-5 text-slate-600">
+                  <span className="font-semibold text-slate-900">{pendingRemoval.applicantName}</span> will be removed from the queue and returned to pending application review. Their application and uploaded documents will not be deleted.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button
                 type="button"
                 onClick={() => setPendingRemoval(null)}
                 disabled={waitlistActionId !== null}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
               >
                 Keep on waitlist
               </button>
@@ -690,7 +706,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                 type="button"
                 onClick={() => void removeFromWaitlist(pendingRemoval)}
                 disabled={waitlistActionId !== null}
-                className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {waitlistActionId === pendingRemoval.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
                 Remove applicant

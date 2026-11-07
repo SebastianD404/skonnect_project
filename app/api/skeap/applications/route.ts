@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma, SubmissionStatus } from "@prisma/client";
+import { Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -472,6 +472,12 @@ export async function POST(request: NextRequest) {
         waitlistPosition,
       };
       const application = await tx.skeapApplication.create({ data: createData, select: { id: true } });
+      if (isWaitlisted) {
+        await tx.user.update({
+          where: { id: appUser.id },
+          data: { role: Role.YOUTH },
+        });
+      }
       const applicantMessage = isWaitlisted
         ? `Your SKEAP application has been received and placed on the waitlist at position ${waitlistPosition} because all ${maxSlots} scholarship slots are currently filled.`
         : "Applicant submitted a SKEAP application.";

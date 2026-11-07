@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { Eye, Loader2, Search, Trash2 } from "lucide-react";
+import { Archive, Eye, Loader2, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
@@ -46,7 +46,7 @@ export function GranteeStatusTable({
   totalCount,
   isLoading,
   startNavigation,
-  onDelete,
+  onEndScholarship,
 }: {
   grantees: GranteeTableRow[];
   page: number;
@@ -54,7 +54,7 @@ export function GranteeStatusTable({
   totalCount: number;
   isLoading: boolean;
   startNavigation: (callback: () => void) => void;
-  onDelete?: (grantee: GranteeTableRow) => void;
+  onEndScholarship?: (grantee: GranteeTableRow) => void;
 }) {
   const [query, setQuery] = useState("");
   const [pendingGranteeId, setPendingGranteeId] = useState<string | null>(null);
@@ -210,12 +210,12 @@ export function GranteeStatusTable({
                         {grantee.status !== "GRADUATED" ? (
                           <button
                             type="button"
-                            onClick={() => onDelete?.(grantee)}
-                            title="Delete grantee"
-                            aria-label="Delete grantee"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-rose-50 text-rose-700 transition hover:bg-rose-100"
+                            onClick={() => onEndScholarship?.(grantee)}
+                            title="End scholarship"
+                            aria-label="End scholarship"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Archive className="h-4 w-4" aria-hidden="true" />
                           </button>
                         ) : null}
                       </div>

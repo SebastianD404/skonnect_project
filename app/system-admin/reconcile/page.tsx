@@ -12,6 +12,13 @@ type ReconcileSummary = {
   relinked: number;
   created: number;
   errors: number;
+  changes: ReconcileChange[];
+};
+
+type ReconcileChange = {
+  action: "relink" | "create";
+  email: string;
+  profileName?: string;
 };
 
 type ReconcileResult = {
@@ -41,7 +48,24 @@ export default function SystemAdminReconcilePage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Unable to reconcile Auth users.");
       }
-      setResult({ summary: payload.summary as ReconcileSummary, applied: Boolean(payload.applied) });
+      const summary =
+        payload && typeof payload.summary === "object" && payload.summary !== null
+          ? payload.summary as Partial<ReconcileSummary>
+          : {};
+      setResult({
+        summary: {
+          totalAuthUsers: Number(summary.totalAuthUsers ?? 0),
+          skippedNoEmail: Number(summary.skippedNoEmail ?? 0),
+          alreadyLinked: Number(summary.alreadyLinked ?? 0),
+          wouldRelink: Number(summary.wouldRelink ?? 0),
+          wouldCreate: Number(summary.wouldCreate ?? 0),
+          relinked: Number(summary.relinked ?? 0),
+          created: Number(summary.created ?? 0),
+          errors: Number(summary.errors ?? 0),
+          changes: Array.isArray(summary.changes) ? summary.changes : [],
+        },
+        applied: Boolean(payload.applied),
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to reconcile Auth users.");
     } finally {
@@ -110,6 +134,28 @@ export default function SystemAdminReconcilePage() {
                 </div>
               ))}
             </dl>
+            {result.summary.changes.length > 0 ? (
+              <div className="mt-4 overflow-hidden rounded-lg border border-amber-200 bg-amber-50">
+                <div className="border-b border-amber-200 px-3 py-2 text-sm font-semibold text-amber-950">
+                  {result.applied ? "Changes processed" : "Accounts requiring attention"}
+                </div>
+                <ul className="divide-y divide-amber-200/70">
+                  {result.summary.changes.map((change) => (
+                    <li
+                      key={`${change.action}-${change.email}`}
+                      className="flex flex-col gap-1 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <span className="font-medium text-slate-900">{change.email}</span>
+                      <span className="text-xs text-amber-900">
+                        {change.action === "create"
+                          ? `Create YOUTH profile${change.profileName ? ` (${change.profileName})` : ""}`
+                          : `Relink to ${change.profileName || "existing profile"}`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

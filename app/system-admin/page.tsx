@@ -11,7 +11,6 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import SystemAdminDashboardActions from "./SystemAdminDashboardActions";
 
 export default async function SystemAdminDashboardPage() {
   const [activeUsersCount, auditEntriesRows, adminAccountsCount, recentAudits, roleCounts] = await Promise.all([
@@ -73,7 +72,7 @@ export default async function SystemAdminDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+      <div className="mb-6">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
             System Admin / Dashboard
@@ -85,7 +84,6 @@ export default async function SystemAdminDashboardPage() {
             Platform governance, access controls, and immutable audit trails for Barangay Pico.
           </p>
         </div>
-        <SystemAdminDashboardActions />
       </div>
 
       <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

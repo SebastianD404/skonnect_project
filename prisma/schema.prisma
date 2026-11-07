@@ -177,6 +177,7 @@ model SkeapApplication {
   grades                   Json?
   timeline                 Json?
   waitlistPosition         Int?
+  waitlistRemark           String?          @map("waitlist_remark")
   educationalBackground    Json?
   registeredVoter          Boolean?
   totalFamilyMonthlyIncome String?
@@ -528,6 +529,7 @@ enum SubmissionStatus {
   REJECTED
   RETURNED_FOR_EDIT
   WAITLISTED
+  REMOVED
 }
 
 enum Language {

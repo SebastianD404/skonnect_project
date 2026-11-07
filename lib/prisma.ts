@@ -1,5 +1,6 @@
 ﻿import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { Pool } from "pg";
 
 const globalForPrisma = globalThis as unknown as {
@@ -19,7 +20,9 @@ const prismaPool =
   globalForPrisma.prismaPool ??
   new Pool({
     connectionString,
-    connectionTimeoutMillis: 10_000,
+    max: 10,
+    connectionTimeoutMillis: 30_000,
+    idleTimeoutMillis: 30_000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
   });
@@ -106,14 +109,6 @@ function isMissingTableError(error: unknown) {
 function isMissingColumnError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /column .* does not exist|Column .* does not exist|Undefined column/i.test(message);
-}
-
-function sanitizeWhereForProfilingRegistrations(where: Record<string, unknown> | undefined) {
-  if (!where || typeof where !== "object") {
-    return undefined;
-  }
-
-  return Object.keys(where).length > 0 ? { ...where } : undefined;
 }
 
 export async function getProfilingRegistrationCount() {
@@ -290,19 +285,15 @@ export async function getMonthlyProfilingRegistrationCounts(lastNMonths: number)
   }
 }
 
-export async function listProfilingRegistrations(args?: any) {
+export async function listProfilingRegistrations<
+  T extends Prisma.ProfilingRegistrationFindManyArgs = Prisma.ProfilingRegistrationFindManyArgs,
+>(args?: T): Promise<Prisma.ProfilingRegistrationGetPayload<T>[]> {
   if (!(await hasTable(PROFILING_REGISTRATION_TABLE))) {
     return [];
   }
 
-  const safeArgs = args ? { ...args } : undefined;
-  const where = safeArgs?.where as Record<string, unknown> | undefined;
-  if (where && typeof where === "object" && "reviewStatus" in where) {
-    safeArgs.where = sanitizeWhereForProfilingRegistrations(where);
-  }
-
   try {
-    return await prisma.profilingRegistration.findMany(safeArgs);
+    return await prisma.profilingRegistration.findMany(args) as Prisma.ProfilingRegistrationGetPayload<T>[];
   } catch (error) {
     if (isMissingTableError(error) || isMissingColumnError(error)) {
       return [];

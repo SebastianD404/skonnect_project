@@ -30,26 +30,14 @@ export default async function AdminGranteesPage({ searchParams }: {
     : 10;
   const skip = (page - 1) * pageSize;
   const hasRetentionColumn = await hasGranteeRetentionColumn();
-  const restoredAfterRemovalSql = `EXISTS (
-    SELECT 1
-    FROM "audit_logs" role_change
-    WHERE role_change."targetTable" = 'users'
-      AND role_change."targetId" = profile_user."id"
-      AND role_change."action" = 'UPDATE_USER_ROLE'
-      AND role_change."afterData"->>'role' = 'GRANTEE'
-      AND role_change."createdAt" >= g."updatedAt"
-      AND NOT EXISTS (
-        SELECT 1
-        FROM "audit_logs" newer_role_change
-        WHERE newer_role_change."targetTable" = 'users'
-          AND newer_role_change."targetId" = profile_user."id"
-          AND newer_role_change."action" = 'UPDATE_USER_ROLE'
-          AND newer_role_change."createdAt" > role_change."createdAt"
-      )
-  )`;
   const profileStatusSql = `AND profile_user."role"::text = 'GRANTEE' AND (
        g."status"::text IN ('ACTIVE', 'PROBATIONARY')
-       OR (g."status"::text = 'REMOVED' AND ${restoredAfterRemovalSql})
+     )
+     AND EXISTS (
+       SELECT 1
+       FROM "skeap_applications" approved_application
+       WHERE approved_application."userId" = profile_user."id"
+         AND approved_application."status" = 'APPROVED'
      )`;
   const pageKeys = await prisma.$queryRawUnsafe<Array<{
     source: "profile" | "fallback";
@@ -65,6 +53,12 @@ export default async function AdminGranteesPage({ searchParams }: {
      SELECT 'fallback'::text AS "source", ('user-' || u."id")::text AS "recordId", u."id"::text AS "userId", u."updatedAt" AS "updatedAt"
      FROM "users" u
      WHERE u."role"::text = 'GRANTEE'
+       AND EXISTS (
+         SELECT 1
+         FROM "skeap_applications" approved_application
+         WHERE approved_application."userId" = u."id"
+           AND approved_application."status" = 'APPROVED'
+       )
        AND NOT EXISTS (SELECT 1 FROM "grantees" g WHERE g."userId" = u."id")
        AND ($3 = '' OR concat_ws(' ', u."fullName", u."email") ILIKE '%' || $3 || '%')
      ORDER BY "updatedAt" DESC, "recordId" ASC
@@ -84,6 +78,12 @@ export default async function AdminGranteesPage({ searchParams }: {
        SELECT u."id"
        FROM "users" u
        WHERE u."role"::text = 'GRANTEE'
+         AND EXISTS (
+           SELECT 1
+           FROM "skeap_applications" approved_application
+           WHERE approved_application."userId" = u."id"
+             AND approved_application."status" = 'APPROVED'
+         )
          AND NOT EXISTS (SELECT 1 FROM "grantees" g WHERE g."userId" = u."id")
          AND ($1 = '' OR concat_ws(' ', u."fullName", u."email") ILIKE '%' || $1 || '%')
      ) matching_grantees`,

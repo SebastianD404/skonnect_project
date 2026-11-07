@@ -243,12 +243,12 @@ export default function AdminSidebar({
       items: [
         { label: "Members", href: "/admin/members", icon: Users, badge: liveCounts.approvedMemberCount },
         { label: "Grantees", href: "/admin/grantees", icon: Users, badge: liveCounts.newGranteeCount },
-        { label: "KK Profiling", href: "/admin/kk-profiling", icon: ClipboardList, badge: liveCounts.profilingRegistrationCount },
       ],
     },
     {
-      title: "Programs & Engagement",
+      title: "Program Applications",
       items: [
+        { label: "KK Profiling Applications", href: "/admin/kk-profiling", icon: ClipboardList, badge: liveCounts.profilingRegistrationCount },
         { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: liveCounts.skeapApplicationCount },
         { label: "SKEAP Waitlist", href: "/admin/skeap-waitlist", icon: ClipboardList },
         { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: liveCounts.pendingDocumentCount },
@@ -278,7 +278,7 @@ export default function AdminSidebar({
     {
       title: "Archives",
       items: [
-        { label: "Grantee Archives", href: "/admin/grantees/records", icon: Archive },
+        { label: "Past Grantees", href: "/admin/grantees/records", icon: Archive },
         { label: "Member Archives", href: "/admin/members/records", icon: Archive },
       ],
     },

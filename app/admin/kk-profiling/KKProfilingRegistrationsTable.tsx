@@ -224,8 +224,8 @@ export function KKProfilingRegistrationsTable({
             {exportMenu ?? (exportHref ? (
               <AdminExportButton
                 href={exportHref}
-                className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 sm:self-auto"
-                iconClassName="h-3.5 w-3.5 text-slate-400"
+                className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl bg-[#0F3D5C] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] sm:self-auto"
+                iconClassName="h-3.5 w-3.5"
               />
             ) : null)}
           </div>
@@ -342,9 +342,13 @@ export function KKProfilingRegistrationsTable({
                   ) : null}
                   {showMemberRoleColumn ? (
                     <td className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>
-                      {["ACTIVE", "PROBATIONARY"].includes(registration.user?.grantee?.status ?? "") ? (
+                      {registration.skeapStatus?.toUpperCase() === "ACTIVE" ? (
                         <span className="whitespace-nowrap text-xs font-semibold tracking-tight text-[#0F3D5C]">
                           Grantee
+                        </span>
+                      ) : registration.skeapStatus?.toUpperCase() === "WAITLISTED" ? (
+                        <span className="whitespace-nowrap text-xs font-medium tracking-tight text-slate-500">
+                          Waitlisted
                         </span>
                       ) : (
                         <span className="whitespace-nowrap text-xs font-medium tracking-tight text-slate-500">

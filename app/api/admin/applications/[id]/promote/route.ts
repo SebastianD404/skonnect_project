@@ -4,10 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/audit/logger";
+import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, DEFAULT_SKEAP_MAX_SLOTS, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -43,6 +45,7 @@ export async function POST(
           status: true,
           userId: true,
           applicantName: true,
+          user: { select: { email: true } },
           school: true,
           currentCourse: true,
           yearLevel: true,
@@ -97,31 +100,18 @@ export async function POST(
         },
       });
 
-      const remaining = await tx.skeapApplication.findMany({
-        where: { status: "WAITLISTED" },
-        orderBy: [{ waitlistPosition: "asc" }, { submittedAt: "asc" }],
-        select: { id: true, waitlistPosition: true },
-      });
-
-      // Re-index the queue contiguously after promotion.
-      for (const [index, item] of remaining.entries()) {
-        if (item.waitlistPosition !== index + 1) {
-          await tx.skeapApplication.update({
-            where: { id: item.id },
-            data: { waitlistPosition: index + 1 },
-          });
-        }
-      }
+      await reindexSkeapWaitlist(tx);
 
       return {
         id: application.id,
         applicantId: application.userId,
         applicantName: application.applicantName,
+        applicantEmail: application.user.email,
         granteeStatusChanged: existingGrantee?.status === "REMOVED",
       };
     });
 
-    const { granteeStatusChanged, ...promotedApplication } = promoted;
+    const { granteeStatusChanged, applicantEmail, ...promotedApplication } = promoted;
     if (granteeStatusChanged) {
       try {
         await refreshInactiveGranteesView();
@@ -132,6 +122,21 @@ export async function POST(
           { status: 503 }
         );
       }
+    }
+
+    let emailSent = false;
+    try {
+      const transporter = createGmailTransporter();
+      const emailResult = await sendBroadcastEmail(
+        transporter,
+        promotedApplication.applicantId,
+        applicantEmail,
+        "Your SKEAP scholarship application was approved",
+        `Hello ${promotedApplication.applicantName || "Scholar"},\n\nYour SKEAP scholarship application has been promoted from the waitlist and approved. Your account is now active as a Grantee.\n\nPlease sign in to SKonnect to view your scholarship information.\n\nSKEAP Administration`,
+      );
+      emailSent = emailResult !== null;
+    } catch (error) {
+      console.error("SKEAP promotion completed, but the approval email could not be sent:", error);
     }
 
     logAuditEvent({
@@ -147,7 +152,7 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ success: true, application: promotedApplication });
+    return NextResponse.json({ success: true, emailSent, application: promotedApplication });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to promote application.";
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });

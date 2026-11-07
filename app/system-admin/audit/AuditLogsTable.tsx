@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, ScrollText, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, LoaderCircle, ScrollText, Search, X } from "lucide-react";
 import {
   getAuditActionSummary,
   getAuditRoleChangeContext,
@@ -105,6 +105,7 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
   const [selectedRange, setSelectedRange] = useState<(typeof TIME_RANGES)[number]["value"]>("30d");
   const [isRangeMenuOpen, setIsRangeMenuOpen] = useState(false);
   const [isLoadingRange, setIsLoadingRange] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [selectedAudit, setSelectedAudit] = useState<AuditItem | null>(null);
   const rangeMenuRef = useRef<HTMLDivElement>(null);
@@ -112,6 +113,43 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
   const exportHref = query
     ? `/api/system-admin/audit/export?range=${selectedRange}&query=${encodeURIComponent(query)}`
     : `/api/system-admin/audit/export?range=${selectedRange}`;
+
+  async function handleExport() {
+    if (isExporting) return;
+
+    setIsExporting(true);
+    setRangeError(null);
+    try {
+      const response = await fetch(exportHref);
+      if (!response.ok) {
+        const payload: unknown = await response.json().catch(() => null);
+        const message =
+          typeof payload === "object" &&
+          payload !== null &&
+          "error" in payload &&
+          typeof payload.error === "string"
+            ? payload.error
+            : "Unable to export audit logs.";
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      const contentDisposition = response.headers.get("Content-Disposition");
+      const filename = contentDisposition?.match(/filename="([^"]+)"/i)?.[1] ?? "SKonnect_Audit_Logs.xlsx";
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setRangeError(error instanceof Error ? error.message : "Unable to export audit logs.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
 
   function navigateToPage(nextPage: number, nextPageSize = pageSize) {
     const params = new URLSearchParams(searchParams.toString());
@@ -366,13 +404,21 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
               </div>
             ) : null}
           </div>
-          <a
-            href={exportHref}
-            className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
+          <button
+            type="button"
+            onClick={() => void handleExport()}
+            disabled={isExporting}
+            aria-busy={isExporting}
+            aria-label="Export audit logs"
+            className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
           >
-            <Download className="h-4 w-4" />
-            Export CSV
-          </a>
+            {isExporting ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {isExporting ? "Exporting..." : "Export Logs"}
+          </button>
         </div>
       </div>
 

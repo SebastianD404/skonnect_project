@@ -7,6 +7,11 @@ import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 
 type SupabaseAdminClient = SupabaseClient;
+type ReconcileChange = {
+  action: "relink" | "create";
+  email: string;
+  profileName?: string;
+};
 
 async function getActor() {
   const supabase = await createClient();
@@ -134,6 +139,7 @@ export async function POST(request: NextRequest) {
     let relinked = 0;
     let created = 0;
     let errors = 0;
+    const changes: ReconcileChange[] = [];
 
     for (const authUser of authUsers) {
       const authId = authUser.id;
@@ -153,6 +159,11 @@ export async function POST(request: NextRequest) {
 
         if (existingByEmail) {
           wouldRelink += 1;
+          changes.push({
+            action: "relink",
+            email,
+            profileName: existingByEmail.fullName,
+          });
           if (apply) {
             await prisma.$transaction(async (tx) => {
               await tx.user.update({
@@ -189,6 +200,11 @@ export async function POST(request: NextRequest) {
         }
 
         wouldCreate += 1;
+        changes.push({
+          action: "create",
+          email,
+          profileName: deriveFullName(authUser),
+        });
         if (apply) {
           const fullName = deriveFullName(authUser);
           const createdUser = await prisma.$transaction(async (tx) => {
@@ -228,6 +244,7 @@ export async function POST(request: NextRequest) {
         relinked: apply ? relinked : 0,
         created: apply ? created : 0,
         errors,
+        changes,
       },
       applied: apply,
     });

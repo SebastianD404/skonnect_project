@@ -55,8 +55,8 @@ export function ArchivedMembersTable({
         <AdminExportButton
           href="/api/admin/members/records/export"
           label="Export Records"
-          className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 sm:self-auto"
-          iconClassName="h-3.5 w-3.5 text-slate-400"
+          className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl bg-[#0F3D5C] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] sm:self-auto"
+          iconClassName="h-3.5 w-3.5"
         />
       </div>
       <div className="w-full overflow-hidden">

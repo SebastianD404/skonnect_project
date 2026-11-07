@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import type { Role } from "@prisma/client";
+import type { Role, SubmissionStatus } from "@prisma/client";
 import {
   Download,
   Eye,
@@ -17,6 +17,7 @@ import {
   UserX,
   X,
   XCircle,
+  Clock3,
 } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { Avatar } from "@/components/ui/Avatar";
@@ -27,6 +28,7 @@ type UserItem = {
   email: string;
   avatarUrl: string | null;
   role: Role;
+  skeapStatus: SubmissionStatus | null;
   isActive: boolean;
   granteeStatus: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | null;
   username: string | null;
@@ -58,6 +60,11 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
 ];
 
 const SCHOLAR_STATUS_BADGES = {
+  WAITLISTED: {
+    label: "Waitlisted",
+    className: "bg-amber-50 text-amber-700 border-amber-200",
+    Icon: Clock3,
+  },
   ACTIVE: {
     label: "Active",
     className: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -76,7 +83,8 @@ const SCHOLAR_STATUS_BADGES = {
   REMOVED: {
     label: "Removed",
     className: "bg-red-50 text-red-700 border-red-200",
-    Icon: XCircle,
+    Icon:     XCircle,
+    Clock3,
   },
 } as const;
 
@@ -466,6 +474,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
             type="button"
             disabled={isExporting}
             aria-busy={isExporting}
+            aria-label="Export current filtered view"
             className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
             onClick={handleExportUsersExcel}
           >
@@ -474,7 +483,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
             ) : (
               <Download className="h-4 w-4" />
             )}
-            {isExporting ? "Exporting..." : "Export"}
+            {isExporting ? "Exporting..." : "Export Current View"}
           </button>
           <div className="hidden text-xs text-slate-500 sm:block">
             <span className="font-semibold text-slate-900 tabular-nums">{filteredUsers.length}</span> of{" "}
@@ -512,8 +521,10 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                 {filteredUsers.map((user) => {
                   const draftRole = draftRoles[user.id] ?? user.role;
                   const busy = isPending && pendingUserId === user.id;
-                  const scholarStatusBadge = user.granteeStatus
-                    ? SCHOLAR_STATUS_BADGES[user.granteeStatus]
+                  const scholarStatusBadge = user.skeapStatus === "WAITLISTED"
+                    ? SCHOLAR_STATUS_BADGES.WAITLISTED
+                    : user.granteeStatus
+                      ? SCHOLAR_STATUS_BADGES[user.granteeStatus]
                     : null;
                   return (
                     <tr key={user.id} className="transition hover:bg-slate-50/50">
@@ -537,7 +548,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                             aria-label={`Role for ${user.fullName}`}
                             value={draftRole}
                             onChange={(event) => updateRole(user.id, event.target.value as Role)}
-                            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                            className="h-9 w-fit rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
                             disabled={isPending}
                           >
                             {ROLE_OPTIONS.map((option) => (

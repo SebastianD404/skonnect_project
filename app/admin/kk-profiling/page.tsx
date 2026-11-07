@@ -96,9 +96,11 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
       <div className="mx-auto flex w-full max-w-7xl flex-col pb-12 text-slate-950">
         <div className="mb-6">
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">KK Profiling</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              PROGRAMS &amp; ENGAGEMENT / KK PROFILING APPLICATIONS
+            </span>
             <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">
-              Registered youth profiling data
+              KK Profiling Applications
             </h1>
             <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
               Review Katipunan ng Kabataan profiling registrations.

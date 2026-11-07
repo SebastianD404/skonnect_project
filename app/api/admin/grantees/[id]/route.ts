@@ -23,7 +23,7 @@ async function authorizeUser() {
   if (appUser.role !== "SK_OFFICIAL" && appUser.role !== "SUPER_ADMIN") {
     return {
       error: NextResponse.json(
-        { error: "Only SK officials can delete grantees" },
+        { error: "Only SK officials can update grantee status" },
         { status: 403 }
       ),
     };

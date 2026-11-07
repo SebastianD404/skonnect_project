@@ -1,7 +1,7 @@
-import { GranteeStatus, Prisma, Role } from "@prisma/client";
+import { GranteeStatus, Role, SubmissionStatus } from "@prisma/client";
 import { BookOpen, BriefcaseBusiness, GraduationCap, Users } from "lucide-react";
 import { requireRole } from "@/lib/auth";
-import { prisma, listProfilingRegistrations, getProfilingRegistrationCountByStatus } from "@/lib/prisma";
+import { listProfilingRegistrations } from "@/lib/prisma";
 import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
 import { KKProfilingRegistrationsTable } from "../kk-profiling/KKProfilingRegistrationsTable";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
@@ -28,64 +28,60 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
     : 10;
   const skip = (page - 1) * pageSize;
 
-  const activeGranteeStatuses = [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY];
-  const membersWhere: Prisma.ProfilingRegistrationWhereInput = { reviewStatus: "Approved" };
-  if (memberTypeFilter === "grantees") {
-    membersWhere.user = {
-      is: {
-        grantee: {
-          is: {
-            status: { in: activeGranteeStatuses },
-          },
-        },
-      },
-    };
-  } else if (memberTypeFilter === "kk") {
-    membersWhere.OR = [
-      { user: { is: null } },
-      { user: { is: { grantee: { is: null } } } },
-      {
-        user: {
-          is: {
-            grantee: {
-              is: {
-                status: { notIn: activeGranteeStatuses },
-              },
+  const approvedMembers = await listProfilingRegistrations({
+    where: { reviewStatus: "Approved" },
+    orderBy: { submittedAt: "desc" },
+    include: {
+      user: {
+        select: {
+          fullName: true,
+          email: true,
+          grantee: { select: { id: true, status: true } },
+          skeapApplications: {
+            where: {
+              status: { in: [SubmissionStatus.WAITLISTED, SubmissionStatus.PENDING] },
             },
+            orderBy: { submittedAt: "desc" },
+            select: { status: true },
           },
         },
       },
-    ];
-  }
-  const [totalCount, approvedMembers, classificationGroups] = await Promise.all([
-    memberTypeFilter === "all"
-      ? getProfilingRegistrationCountByStatus("Approved")
-      : prisma.profilingRegistration.count({ where: membersWhere }),
-    listProfilingRegistrations({
-      where: membersWhere,
-      orderBy: { submittedAt: "desc" },
-      take: pageSize,
-      skip,
-      include: {
-        user: {
-          select: {
-            fullName: true,
-            email: true,
-            grantee: { select: { id: true, status: true } },
-          },
-        },
-      },
-    }),
-    prisma.profilingRegistration.groupBy({
-      by: ["youthClassification"],
-      where: { reviewStatus: "Approved" },
-      _count: { _all: true },
-    }),
-  ]);
+    },
+  });
 
-  const approvedClassificationCounts = new Map(
-    classificationGroups.map((group) => [group.youthClassification?.trim(), group._count._all])
+  const uniqueApprovedMembers = Array.from(
+    new Map(
+      approvedMembers.map((member) => {
+        const identityKey = (member.user?.email || member.email || member.userId || "").trim().toLowerCase();
+        return [identityKey || member.id, member];
+      })
+    ).values()
   );
+  const filteredMembers = uniqueApprovedMembers.filter((member) => {
+    const granteeStatus = member.user?.grantee?.status;
+    const isActiveGrantee =
+      granteeStatus === GranteeStatus.ACTIVE || granteeStatus === GranteeStatus.PROBATIONARY;
+    if (memberTypeFilter === "grantees") return isActiveGrantee;
+    if (memberTypeFilter === "kk") return !isActiveGrantee;
+    return true;
+  });
+  const totalCount = filteredMembers.length;
+  const pagedMembers = filteredMembers.slice(skip, skip + pageSize);
+  const approvedClassificationCounts = new Map<string | null, number>();
+  for (const member of uniqueApprovedMembers) {
+    const classification = member.youthClassification?.trim() ?? null;
+    approvedClassificationCounts.set(classification, (approvedClassificationCounts.get(classification) ?? 0) + 1);
+  }
+  const membersForTable = pagedMembers.map((member) => {
+    const applicationStatuses = member.user?.skeapApplications.map((application) => application.status) ?? [];
+    const skeapStatus = applicationStatuses.includes(SubmissionStatus.WAITLISTED)
+      ? SubmissionStatus.WAITLISTED
+      : applicationStatuses.includes(SubmissionStatus.PENDING)
+        ? SubmissionStatus.PENDING
+        : member.user?.grantee?.status ?? "NONE";
+
+    return { ...member, skeapStatus };
+  });
   const inSchoolYouthCount = approvedClassificationCounts.get("In school Youth") ?? 0;
   const outOfSchoolYouthCount = approvedClassificationCounts.get("Out of School Youth") ?? 0;
   const workingYouthCount = approvedClassificationCounts.get("Working Youth") ?? 0;
@@ -133,7 +129,7 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
         <section className="relative z-10 mt-4 flex flex-col overflow-visible rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="w-full overflow-visible">
             <KKProfilingRegistrationsTable
-              registrations={approvedMembers}
+              registrations={membersForTable}
               statusLabel="Approved"
               flat
               fitContainer

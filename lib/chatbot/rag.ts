@@ -42,6 +42,19 @@ import {
 import { formatDataPrivacyAnswer, isDataPrivacyQuestion } from "@/lib/chatbot/privacy-info";
 import { formatHouseholdLimitAnswer, isHouseholdLimitQuestion } from "@/lib/chatbot/household-limit";
 
+const CONTINUITY_RETRIEVAL_QUERY =
+  "SKEAP scholarship continuation from high school to college passing grades";
+const ILOCANO_RETRIEVAL_MARKERS = /\b(agtuloy|agtultuloy|aginggana|dytuy|pylng|mapalpas)\b/i;
+
+function isHighSchoolToCollegeContinuityQuestion(question: string) {
+  const normalized = question.toLowerCase();
+  const hasEducationTransition = /\b(high[\s-]?school|college|unibersidad|eskwela|school)\b/i.test(normalized);
+  const hasContinuityIntent =
+    /\b(continu|carry[\s-]?over|magtutuloy|agtuloy|agtultuloy|aginggana|mapalpas|tultuloy)\b/i.test(normalized) ||
+    ILOCANO_RETRIEVAL_MARKERS.test(normalized);
+  return hasEducationTransition && hasContinuityIntent;
+}
+
 function sourceLabelsForChunks(chunks: Awaited<ReturnType<typeof retrieveChunksWithCache>>) {
   const labels = new Set<string>();
   for (const chunk of chunks) {
@@ -166,8 +179,9 @@ export async function runRagAnswer(params: {
     };
   }
 
+  const isContinuityQuestion = isHighSchoolToCollegeContinuityQuestion(params.question);
   const scheduleIntent = getSubmissionScheduleIntent(params.question);
-  if (scheduleIntent) {
+  if (scheduleIntent && !isContinuityQuestion) {
     return {
       response: formatSubmissionScheduleAnswer(
         scheduleIntent,
@@ -187,14 +201,23 @@ export async function runRagAnswer(params: {
     };
   }
 
-  const [originalChunks, translatedQuery] = await Promise.all([
-    retrieveChunksWithCache({ query: params.question, topK: 10, minSimilarity: 0.4 }),
-    translateQueryToEnglish(params.question, params.language),
+  const isIlocanoOrRegionalQuery =
+    params.language === "ILOCANO" || ILOCANO_RETRIEVAL_MARKERS.test(params.question);
+  const translatedQuery = isContinuityQuestion
+    ? CONTINUITY_RETRIEVAL_QUERY
+    : await translateQueryToEnglish(params.question, params.language);
+  const englishRetrievalQuery =
+    isContinuityQuestion || isIlocanoOrRegionalQuery
+      ? translatedQuery ?? params.question
+      : params.question;
+  const [englishChunks, originalChunks] = await Promise.all([
+    retrieveChunksWithCache({ query: englishRetrievalQuery, topK: 10, minSimilarity: 0.4 }),
+    englishRetrievalQuery.toLowerCase() !== params.question.toLowerCase()
+      ? retrieveChunksWithCache({ query: params.question, topK: 10, minSimilarity: 0.4 })
+      : Promise.resolve([]),
   ]);
-  const retrievalQuestion = translatedQuery ?? params.question;
-  const translatedChunks = translatedQuery && translatedQuery.toLowerCase() !== params.question.toLowerCase()
-    ? await retrieveChunksWithCache({ query: translatedQuery, topK: 10, minSimilarity: 0.4 })
-    : [];
+  const retrievalQuestion = englishRetrievalQuery;
+  const translatedChunks = englishChunks;
   const chunks = [...new Map(
     [...originalChunks, ...translatedChunks].map((chunk) => [chunk.id, chunk])
   ).values()]
@@ -359,6 +382,12 @@ export async function runRagAnswer(params: {
       "[SKEAP SLOT LIMIT & CAPACITY]",
       "- Slot Limit: The SKEAP scholarship program has a strict cap of 55 slots per academic term / semester.",
       "- Waitlist Rule: Once the 55 slots are filled, additional applicants are placed on a waitlist processed on a first-come, first-served basis.",
+      "[SKEAP HIGH SCHOOL TO COLLEGE CONTINUATION POLICY]",
+      "- High school SKEAP scholars may continue their scholarship into college as long as their grades are passing.",
+      "- Continuation glossary: \"High School to College continuation\" = \"High School aginggana College\" = \"Agtuloy ti SKEAP manipud High School aginggana College\" = \"Mapalpas ti college\".",
+      "- Carry-over glossary: \"Continue / Carry over\" = \"Magtutuloy\" (Filipino) = \"Agtuloy / Agtultuloy\" (Ilocano).",
+      "- Passing grades glossary: \"Passing grades\" = \"Ipasa dagiti grado / Naduma a marka\".",
+      "- Standard Ilocano policy answer: \"Wen, nu nag-apply ka idi High School ka pay lang, agtultuloy ti scholarship-mo aginggana College basta manamnamatayo a maipasapasa dagiti gradom.\"",
       "[KATIPUNAN NG KABATAAN (KK) PROFILING INFO]",
       "- Definition: KK Profiling (Katipunan ng Kabataan Profiling) is an official demographic census conducted by the Sangguniang Kabataan to register all youth residents aged 15 to 30 years old in Barangay Pico.",
       "- Purpose: It gathers essential data on education, employment, and youth needs to help the SK Council design targeted youth development programs, scholarship allocations, and community projects.",
@@ -451,6 +480,8 @@ export async function runRagAnswer(params: {
       "Authoritative SKEAP policy facts: each approved grantee receives a grant of ₱5,000; applicants must be 15 to 30 years old and may apply at any grade or educational level regardless of current enrollment status or timing, provided they complete the documentary requirements. Do not state or imply that current enrollment is mandatory. Applying for SKEAP while already receiving another financial scholarship or educational grant is generally not allowed. A grantee who cannot claim their payout in person may send an authorized representative with a signed Authorization Letter, a photocopy of the grantee's valid ID, and the representative's valid ID. Do not require or mention a Special Power of Attorney or SPA. Exactly one scholar may be approved per household/immediate family; physical requirements may be submitted at Barangay Pico Hall/SK Office; sitting or elected Barangay Pico SK officials are ineligible to apply for or receive SKEAP; inquiry response depends on official availability and is typically reviewed within one hour during office hours, but this is not a guaranteed response time.",
       "Mandatory output rules: Eligibility trigger — whenever a user asks who can apply, about grade or educational levels, qualifications, or requirements, explicitly state that applicants must be between 15 and 30 years old. In Filipino or Ilocano, state this age requirement naturally in the user's language. Never omit the age requirement when discussing who may apply for SKEAP.",
       "These policy facts are authoritative even when retrieval returns no context or older retrieved text conflicts with them. For other facts, use only the retrieved context and do not invent details.",
+      "HIGH SCHOOL TO COLLEGE CONTINUITY OVERRIDE: If a user asks about scholarship continuity, carrying over, or continuing from high school to college in any language, use this policy: High school SKEAP scholars continue to college as long as grades are passing. Never answer this intent with application opening dates, closing dates, deadlines, or unrelated application-date chunks.",
+      "For an Ilocano continuity question, use this standard answer when appropriate: \"Wen, nu nag-apply ka idi High School ka pay lang, agtultuloy ti scholarship-mo aginggana College basta manamnamatayo a maipasapasa dagiti gradom.\"",
       "Requirement Location Rule: When the user asks where to get or find their requirements, you MUST list the specific location for EVERY individual requirement line-by-line. Never summarize all requirements as being available in one place or just on the SKEAP portal.",
       `Fallback rule: if the answer is not in the authoritative policy facts or retrieved context, reply politely in the user's language and direct them to the Barangay Pico Hall or Portal Inquiry Form. Use this fallback wording in the detected language: ${fallbackByLanguage[detectedLanguageName]}`,
       "Do NOT use technical jargon, computer language, or IT terminology. Never say words like 'in the system', 'database', 'records', 'query', 'application logic', or 'data'.",

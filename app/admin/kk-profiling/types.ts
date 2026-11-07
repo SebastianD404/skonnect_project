@@ -1,5 +1,6 @@
 export interface KKProfilingRegistration {
   id: string;
+  skeapStatus?: string;
   user?: {
     fullName?: string | null;
     email?: string | null;

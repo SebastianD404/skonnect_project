@@ -379,7 +379,7 @@ export default function AdminAccountingPage() {
               disabled={isExporting}
               onClick={() => setIsExportMenuOpen((open) => !open)}
               aria-busy={isExporting}
-              className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+              className="flex items-center gap-2 rounded-xl bg-[#0F3D5C] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-70"
             >
               {isExporting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               {isExporting ? `Exporting ${exportingReport ?? "report"}...` : "Export Payroll"}

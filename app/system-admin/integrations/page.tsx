@@ -1,4 +1,4 @@
-import { Bot, Database, KeyRound, ShieldCheck } from "lucide-react";
+import { Bot, Database, ShieldCheck } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 
@@ -63,9 +63,6 @@ function IntegrationCard({
           {status}
         </span>
       </div>
-      <div className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
-        Credential source: deployment environment
-      </div>
     </section>
   );
 }
@@ -87,16 +84,9 @@ export default async function SystemAdminIntegrationsPage() {
         </div>
         <h1 className="mt-1 text-2xl font-bold text-slate-900">API Integrations</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          Connection status for AI services, Supabase Auth, and the vector database. Secret values are not exposed in this workspace.
+          Monitor real-time connectivity and status for external AI models, authentication services, and system databases.
         </p>
       </header>
-
-      <div role="note" className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-        <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
-        <p>
-          Credentials are deployment-managed. Update environment variables in the deployment platform; this page only reports configuration and connection status.
-        </p>
-      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <IntegrationCard

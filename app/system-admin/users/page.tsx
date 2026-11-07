@@ -1,3 +1,4 @@
+import { SubmissionStatus } from "@prisma/client";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import Link from "next/link";
@@ -43,6 +44,16 @@ export default async function SystemAdminUsersPage({
         phoneNumber: true,
         barangay: true,
         languagePref: true,
+        skeapApplications: {
+          where: {
+            status: {
+              in: [SubmissionStatus.WAITLISTED, SubmissionStatus.PENDING, SubmissionStatus.APPROVED, SubmissionStatus.REJECTED],
+            },
+          },
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: { status: true },
+        },
         grantee: {
           select: {
             status: true,
@@ -98,6 +109,7 @@ export default async function SystemAdminUsersPage({
           phoneNumber: user.phoneNumber,
           barangay: user.barangay,
           languagePref: user.languagePref,
+          skeapStatus: user.skeapApplications[0]?.status ?? null,
           updatedAt: user.updatedAt.toISOString(),
           granteeSchool: user.grantee?.school ?? null,
           granteeYearLevel: user.grantee?.yearLevel ?? null,

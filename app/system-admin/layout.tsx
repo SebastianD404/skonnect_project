@@ -11,14 +11,6 @@ export default async function SystemAdminLayout({
 }>) {
   await requireRole([Role.SUPER_ADMIN]);
 
-  const roleUpdateCount = await prisma.auditLog.count({
-    where: {
-      action: {
-        contains: "ROLE",
-        mode: "insensitive",
-      },
-    },
-  });
   const databaseStatus = await prisma
     .$queryRaw<Array<{ health_check: number }>>`SELECT 1 AS health_check`
     .then(() => "connected" as const)
@@ -28,7 +20,7 @@ export default async function SystemAdminLayout({
     <div className="min-h-screen bg-[#EFF4FA] text-slate-950">
       <div className="mx-auto flex min-h-screen max-w-[1480px]">
         <SystemAdminSidebar
-          roleUpdateCount={roleUpdateCount}
+          roleUpdateCount={0}
           databaseStatus={databaseStatus}
         />
 
@@ -42,11 +34,6 @@ export default async function SystemAdminLayout({
                   placeholder="Search users, logs, actions..."
                   className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
                 />
-              </div>
-
-              <div className="hidden items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 sm:flex">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-xs font-semibold text-slate-500">Live</span>
               </div>
             </div>
           </header>
