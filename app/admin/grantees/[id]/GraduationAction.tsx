@@ -43,9 +43,9 @@ export default function GraduationAction({
           setError(null);
           setIsOpen(true);
         }}
-        className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+        className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-xl bg-cyan-800 px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-cyan-900 sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
       >
-        <GraduationCap className="h-4 w-4 text-cyan-600" aria-hidden="true" />
+        <GraduationCap className="h-4 w-4 text-cyan-200" aria-hidden="true" />
         Graduate Scholar
       </button>
 

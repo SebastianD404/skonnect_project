@@ -11,7 +11,7 @@ const REPORT_OPTIONS = [
 export default function GranteeArchiveExportMenu() {
   return (
     <details className="group relative shrink-0">
-      <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-xl bg-[#0F3D5C] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+      <summary className="inline-flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-xl bg-[#0F3D5C] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
         <Download className="h-4 w-4" aria-hidden="true" />
         Export Reports
         <ChevronDown className="h-4 w-4 transition group-open:rotate-180" aria-hidden="true" />

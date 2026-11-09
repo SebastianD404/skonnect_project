@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Menu, X } from "lucide-react";
 import { DashboardHeaderActions } from "./DashboardHeaderActions";
 import { useAuth } from "./AuthProvider";
 import { SkLogo } from "./SkLogo";
@@ -26,6 +27,7 @@ export function PublicHeader() {
     ? "/applications?from=dashboard"
     : "/applications";
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeHash, setActiveHash] = useState("");
   const [isProgramsSectionVisible, setIsProgramsSectionVisible] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -62,6 +64,16 @@ export function PublicHeader() {
     window.addEventListener("hashchange", syncHash);
     return () => window.removeEventListener("hashchange", syncHash);
   }, []);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsMobileMenuOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [isMobileMenuOpen]);
 
   useEffect(() => {
     if (pathname !== "/") return;
@@ -126,7 +138,7 @@ export function PublicHeader() {
           <span className="text-xl font-black tracking-tight text-[#0F3D5C]">SKonnect</span>
         </Link>
 
-        <nav className="hidden items-center gap-1 text-sm md:flex relative">
+        <nav className="hidden items-center gap-1 text-sm sm:flex relative">
           <Link href={homeHref} prefetch onClick={handleHomeClick} className={`${navLinkClass(activePath, "/")} transition-opacity duration-200 opacity-100`}>Home</Link>
           <Link href={aboutHref} className={`${navLinkClass(activePath, "/about")} transition-opacity duration-200 opacity-100`}>About</Link>
           <Link
@@ -139,7 +151,7 @@ export function PublicHeader() {
 
         <div className="flex items-center gap-3">
           {authLoading ? (
-            <div className="h-10 w-44 rounded-full bg-slate-200/70 animate-pulse" aria-hidden="true" />
+            <div className="hidden h-10 w-44 rounded-full bg-slate-200/70 animate-pulse sm:block" aria-hidden="true" />
           ) : sessionUser ? (
             sessionUser.role === "YOUTH" || sessionUser.role === "GRANTEE" ? (
               <DashboardHeaderActions
@@ -238,7 +250,7 @@ export function PublicHeader() {
             </div>
             )
           ) : (
-            <>
+            <div className="hidden items-center gap-3 sm:flex">
               <Link
                 href="/login"
                 className="rounded-xl px-4 py-2 text-sm font-semibold text-[#3C3C3C] transition duration-200 ease-out hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/10 active:scale-95"
@@ -248,9 +260,75 @@ export function PublicHeader() {
               <Link href="/programs/kk-profiling" className="rounded-xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-xl hover:scale-105 active:scale-95">
                 Sign up
               </Link>
-            </>
+            </div>
           )}
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-[#0F3D5C] shadow-sm transition hover:bg-slate-50 sm:hidden"
+            aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="public-mobile-navigation"
+            onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
+          >
+            {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
+      </div>
+      <div
+        id="public-mobile-navigation"
+        className={`overflow-hidden bg-white/95 transition-[max-height,opacity] duration-300 ease-in-out sm:hidden ${
+          isMobileMenuOpen
+            ? "max-h-96 border-t border-slate-200/70 opacity-100"
+            : "max-h-0 opacity-0"
+        }`}
+        aria-hidden={!isMobileMenuOpen}
+        inert={!isMobileMenuOpen}
+      >
+        <nav className="mx-auto flex max-w-7xl flex-col gap-1 px-6 py-3" aria-label="Mobile navigation">
+          <Link
+            href={homeHref}
+            prefetch
+            onClick={(event) => {
+              setIsMobileMenuOpen(false);
+              handleHomeClick(event);
+            }}
+            className={navLinkClass(activePath, "/")}
+          >
+            Home
+          </Link>
+          <Link
+            href={aboutHref}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={navLinkClass(activePath, "/about")}
+          >
+            About
+          </Link>
+          <Link
+            href={applicationsHref}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={navLinkClass(activePath, "/applications")}
+          >
+            Applications
+          </Link>
+          {!authLoading && !sessionUser ? (
+            <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-3">
+              <Link
+                href="/programs/kk-profiling"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="w-full rounded-xl bg-emerald-600 py-2.5 text-center font-semibold text-white transition-colors hover:bg-emerald-700"
+              >
+                Sign Up
+              </Link>
+              <Link
+                href="/login"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="w-full rounded-xl border border-slate-300 py-2.5 text-center font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                Log In
+              </Link>
+            </div>
+          ) : null}
+        </nav>
       </div>
     </header>
   );

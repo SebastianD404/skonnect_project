@@ -111,11 +111,11 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
           </p>
         </header>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-6 xl:grid-cols-4">
           {memberCategoryStats.map(({ label, value, icon: Icon, description, isHero }) => (
             <div
               key={label}
-              className={`relative bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm flex flex-col gap-4 overflow-hidden group transition-all duration-300 ${isHero ? "hover:shadow-md hover:border-cyan-300" : "hover:shadow-md hover:border-cyan-200"}`}
+              className={`relative bg-white rounded-2xl border border-slate-200/80 p-3.5 shadow-sm flex flex-col gap-3 overflow-hidden group transition-all duration-300 sm:gap-4 sm:p-5 ${isHero ? "hover:shadow-md hover:border-cyan-300" : "hover:shadow-md hover:border-cyan-200"}`}
             >
               <div
                 aria-hidden="true"
@@ -123,13 +123,13 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
               />
               <div className="relative z-10 flex items-center justify-between">
                 <span className={`text-[10px] font-bold uppercase tracking-widest ${isHero ? "text-cyan-600" : "text-slate-400"}`}>{label}</span>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-300 ${isHero ? "bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-md" : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"}`}>
-                  <Icon className="h-4 w-4" />
+                <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-300 ${isHero ? "bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-md" : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"}`}>
+                  <Icon className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
                 </div>
               </div>
               <div className="relative z-10">
-                <h2 className="text-3xl font-black tracking-tight text-slate-900 leading-none">{value}</h2>
-                <p className="text-[11px] font-medium text-slate-400 mt-1.5">{description}</p>
+                <h2 className="text-xl font-black tracking-tight text-slate-900 leading-none sm:text-3xl">{value}</h2>
+                <p className="mt-1 text-[10px] font-medium text-slate-400 sm:mt-1.5 sm:text-[11px]">{description}</p>
               </div>
             </div>
           ))}

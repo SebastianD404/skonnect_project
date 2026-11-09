@@ -26,7 +26,31 @@ export default function SkeapWaitlistSkeleton() {
           <div className="h-9 w-full rounded-lg border border-slate-200 bg-white sm:w-36" />
         </div>
 
-        <div className="w-full overflow-x-auto whitespace-nowrap">
+        <div className="flex flex-col gap-3 p-4 md:hidden">
+          {waitlistRows.map((row) => (
+            <article key={row} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="h-10 w-10 shrink-0 rounded-xl bg-slate-200" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-4 w-36 max-w-full rounded bg-slate-200" />
+                  <div className="h-3 w-48 max-w-full rounded bg-slate-100" />
+                  <div className="h-3 w-28 max-w-full rounded bg-slate-100" />
+                </div>
+              </div>
+              <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
+                <div className="h-3 w-40 max-w-full rounded bg-slate-200" />
+                <div className="h-3 w-52 max-w-full rounded bg-slate-100" />
+                <div className="h-3 w-32 rounded bg-slate-100" />
+              </div>
+              <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
+                <div className="h-10 flex-1 rounded-xl bg-emerald-100" />
+                <div className="h-10 w-24 rounded-xl bg-rose-50" />
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="hidden w-full overflow-x-auto whitespace-nowrap md:block">
           <table className="w-full border-collapse whitespace-nowrap text-left text-sm">
             <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
               <tr>
@@ -64,7 +88,7 @@ export default function SkeapWaitlistSkeleton() {
           </table>
         </div>
 
-        <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5 sm:flex-row">
+        <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-3.5 sm:flex-row sm:px-6">
           <div className="flex items-center gap-4">
             <div className="h-4 w-24 rounded bg-slate-200" />
             <div className="h-7 w-20 rounded-lg bg-white ring-1 ring-slate-200" />

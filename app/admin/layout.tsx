@@ -14,7 +14,7 @@ export default async function AdminLayout({
   return (
     <AdminSearchProvider>
       <div className="flex min-h-screen w-full bg-[#F8FBFF] text-slate-950">
-        <div className="lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:flex-shrink-0 lg:overflow-y-auto hover-scrollbar">
+        <div className="xl:sticky xl:top-0 xl:h-screen xl:w-[17rem] xl:flex-shrink-0 xl:overflow-y-auto hover-scrollbar">
           <AdminSidebar
             openInquiryCount={0}
             skeapApplicationCount={0}
@@ -25,9 +25,9 @@ export default async function AdminLayout({
             userRole={adminUser.role}
           />
         </div>
-        <main className="flex h-screen min-w-0 flex-1 flex-col bg-slate-50 pt-20 lg:pt-0">
+        <main className="flex h-screen min-w-0 flex-1 flex-col bg-slate-50 pt-20 xl:pt-0">
           {/* Top Search Area (with the separating line) */}
-          <div className="sticky top-0 z-30 flex shrink-0 items-center gap-x-4 border-b border-slate-200 bg-slate-50/90 backdrop-blur-sm px-4 py-2.5 sm:px-6 lg:px-8">
+          <div className="sticky top-0 z-30 flex shrink-0 items-center gap-x-4 border-b border-slate-200 bg-slate-50/90 backdrop-blur-sm px-4 py-2.5 sm:px-6 xl:px-8">
             <form
               className="relative flex flex-1 max-w-2xl items-center bg-white border border-slate-200 rounded-full h-9 px-4 shadow-sm hover:border-slate-300 transition-colors"
               action="#"

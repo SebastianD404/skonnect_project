@@ -18,16 +18,16 @@ export default function InquiriesPageSkeleton() {
 
       <section
         aria-label="Inquiry metrics"
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"
       >
         {metricCards.map((card) => (
           <div
             key={card}
-            className="flex min-h-[172px] min-w-0 flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm"
+          className="flex min-h-[148px] min-w-0 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs sm:min-h-[160px] sm:p-5"
           >
-            <div className="flex items-center justify-between gap-3">
+          <div className="flex items-start justify-between gap-2 sm:items-center sm:gap-3">
               <div className="h-3 w-28 rounded bg-slate-200" />
-              <div className="h-9 w-9 shrink-0 rounded-2xl bg-cyan-50" />
+            <div className="h-7 w-7 shrink-0 rounded-full bg-cyan-50 sm:h-8 sm:w-8" />
             </div>
             <div className="mt-4 h-9 w-20 rounded bg-slate-200" />
             <div className="mt-2 flex items-center justify-between gap-2">

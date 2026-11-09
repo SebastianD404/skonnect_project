@@ -14,19 +14,19 @@ export default function AdminDashboardSkeleton() {
 
       <section
         aria-label="Dashboard metrics"
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 w-full"
+        className="grid grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-4 w-full"
       >
         {metricCards.map((card) => (
           <div
             key={card}
-            className="flex min-h-[140px] flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm"
+            className="flex min-h-[120px] flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm sm:min-h-[140px] sm:p-5"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="h-3 w-28 rounded bg-slate-200" />
-              <div className="h-8 w-8 rounded-full bg-cyan-50" />
+              <div className="h-7 w-7 rounded-full bg-cyan-50 sm:h-10 sm:w-10" />
             </div>
             <div>
-              <div className="h-8 w-16 rounded bg-slate-200" />
+              <div className="h-6 w-16 rounded bg-slate-200 sm:h-8" />
               <div className="mt-2 h-3 w-24 rounded bg-slate-100" />
             </div>
           </div>

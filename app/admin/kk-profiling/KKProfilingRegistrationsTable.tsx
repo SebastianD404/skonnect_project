@@ -76,11 +76,11 @@ export function KKProfilingRegistrationsTable({
   const activeTableQuery = pageSearch?.query ?? tableQuery;
   const setActiveTableQuery = pageSearch?.setQuery ?? setTableQuery;
   const cellPadding = fitContainer
-    ? showMemberRoleColumn ? "px-3 py-3.5" : "px-3.5 py-3.5"
-    : "px-6 py-4";
+    ? showMemberRoleColumn ? "whitespace-nowrap px-3 py-3.5" : "whitespace-nowrap px-3.5 py-3.5"
+    : "whitespace-nowrap px-6 py-4";
   const actionCellPadding = fitContainer
-    ? "pl-2.5 pr-4 py-3.5 sm:pr-6 lg:pr-8"
-    : "px-6 py-4 pr-4 sm:pr-6 lg:pr-8";
+    ? "whitespace-nowrap px-4 py-3.5 sm:pr-6 lg:pr-8"
+    : "whitespace-nowrap px-6 py-4 pr-4 sm:pr-6 lg:pr-8";
   const deferredTableQuery = useDeferredValue(activeTableQuery);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const requestedStatus = (searchParams.get("status") ?? "pending").toLowerCase();
@@ -233,7 +233,153 @@ export function KKProfilingRegistrationsTable({
             ) : null)}
           </div>
         )}
-        <div className={fitContainer ? "relative w-full overflow-x-auto whitespace-nowrap" : "relative w-full overflow-x-auto whitespace-nowrap"}>
+        {!fitContainer ? (
+          <div className={`flex flex-col gap-3 p-3 md:hidden ${isLoading ? "pointer-events-none opacity-40" : ""}`}>
+            {filteredRows.map((registration) => {
+              const status = registration.reviewStatus || "Pending";
+              const normalizedStatus = status.toLowerCase();
+              const statusClass =
+                normalizedStatus === "approved"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : normalizedStatus === "pending" || normalizedStatus === "resubmitted"
+                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                    : normalizedStatus === "returned" || normalizedStatus === "rejected"
+                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                      : "border-slate-200 bg-slate-100 text-slate-700";
+
+              return (
+                <article key={registration.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-bold leading-tight text-slate-900" title={registration.fullName}>
+                        {registration.fullName}
+                      </h3>
+                      <p className="mt-0.5 truncate text-xs text-slate-500" title={registration.email}>
+                        {registration.email}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-lg border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${statusClass}`}>
+                      {status}
+                    </span>
+                  </div>
+
+                  <dl className="grid grid-cols-2 gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-xs">
+                    <div className="min-w-0">
+                      <dt className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Age Group</dt>
+                      <dd className="mt-0.5 truncate font-semibold text-slate-800">{registration.youthAgeGroup}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Classification</dt>
+                      <dd className="mt-0.5 truncate font-semibold text-slate-800">{registration.youthClassification}</dd>
+                    </div>
+                  </dl>
+
+                  {registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (
+                    <p className="text-xs font-medium text-amber-800">
+                      {registration.reviewNotes || "Requires manual review"}
+                    </p>
+                  ) : null}
+
+                  <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                    <span className="text-[11px] text-slate-500">
+                      Submitted {formatDate(registration.submittedAt)}
+                    </span>
+                    <KKProfilingRowActions
+                      registration={registration}
+                      onDelete={handleDelete}
+                      onUpdate={handleUpdate}
+                      onStatusUpdate={handleStatusUpdate}
+                      cardView
+                    />
+                  </div>
+                </article>
+              );
+            })}
+            {filteredRows.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
+                {rows.length === 0
+                  ? `No ${statusLabel ? statusLabel.toLowerCase() : "registered"} KK profiles yet.`
+                  : "No profiles match your filters."}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {fitContainer ? (
+          <div className={`flex flex-col gap-3 p-3 md:hidden ${isLoading ? "pointer-events-none opacity-50" : ""}`}>
+            {filteredRows.map((registration) => {
+              const isGrantee = registration.skeapStatus?.toUpperCase() === "ACTIVE";
+              const isWaitlisted = registration.skeapStatus?.toUpperCase() === "WAITLISTED";
+
+              return (
+                <article key={registration.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold text-slate-900" title={registration.fullName}>
+                        {registration.fullName}
+                      </h3>
+                      <p className="truncate text-xs text-slate-500" title={registration.email}>
+                        {registration.email}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                      isGrantee
+                        ? "bg-emerald-50 text-emerald-700"
+                        : isWaitlisted
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-slate-100 text-slate-600"
+                    }`}>
+                      {isGrantee ? "Grantee" : isWaitlisted ? "Waitlisted" : "Not a grantee"}
+                    </span>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-y border-slate-100 py-3">
+                    <div>
+                      <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Age group</dt>
+                      <dd className="mt-0.5 text-xs font-medium text-slate-700">{registration.youthAgeGroup}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Classification</dt>
+                      <dd className="mt-0.5 text-xs font-medium text-slate-700">{registration.youthClassification}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">SK voter</dt>
+                      <dd className="mt-0.5 text-xs font-medium text-slate-700">{registration.registeredSKVoter}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Member status</dt>
+                      <dd className="mt-0.5 text-xs font-medium text-slate-700">
+                        {isGrantee ? "SKEAP Grantee" : isWaitlisted ? "Waitlisted" : "KK Member"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[11px] text-slate-500">
+                      Submitted {formatDate(registration.submittedAt)}
+                    </span>
+                    <KKProfilingRowActions
+                      registration={registration}
+                      onDelete={handleDelete}
+                      onUpdate={handleUpdate}
+                      onStatusUpdate={handleStatusUpdate}
+                      compact
+                      onArchive={archiveAction ? handleArchive : undefined}
+                    />
+                  </div>
+                </article>
+              );
+            })}
+            {filteredRows.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
+                {rows.length === 0
+                  ? `No ${statusLabel ? statusLabel.toLowerCase() : "registered"} KK profiles yet.`
+                  : "No profiles match your filters."}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <div
+          className="relative hidden w-full overflow-x-auto whitespace-nowrap scrollbar-thin md:block"
+          style={{ touchAction: "pan-x", WebkitOverflowScrolling: "touch" }}
+        >
           {isLoading ? (
             <div
               role="status"
@@ -247,7 +393,7 @@ export function KKProfilingRegistrationsTable({
             </div>
           ) : null}
           <table className={fitContainer
-            ? "w-full table-fixed border-collapse text-left text-sm"
+            ? "w-full min-w-[850px] table-fixed border-collapse text-left text-sm"
             : "min-w-full border-collapse whitespace-nowrap text-left text-sm"}
           >
           {fitContainer ? (
@@ -298,28 +444,28 @@ export function KKProfilingRegistrationsTable({
                   key={registration.id}
                   className="transition-colors hover:bg-slate-50/50"
                 >
-                  <td className={`${cellPadding} ${fitContainer ? "break-words" : ""}`}>
-                    <div className="font-semibold text-slate-900">{registration.fullName}</div>
+                      <td className={cellPadding}>
+                        <div className="truncate font-semibold text-slate-900" title={registration.fullName}>{registration.fullName}</div>
                     <div className={`text-xs text-slate-500 ${fitContainer ? "block truncate" : ""}`} title={fitContainer ? registration.email : undefined}>
                       {registration.email}
                     </div>
                   </td>
-                  <td className={`${cellPadding} ${fitContainer ? "break-words" : ""} ${showMemberRoleColumn ? "pr-5" : ""}`}>
+                      <td className={`${cellPadding} ${showMemberRoleColumn ? "pr-5" : ""}`}>
                     {registration.youthAgeGroup}
                   </td>
-                  <td className={`${cellPadding} ${fitContainer ? "break-words" : ""} ${showMemberRoleColumn ? "pl-5" : ""}`}>
+                      <td className={`${cellPadding} ${showMemberRoleColumn ? "pl-5" : ""}`}>
                     {registration.youthClassification}
                   </td>
                   <td className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>{registration.registeredSKVoter}</td>
                   {!showMemberRoleColumn ? (
                     <td className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>
                       {String(registration.reviewStatus || "Pending").toLowerCase() === "approved" ? (
-                        <span className={`inline-flex max-w-full items-center rounded-full border border-emerald-200/60 bg-emerald-50 ${fitContainer ? "break-words px-2.5 py-0.5 text-xs font-medium" : "px-2.5 py-1 text-[10px] font-bold"} text-emerald-700`}>
+                        <span className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full border border-emerald-200/60 bg-emerald-50 ${fitContainer ? "px-2.5 py-0.5 text-xs font-medium" : "px-2.5 py-1 text-[10px] font-bold"} text-emerald-700`}>
                           Approved
                         </span>
                       ) : String(registration.reviewStatus || "").toLowerCase() === "rejected" ? (
                         <div className="flex flex-col items-start gap-1">
-                          <span className={`inline-flex max-w-full items-center rounded-full border border-rose-200 bg-rose-50 ${fitContainer ? "break-words px-2.5 py-0.5 text-xs font-medium" : "px-2.5 py-1 text-[10px] font-bold"} text-rose-700`}>
+                          <span className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full border border-rose-200 bg-rose-50 ${fitContainer ? "px-2.5 py-0.5 text-xs font-medium" : "px-2.5 py-1 text-[10px] font-bold"} text-rose-700`}>
                             Rejected
                           </span>
                           {registration.reviewNotes ? (
@@ -332,7 +478,7 @@ export function KKProfilingRegistrationsTable({
                         registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (
                           <span
                             title={registration.reviewNotes ?? "This registration needs manual review."}
-                            className={`inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 ${fitContainer ? "break-words px-2.5 py-0.5 text-xs font-medium" : "whitespace-nowrap px-2.5 py-1 text-[10px] font-bold"} text-amber-900`}
+                            className="inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-900"
                           >
                             <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             Manual Review
@@ -371,6 +517,7 @@ export function KKProfilingRegistrationsTable({
                       onUpdate={handleUpdate}
                       onStatusUpdate={handleStatusUpdate}
                       compact={fitContainer}
+                      statusAware={!fitContainer}
                       onArchive={archiveAction ? handleArchive : undefined}
                     />
                   </td>

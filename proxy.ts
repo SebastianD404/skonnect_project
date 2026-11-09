@@ -90,6 +90,21 @@ export async function proxy(request: NextRequest) {
     return redirectWithAuthCookies(secureUrl);
   }
 
+  if (
+    user &&
+    (request.nextUrl.pathname === "/" || request.nextUrl.pathname === "/login")
+  ) {
+    const { prisma } = await import("@/lib/prisma");
+    const appUser = await prisma.user.findFirst({
+      where: { authId: user.id, isActive: true },
+      select: { role: true },
+    });
+
+    if (["ADMIN", "SK_OFFICIAL", "SUPER_ADMIN"].includes(String(appUser?.role))) {
+      return redirectWithAuthCookies(new URL("/admin", request.url));
+    }
+  }
+
   return supabaseResponse;
 }
 

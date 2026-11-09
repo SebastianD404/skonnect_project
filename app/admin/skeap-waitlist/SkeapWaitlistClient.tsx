@@ -343,7 +343,61 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
         ) : filteredApplications.length === 0 ? (
           <div className="flex items-center justify-center px-6 py-12 text-center text-sm text-slate-500">No applicants match your search.</div>
         ) : (
-          <div className="w-full overflow-x-auto whitespace-nowrap">
+          <>
+            <div className="flex flex-col gap-3 p-4 md:hidden">
+              {visibleApplications.map((application) => (
+                <article key={application.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-lg font-black text-white shadow-sm">
+                      #{application.waitlistPosition ?? "-"}
+                    </div>
+                    <div className="flex min-w-0 flex-col">
+                      <h3 className="truncate text-sm font-bold leading-tight text-slate-900">{application.applicantName}</h3>
+                      <p className="mt-0.5 break-all text-xs text-slate-500">{application.emailAddress}</p>
+                      <p className="text-xs text-slate-500">{application.contactNumber || "No phone number"}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-xs">
+                    <p className="truncate font-semibold text-slate-800">{normalizeSkeapSchoolName(application.school)}</p>
+                    <p className="mt-0.5 break-words text-slate-500">
+                      {[
+                        application.educationLevel,
+                        application.currentCourse === "N/A" ? undefined : application.currentCourse,
+                        application.yearLevel,
+                      ].filter(Boolean).join(" · ") || "Program details unavailable"}
+                    </p>
+                    <p className="mt-1 text-slate-500">Submitted: {formatDate(application.submittedAt)}</p>
+                  </div>
+
+                  <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => openPromotionModal(application)}
+                      disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
+                      title={isCapacityExceeded ? "Capacity full. Increase slot limit to promote." : "Promote to active Grantee"}
+                      className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <UserCheck className="h-4 w-4" aria-hidden="true" />
+                      Promote
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingRemoval(application)}
+                      disabled={waitlistActionId !== null}
+                      aria-label={`Remove ${application.applicantName} from the waitlist`}
+                      title="Remove from waitlist and return to pending review"
+                      className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      Remove
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="hidden w-full overflow-x-auto whitespace-nowrap md:block">
             <table className="w-full border-collapse whitespace-nowrap text-left text-sm">
               <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
                 <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
@@ -408,7 +462,8 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
         <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5 sm:flex-row">
           <div className="flex flex-wrap items-center gap-4">

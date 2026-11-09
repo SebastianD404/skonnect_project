@@ -361,17 +361,17 @@ export default function AdminAccountingPage() {
   }
 
   return (
-    <main className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 px-6 pb-12 pt-8">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pb-12 pt-8 sm:gap-8 sm:px-6">
       {loadError ? <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
       {errorMessage ? <FloatingFeedback message={errorMessage} type="error" onDismiss={() => setErrorMessage(null)} /> : null}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex w-full flex-col justify-between gap-4 sm:flex-row sm:items-start sm:gap-6">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Accounting • Cash Disbursements</h1>
           <p className="mt-1 text-sm text-slate-600">Track and mark offline cash payouts for grantees.</p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div ref={exportMenuRef} className="relative">
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+          <div ref={exportMenuRef} className="relative w-full shrink-0 sm:w-auto">
             <button
               type="button"
               aria-expanded={isExportMenuOpen}
@@ -379,7 +379,7 @@ export default function AdminAccountingPage() {
               disabled={isExporting}
               onClick={() => setIsExportMenuOpen((open) => !open)}
               aria-busy={isExporting}
-              className="flex items-center gap-2 rounded-xl bg-[#0F3D5C] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-70"
+              className="flex w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-70 sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
             >
               {isExporting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               {isExporting ? `Exporting ${exportingReport ?? "report"}...` : "Export Payroll"}
@@ -424,7 +424,7 @@ export default function AdminAccountingPage() {
             </div> : null}
           </div>
 
-          <div className="w-72">
+          <div className="w-full shrink-0 sm:w-64 lg:w-72">
             <label className="sr-only">Semester</label>
             <select
               value={selectedSemester}
@@ -485,7 +485,7 @@ export default function AdminAccountingPage() {
 
             <div className="mt-4">
               <label className="text-xs text-slate-500">Set total budget (PHP)</label>
-              <div className="mt-2 flex w-full items-center gap-4">
+              <div className="mt-3 flex w-full flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
                 <div className="flex flex-col">
                   <input
                     type="number"
@@ -502,37 +502,39 @@ export default function AdminAccountingPage() {
                       setValidationError(null);
                       setErrorMessage(null);
                     }}
-                    className="max-w-[240px] rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                    className="w-full max-w-[240px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
                     aria-label="Total budget"
                   />
                   {validationError ? <div className="mt-1 text-sm text-red-500">{validationError}</div> : null}
                 </div>
 
-                <div className="text-sm text-slate-600">Grant amount: {formatter.format(GRANT_AMOUNT)}</div>
+                <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:flex-1">
+                  <div className="text-xs text-slate-600 sm:text-sm">Grant amount: <span className="font-semibold text-slate-900">{formatter.format(GRANT_AMOUNT)}</span></div>
 
-                <button
-                  type="button"
-                  onClick={handleSaveBudget}
-                  disabled={isSaving}
-                  aria-busy={isSaving}
-                  className={`ml-auto inline-flex min-w-[104px] items-center justify-center gap-2 rounded-2xl px-4 py-1.5 text-sm font-medium text-white shadow-sm transition duration-150 active:scale-95 ${isSaved ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-slate-800"} ${isSaving ? "cursor-wait opacity-80" : ""}`}
-                >
-                  <span className="relative inline-flex items-center justify-center w-full">
-                    {isSaving ? (
-                      <>
-                        <span className="absolute left-3 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                        <span className="opacity-90">Saving...</span>
-                      </>
-                    ) : isSaved ? (
-                      <>
-                        <Check className="h-4 w-4" aria-hidden="true" />
-                        <span>Saved</span>
-                      </>
-                    ) : (
-                      <span className="">Save</span>
-                    )}
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveBudget}
+                    disabled={isSaving}
+                    aria-busy={isSaving}
+                    className={`inline-flex min-h-10 min-w-[104px] shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium text-white shadow-sm transition duration-150 active:scale-95 ${isSaved ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-slate-800"} ${isSaving ? "cursor-wait opacity-80" : ""}`}
+                  >
+                    <span className="relative inline-flex w-full items-center justify-center">
+                      {isSaving ? (
+                        <>
+                          <span className="absolute left-3 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          <span className="opacity-90">Saving...</span>
+                        </>
+                      ) : isSaved ? (
+                        <>
+                          <Check className="h-4 w-4" aria-hidden="true" />
+                          <span>Saved</span>
+                        </>
+                      ) : (
+                        <span>Save</span>
+                      )}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -559,8 +561,8 @@ export default function AdminAccountingPage() {
         )}
 
         {/* Middle section - search + semester filter */}
-        <div className="mt-6 flex items-center justify-between gap-4">
-          <div className="flex-1 min-w-0">
+        <div className="mt-6 flex w-full flex-col gap-3">
+          <div className="w-full min-w-0">
             <label className="sr-only">Search grantees</label>
             <div className="relative">
               <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
@@ -579,8 +581,42 @@ export default function AdminAccountingPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 ml-4 flex-shrink-0">
-            <div className="inline-flex items-center gap-1 bg-white rounded-full border border-slate-100 shadow-sm p-1">
+          <div className="w-full">
+            <div className="flex flex-col gap-2 sm:hidden">
+              <label>
+                <span className="sr-only">Filter by submission status</span>
+                <select
+                  value={submissionFilter}
+                  onChange={(event) => {
+                    setSubmissionFilter(event.target.value as typeof submissionFilter);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+                >
+                  <option value="all">Submission status: All</option>
+                  <option value="submitted">Submitted</option>
+                  <option value="not_submitted">Not submitted</option>
+                </select>
+              </label>
+              <label>
+                <span className="sr-only">Filter by payout status</span>
+                <select
+                  value={claimedFilter}
+                  onChange={(event) => {
+                    setClaimedFilter(event.target.value as typeof claimedFilter);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+                >
+                  <option value="all">Payout status: All</option>
+                  <option value="pending">Pending</option>
+                  <option value="received">Received</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="hidden flex-wrap items-center gap-3 sm:flex">
+            <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border border-slate-100 bg-white p-1 shadow-sm">
               {['All','Submitted','Not submitted'].map((tab) => (
                 <button
                   key={tab}
@@ -596,7 +632,7 @@ export default function AdminAccountingPage() {
               ))}
             </div>
 
-            <div className="inline-flex items-center gap-1 bg-white rounded-full border border-slate-100 shadow-sm p-1">
+            <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border border-slate-100 bg-white p-1 shadow-sm">
               {['All','Pending','Received'].map((tab) => (
                 <button
                   key={tab}
@@ -610,6 +646,7 @@ export default function AdminAccountingPage() {
                   {tab}
                 </button>
               ))}
+            </div>
             </div>
           </div>
         </div>
@@ -627,6 +664,89 @@ export default function AdminAccountingPage() {
                 <div className="p-6 text-sm text-slate-500">Loading grantees…</div>
               ) : (
                 <>
+                  <div className="flex flex-col gap-3 p-1 md:hidden">
+                    {pagedRows.length > 0 ? pagedRows.map((g) => (
+                      <article key={g.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex min-w-0 items-center gap-3 border-b border-slate-100 pb-3">
+                          <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={g.status === "Claimed"}
+                              onChange={() => toggleClaimed(g.id)}
+                              aria-label={`Mark ${g.name} as ${g.status === "Claimed" ? "pending" : "claimed"}`}
+                              aria-busy={processingIds[g.id] ? true : undefined}
+                              className="h-4 w-4 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                            />
+                          </label>
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                            {g.name.split(" ").map((namePart) => namePart[0]).slice(0, 2).join("").toUpperCase()}
+                          </div>
+                          <h3 className="min-w-0 truncate text-sm font-bold text-slate-900">{g.name}</h3>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+                          <div className="min-w-0">
+                            <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Semester</span>
+                            <span className="block truncate font-medium text-slate-700">
+                              <span className="sm:hidden">{g.semester.replace(/First Semester/i, "1st Sem")}</span>
+                              <span className="hidden sm:inline">{g.semester}</span>
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Claimed at</span>
+                            <span className={`block break-words font-medium ${g.claimedAt ? "text-slate-700" : "text-slate-400"}`}>
+                              {g.claimedAt ? formatDate(g.claimedAt) : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Submission</span>
+                            {g.submissionState === "Approved" ? (
+                              <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">Approved</span>
+                            ) : g.submissionState === "Pending review" ? (
+                              <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700">Pending review</span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-700">Not submitted</span>
+                            )}
+                          </div>
+                          <div>
+                            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Payout</span>
+                            {g.status === "Claimed" ? (
+                              <span className="inline-flex rounded-full bg-cyan-50 px-2.5 py-1 text-[10px] font-semibold text-cyan-700">Received</span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700">Pending</span>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    )) : (
+                      <div className="rounded-xl border border-slate-100 px-4 py-10 text-center">
+                        <h2 className="text-sm font-semibold text-slate-900">
+                          {hasActiveFilters ? "No matching disbursements" : "No disbursements recorded"}
+                        </h2>
+                        <p className="mx-auto mt-1 max-w-xs text-xs text-slate-500">
+                          {hasActiveFilters
+                            ? "No grantee records match your active search query or filter criteria."
+                            : "There are no grantee payout records for this semester yet."}
+                        </p>
+                        {hasActiveFilters ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuery("");
+                              setSubmissionFilter("all");
+                              setClaimedFilter("all");
+                              setCurrentPage(1);
+                            }}
+                            className="mt-4 rounded-lg border border-emerald-200/60 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+                          >
+                            Clear filters
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="hidden w-full overflow-x-auto whitespace-nowrap md:block">
                   <table aria-label="Disbursement list" className="w-full min-w-[960px] border-collapse">
                     <thead className="sticky top-0 z-10 border-b border-slate-100 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                       <tr>
@@ -644,7 +764,7 @@ export default function AdminAccountingPage() {
                           className={`text-xs text-slate-700 transition-colors hover:bg-slate-50/50 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}
                         >
                           <td className="px-6 py-4">
-                            <div className="flex min-w-0 items-center gap-3 pr-2">
+                            <div className="flex w-full min-w-0 items-center gap-3 overflow-hidden pr-2">
                               <input
                                 type="checkbox"
                                 checked={g.status === "Claimed"}
@@ -721,26 +841,27 @@ export default function AdminAccountingPage() {
                       )}
                     </tbody>
                   </table>
+                  </div>
 
-                  {filteredWithSubmission.length > 0 ? <div className="flex items-center justify-between px-6 py-3">
-                    <div className="text-sm text-slate-600">
+                  {filteredWithSubmission.length > 0 ? <div className="flex flex-col items-stretch gap-3 border-t border-slate-100 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-3 sm:text-sm">
+                    <div>
                       Showing {(displayPage - 1) * rowsPerPage + 1} - {Math.min(displayPage * rowsPerPage, filteredWithSubmission.length)} of {filteredWithSubmission.length}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
                       <button
                         type="button"
                         onClick={() => setCurrentPage((p) => Math.max(1, Math.min(p, totalPages) - 1))}
                         disabled={filteredWithSubmission.length === 0 || displayPage === 1}
-                        className="px-3 py-1 rounded-md border border-slate-200 bg-white text-sm text-slate-700 disabled:opacity-50"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:text-sm"
                       >
                         Prev
                       </button>
-                      <div className="text-sm text-slate-700">Page {displayPage} of {totalPages}</div>
+                      <div className="whitespace-nowrap px-1 font-medium text-slate-600">Page {displayPage} of {totalPages}</div>
                       <button
                         type="button"
                         onClick={() => setCurrentPage((p) => Math.min(totalPages, Math.min(p, totalPages) + 1))}
                         disabled={filteredWithSubmission.length === 0 || displayPage === totalPages}
-                        className="px-3 py-1 rounded-md border border-slate-200 bg-white text-sm text-slate-700 disabled:opacity-50"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:text-sm"
                       >
                         Next
                       </button>

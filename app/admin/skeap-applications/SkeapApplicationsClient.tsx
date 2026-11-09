@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CornerUpLeft, Download, Eye, FileText, FolderOpen, Loader2, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CornerUpLeft, Download, Eye, FileText, FolderOpen, Loader2, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
@@ -121,17 +121,17 @@ function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onC
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`group relative w-full overflow-hidden bg-white rounded-2xl border p-4 shadow-sm flex flex-col gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${active ? "border-slate-900 ring-1 ring-inset ring-slate-900 shadow-md" : "border-slate-200/80 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"}`}
+      className={`group relative w-full overflow-hidden bg-white rounded-2xl border p-3.5 sm:p-5 shadow-sm flex flex-col gap-2 sm:gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${active ? "border-slate-900 ring-1 ring-inset ring-slate-900 shadow-md" : "border-slate-200/80 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"}`}
     >
       <div aria-hidden="true" className="pointer-events-none absolute -top-10 -right-10 w-32 h-32 bg-cyan-50/50 rounded-full blur-2xl transition-colors duration-500 group-hover:bg-cyan-100/50" />
-      <div className="relative z-10 flex items-center justify-between gap-3">
-        <span className={`text-[10px] font-bold tracking-widest uppercase ${active ? "text-cyan-700" : "text-slate-400"}`}>{label}</span>
-        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-transform duration-300 group-hover:scale-110 ${active ? "bg-cyan-600 text-white" : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"}`}>
-          <Icon className="w-3.5 h-3.5" />
+      <div className="relative z-10 flex min-w-0 items-center justify-between gap-2 sm:gap-3">
+        <span className={`min-w-0 truncate text-[10px] font-bold tracking-widest uppercase ${active ? "text-cyan-700" : "text-slate-400"}`}>{label}</span>
+        <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-transform duration-300 group-hover:scale-110 ${active ? "bg-cyan-600 text-white" : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"}`}>
+          <Icon className="w-3.5 h-3.5 shrink-0 sm:w-5 sm:h-5" />
         </div>
       </div>
       <div className="relative z-10">
-        <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none">
+        <h3 className="text-xl font-black text-slate-900 tracking-tight leading-none sm:text-3xl">
           {value}
         </h3>
         <p className={`text-[11px] font-medium mt-1 ${active ? "text-slate-500" : "text-slate-400"}`}>{subtitle}</p>
@@ -368,6 +368,7 @@ export default function SkeapApplicationsClient({
   const [applications, setApplications] = useState<ApplicationRecord[]>(initialApplications);
   const [applicationCounts, setApplicationCounts] = useState<ApplicationCounts | undefined>(counts);
   const [selectedAppId, setSelectedAppId] = useState<string>(initialApplications[0]?.id ?? "");
+  const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [viewFilter, setViewFilter] = useState<"pending" | "resubmitted" | "returned" | "approved">("pending");
   const [selectedAcademicYear, setSelectedAcademicYear] = useState(initialAcademicYear);
   const itemsPerPage = 10;
@@ -513,6 +514,7 @@ export default function SkeapApplicationsClient({
 
   function changeViewFilter(filter: typeof viewFilter) {
     setViewFilter(filter);
+    setShowMobileDetails(false);
     setCurrentPage(1);
 
     if (filter !== "approved" && selectedAcademicYear !== initialAcademicYear) {
@@ -1263,7 +1265,7 @@ export default function SkeapApplicationsClient({
             </div>
           </header>
 
-          <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="grid w-full grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-4">
             <ApplicationMetricCard
               label="Pending Review"
               value={stats.pending}
@@ -1298,8 +1300,8 @@ export default function SkeapApplicationsClient({
             />
           </div>
 
-          <section className="flex w-full items-stretch overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-            <aside className="flex h-full min-h-[500px] w-80 shrink-0 flex-col justify-between border-r border-slate-200 bg-slate-50 lg:w-96">
+          <section className="flex w-full flex-col items-stretch overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm lg:flex-row">
+            <aside className={`${showMobileDetails ? "hidden lg:flex" : "flex"} h-full min-h-[500px] w-full shrink-0 flex-col justify-between border-b border-slate-200 bg-slate-50 lg:w-96 lg:border-b-0 lg:border-r`}>
               <div className="sticky top-0 z-10 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-slate-50/90 p-5 backdrop-blur-sm">
                 <div className="flex items-start justify-between">
                   <div>
@@ -1355,7 +1357,10 @@ export default function SkeapApplicationsClient({
                     <button
                       key={application.id}
                       type="button"
-                      onClick={() => setSelectedAppId(application.id)}
+                      onClick={() => {
+                        setSelectedAppId(application.id);
+                        setShowMobileDetails(true);
+                      }}
                       aria-pressed={application.id === effectiveSelectedAppId}
                       className={`group relative w-full overflow-hidden rounded-xl border px-5 py-4 text-left transition-all ${
                         application.id === effectiveSelectedAppId
@@ -1457,25 +1462,33 @@ export default function SkeapApplicationsClient({
               </div>
             </aside>
 
-            <div className="custom-scroll relative flex min-w-0 flex-1 self-start flex-col items-stretch justify-start overflow-y-auto bg-slate-50/50">
+            <div className={`${showMobileDetails ? "flex" : "hidden lg:flex"} custom-scroll relative min-h-[500px] min-w-0 flex-1 self-start flex-col items-stretch justify-start overflow-y-auto bg-slate-50/50`}>
               {selectedApplication ? (
                 <div className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => setShowMobileDetails(false)}
+                    className="inline-flex items-center gap-2 self-start px-5 pt-4 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 lg:hidden"
+                  >
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    Back to Applicant Queue
+                  </button>
                   <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 pt-4 backdrop-blur-sm">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
+                    <div className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
+                      <div className="min-w-0 flex-1">
                         <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Application details</p>
-                        <h2 className="mt-2 text-2xl font-semibold text-slate-950">{selectedApplication.applicantName}</h2>
-                        <p className="mt-1 text-sm text-slate-600">{selectedApplication.applicantEmail}</p>
+                        <h2 className="mt-2 break-words text-xl font-semibold text-slate-950 sm:text-2xl">{selectedApplication.applicantName}</h2>
+                        <p className="mt-1 break-all text-sm text-slate-600">{selectedApplication.applicantEmail}</p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="mt-3 flex w-full items-center gap-2 sm:mt-0 sm:w-auto">
                         <button
                           type="button"
                           onClick={() => setShowApplicationForm(true)}
                           title="Preview application form"
-                          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                          className="inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:flex-none"
                         >
                           <Eye className="h-4 w-4" aria-hidden="true" />
-                          <span>Preview Form</span>
+                          <span>Preview<span className="hidden sm:inline"> Form</span></span>
                         </button>
                         <button
                           type="button"
@@ -1483,14 +1496,14 @@ export default function SkeapApplicationsClient({
                           disabled={isDownloading}
                           aria-busy={isDownloading}
                           title="Download compiled application form"
-                          className="inline-flex items-center gap-2 rounded-lg border border-cyan-700 bg-cyan-700 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:border-cyan-800 hover:bg-cyan-800 disabled:cursor-wait disabled:opacity-70"
+                          className="inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-cyan-700 bg-cyan-700 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:border-cyan-800 hover:bg-cyan-800 disabled:cursor-wait disabled:opacity-70 sm:flex-none"
                         >
                           {isDownloading ? (
                             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                           ) : (
                             <Download className="h-4 w-4" aria-hidden="true" />
                           )}
-                          <span>{isDownloading ? "Downloading..." : "Download Form"}</span>
+                          <span>{isDownloading ? "Downloading..." : <>Download<span className="hidden sm:inline"> Form</span></>}</span>
                         </button>
                       </div>
                     </div>
@@ -1533,7 +1546,7 @@ export default function SkeapApplicationsClient({
                       <div className="border-b border-slate-100 px-5 py-4">
                         <h3 className="text-sm font-semibold text-slate-900">Applicant profile</h3>
                       </div>
-                      <div className="grid grid-cols-2 gap-px bg-slate-100 md:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-px bg-slate-100 xl:grid-cols-4">
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Status</span>
                           <span className={`w-fit max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-semibold ${
@@ -1573,22 +1586,22 @@ export default function SkeapApplicationsClient({
                           </span>
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 gap-px border-t border-slate-100 bg-slate-100 md:grid-cols-6">
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-2 md:p-5">
+                      <div className="grid grid-cols-2 gap-px border-t border-slate-100 bg-slate-100 xl:grid-cols-6">
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 xl:col-span-2 xl:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Age</span>
                           <span className="text-sm font-semibold text-slate-900">
                             {applicationDetails?.age != null ? `${applicationDetails.age} yrs` : "Not provided"}
                           </span>
                         </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-4 md:p-5">
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 xl:col-span-4 xl:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">School / Institution</span>
                           <span className="text-sm font-semibold leading-snug text-slate-900 break-words">{normalizeSkeapSchoolName(selectedApplication.school) || "Not provided"}</span>
                         </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-2 md:p-5">
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 xl:col-span-2 xl:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Phone</span>
                           <span className="text-sm font-semibold text-slate-900 break-words">{selectedApplication.applicantPhoneNumber || "Not provided"}</span>
                         </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:col-span-4 md:p-5">
+                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 xl:col-span-4 xl:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email</span>
                           <span
                             className="text-sm font-semibold text-slate-900 break-all"
@@ -1649,28 +1662,28 @@ export default function SkeapApplicationsClient({
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-8 flex flex-col gap-3 border-t border-slate-100 pt-6">
+                      <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-6">
                         <button
                           type="button"
                           onClick={handleApproveClick}
                           disabled={isLoadingApprovalPreview}
-                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-70"
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-70"
                         >
                           <CheckCircle2 className="h-4 w-4" />
-                          {isLoadingApprovalPreview ? "Checking slot availability..." : "Approve Application"}
+                          {isLoadingApprovalPreview ? "Checking availability..." : <span>Approve<span className="hidden sm:inline"> Application</span></span>}
                         </button>
                         {approvalError ? <p role="alert" className="text-sm text-rose-600">{approvalError}</p> : null}
-                        <div className={`grid gap-3 ${canReturnForEdits ? "grid-cols-2" : "grid-cols-1"}`}>
+                        <div className={`grid w-full gap-3 ${canReturnForEdits ? "grid-cols-2" : "grid-cols-1"}`}>
                           {canReturnForEdits ? (
                             <button
                               type="button"
                               onClick={() => {
                                 openReturnModal();
                               }}
-                              className="flex items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-700 transition-colors hover:bg-amber-100"
+                              className="flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-amber-200 bg-amber-50 px-2 py-2.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100 sm:px-3"
                             >
-                              <CornerUpLeft className="h-4 w-4" />
-                              Return for Edits
+                              <CornerUpLeft className="h-4 w-4 shrink-0" />
+                              <span>Return<span className="hidden sm:inline"> for Edits</span></span>
                             </button>
                           ) : null}
                           <button
@@ -1679,9 +1692,10 @@ export default function SkeapApplicationsClient({
                               setRejectError(null);
                               setShowRejectModal(true);
                             }}
-                            className="flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2.5 text-sm font-bold text-rose-600 transition-colors hover:bg-rose-50"
+                            className="flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-rose-200 bg-rose-50 px-2 py-2.5 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-100 sm:px-3"
                           >
-                            Reject Application
+                            <X className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            <span>Reject<span className="hidden sm:inline"> Application</span></span>
                           </button>
                         </div>
                       </div>

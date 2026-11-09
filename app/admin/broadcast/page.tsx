@@ -288,16 +288,16 @@ export default function BroadcastPage() {
         <form onSubmit={handleSubmit}>
           {error ? <p role="alert" className="mx-6 mt-6 text-sm font-medium text-rose-600 sm:mx-8">{error}</p> : null}
           {validationError ? <p role="alert" className="mx-6 mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:mx-8">{validationError}</p> : null}
-          <div className="flex flex-col gap-8 p-6 sm:p-8">
+          <div className="flex flex-col gap-6 p-4 sm:gap-8 sm:p-8">
             <div className="flex flex-col gap-3">
               <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Target Audience</span>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                 {(["ALL", "CUSTOM"] as const).map((option) => {
                   const isSelected = audienceType === option;
                   return (
                     <label
                       key={option}
-                      className={`group relative flex cursor-pointer gap-3 rounded-2xl border p-4 shadow-sm transition-all ${
+                      className={`group relative flex min-w-0 cursor-pointer gap-3 rounded-2xl border p-3.5 shadow-sm transition-all sm:p-4 ${
                         isSelected
                           ? "border-cyan-500 bg-cyan-50/30"
                           : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
@@ -314,11 +314,11 @@ export default function BroadcastPage() {
                           disabled={submitting}
                         />
                       </div>
-                      <div className="flex flex-col">
+                      <div className="flex min-w-0 flex-col">
                         <span className={`text-sm font-semibold ${isSelected ? "text-cyan-900" : "text-slate-700 transition-colors group-hover:text-slate-900"}`}>
                           {option === "ALL" ? "All Active Grantees" : "Specific Grantees"}
                         </span>
-                        <span className={`mt-0.5 text-[11px] ${isSelected ? "text-cyan-700/70" : "text-slate-500"}`}>
+                        <span className={`mt-0.5 break-words text-[11px] ${isSelected ? "text-cyan-700/70" : "text-slate-500"}`}>
                           {option === "ALL" ? "Send to everyone currently enrolled." : "Hand-pick recipients from a list."}
                         </span>
                       </div>
@@ -425,55 +425,57 @@ export default function BroadcastPage() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                   <label htmlFor="broadcast-message" className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Message Body
                   </label>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Insert Template:
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => loadTemplate("deadline")}
-                      disabled={submitting}
-                      aria-pressed={activeTemplate === "deadline"}
-                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
-                        activeTemplate === "deadline"
-                          ? "border-sky-700 bg-sky-700 text-white"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
-                      }`}
-                    >
-                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-                      Deadline Notice
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => loadTemplate("payout")}
-                      disabled={submitting}
-                      aria-pressed={activeTemplate === "payout"}
-                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
-                        activeTemplate === "payout"
-                          ? "border-emerald-700 bg-emerald-700 text-white"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
-                      }`}
-                    >
-                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-                      Payout Assembly
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSubject("");
-                        setMessage("");
-                        setActiveTemplate(null);
-                      }}
-                      disabled={submitting || !hasMessageContent}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <X className="h-3.5 w-3.5" aria-hidden="true" />
-                      Clear message
-                    </button>
+                    <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-3">
+                      <button
+                        type="button"
+                        onClick={() => loadTemplate("deadline")}
+                        disabled={submitting}
+                        aria-pressed={activeTemplate === "deadline"}
+                        className={`inline-flex min-w-0 w-full cursor-pointer items-center justify-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${
+                          activeTemplate === "deadline"
+                            ? "border-sky-700 bg-sky-700 text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
+                        }`}
+                      >
+                        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="truncate">Deadline Notice</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => loadTemplate("payout")}
+                        disabled={submitting}
+                        aria-pressed={activeTemplate === "payout"}
+                        className={`inline-flex min-w-0 w-full cursor-pointer items-center justify-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${
+                          activeTemplate === "payout"
+                            ? "border-emerald-700 bg-emerald-700 text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                        }`}
+                      >
+                        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="truncate">Payout Assembly</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubject("");
+                          setMessage("");
+                          setActiveTemplate(null);
+                        }}
+                        disabled={submitting || !hasMessageContent}
+                        className="col-span-2 inline-flex min-w-0 w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-1 sm:w-auto sm:justify-center sm:py-2"
+                      >
+                        <X className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Clear message</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <textarea

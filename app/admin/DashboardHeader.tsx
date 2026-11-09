@@ -130,7 +130,7 @@ export default function DashboardHeader({
       {/* Stats Grid */}
       {stats && stats.length > 0 && (
         <div className="w-full">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 w-full">
+          <div className="grid grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-4 w-full">
             {stats.map((stat) => {
               const Icon = stat.icon;
               if (operationalSnapshot) {
@@ -148,8 +148,8 @@ export default function DashboardHeader({
                         {stat.label}
                       </span>
                       <div className="flex shrink-0 items-center gap-2">
-                        <div className={`flex h-8 w-8 items-center justify-center rounded-full shadow-sm transition-transform duration-300 group-hover:scale-110 ${isPrimaryMetric ? "bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-md" : "border border-cyan-100 bg-cyan-50/70 text-cyan-600"}`}>
-                          {Icon && <Icon className="h-4 w-4" />}
+                        <div className={`flex h-7 w-7 items-center justify-center rounded-full shadow-sm transition-transform duration-300 group-hover:scale-110 sm:h-10 sm:w-10 ${isPrimaryMetric ? "bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-md" : "border border-cyan-100 bg-cyan-50/70 text-cyan-600"}`}>
+                          {Icon && <Icon className="h-3.5 w-3.5 sm:h-5 sm:w-5" />}
                         </div>
                         <ArrowUpRight
                           aria-hidden="true"
@@ -158,7 +158,7 @@ export default function DashboardHeader({
                       </div>
                     </div>
                     <div className="relative z-10">
-                      <span className="text-3xl font-black tracking-tight leading-none text-slate-900">
+                      <span className="text-xl font-black tracking-tight leading-none text-slate-900 sm:text-3xl">
                         {stat.value}
                       </span>
                       <p className="mt-1.5 text-[11px] font-medium text-slate-400">
@@ -167,7 +167,7 @@ export default function DashboardHeader({
                     </div>
                   </>
                 );
-                const cardClassName = `group relative flex w-full flex-col gap-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 text-left shadow-sm transition-all duration-300 hover:shadow-md ${isPrimaryMetric ? "hover:border-cyan-300" : "hover:border-cyan-200"}`;
+                const cardClassName = `group relative flex w-full flex-col gap-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3.5 text-left shadow-sm transition-all duration-300 hover:shadow-md sm:gap-4 sm:p-5 ${isPrimaryMetric ? "hover:border-cyan-300" : "hover:border-cyan-200"}`;
 
                 return stat.href ? (
                   <Link
@@ -185,20 +185,20 @@ export default function DashboardHeader({
               }
 
               return (
-                <div key={stat.label} className={`group relative flex flex-col gap-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-300 hover:shadow-md ${stat.label === "Open inquiries" ? "hover:border-cyan-300" : "hover:border-cyan-200"}`}>
+                <div key={stat.label} className={`group relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm transition-all duration-300 hover:shadow-md sm:gap-4 sm:p-5 ${stat.label === "Open inquiries" ? "hover:border-cyan-300" : "hover:border-cyan-200"}`}>
                   <div
                     aria-hidden="true"
                     className={`pointer-events-none absolute rounded-full blur-2xl transition-colors duration-500 ${stat.label === "Open inquiries" ? "-top-12 -right-12 h-40 w-40 bg-cyan-100/40 group-hover:bg-cyan-200/50" : "-top-10 -right-10 h-32 w-32 bg-cyan-50/50 group-hover:bg-cyan-100/50"}`}
                   />
                   <div className="relative z-10 flex items-center justify-between gap-3">
                     <p className={`text-[10px] font-bold uppercase tracking-widest ${stat.label === "Open inquiries" ? "text-cyan-600" : "text-slate-400"}`}>{stat.label}</p>
-                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-sm transition-transform duration-300 group-hover:scale-110 ${stat.label === "Open inquiries" ? "bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-md" : "border border-cyan-100 bg-cyan-50/70 text-cyan-600"}`}>
-                      {Icon && <Icon className="h-4 w-4" />}
+                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full shadow-sm transition-transform duration-300 group-hover:scale-110 sm:h-10 sm:w-10 ${stat.label === "Open inquiries" ? "bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-md" : "border border-cyan-100 bg-cyan-50/70 text-cyan-600"}`}>
+                      {Icon && <Icon className="h-3.5 w-3.5 sm:h-5 sm:w-5" />}
                     </div>
                   </div>
                   <div className="relative z-10 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <span className="text-3xl font-black leading-none tracking-tight text-slate-900">{stat.value}</span>
-                    <span className="text-[11px] font-medium text-slate-400">{stat.sub}</span>
+                    <span className="text-xl font-black leading-none tracking-tight text-slate-900 sm:text-3xl">{stat.value}</span>
+                    <span className="text-[10px] font-medium text-slate-400 sm:text-[11px]">{stat.sub}</span>
                     {stat.delta !== undefined && (
                       <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
                         stat.up ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"

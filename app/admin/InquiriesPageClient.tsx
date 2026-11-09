@@ -537,24 +537,24 @@ export default function InquiriesPageClient({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {operationalMetrics.map((stat) => {
           const Icon = stat.icon;
           return (
-            <div key={stat.label} className="group relative flex min-h-[172px] min-w-0 flex-col justify-between overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300">
-              <div className="relative z-10 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{stat.label}</span>
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-600">
-                  <Icon className="h-4 w-4" />
+            <div key={stat.label} className="group relative flex min-h-[148px] min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs transition-all hover:border-slate-300 sm:min-h-[160px] sm:p-5">
+              <div className="relative z-10 flex items-start justify-between gap-2 sm:items-center sm:gap-3">
+                <span className="min-w-0 truncate text-[10px] font-bold uppercase tracking-wider text-slate-400 sm:text-[11px]">{stat.label}</span>
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600 sm:h-8 sm:w-8">
+                  <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
               </div>
-              <div className={`relative z-10 mt-4 tracking-tight ${stat.value === "No replies yet" ? "text-lg font-semibold text-slate-400" : "text-3xl font-black text-slate-900"}`}>
+              <div className={`relative z-10 mt-3 break-words tracking-tight ${stat.value === "No replies yet" ? "text-sm font-semibold text-slate-400 sm:text-lg" : "text-2xl font-black text-slate-900 sm:text-3xl"}`}>
                 {stat.value}
               </div>
-              <div className="relative z-10 mt-2 flex min-w-0 items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-xs text-slate-500" title={stat.description}>{stat.description}</span>
-                <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${stat.tone}`}>
-                  {stat.trendIcon ? <stat.trendIcon className="h-3 w-3" /> : null}
+              <div className="relative z-10 mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-[10px] text-slate-500 sm:text-xs" title={stat.description}>{stat.description}</span>
+                <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-bold sm:px-2 sm:text-[11px] ${stat.tone}`}>
+                  {stat.trendIcon ? <stat.trendIcon className="h-3 w-3 shrink-0" /> : null}
                   {stat.trend}
                 </span>
               </div>

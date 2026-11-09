@@ -33,9 +33,9 @@ export default function AdminTablePaginationFooter({
   };
 
   return (
-    <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5 sm:flex-row">
-      <div className="flex flex-wrap items-center gap-4">
-        <span className="text-xs font-medium text-slate-500">
+    <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-3.5">
+      <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-start sm:gap-4">
+        <span className="shrink-0 text-xs font-medium text-slate-500">
           {totalCount === 0 ? (
             <span>No records found</span>
           ) : (
@@ -44,13 +44,13 @@ export default function AdminTablePaginationFooter({
             </span>
           )}
         </span>
-        <label className="flex items-center gap-1.5 border-l border-slate-200 pl-4">
-          <span className="text-[11px] font-medium text-slate-400">Show</span>
+        <label className="flex shrink-0 items-center gap-2 sm:border-l sm:border-slate-200 sm:pl-4">
+          <span className="text-[11px] font-medium text-slate-500 sm:text-slate-400">Rows</span>
           <select
             aria-label="Rows per page"
             value={pageSize}
             onChange={(event) => navigate(1, Number(event.target.value))}
-            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
+            className="min-h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
           >
             <option value={10}>10 rows</option>
             <option value={20}>20 rows</option>
@@ -59,16 +59,16 @@ export default function AdminTablePaginationFooter({
         </label>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 sm:w-auto">
         <button
           type="button"
           disabled={page <= 1 || totalCount === 0}
           onClick={() => navigate(page - 1)}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-8"
         >
           Previous
         </button>
-        <span className="px-1 text-xs font-medium text-slate-500">
+        <span className="whitespace-nowrap px-1 text-center text-xs font-medium text-slate-500">
           Page <span className="font-bold text-slate-700">{page}</span> of{" "}
           <span className="font-bold text-slate-700">{totalPages}</span>
         </span>
@@ -76,7 +76,7 @@ export default function AdminTablePaginationFooter({
           type="button"
           disabled={page >= totalPages || totalCount === 0}
           onClick={() => navigate(page + 1)}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-8"
         >
           Next
         </button>

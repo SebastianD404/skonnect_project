@@ -21,19 +21,19 @@ export default function SkeapApplicationsSkeleton() {
 
           <section
             aria-label="Application status metrics"
-            className="grid grid-cols-1 gap-4 md:grid-cols-4"
+            className="grid grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-4"
           >
             {metricCards.map((card) => (
               <div
                 key={card}
-                className="flex h-32 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="flex h-28 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:h-32 sm:p-5"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="h-3 w-28 rounded bg-slate-200" />
-                  <div className="h-7 w-7 rounded-full bg-slate-100" />
+                  <div className="h-7 w-7 rounded-full bg-slate-100 sm:h-10 sm:w-10" />
                 </div>
                 <div>
-                  <div className="h-7 w-12 rounded bg-slate-200" />
+                  <div className="h-6 w-12 rounded bg-slate-200 sm:h-8" />
                   <div className="mt-2 h-3 w-24 rounded bg-slate-100" />
                 </div>
               </div>

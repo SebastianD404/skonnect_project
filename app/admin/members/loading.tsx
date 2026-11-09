@@ -12,40 +12,74 @@ export default function AdminMembersLoading() {
         </div>
       </header>
 
-      <section aria-hidden="true" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 w-full">
+      <section aria-hidden="true" className="grid w-full grid-cols-2 gap-3 sm:gap-6 xl:grid-cols-4">
         {metricCards.map((card) => (
-          <div key={card} className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div key={card} className="rounded-2xl border border-slate-100 bg-white p-3.5 shadow-sm sm:p-5">
             <div className="flex items-center justify-between">
               <div className="h-3 w-20 rounded bg-slate-200" />
-              <div className="h-8 w-8 rounded-full bg-slate-200" />
+              <div className="h-7 w-7 rounded-full bg-slate-200 sm:h-10 sm:w-10" />
             </div>
-            <div className="mt-3 h-8 w-16 rounded bg-slate-300" />
+            <div className="mt-3 h-6 w-16 rounded bg-slate-300 sm:h-8" />
             <div className="mt-1 h-3 w-24 rounded bg-slate-200" />
           </div>
         ))}
       </section>
 
-      <section aria-hidden="true" className="w-full h-[400px] animate-pulse overflow-hidden rounded-lg border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <div className="h-10 w-72 max-w-full rounded-lg bg-slate-200" />
-          <div className="h-10 w-32 shrink-0 rounded-lg bg-slate-200" />
+      <section aria-hidden="true" className="w-full animate-pulse overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row sm:items-center sm:p-5">
+          <div className="h-9 w-full rounded-full bg-slate-200 sm:w-80" />
+          <div className="h-9 w-full rounded-xl bg-slate-200 sm:w-40" />
+          <div className="h-9 w-full rounded-xl bg-slate-200 sm:ml-auto sm:w-32" />
         </div>
 
-        <div className="mb-2 flex h-12 w-full items-center gap-4 rounded-t-xl bg-slate-900 px-5">
-          {[0, 1, 2, 3, 4].map((column) => (
-            <div key={column} className={`h-3 rounded bg-slate-600 ${column === 0 ? "w-40" : "w-24"}`} />
+        <div className="flex flex-col gap-3 p-3 md:hidden">
+          {tableRows.map((row) => (
+            <article key={row} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="h-10 w-10 shrink-0 rounded-full bg-slate-200" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-4 w-36 max-w-full rounded bg-slate-200" />
+                    <div className="h-3 w-44 max-w-full rounded bg-slate-100" />
+                  </div>
+                </div>
+                <div className="h-6 w-20 shrink-0 rounded-full bg-emerald-50" />
+              </div>
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                {[0, 1, 2, 3].map((field) => (
+                  <div key={field} className="space-y-2">
+                    <div className="h-2.5 w-16 rounded bg-slate-200" />
+                    <div className="h-3 w-24 max-w-full rounded bg-slate-200" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                <div className="h-3 w-28 rounded bg-slate-100" />
+                <div className="flex gap-2">
+                  <div className="h-9 w-20 rounded-lg bg-slate-200" />
+                  <div className="h-9 w-9 rounded-lg bg-slate-200" />
+                </div>
+              </div>
+            </article>
           ))}
         </div>
 
-        {tableRows.map((row) => (
-          <div key={row} className="mb-2 flex h-14 w-full items-center gap-4 rounded-md bg-slate-100 px-5">
-            {[0, 1, 2, 3, 4].map((column) => (
-              <div key={column} className={`h-4 rounded bg-slate-200 ${column === 0 ? "w-40" : "w-24"}`} />
+        <div className="hidden w-full overflow-x-auto px-5 pt-4 md:block">
+          <div className="mb-2 flex h-12 min-w-[850px] items-center gap-4 rounded-t-xl bg-slate-900 px-5">
+            {[0, 1, 2, 3, 4, 5].map((column) => (
+              <div key={column} className={`h-3 shrink-0 rounded bg-slate-600 ${column === 0 ? "w-40" : "w-24"}`} />
             ))}
           </div>
-        ))}
+          {tableRows.map((row) => (
+            <div key={row} className="mb-2 flex h-16 min-w-[850px] items-center gap-4 rounded-md bg-slate-100 px-5">
+              {[0, 1, 2, 3, 4, 5].map((column) => (
+                <div key={column} className={`h-4 shrink-0 rounded bg-slate-200 ${column === 0 ? "w-40" : "w-24"}`} />
+              ))}
+            </div>
+          ))}
+        </div>
 
-        <div className="mt-4 flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-4 sm:flex-row">
+        <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5 sm:flex-row">
           <div className="h-3 w-28 rounded bg-slate-200" />
           <div className="flex items-center gap-2">
             <div className="h-8 w-20 rounded-lg bg-slate-200" />

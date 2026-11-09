@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Archive, FileText, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, Eye, FileText, Trash2, X } from "lucide-react";
 import { AdminKKProfilingFormView } from "./AdminKKProfilingFormView";
 import type { KKProfilingRegistration } from "./types";
 
@@ -13,9 +13,11 @@ interface RegistrationRowActionsProps {
   onUpdate: (registration: KKProfilingRegistration) => void;
   onStatusUpdate: (status: "Approved" | "Returned" | "Rejected", registrationId: string) => void;
   compact?: boolean;
+  cardView?: boolean;
+  statusAware?: boolean;
 }
 
-export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpdate, onStatusUpdate, compact = false }: RegistrationRowActionsProps) {
+export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpdate, onStatusUpdate, compact = false, cardView = false, statusAware = false }: RegistrationRowActionsProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"delete" | "archive" | null>(null);
@@ -24,6 +26,9 @@ export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpd
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<KKProfilingRegistration>(registration);
+  const isApproved = registration.reviewStatus?.toLowerCase() === "approved";
+  const showStatusAwareAction = cardView || statusAware;
+  const actionLabel = isApproved ? "View" : "Review";
   const isActiveGrantee =
     (registration.skeapStatus ?? registration.user?.grantee?.status)?.toUpperCase() === "ACTIVE";
 
@@ -83,15 +88,29 @@ export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpd
       <button
         type="button"
         onClick={() => setShowDetails(true)}
-        className={`group inline-flex ${compact ? "h-8 w-8" : "h-10 w-10"} items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50`}
-        title="View full form"
+        className={`group inline-flex ${
+          cardView
+            ? `${isApproved ? "h-9 w-9 rounded-lg text-slate-700 hover:bg-slate-200" : "min-h-9 gap-1.5 rounded-lg px-3 text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800"} ${isApproved ? "bg-slate-100" : ""}`
+            : statusAware
+              ? `${isApproved ? "h-8 w-8 rounded-lg text-slate-700 hover:bg-slate-200" : "min-h-8 gap-1 rounded-lg px-2.5 text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800"} ${isApproved ? "bg-slate-100" : ""}`
+              : compact
+                ? "h-8 w-8 rounded-full text-slate-700"
+                : "h-10 w-10 rounded-full text-slate-700"
+        } items-center justify-center border border-slate-200 transition`}
+        title={`${actionLabel} ${registration.fullName} application`}
+        aria-label={`${actionLabel} ${registration.fullName} application`}
       >
-        <FileText className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} transition group-hover:text-slate-900`} />
+        {isApproved ? (
+          <Eye className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} shrink-0 transition`} aria-hidden="true" />
+        ) : (
+          <FileText className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} shrink-0 transition`} aria-hidden="true" />
+        )}
+        {showStatusAwareAction && !isApproved ? actionLabel : null}
       </button>
       <button
         type="button"
         onClick={() => setConfirmAction(onArchive ? "archive" : "delete")}
-        className={`group inline-flex ${compact ? "h-8 w-8" : "h-10 w-10"} items-center justify-center rounded-full border transition ${
+        className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border transition ${
           onArchive
             ? "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100"
             : "border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100"

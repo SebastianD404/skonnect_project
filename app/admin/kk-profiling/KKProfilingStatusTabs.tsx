@@ -26,28 +26,30 @@ export default function KKProfilingStatusTabs({ currentStatus }: KKProfilingStat
   };
 
   return (
-    <div className="inline-flex max-w-full items-center overflow-x-auto rounded-lg bg-slate-100 p-1">
-      {statuses.map((status) => {
-        const isActive = currentStatus === status;
-        const label = status.charAt(0).toUpperCase() + status.slice(1);
+    <div className="w-full min-w-0 overflow-x-auto scrollbar-hide sm:w-auto">
+      <div className="inline-flex min-w-max items-center gap-1 rounded-lg bg-slate-100 p-1">
+        {statuses.map((status) => {
+          const isActive = currentStatus === status;
+          const label = status.charAt(0).toUpperCase() + status.slice(1);
 
-        return (
-          <button
-            key={status}
-            type="button"
-            onClick={() => changeStatus(status)}
-            disabled={isPending || isActive}
-            aria-pressed={isActive}
-            className={`shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200 sm:px-4 disabled:cursor-default ${
-              isActive
-                ? "bg-white text-slate-900 shadow-sm"
-                : "bg-transparent text-slate-500 hover:bg-slate-200/50 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        );
-      })}
+          return (
+            <button
+              key={status}
+              type="button"
+              onClick={() => changeStatus(status)}
+              disabled={isPending || isActive}
+              aria-pressed={isActive}
+              className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200 sm:px-4 disabled:cursor-default ${
+                isActive
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "bg-transparent text-slate-500 hover:bg-slate-200/50 hover:text-slate-700"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

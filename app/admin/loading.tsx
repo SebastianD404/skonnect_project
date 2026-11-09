@@ -6,6 +6,8 @@ import InquiriesPageSkeleton from "./inquiries/InquiriesPageSkeleton";
 import SkeapApplicationsSkeleton from "./skeap-applications/SkeapApplicationsSkeleton";
 import SkeapWaitlistSkeleton from "./skeap-waitlist/SkeapWaitlistSkeleton";
 import SubmissionReviewSkeleton from "./submissions/SubmissionReviewSkeleton";
+import { GranteeRecordsLoading } from "./grantees/records/loading";
+import { MemberRecordsLoading } from "./members/records/loading";
 
 function Placeholder({ className }: { className: string }) {
   return <div className={`bg-slate-200 ${className}`} />;
@@ -13,16 +15,16 @@ function Placeholder({ className }: { className: string }) {
 
 function MetricCardSkeleton() {
   return (
-    <div className="group flex min-h-[140px] w-full flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="group flex min-h-[120px] w-full flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:min-h-[140px] sm:p-5">
       <div className="mb-4 flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 animate-pulse rounded-xl bg-slate-200" />
+          <div className="h-7 w-7 animate-pulse rounded-xl bg-slate-200 sm:h-10 sm:w-10" />
           <div className="h-3 w-32 animate-pulse rounded-md bg-slate-200" />
         </div>
         <div className="h-4 w-4 animate-pulse rounded-sm bg-slate-200" />
       </div>
       <div className="mt-auto flex items-baseline gap-2.5">
-        <div className="h-10 w-16 animate-pulse rounded-lg bg-slate-200" />
+        <div className="h-6 w-16 animate-pulse rounded-lg bg-slate-200 sm:h-10" />
         <div className="h-6 w-28 animate-pulse rounded-md bg-slate-200" />
       </div>
     </div>
@@ -71,7 +73,7 @@ function DashboardHeader({
       </div>
       {operationalSnapshot ? (
         <div className="px-8 py-2">
-          <div className={`mt-8 grid grid-cols-1 gap-4 md:grid-cols-2 ${metricCount === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
+          <div className={`mt-8 grid grid-cols-2 gap-3 sm:gap-4 ${metricCount === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
             {Array.from({ length: metricCount }, (_, index) => <MetricCardSkeleton key={index} />)}
           </div>
         </div>
@@ -159,9 +161,9 @@ function ListSkeleton({ showStats = false }: { showStats?: boolean }) {
         <Placeholder className="mt-3 h-3 w-3/4 max-w-full rounded-full bg-slate-100" />
       </section>
       {showStats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 w-full">
+        <div className="grid grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-4 w-full">
           {Array.from({ length: 4 }, (_, index) => (
-            <section key={index} className="h-36 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section key={index} className="h-32 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:h-36 sm:p-5">
               <Placeholder className="h-2.5 w-28 rounded-full" />
               <Placeholder className="mt-4 h-9 w-16 rounded-md" />
               <Placeholder className="mt-3 h-2.5 w-3/4 rounded-full bg-slate-100" />
@@ -269,8 +271,10 @@ export default function AdminLoading() {
   if (pathname.startsWith("/admin/skeap-waitlist")) return <SkeapWaitlistSkeleton />;
   if (pathname.startsWith("/admin/submissions")) return <SubmissionReviewSkeleton />;
   if (pathname === "/admin/grantees") return <GranteesSkeleton />;
+  if (pathname.startsWith("/admin/grantees/records")) return <GranteeRecordsLoading />;
   if (pathname.startsWith("/admin/grantees/")) return <DetailSkeleton />;
   if (pathname.startsWith("/admin/settings")) return <SettingsSkeleton />;
+  if (pathname.startsWith("/admin/members/records")) return <MemberRecordsLoading />;
   if (pathname.startsWith("/admin/members")) return <ListSkeleton showStats />;
   if (pathname.startsWith("/admin/accounting")) return <ListSkeleton />;
   if (pathname.startsWith("/admin/broadcast")) return <BroadcastSkeleton />;

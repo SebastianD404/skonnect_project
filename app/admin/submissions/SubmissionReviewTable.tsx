@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import type { SubmissionStatus } from "@prisma/client";
 import {
   AlertTriangle,
+  ArrowLeft,
   CheckCircle2,
   ChevronDown,
   Download,
@@ -497,14 +498,14 @@ function OcrGwaBadge({
   );
 }
 
-function SubmissionsSkeleton() {
+function SubmissionsSkeleton({ isMobileReviewOpen }: { isMobileReviewOpen: boolean }) {
   return (
     <div
       role="status"
       aria-label="Loading submission review"
-      className="grid grid-cols-1 items-stretch gap-6 md:h-[calc(100vh-220px)] md:min-h-[600px] md:grid-cols-12"
+      className="grid grid-cols-1 items-stretch gap-6 lg:h-[calc(100vh-220px)] lg:min-h-[600px] lg:grid-cols-12"
     >
-      <div className="flex h-full min-h-[550px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 pb-6 shadow-2xs sm:p-6 sm:pb-6 md:col-span-4 md:min-h-0">
+      <div className={`${isMobileReviewOpen ? "hidden lg:flex" : "flex"} h-full min-h-[550px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 pb-6 shadow-2xs sm:p-6 sm:pb-6 lg:col-span-4 lg:min-h-0`}>
         <div>
           <div className="mb-2 h-4 w-32 animate-pulse rounded bg-slate-200/80" />
           <div className="mb-6 h-3 w-20 animate-pulse rounded bg-slate-100" />
@@ -526,7 +527,7 @@ function SubmissionsSkeleton() {
         <div className="h-3 w-36 animate-pulse rounded bg-slate-100" />
       </div>
 
-      <div className="flex h-full min-h-[550px] flex-col rounded-2xl border border-slate-200 bg-white p-5 pb-6 shadow-2xs sm:p-6 sm:pb-6 md:col-span-8 md:min-h-0">
+      <div className={`${isMobileReviewOpen ? "flex" : "hidden lg:flex"} h-full min-h-[320px] flex-col rounded-2xl border border-slate-200 bg-white p-5 pb-6 shadow-2xs sm:p-6 sm:pb-6 lg:col-span-8 lg:min-h-0`}>
         <div className="shrink-0 border-b border-slate-100 pb-3">
           <div className="mb-2 h-3 w-28 animate-pulse rounded bg-slate-200/60" />
           <div className="mb-2 h-6 w-40 animate-pulse rounded bg-slate-200/80" />
@@ -566,6 +567,7 @@ export default function SubmissionReviewTable() {
   const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT);
   const [responseData, setResponseData] = useState<SubmissionsResponse>(EMPTY_RESPONSE);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
+  const [isMobileReviewOpen, setIsMobileReviewOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft>>({});
@@ -581,7 +583,6 @@ export default function SubmissionReviewTable() {
     noDropped: false,
     verifiedGwa: "",
   });
-  const [completedSemesterFilter, setCompletedSemesterFilter] = useState("all");
   const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -638,8 +639,6 @@ export default function SubmissionReviewTable() {
         limit: String(pageSize),
         search: query.trim(),
       });
-      if (activeTab === "cleared") params.set("semester", completedSemesterFilter);
-
       try {
         const result = await fetch(`/api/admin/submissions?${params}`, {
           cache: "no-store",
@@ -668,10 +667,15 @@ export default function SubmissionReviewTable() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeTab, page, pageSize, query, completedSemesterFilter, refreshToken]);
+  }, [activeTab, page, pageSize, query, refreshToken]);
 
   const selectedSubmission =
     responseData.rows.find((submission) => submission.id === selectedSubmissionId) ?? null;
+  const canShowPrimaryRevoke =
+    selectedSubmission !== null &&
+    selectedSubmission.status !== "APPROVED" &&
+    (selectedSubmission.status === "PENDING" ||
+      (selectedSubmission.flaggedFields?.length ?? 0) > 0);
   const gradeReportApproved =
     selectedSubmission?.gradesStatus === "APPROVED" || selectedSubmission?.status === "APPROVED";
   const currentGradeVerification = gradeReportApproved
@@ -694,7 +698,6 @@ export default function SubmissionReviewTable() {
     ? reviewDrafts[selectedSubmission.id] ?? EMPTY_REVIEW_DRAFT
     : EMPTY_REVIEW_DRAFT;
   const isSaving = selectedSubmission !== null && savingSubmissionId === selectedSubmission.id;
-  const completedSemesterOptions = ["all", ...responseData.semesters];
   const activeTabRecordLabel = {
     pending: "pending review",
     returned: "returned for edits",
@@ -706,8 +709,8 @@ export default function SubmissionReviewTable() {
   function changeTab(tab: TabType, selectedId: string | null = null) {
     setActiveTab(tab);
     setPage(1);
-    setCompletedSemesterFilter("all");
     setSelectedSubmissionId(selectedId);
+    setIsMobileReviewOpen(false);
     setIsLoading(true);
   }
 
@@ -722,14 +725,12 @@ export default function SubmissionReviewTable() {
       if (reportType === "current") {
         params.set("status", activeTab);
         params.set("search", query.trim());
-        if (activeTab === "cleared") params.set("semester", completedSemesterFilter);
       } else if (reportType === "missing_incomplete") {
         params.set("search", query.trim());
       } else if (reportType === "pending_review") {
         params.set("search", query.trim());
       } else if (reportType === "fully_cleared") {
         params.set("search", query.trim());
-        if (completedSemesterFilter !== "all") params.set("semester", completedSemesterFilter);
       }
 
       const response = await fetch(`/api/admin/submissions/export?${params.toString()}`, {
@@ -946,9 +947,9 @@ export default function SubmissionReviewTable() {
         <FloatingFeedback message={exportError} type="error" onDismiss={() => setExportError(null)} />
       ) : null}
       <div className="p-4 sm:p-5">
-        <div className="flex min-h-10 flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <label className="relative block w-full max-w-sm shrink-0">
+        <div className="flex w-full flex-col gap-3.5">
+          <div className="flex w-full min-w-0 items-center gap-3">
+          <label className="relative block min-w-[220px] max-w-md flex-1">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="search"
@@ -958,70 +959,27 @@ export default function SubmissionReviewTable() {
                   setQuery(event.target.value);
                   setPage(1);
                   setSelectedSubmissionId(null);
+                  setIsMobileReviewOpen(false);
                   setIsLoading(true);
                 }}
                 className="h-10 w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#0a1f33] focus:ring-2 focus:ring-[#0a1f33]/10"
               />
-            </label>
+          </label>
 
-            <label
-              className={`flex h-10 w-[190px] shrink-0 items-center gap-2 text-xs text-slate-500 ${
-                activeTab === "cleared" ? "" : "invisible pointer-events-none"
-              }`}
-              aria-hidden={activeTab !== "cleared"}
-            >
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Semester</span>
-              <select
-                value={completedSemesterFilter}
-                disabled={activeTab !== "cleared"}
-                onChange={(event) => {
-                  setCompletedSemesterFilter(event.target.value);
-                  setPage(1);
-                  setSelectedSubmissionId(null);
-                  setIsLoading(true);
-                }}
-                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-700"
-              >
-                {completedSemesterOptions.map((semester) => (
-                  <option key={semester} value={semester}>{semester === "all" ? "All Semesters" : semester}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => changeTab(tab.id)}
-                aria-pressed={activeTab === tab.id}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-                  activeTab === tab.id
-                    ? "border-[#0a1f33] bg-[#0a1f33] text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900"
-                }`}
-                title={tab.description}
-              >
-                {tab.label}
-                <span className={`rounded-full px-2 py-0.5 text-[10px] ${activeTab === tab.id ? "bg-white/15" : "bg-slate-100"}`}>
-                  {responseData.counts[tab.id]}
-                </span>
-              </button>
-            ))}
-            <div ref={exportMenuRef} className="relative ml-1">
+          <div ref={exportMenuRef} className="relative ml-auto shrink-0">
               <button
                 type="button"
+                aria-label={isExporting ? "Exporting submissions" : "Export submissions"}
                 aria-expanded={isExportMenuOpen}
                 aria-controls="submissions-export-menu"
                 aria-busy={isExporting}
                 disabled={isExporting}
                 onClick={() => setIsExportMenuOpen((open) => !open)}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#0F3D5C] px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-70"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#0F3D5C] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-70 sm:py-2.5"
               >
                 {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                {isExporting ? "Exporting..." : "Export Submissions"}
-                {!isExporting ? <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isExportMenuOpen ? "rotate-180" : ""}`} /> : null}
+                <span className="hidden sm:inline">{isExporting ? "Exporting..." : "Export Submissions"}</span>
+                {!isExporting ? <ChevronDown className={`hidden h-4 w-4 text-slate-400 transition sm:block ${isExportMenuOpen ? "rotate-180" : ""}`} /> : null}
               </button>
               {isExportMenuOpen ? (
                 <div
@@ -1044,10 +1002,52 @@ export default function SubmissionReviewTable() {
                   </button>
                 </div>
               ) : null}
+          </div>
+          </div>
+
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+            <label className="relative w-full sm:hidden">
+              <span className="sr-only">Filter submissions by status</span>
+              <select
+                value={activeTab}
+                onChange={(event) => changeTab(event.target.value as TabType)}
+                className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-10 text-xs font-semibold text-slate-700 outline-none focus:border-[#0a1f33] focus:ring-2 focus:ring-[#0a1f33]/10"
+              >
+                {TABS.map((tab) => (
+                  <option key={tab.id} value={tab.id}>
+                    {tab.label} ({responseData.counts[tab.id]})
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden="true"
+                className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+              />
+            </label>
+            <div className="hidden max-w-full items-center gap-1.5 rounded-xl bg-slate-100 p-1 sm:flex sm:flex-wrap">
+              {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => changeTab(tab.id)}
+                aria-pressed={activeTab === tab.id}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                  activeTab === tab.id
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+                title={tab.description}
+              >
+                {tab.label}
+                <span className={`rounded-full px-2 py-0.5 text-[10px] ${activeTab === tab.id ? "bg-white/15" : "bg-slate-100"}`}>
+                  {responseData.counts[tab.id]}
+                </span>
+              </button>
+              ))}
             </div>
           </div>
         </div>
-        <div className="mt-3 flex justify-end">
+        <div className="mt-3 flex justify-start lg:justify-end">
           <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
             <span
               aria-hidden="true"
@@ -1078,9 +1078,9 @@ export default function SubmissionReviewTable() {
         {actionError ? <FloatingFeedback message={actionError} type="error" onDismiss={() => setActionError(null)} /> : null}
         {actionSuccess ? <FloatingFeedback message={actionSuccess} type="success" autoDismissMs={0} onDismiss={() => setActionSuccess(null)} /> : null}
 
-        {isLoading ? <SubmissionsSkeleton /> : (
-        <div className="grid grid-cols-1 items-stretch gap-6 md:h-[calc(100vh-220px)] md:min-h-[600px] md:grid-cols-12">
-          <aside className="flex min-h-[550px] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs md:col-span-4 md:h-full md:min-h-0">
+        {isLoading ? <SubmissionsSkeleton isMobileReviewOpen={isMobileReviewOpen} /> : (
+        <div className="grid grid-cols-1 items-stretch gap-6 lg:h-[calc(100vh-220px)] lg:min-h-[600px] lg:grid-cols-12">
+          <aside className={`${isMobileReviewOpen ? "hidden lg:flex" : "flex"} min-h-[550px] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs lg:col-span-4 lg:h-full lg:min-h-0`}>
             <div className="flex shrink-0 items-center gap-2.5 bg-slate-900 px-5 py-4 text-white">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-slate-200 shadow-inner">
                 <FileText className="h-4 w-4" aria-hidden="true" />
@@ -1107,6 +1107,7 @@ export default function SubmissionReviewTable() {
                   type="button"
                   onClick={() => {
                     setSelectedSubmissionId(submission.id);
+                    setIsMobileReviewOpen(true);
                     setActionError(null);
                     setValidationError(null);
                     setActionSuccess(null);
@@ -1149,6 +1150,7 @@ export default function SubmissionReviewTable() {
                         setPageSize(Number(event.target.value));
                         setPage(1);
                         setSelectedSubmissionId(null);
+                        setIsMobileReviewOpen(false);
                         setIsLoading(true);
                       }}
                       className="rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-700"
@@ -1182,7 +1184,7 @@ export default function SubmissionReviewTable() {
             </div>
           </aside>
 
-          <section className="flex min-h-[320px] flex-col justify-between overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm md:col-span-8 md:h-full md:min-h-0">
+          <section className={`${isMobileReviewOpen ? "flex" : "hidden lg:flex"} min-h-[320px] flex-col justify-between overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm lg:col-span-8 lg:h-full lg:min-h-0`}>
             {!selectedSubmission ? (
               <div className="flex h-full min-h-[320px] flex-col items-center justify-center px-6 py-16 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
@@ -1193,6 +1195,14 @@ export default function SubmissionReviewTable() {
               </div>
             ) : (
               <>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileReviewOpen(false)}
+                  className="inline-flex items-center gap-2 self-start px-5 pt-4 text-xs font-semibold text-slate-600 transition-colors hover:text-slate-900 lg:hidden"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  Back to Submissions Queue
+                </button>
                 <header className="shrink-0 border-b border-slate-100 bg-white px-5 pb-4 pt-4 sm:px-7 sm:pt-5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -1227,15 +1237,17 @@ export default function SubmissionReviewTable() {
                           ) : null}
                         </>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => setIsRevokeModalOpen(true)}
-                        disabled={isSaving}
-                        className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                        Revoke Grantee
-                      </button>
+                      {canShowPrimaryRevoke ? (
+                        <button
+                          type="button"
+                          onClick={() => setIsRevokeModalOpen(true)}
+                          disabled={isSaving}
+                          className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                          Revoke Grantee
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[10px] leading-relaxed text-slate-500">
