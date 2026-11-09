@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { uploadPrivateDocument } from "@/lib/private-documents";
+import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 
 const ALLOWED_TYPES = new Set([
   "application/pdf",
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     if (!residencyStatementConfirmed) {
       return NextResponse.json(
-        { error: "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months." },
+        { error: `Please confirm that your Certificate of Residency states you have lived in the barangay for at least ${MINIMUM_RESIDENCY_MONTHS_TEXT}.` },
         { status: 400 }
       );
     }

@@ -35,7 +35,7 @@ export default async function SystemAdminKnowledgeBasePage() {
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
       <KnowledgeBaseAudit
         databaseCategories={categoryRecords.map(({ sourceType }) => sourceType)}
         documents={documents.map((document) => ({

@@ -361,7 +361,7 @@ export default function AdminAccountingPage() {
   }
 
   return (
-    <main className="px-6 pb-12 pt-8">
+    <main className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 px-6 pb-12 pt-8">
       {loadError ? <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
       {errorMessage ? <FloatingFeedback message={errorMessage} type="error" onDismiss={() => setErrorMessage(null)} /> : null}
       <div className="flex items-start justify-between gap-4">
@@ -475,7 +475,7 @@ export default function AdminAccountingPage() {
           </div>
         ) : (
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+          <div className="group relative w-full overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-slate-700">
                 <Wallet className="h-5 w-5" />
@@ -537,7 +537,7 @@ export default function AdminAccountingPage() {
             </div>
           </div>
 
-          <div className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+          <div className="group relative w-full overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
             <div className="text-sm font-semibold">Remaining Funds</div>
             <div className="mt-4 flex items-center justify-between">
               <div>
@@ -621,7 +621,7 @@ export default function AdminAccountingPage() {
                 <div className="text-sm font-semibold">Disbursement list</div>
               </div>
 
-              <div className="overflow-auto">
+              <div className="w-full overflow-x-auto whitespace-nowrap">
                 <div className="rounded-t-2xl overflow-hidden">
               {loading ? (
                 <div className="p-6 text-sm text-slate-500">Loading grantees…</div>

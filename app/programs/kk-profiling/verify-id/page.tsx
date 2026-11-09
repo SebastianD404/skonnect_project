@@ -214,7 +214,7 @@ export default function KKProfilingVerifyIdPage() {
                 <label className="flex flex-col gap-2 text-sm rounded-3xl border border-slate-200 bg-slate-50 p-4">
                   <span className="font-semibold">Certificate of Residency</span>
                   <p className="text-sm text-slate-600">
-                    Upload a residency certificate that explicitly states you have lived in the barangay for at least 8 months.
+                    Upload a residency certificate that explicitly states you have lived in the barangay for at least 6 months.
                   </p>
                   <input
                     type="file"

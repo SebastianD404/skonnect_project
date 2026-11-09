@@ -49,7 +49,7 @@ export default async function SystemAdminAuditPage({
   });
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
       <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
         <span>System Admin</span>
         <span>/</span>

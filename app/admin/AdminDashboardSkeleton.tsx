@@ -4,7 +4,7 @@ const inquiryRows = Array.from({ length: 3 }, (_, index) => index);
 
 export default function AdminDashboardSkeleton() {
   return (
-    <main className="mx-auto flex w-full animate-pulse max-w-7xl flex-col gap-6 pb-12">
+    <main className="flex w-full flex-col gap-6 sm:gap-8 animate-pulse pb-12">
       <header>
         <div className="px-8">
           <div className="h-3 w-40 rounded bg-slate-200" />
@@ -14,7 +14,7 @@ export default function AdminDashboardSkeleton() {
 
       <section
         aria-label="Dashboard metrics"
-        className="grid grid-cols-1 gap-4 px-8 md:grid-cols-2 lg:grid-cols-4"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 w-full"
       >
         {metricCards.map((card) => (
           <div
@@ -40,7 +40,7 @@ export default function AdminDashboardSkeleton() {
 
       <section
         aria-label="Dashboard action center"
-        className="grid grid-cols-1 items-stretch gap-4 px-8 md:grid-cols-2"
+        className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 w-full"
       >
         {actionCards.map((card) => (
           <div

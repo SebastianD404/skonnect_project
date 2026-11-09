@@ -1,15 +1,13 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { HeaderShell } from "./components/HeaderShell";
-import { ChatWidget } from "./components/chatbot/ChatWidget";
-import { NotificationProvider } from "./components/NotificationProvider";
-import { AuthProvider } from "./components/AuthProvider";
+import { AppProviders } from "./components/AppProviders";
 import {
   createClient,
   isAuthSessionMissingError,
   isRefreshTokenMissingError,
 } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
   title: "SKonnect — SK Barangay Pico Youth Services",
@@ -27,13 +25,7 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body className="font-sans antialiased">
-        <AuthProvider initialUser={initialAuthUser}>
-          <NotificationProvider>
-            <HeaderShell />
-            {children}
-          </NotificationProvider>
-        </AuthProvider>
-        <ChatWidget />
+        <AppProviders initialUser={initialAuthUser}>{children}</AppProviders>
       </body>
     </html>
   );
@@ -84,11 +76,17 @@ async function getInitialAuthUser() {
     return null;
   }
 
+  const grantee = await prisma.grantee.findUnique({
+    where: { userId: profile.id },
+    select: { status: true },
+  });
+
   return {
     id: profile.id,
     fullName: profile.fullName,
     email: profile.email,
     avatarUrl: profile.avatarUrl ?? undefined,
     role: profile.role,
+    skeapStatus: grantee?.status ?? null,
   };
 }

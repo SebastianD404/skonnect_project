@@ -276,7 +276,7 @@ export function DashboardSubmissionTable({ submissions, totalCount }: Props) {
         </div>
       </div>
 
-      <div className="overflow-x-auto px-6 pb-6 sm:px-8">
+      <div className="w-full overflow-x-auto whitespace-nowrap px-6 pb-6 sm:px-8">
         <table className="min-w-full border-separate border-spacing-y-3 text-left">
           <thead>
             <tr>

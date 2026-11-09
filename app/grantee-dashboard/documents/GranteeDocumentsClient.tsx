@@ -102,6 +102,10 @@ function getInitialSelectedSemester(
   academicTermWindow: AcademicTermWindow
 ) {
   const now = Date.now();
+  if (academicTermWindow.status === "OPEN" && academicTermWindow.semester) {
+    return academicTermWindow.semester;
+  }
+
   const currentAcademicSemester = getCurrentAcademicSemester(new Date(now));
   if (
     schedules.some((schedule) => schedule.semester === currentAcademicSemester) ||
@@ -350,7 +354,10 @@ export default function GranteeDocumentsClient({
   }, [academicTermWindow, router]);
 
   const semesterOptions = useMemo(() => {
-    const currentSemester = getCurrentAcademicSemester(new Date(currentTime));
+    const calendarSemester = getCurrentAcademicSemester(new Date(currentTime));
+    const currentSemester = academicTermWindow.status === "OPEN"
+      ? academicTermWindow.semester ?? calendarSemester
+      : calendarSemester;
     const options = getDocumentSemesterOptions(
       [
         ...submissions.map((submission) => submission.semester),
@@ -360,7 +367,11 @@ export default function GranteeDocumentsClient({
       academicTermWindow.semester ?? undefined
     );
     const currentIndex = options.findIndex((option) => option.value === currentSemester);
-    const nextSemester = currentIndex >= 0 ? options[currentIndex + 1]?.value : undefined;
+    const nextSemester = academicTermWindow.status === "UPCOMING"
+      ? academicTermWindow.semester
+      : currentIndex >= 0
+        ? options[currentIndex + 1]?.value
+        : undefined;
 
     return options.map((option) => ({
       ...option,
@@ -487,7 +498,11 @@ export default function GranteeDocumentsClient({
     : form.semester
       ? "CLOSED"
       : "UNCONFIGURED";
-  const isSelectedCurrentTerm = form.semester === getCurrentAcademicSemester(new Date(currentTime));
+  const isSelectedCurrentTerm = form.semester === (
+    academicTermWindow.status === "OPEN"
+      ? academicTermWindow.semester
+      : getCurrentAcademicSemester(new Date(currentTime))
+  );
 
   async function uploadFile(
     file: File,

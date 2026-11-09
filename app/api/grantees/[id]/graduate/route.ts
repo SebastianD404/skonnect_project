@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { createClient } from "@/lib/supabase/server";
 
 export async function PATCH(
@@ -81,6 +82,8 @@ export async function PATCH(
         },
       });
       if (updateResult.count !== 1) throw new Error("GRANTEE_NOT_ACTIVE");
+
+      await downgradeInactiveGranteeRole(tx, grantee.userId);
 
       await tx.adminNotification.create({
         data: {

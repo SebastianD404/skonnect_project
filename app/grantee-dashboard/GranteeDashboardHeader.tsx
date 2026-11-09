@@ -17,7 +17,7 @@ function navClass(pathname: string, href: string) {
   );
 }
 
-export default function GranteeDashboardHeader({ requiredRole = "GRANTEE" }: { requiredRole?: string | null }) {
+export default function GranteeDashboardHeader() {
   const pathname = usePathname();
   const handleHomeClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (
@@ -61,7 +61,7 @@ export default function GranteeDashboardHeader({ requiredRole = "GRANTEE" }: { r
           <Link href="/applications" className={navClass(pathname, "/applications")}>Applications</Link>
         </nav>
 
-        <DashboardHeaderActions requiredRole={requiredRole ?? undefined} />
+        <DashboardHeaderActions />
       </div>
     </header>
   );

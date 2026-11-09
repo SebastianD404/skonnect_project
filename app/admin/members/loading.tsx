@@ -3,7 +3,7 @@ const tableRows = Array.from({ length: 5 }, (_, index) => index);
 
 export default function AdminMembersLoading() {
   return (
-    <div role="status" aria-label="Loading members" className="animate-pulse flex w-full flex-col text-slate-950">
+    <div role="status" aria-label="Loading members" className="w-full max-w-[1200px] mx-auto flex flex-col gap-6 sm:gap-8 animate-pulse text-slate-950">
       <header>
         <div>
           <div className="mb-2 h-3 w-28 rounded bg-slate-200" />
@@ -12,7 +12,7 @@ export default function AdminMembersLoading() {
         </div>
       </header>
 
-      <section aria-hidden="true" className="my-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <section aria-hidden="true" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 w-full">
         {metricCards.map((card) => (
           <div key={card} className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -25,7 +25,7 @@ export default function AdminMembersLoading() {
         ))}
       </section>
 
-      <section aria-hidden="true" className="overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+      <section aria-hidden="true" className="w-full h-[400px] animate-pulse overflow-hidden rounded-lg border border-slate-100 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div className="h-10 w-72 max-w-full rounded-lg bg-slate-200" />
           <div className="h-10 w-32 shrink-0 rounded-lg bg-slate-200" />

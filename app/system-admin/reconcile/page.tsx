@@ -92,7 +92,7 @@ export default function SystemAdminReconcilePage() {
     : [];
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 pb-12">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 pb-12">
       <header>
         <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
           <span>System Admin</span>

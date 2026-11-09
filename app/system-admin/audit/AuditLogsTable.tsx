@@ -433,7 +433,7 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
           <EmptyState />
         ) : (
           <>
-            <div className="hidden lg:block">
+            <div className="hidden w-full overflow-x-auto whitespace-nowrap lg:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-900 text-left text-[11px] font-bold tracking-wider text-white uppercase">
@@ -680,7 +680,7 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
               {selectedChanges.length === 0 ? (
                 <p className="mt-2 text-sm text-slate-500">No explicit field changes detected.</p>
               ) : (
-                <div className="mt-3 overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+                <div className="mt-3 w-full overflow-x-auto whitespace-nowrap rounded-3xl border border-slate-200/80 bg-white shadow-sm">
                   <table className="w-full table-fixed text-sm">
                     <thead className="bg-slate-900 text-left text-[11px] font-bold tracking-wider text-white uppercase">
                       <tr>

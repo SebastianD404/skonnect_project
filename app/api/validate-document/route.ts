@@ -13,6 +13,7 @@ import {
   extractDocxTextFromBuffer,
   getSkeapDocumentKeywordMatches,
 } from "@/lib/skeap-document-keywords";
+import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 
 export const runtime = "nodejs";
 
@@ -138,7 +139,7 @@ function getFriendlyValidationResponse(documentType: DocumentType, result: { suc
     success: false,
     status: "error",
     badgeText: "Residency Details Missing",
-    message: "Please upload your Certificate of Residency that states you have lived in Barangay Pico for at least 8 months.",
+    message: `Please upload your Certificate of Residency that states you have lived in Barangay Pico for at least ${MINIMUM_RESIDENCY_MONTHS_TEXT}.`,
     isValid: false,
     matchedKeywords: result.matchedKeywords,
     text: result.text,

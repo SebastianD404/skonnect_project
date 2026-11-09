@@ -295,8 +295,15 @@ export async function login(
     return redirect(secureRedirect);
   }
 
-  // If the login form included a `next` param, prefer redirecting there.
-  if (next && next.startsWith("/")) {
+  const isSafeNext = next.startsWith("/") && !next.startsWith("//");
+  const nextRequiresGranteeRole = next.startsWith("/grantee-dashboard");
+  const nextRequiresYouthRole = next.startsWith("/youth-dashboard");
+  const nextMatchesRole =
+    (!nextRequiresGranteeRole || profile.role === "GRANTEE") &&
+    (!nextRequiresYouthRole || profile.role === "YOUTH");
+
+  // Never send a downgraded user back to a dashboard their current role cannot access.
+  if (isSafeNext && nextMatchesRole) {
     return redirect(next);
   }
 

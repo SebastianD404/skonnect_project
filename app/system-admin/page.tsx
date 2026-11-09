@@ -71,7 +71,7 @@ export default async function SystemAdminDashboardPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
       <div className="mb-6">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -86,7 +86,7 @@ export default async function SystemAdminDashboardPage() {
         </div>
       </div>
 
-      <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mb-8 grid w-full grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
         <Link
           href="/system-admin/users"
           className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
@@ -167,7 +167,7 @@ export default async function SystemAdminDashboardPage() {
 
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-3">
+      <section className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 w-full">
         <div className="overflow-hidden rounded-2xl border border-[#D6E1EC] bg-white shadow-sm lg:col-span-2">
           <div className="flex items-center justify-between border-b border-[#E4ECF3] px-6 py-4">
             <div className="flex items-center gap-2">
@@ -209,7 +209,7 @@ export default async function SystemAdminDashboardPage() {
           )}
         </div>
 
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 xl:col-span-2 xl:grid-cols-2">
           <div className="rounded-2xl border border-[#D6E1EC] bg-white p-6 shadow-sm">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-[#0F3D5C]" />

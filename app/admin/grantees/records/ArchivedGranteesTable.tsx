@@ -105,7 +105,7 @@ export default function ArchivedGranteesTable({
         </nav>
       </div>
 
-      <div className="w-full overflow-x-auto">
+      <div className="w-full overflow-x-auto whitespace-nowrap">
         <table className="w-full min-w-[900px] table-fixed border-collapse text-left text-sm">
           <thead className="bg-gradient-to-r from-slate-900 to-cyan-900 text-cyan-50">
             <tr className="text-[11px] font-bold uppercase tracking-wider">

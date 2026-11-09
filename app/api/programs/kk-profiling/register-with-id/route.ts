@@ -6,6 +6,7 @@ import { uploadPrivateDocument } from "@/lib/private-documents";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 import { KK_PROFILING_MANUAL_REVIEW_NOTE } from "@/lib/kk-profiling-review";
 import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
+import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
@@ -407,7 +408,7 @@ export async function POST(req: NextRequest) {
     // Only require the explicit checkbox when no residency file is present.
     if (!body.residencyStatementAcknowledgement && !residencyFile) {
       return NextResponse.json(
-        { error: "Please confirm that your Certificate of Residency states you have lived in the barangay for at least 8 months." },
+        { error: `Please confirm that your Certificate of Residency states you have lived in the barangay for at least ${MINIMUM_RESIDENCY_MONTHS_TEXT}.` },
         { status: 400 }
       );
     }

@@ -79,7 +79,7 @@ export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpd
   };
 
   return (
-    <div className={`flex items-center ${compact ? "justify-end gap-1.5" : "gap-2"}`}>
+    <div className={`flex items-center justify-end ${compact ? "gap-1.5" : "gap-2"}`}>
       <button
         type="button"
         onClick={() => setShowDetails(true)}

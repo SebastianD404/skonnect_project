@@ -5,8 +5,11 @@ import { writeAuditLog } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { parseVerifiedGwa } from "@/lib/grade-report-review";
+import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
+import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 
-type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE";
+type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE" | "REVOKE";
 type DocumentType = "coe" | "grades";
 
 type GradeRow = {
@@ -34,6 +37,7 @@ type ReviewBody = {
   verifiedNoIncGrades?: boolean;
   verifiedNoDroppedSubjects?: boolean;
   verifiedGwa?: string | number;
+  reason?: string;
 };
 
 
@@ -65,12 +69,13 @@ export async function POST(
     const documentType = body.documentType || "coe";
     const action = body.action;
     const reviewNotes = String(body.reviewNotes ?? "").trim();
+    const revocationReason = String(body.reason ?? "").trim();
 
-    if (action !== "APPROVE" && action !== "RETURN_FOR_UPDATE") {
+    if (action !== "APPROVE" && action !== "RETURN_FOR_UPDATE" && action !== "REVOKE") {
       return NextResponse.json({ error: "Invalid review action" }, { status: 400 });
     }
 
-    if (documentType !== "coe" && documentType !== "grades") {
+    if (action !== "REVOKE" && documentType !== "coe" && documentType !== "grades") {
       return NextResponse.json({ error: "Invalid document type" }, { status: 400 });
     }
 
@@ -104,6 +109,9 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (action === "REVOKE" && !revocationReason) {
+      return NextResponse.json({ error: "A reason for revocation is required." }, { status: 400 });
+    }
 
     const existing = await prisma.submission.findUnique({
       where: { id },
@@ -119,8 +127,15 @@ export async function POST(
         generalAverage: true,
         grantee: {
           select: {
+            id: true,
             status: true,
             generalAverage: true,
+            user: {
+              select: {
+                email: true,
+                fullName: true,
+              },
+            },
           },
         },
       } as Prisma.SubmissionSelect,
@@ -131,6 +146,101 @@ export async function POST(
     }
     if (existing.grantee?.status === "GRADUATED") {
       return NextResponse.json({ error: "Graduated scholar submissions are locked for statutory retention." }, { status: 409 });
+    }
+    if (action === "REVOKE") {
+      const revokedAt = new Date();
+      const revoked = await prisma.$transaction(async (tx) => {
+        const current = await tx.submission.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            status: true,
+            grantee: {
+              select: {
+                id: true,
+                status: true,
+                user: { select: { id: true, email: true, fullName: true, role: true } },
+              },
+            },
+          },
+        });
+        if (!current) throw new Error("Submission not found");
+        if (current.grantee.status === "GRADUATED") throw new Error("GRADUATED_SUBMISSION_ARCHIVED");
+        if (current.grantee.status === "REMOVED") throw new Error("GRANTEE_ALREADY_REMOVED");
+
+        const updatedGrantee = await tx.grantee.update({
+          where: { id: current.grantee.id },
+          data: {
+            status: "REMOVED",
+            dateRemoved: revokedAt,
+            remarks: revocationReason,
+          },
+        });
+        await downgradeInactiveGranteeRole(tx, current.grantee.user.id);
+        const updatedSubmission = await tx.submission.update({
+          where: { id },
+          data: {
+            status: "REMOVED",
+            reviewNotes: revocationReason,
+            reviewedAt: revokedAt,
+            reviewedById: appUser.id,
+          },
+        });
+
+        await writeAuditLog(tx, {
+          action: "GRANTEE_STATUS_CHANGED",
+          actorId: appUser.id,
+          targetTable: "grantees",
+          targetId: current.grantee.id,
+          beforeData: { status: current.grantee.status },
+          afterData: {
+            status: updatedGrantee.status,
+            dateRemoved: updatedGrantee.dateRemoved,
+            userRole: "YOUTH",
+          },
+          metadata: {
+            reason: revocationReason,
+            submissionId: id,
+            targetEmail: current.grantee.user.email,
+            previousUserRole: current.grantee.user.role,
+            userRole: "YOUTH",
+          },
+          meta: {
+            reason: revocationReason,
+            submissionId: id,
+            target: current.grantee.user.fullName,
+          },
+        });
+
+        return {
+          submission: updatedSubmission,
+          recipient: current.grantee.user,
+        };
+      });
+
+      const subject = "SKEAP scholarship status update";
+      const bodyText = [
+        `Hello ${revoked.recipient.fullName},`,
+        "",
+        "Your SKEAP scholarship has been revoked and your grantee status has been marked as Removed.",
+        "",
+        `Reason for revocation: ${revocationReason}`,
+        "",
+        "Your record has been transferred to the Past Grantees archive. Please contact the SKEAP administration if you have questions about this decision.",
+        "",
+        "SKEAP Administration",
+      ].join("\n");
+      await refreshInactiveGranteesView();
+      const transporter = createGmailTransporter();
+      await sendTransactionalEmail(
+        transporter,
+        revoked.recipient.email,
+        subject,
+        bodyText,
+        `revocation-${id}`,
+      );
+
+      return NextResponse.json({ success: true, submission: revoked.submission });
     }
     const existingDocumentStatus =
       documentType === "coe" ? existing.coeStatus : existing.gradesStatus;

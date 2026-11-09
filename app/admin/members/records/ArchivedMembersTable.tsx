@@ -59,7 +59,7 @@ export function ArchivedMembersTable({
           iconClassName="h-3.5 w-3.5"
         />
       </div>
-      <div className="w-full overflow-hidden">
+      <div className="w-full overflow-x-auto whitespace-nowrap">
         <table className="w-full table-fixed overflow-hidden border-collapse text-left text-sm">
           <thead className="bg-[#0f172a] text-white">
             <tr className="text-xs font-semibold tracking-wider">

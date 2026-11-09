@@ -32,7 +32,7 @@ export default function YouthDashboardHeader() {
           <Link href="/applications" className={navClass(pathname, "/applications")}>Applications</Link>
         </nav>
 
-        <DashboardHeaderActions requiredRole="YOUTH" supportInboxPath="/youth-dashboard/inquiries" />
+        <DashboardHeaderActions supportInboxPath="/youth-dashboard/inquiries" />
       </div>
     </header>
   );

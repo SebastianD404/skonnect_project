@@ -987,7 +987,7 @@ export default function KKProfilingForm() {
             <h3 className="border-b border-slate-200 pb-2 text-lg font-bold text-slate-900">
               PART III: Valid ID and Certificate of Residency
             </h3>
-            <p className="mt-2 text-sm text-slate-500">Please upload both a valid ID and a Certificate of Residency. Your residency document must state that you have lived in Barangay Pico for at least 8 months.</p>
+            <p className="mt-2 text-sm text-slate-500">Please upload both a valid ID and a Certificate of Residency. Your residency document must state that you have lived in Barangay Pico for at least 6 months.</p>
           </div>
 
           <div className="space-y-4">

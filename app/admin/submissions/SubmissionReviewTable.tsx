@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
+import RevokeGranteeModal from "./RevokeGranteeModal";
 import type { ReactNode } from "react";
 import type { SubmissionStatus } from "@prisma/client";
 import {
@@ -15,7 +16,6 @@ import {
   GraduationCap,
   Loader2,
   Search,
-  Trash2,
   Undo2,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
@@ -278,98 +278,59 @@ function DocumentCard({
       </div>
 
       {documentKind === "grade" ? (
-        <div className="flex shrink-0 flex-col gap-3 pl-1">
-          <div className="grid grid-cols-3 gap-1.5">
-            {approved ? (
-              <>
-                <span title="No failing grades (5.00 or 74)" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-1.5 py-1.5 text-[9px] font-semibold text-slate-600">
-                  <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span className="truncate">No failing</span>
-                </span>
-                <span title="No incomplete (INC) grades" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-1.5 py-1.5 text-[9px] font-semibold text-slate-600">
-                  <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span className="truncate">No INC</span>
-                </span>
-                <span title="No dropped subjects (DRP)" className="inline-flex min-w-0 items-center justify-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-1.5 py-1.5 text-[9px] font-semibold text-slate-600">
-                  <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span className="truncate">No DRP</span>
-                </span>
-              </>
-            ) : (
-              <>
-                <label
-                  title="No failing grades (5.00 or 74)"
-                  className={`inline-flex min-w-0 cursor-pointer items-center justify-center gap-1 rounded-full border px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
-                    gradeVerification.noFailing
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={gradeVerification.noFailing}
-                    disabled={disabled}
-                    onChange={(event) => onGradeVerificationChange?.({ noFailing: event.target.checked })}
-                    aria-label="No failing grades (5.00 or 74)"
-                    className="h-3 w-3 shrink-0 cursor-pointer rounded border-slate-300 accent-emerald-600 focus:ring-0 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
-                  />
-                  <span className="truncate">No failing</span>
-                </label>
-                <label
-                  title="No incomplete (INC) grades"
-                  className={`inline-flex min-w-0 cursor-pointer items-center justify-center gap-1 rounded-full border px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
-                    gradeVerification.noInc
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={gradeVerification.noInc}
-                    disabled={disabled}
-                    onChange={(event) => onGradeVerificationChange?.({ noInc: event.target.checked })}
-                    aria-label="No incomplete (INC) grades"
-                    className="h-3 w-3 shrink-0 cursor-pointer rounded border-slate-300 accent-emerald-600 focus:ring-0 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
-                  />
-                  <span className="truncate">No INC</span>
-                </label>
-                <label
-                  title="No dropped subjects (DRP)"
-                  className={`inline-flex min-w-0 cursor-pointer items-center justify-center gap-1 rounded-full border px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
-                    gradeVerification.noDropped
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={gradeVerification.noDropped}
-                    disabled={disabled}
-                    onChange={(event) => onGradeVerificationChange?.({ noDropped: event.target.checked })}
-                    aria-label="No dropped subjects (DRP)"
-                    className="h-3 w-3 shrink-0 cursor-pointer rounded border-slate-300 accent-emerald-600 focus:ring-0 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
-                  />
-                  <span className="truncate">No DRP</span>
-                </label>
-              </>
-            )}
-          </div>
-          {!approved ? (
-            <div className="flex items-center justify-between gap-2 px-1">
-              <span className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Verified GWA:
+        <div className="mt-4 flex shrink-0 flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <label className="group flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={approved || (
+                gradeVerification.noFailing &&
+                gradeVerification.noInc &&
+                gradeVerification.noDropped
+              )}
+              disabled={disabled || approved}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                onGradeVerificationChange?.({
+                  noFailing: checked,
+                  noInc: checked,
+                  noDropped: checked,
+                });
+              }}
+              aria-label="Academic requirements met"
+              className="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-slate-300 text-emerald-600 focus:ring-emerald-600"
+            />
+            <span className="flex flex-col">
+              <span className="text-xs font-semibold text-slate-900 transition-colors group-hover:text-emerald-700">
+                Academic requirements met
               </span>
+              <span className="text-[11px] leading-tight text-slate-500">No failing grades, INC, or DRP</span>
+            </span>
+          </label>
+          <div className="h-px w-full bg-slate-200" />
+          {!approved ? (
+            <div className="flex items-center justify-between">
+              <label htmlFor={`${submissionId}-verified-gwa`} className="text-xs font-medium text-slate-700">
+                Verified GWA
+              </label>
               <input
+                id={`${submissionId}-verified-gwa`}
                 type="text"
                 value={verifiedGwa}
                 disabled={disabled}
                 onChange={(event) => onVerifiedGwaChange?.(event.target.value)}
-                placeholder="e.g. 1.25 or 92"
+                placeholder="e.g. 92.00 or 1.25"
                 aria-label="Verified GWA"
-                className="h-8 w-28 rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs shadow-2xs outline-none transition-colors focus:border-emerald-500"
+                className="w-36 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-900 outline-none transition-shadow focus:border-transparent focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-100"
               />
             </div>
-          ) : null}
+          ) : (
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-700">Verified GWA</span>
+              <span className="text-xs font-semibold text-slate-900">
+                {verifiedGwa || "Not recorded"}
+              </span>
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -391,7 +352,9 @@ function DocumentCard({
             value={reviewNotesValue}
             disabled={disabled}
             onChange={(event) => onNotesChange(event.target.value)}
-            className="text-slate-900 placeholder:text-slate-400"
+            className={`flex-1 text-slate-900 placeholder:text-slate-400 ${
+              documentKind === "grade" ? "min-h-[160px]" : ""
+            }`}
           />
         </div>
       )}
@@ -409,15 +372,15 @@ function DocumentCard({
           </button>
         </div>
       ) : documentKind === "grade" ? (
-        <div className="review-card__actions">
+        <div className="mt-6 flex items-center gap-4 border-t border-slate-100 pt-4">
           <button
             type="button"
             onClick={onReturn}
             disabled={disabled}
-            className="review-button review-button--return"
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-            <span>Return</span>
+            <Undo2 className="h-4 w-4" aria-hidden="true" />
+            Return
           </button>
           <button
             type="button"
@@ -429,10 +392,10 @@ function DocumentCard({
               !gradeVerification.noDropped ||
               parseVerifiedGwa(verifiedGwa) === null
             }
-            className="review-button review-button--approve"
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{approved ? "Approved" : "Approve Grades"}</span>
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            Approve Grades
           </button>
         </div>
       ) : (
@@ -618,9 +581,8 @@ export default function SubmissionReviewTable() {
     noDropped: false,
     verifiedGwa: "",
   });
-  const [deleteToast, setDeleteToast] = useState<{ message: string; isWarning: boolean } | null>(null);
   const [completedSemesterFilter, setCompletedSemesterFilter] = useState("all");
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -645,12 +607,6 @@ export default function SubmissionReviewTable() {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isExportMenuOpen]);
-
-  useEffect(() => {
-    if (!deleteToast) return;
-    const timeout = window.setTimeout(() => setDeleteToast(null), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [deleteToast]);
 
   useEffect(() => {
     if (!actionSuccess) return;
@@ -956,40 +912,29 @@ export default function SubmissionReviewTable() {
     }
   }
 
-  async function deleteSelectedSubmission() {
-    if (!selectedSubmission || isSaving) return;
+  async function revokeSelectedGrantee(reason: string) {
+    if (!selectedSubmission || isSaving || !reason) return;
 
-    const submissionId = selectedSubmission.id;
-    setSavingSubmissionId(submissionId);
+    setSavingSubmissionId(selectedSubmission.id);
     setActionError(null);
     setValidationError(null);
     setActionSuccess(null);
     try {
-      const response = await fetch(`/api/admin/submissions/${submissionId}`, {
-        method: "DELETE",
+      const response = await fetch(`/api/admin/submissions/${selectedSubmission.id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REVOKE", reason }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload?.error || "Unable to delete submission.");
+        throw new Error(payload?.error || "Unable to revoke grantee.");
       }
 
-      setSelectedSubmissionId(null);
-      setReviewDrafts((current) => {
-        const nextDrafts = { ...current };
-        delete nextDrafts[submissionId];
-        return nextDrafts;
-      });
-      setDeleteToast({
-        message: typeof payload.warning === "string" ? payload.warning : "Submission deleted.",
-        isWarning: typeof payload.warning === "string",
-      });
-      setIsDeleteModalOpen(false);
-      setIsLoading(true);
-      setRefreshToken((current) => current + 1);
-      window.dispatchEvent(new Event("admin-submissions-updated"));
+      setIsRevokeModalOpen(false);
+      router.push("/admin/submissions");
       router.refresh();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to delete submission.");
+      setActionError(error instanceof Error ? error.message : "Unable to revoke grantee.");
     } finally {
       setSavingSubmissionId(null);
     }
@@ -999,33 +944,6 @@ export default function SubmissionReviewTable() {
     <section className="w-full">
       {exportError ? (
         <FloatingFeedback message={exportError} type="error" onDismiss={() => setExportError(null)} />
-      ) : null}
-      {deleteToast ? (
-        deleteToast.isWarning ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-xl border border-slate-200 border-l-4 border-l-amber-500 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-lg"
-          >
-            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden="true" />
-            <span className="flex-1">{deleteToast.message}</span>
-            <button
-              type="button"
-              onClick={() => setDeleteToast(null)}
-              aria-label="Dismiss deletion notification"
-              className="ml-1 text-slate-400 transition hover:text-slate-700"
-            >
-              ×
-            </button>
-          </div>
-        ) : (
-          <FloatingFeedback
-            message={deleteToast.message}
-            type="success"
-            autoDismissMs={0}
-            onDismiss={() => setDeleteToast(null)}
-          />
-        )
       ) : null}
       <div className="p-4 sm:p-5">
         <div className="flex min-h-10 flex-wrap items-center justify-between gap-3">
@@ -1154,7 +1072,9 @@ export default function SubmissionReviewTable() {
 
       <div className="space-y-3 p-4 sm:p-5" aria-busy={isLoading}>
         {loadError ? <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
-        {validationError ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p> : null}
+        {validationError ? (
+          <FloatingFeedback message={validationError} type="error" onDismiss={() => setValidationError(null)} />
+        ) : null}
         {actionError ? <FloatingFeedback message={actionError} type="error" onDismiss={() => setActionError(null)} /> : null}
         {actionSuccess ? <FloatingFeedback message={actionSuccess} type="success" autoDismissMs={0} onDismiss={() => setActionSuccess(null)} /> : null}
 
@@ -1309,12 +1229,12 @@ export default function SubmissionReviewTable() {
                       )}
                       <button
                         type="button"
-                        onClick={() => setIsDeleteModalOpen(true)}
+                        onClick={() => setIsRevokeModalOpen(true)}
                         disabled={isSaving}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        <Trash2 className="h-4 w-4" />
-                        Delete Submission
+                        <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                        Revoke Grantee
                       </button>
                     </div>
                   </div>
@@ -1407,58 +1327,13 @@ export default function SubmissionReviewTable() {
         </div>
         )}
       </div>
-      {isDeleteModalOpen && selectedSubmission ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[2px]"
-          onClick={(event) => {
-            if (event.target === event.currentTarget && !isSaving) {
-              setIsDeleteModalOpen(false);
-            }
-          }}
-        >
-          <section
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="delete-submission-title"
-            aria-describedby="delete-submission-description"
-            className="w-full max-w-md space-y-5 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xl"
-          >
-            <div className="flex items-start gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600">
-                <Trash2 className="h-5 w-5" aria-hidden="true" />
-              </div>
-              <div className="space-y-1">
-                <h2 id="delete-submission-title" className="text-base font-bold tracking-tight text-slate-900">
-                  Delete Submission Record
-                </h2>
-                <p id="delete-submission-description" className="text-xs leading-relaxed text-slate-500">
-                  Are you sure you want to delete {selectedSubmission.grantee.user.fullName}&apos;s submission?
-                  This action is permanent and cannot be undone.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 pt-3">
-              <button
-                type="button"
-                onClick={() => setIsDeleteModalOpen(false)}
-                disabled={isSaving}
-                className="cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void deleteSelectedSubmission()}
-                disabled={isSaving}
-                className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow-xs transition-all hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-                {isSaving ? "Deleting..." : "Yes, Delete Record"}
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <RevokeGranteeModal
+        open={isRevokeModalOpen && selectedSubmission !== null}
+        granteeName={selectedSubmission?.grantee.user.fullName ?? "this grantee"}
+        submitting={isSaving}
+        onClose={() => setIsRevokeModalOpen(false)}
+        onConfirm={(reason) => void revokeSelectedGrantee(reason)}
+      />
     </section>
   );
 }

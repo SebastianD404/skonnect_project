@@ -6,7 +6,7 @@ export default function InquiriesPageSkeleton() {
     <main
       role="status"
       aria-label="Loading inquiries"
-      className="mx-auto flex w-full animate-pulse flex-col gap-6 pb-12"
+      className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse pb-12"
     >
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div className="max-w-2xl">
@@ -48,7 +48,7 @@ export default function InquiriesPageSkeleton() {
           </div>
         </div>
 
-        <div className="w-full overflow-x-auto">
+        <div className="w-full overflow-x-auto whitespace-nowrap">
           <table className="w-full table-fixed border-collapse text-left text-sm">
             <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
               <tr className="border-b border-slate-800">

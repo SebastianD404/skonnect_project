@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import HomePageContent from "../HomePageContent";
 
 export default function YouthDashboardPage() {
-  redirect("/");
+  return <HomePageContent />;
 }

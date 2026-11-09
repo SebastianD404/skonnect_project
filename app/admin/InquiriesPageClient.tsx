@@ -823,7 +823,7 @@ export default function InquiriesPageClient({
           </div>
         </div>
 
-            <div className="w-full overflow-x-auto">
+            <div className="w-full overflow-x-auto whitespace-nowrap">
               <table className="w-full table-fixed border-collapse whitespace-nowrap text-left text-sm divide-y divide-slate-200">
                 <thead className="relative z-30 bg-gradient-to-r from-slate-900 to-cyan-900">
                   <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">

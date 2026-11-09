@@ -414,23 +414,25 @@ export default async function AdminInquiriesPage() {
   });
 
   return (
-    <InquiriesPageClient
-      dateLabel={dateLabel}
-      openInquiryCount={openInquiryCount}
-      pendingSubmissionCount={pendingSubmissionCount}
-      statsByPeriod={statsByPeriod}
-      inquiryCounts={{
-        ALL: totalInquiryCount,
-        OPEN: openInquiryCount,
-        RESOLVED: totalInquiryCount - openInquiryCount,
-      }}
-      operationalStats={operationalStats}
-      inquiries={inquiries.map((inquiry) => ({
-        ...inquiry,
-        createdAt: inquiry.createdAt.toISOString(),
-        respondedAt: inquiry.respondedAt?.toISOString() ?? null,
-        reviewThread: normalizeReviewThread(inquiry.reviewThread),
-      }))}
-    />
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
+      <InquiriesPageClient
+        dateLabel={dateLabel}
+        openInquiryCount={openInquiryCount}
+        pendingSubmissionCount={pendingSubmissionCount}
+        statsByPeriod={statsByPeriod}
+        inquiryCounts={{
+          ALL: totalInquiryCount,
+          OPEN: openInquiryCount,
+          RESOLVED: totalInquiryCount - openInquiryCount,
+        }}
+        operationalStats={operationalStats}
+        inquiries={inquiries.map((inquiry) => ({
+          ...inquiry,
+          createdAt: inquiry.createdAt.toISOString(),
+          respondedAt: inquiry.respondedAt?.toISOString() ?? null,
+          reviewThread: normalizeReviewThread(inquiry.reviewThread),
+        }))}
+      />
+    </div>
   );
 }

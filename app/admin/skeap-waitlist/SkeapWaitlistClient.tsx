@@ -343,7 +343,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
         ) : filteredApplications.length === 0 ? (
           <div className="flex items-center justify-center px-6 py-12 text-center text-sm text-slate-500">No applicants match your search.</div>
         ) : (
-          <div className="w-full overflow-x-auto">
+          <div className="w-full overflow-x-auto whitespace-nowrap">
             <table className="w-full border-collapse whitespace-nowrap text-left text-sm">
               <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
                 <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">

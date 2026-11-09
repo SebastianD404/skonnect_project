@@ -8,11 +8,11 @@ function IntegrationCardSkeleton() {
   return (
     <section
       aria-hidden="true"
-      className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm"
+      className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <Placeholder className="h-10 w-10 shrink-0 rounded-xl" />
+          <Placeholder className="h-9 w-9 shrink-0 rounded-lg" />
           <div className="min-w-0 flex-1 space-y-2">
             <Placeholder className="h-4 w-40 max-w-full" />
             <Placeholder className="h-3 w-64 max-w-full" />
@@ -33,7 +33,7 @@ export default function IntegrationsLoading() {
     <div
       role="status"
       aria-label="Loading API integrations"
-      className="mx-auto max-w-7xl space-y-6"
+      className="mx-auto flex w-full max-w-[1080px] flex-col gap-6 sm:gap-8"
     >
       <header>
         <Placeholder className="h-3 w-56" />
@@ -53,7 +53,7 @@ export default function IntegrationsLoading() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2">
         {integrations.map((integration) => (
           <IntegrationCardSkeleton key={integration} />
         ))}

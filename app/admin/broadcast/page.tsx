@@ -267,7 +267,7 @@ export default function BroadcastPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 pb-12">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 pb-12">
       <div>
         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Communication</span>
         <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Broadcast Messages</h1>

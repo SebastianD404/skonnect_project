@@ -203,11 +203,11 @@ async function main() {
 
     const matchedKeywords = findMatches(rawText, CERTIFICATE_TERMS);
     const hasGeneralTerm = matchedKeywords.length > 0;
-    const hasEight = /\b(8|08|eight)\b/i.test(rawText);
+    const hasMinimumResidencyMonths = /\b(6|06|six)\b/i.test(rawText);
     const hasMonths = /\b(months?|mos\.?)\b/i.test(rawText);
     const result = {
       success: true,
-      isValid: hasGeneralTerm && hasEight && hasMonths,
+      isValid: hasGeneralTerm && hasMinimumResidencyMonths && hasMonths,
       matchedKeywords,
       text: rawText,
     };

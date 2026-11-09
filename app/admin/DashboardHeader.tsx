@@ -129,8 +129,8 @@ export default function DashboardHeader({
 
       {/* Stats Grid */}
       {stats && stats.length > 0 && (
-        <div className="px-8">
-          <div className={`grid gap-4 ${operationalSnapshot ? `grid-cols-1 md:grid-cols-2 ${stats.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}` : "sm:grid-cols-2 lg:grid-cols-4"}`}>
+        <div className="w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 w-full">
             {stats.map((stat) => {
               const Icon = stat.icon;
               if (operationalSnapshot) {

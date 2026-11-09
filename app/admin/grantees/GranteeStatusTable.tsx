@@ -101,7 +101,7 @@ export function GranteeStatusTable({
         </label>
       </div>
 
-      <div className={`relative w-full overflow-x-auto ${isLoading ? "min-h-[200px]" : ""}`}>
+      <div className={`relative w-full overflow-x-auto whitespace-nowrap ${isLoading ? "min-h-[200px]" : ""}`}>
         {isLoading ? (
           <div
             role="status"

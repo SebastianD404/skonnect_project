@@ -404,7 +404,7 @@ export default function HomePageContent() {
                       <strong>Certificate of Residency</strong>
                       <br />
                       <span className="text-xs text-slate-500">
-                        Must state you have lived in Barangay Pico for at least 8 months.
+                        Must state you have lived in Barangay Pico for at least 6 months.
                       </span>
                     </span>
                   </li>

@@ -389,22 +389,24 @@ export default async function SkeapApplicationsPage() {
   const lastApplication = applications[applications.length - 1];
 
   return (
-    <SkeapApplicationsClient
-      applications={applications}
-      hasNextPage={hasNextPage}
-      initialAcademicYear={initialAcademicYear}
-      academicYears={academicYears}
-      initialCursor={
-        hasNextPage && lastApplication
-          ? { id: lastApplication.id, createdAt: lastApplication.submittedAt }
-          : null
-      }
-      counts={{
-        pending: pendingCount,
-        returned: returnedCount,
-        resubmitted: resubmittedCount,
-        approved: approvedCount,
-      }}
-    />
+    <div className="w-full max-w-[1200px] mx-auto flex flex-col gap-6 sm:gap-8">
+      <SkeapApplicationsClient
+        applications={applications}
+        hasNextPage={hasNextPage}
+        initialAcademicYear={initialAcademicYear}
+        academicYears={academicYears}
+        initialCursor={
+          hasNextPage && lastApplication
+            ? { id: lastApplication.id, createdAt: lastApplication.submittedAt }
+            : null
+        }
+        counts={{
+          pending: pendingCount,
+          returned: returnedCount,
+          resubmitted: resubmittedCount,
+          approved: approvedCount,
+        }}
+      />
+    </div>
   );
 }

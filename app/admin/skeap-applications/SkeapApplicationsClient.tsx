@@ -1263,7 +1263,7 @@ export default function SkeapApplicationsClient({
             </div>
           </header>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-4">
             <ApplicationMetricCard
               label="Pending Review"
               value={stats.pending}

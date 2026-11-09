@@ -4,12 +4,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { usePathname, useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/browser";
 
-type AuthUser = {
+export type AuthUser = {
   id?: string;
   fullName?: string;
   email?: string;
   avatarUrl?: string;
   role?: "YOUTH" | "GRANTEE" | "SK_OFFICIAL" | "SUPER_ADMIN";
+  skeapStatus?: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED" | null;
 };
 
 type AuthContextValue = {
@@ -63,11 +64,25 @@ export function AuthProvider({
         currentUserRef.current = profile;
         setUser(profile);
         if (
+          profile.skeapStatus === "REMOVED" ||
+          profile.skeapStatus === "REVOKED" ||
+          profile.skeapStatus === "GRADUATED"
+        ) {
+          if (currentPathnameRef.current.startsWith("/grantee-dashboard")) {
+            router.replace("/");
+          }
+        } else if (
           previousUser?.role === "YOUTH" &&
           profile.role === "GRANTEE" &&
           !currentPathnameRef.current.startsWith("/grantee-dashboard")
         ) {
           router.replace("/grantee-dashboard");
+        } else if (
+          previousUser?.role === "GRANTEE" &&
+          profile.role === "YOUTH" &&
+          currentPathnameRef.current.startsWith("/grantee-dashboard")
+        ) {
+          router.replace("/youth-dashboard");
         }
       } else {
         currentUserRef.current = null;
@@ -86,7 +101,7 @@ export function AuthProvider({
   }, [router]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || pathname.startsWith("/grantee-dashboard")) return;
 
     const refreshVisibleSession = () => {
       if (document.visibilityState === "visible") {
@@ -100,7 +115,7 @@ export function AuthProvider({
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", refreshVisibleSession);
     };
-  }, [refresh, user?.id]);
+  }, [pathname, refresh, user?.id]);
 
   useEffect(() => {
     const initialRefresh = window.setTimeout(() => {

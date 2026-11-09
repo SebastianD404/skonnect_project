@@ -36,6 +36,7 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
         select: {
           fullName: true,
           email: true,
+          role: true,
           grantee: { select: { id: true, status: true } },
           skeapApplications: {
             where: {
@@ -74,11 +75,19 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
   }
   const membersForTable = pagedMembers.map((member) => {
     const applicationStatuses = member.user?.skeapApplications.map((application) => application.status) ?? [];
-    const skeapStatus = applicationStatuses.includes(SubmissionStatus.WAITLISTED)
-      ? SubmissionStatus.WAITLISTED
-      : applicationStatuses.includes(SubmissionStatus.PENDING)
-        ? SubmissionStatus.PENDING
-        : member.user?.grantee?.status ?? "NONE";
+    const granteeStatus = member.user?.grantee?.status;
+    const isActiveGrantee =
+      member.user?.role === Role.GRANTEE &&
+      (granteeStatus === GranteeStatus.ACTIVE || granteeStatus === GranteeStatus.PROBATIONARY);
+    const skeapStatus = !isActiveGrantee
+      ? granteeStatus === GranteeStatus.REMOVED
+        ? GranteeStatus.REMOVED
+        : applicationStatuses.includes(SubmissionStatus.WAITLISTED)
+          ? SubmissionStatus.WAITLISTED
+          : applicationStatuses.includes(SubmissionStatus.PENDING)
+            ? SubmissionStatus.PENDING
+            : "NONE"
+      : GranteeStatus.ACTIVE;
 
     return { ...member, skeapStatus };
   });
@@ -94,7 +103,7 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
   ];
 
   return (
-    <div className="flex w-full flex-col gap-6 text-slate-950">
+    <div className="w-full max-w-[1200px] mx-auto flex flex-col gap-6 sm:gap-8 text-slate-950">
         <header>
           <h1 className="mb-1.5 text-2xl font-bold tracking-tight text-slate-900">SK Youth Members</h1>
           <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
@@ -126,7 +135,7 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
           ))}
         </div>
 
-        <section className="relative z-10 mt-4 flex flex-col overflow-visible rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <section className="relative z-10 mt-4 flex w-full flex-col overflow-visible rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="w-full overflow-visible">
             <KKProfilingRegistrationsTable
               registrations={membersForTable}

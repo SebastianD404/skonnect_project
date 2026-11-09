@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 
 async function authorizeUser() {
@@ -96,6 +97,10 @@ export async function PATCH(
         select: { id: true, userId: true, status: true, graduatedAt: true },
       });
       if (!saved) throw new Error("GRANTEE_NOT_FOUND");
+
+      if (saved.status === "REMOVED") {
+        await downgradeInactiveGranteeRole(tx, saved.userId);
+      }
 
       await writeAuditLog(tx, {
         action: "GRANTEE_STATUS_CHANGED",

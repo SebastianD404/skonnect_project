@@ -17,7 +17,7 @@ export default async function HomeRouteContent() {
     });
     const destination = getRoleHomePath(appUser?.role);
 
-    if (destination && destination !== "/") {
+    if (destination) {
       redirect(destination);
     }
   }

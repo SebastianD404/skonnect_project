@@ -93,7 +93,7 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
 
   return (
     <KKProfilingTableSearchProvider>
-      <div className="mx-auto flex w-full max-w-7xl flex-col pb-12 text-slate-950">
+      <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 pb-12 text-slate-950">
         <div className="mb-6">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">

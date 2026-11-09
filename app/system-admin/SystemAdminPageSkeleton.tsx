@@ -60,7 +60,7 @@ function TableRows({ columns, showTitle = true }: { columns: number; showTitle?:
 
 export function SystemAdminUsersSkeleton() {
   return (
-    <div role="status" aria-label="Loading users and roles" className="mx-auto max-w-7xl space-y-8">
+    <div role="status" aria-label="Loading users and roles" className="flex flex-col gap-6 sm:gap-8 w-full">
       <div className="flex items-center gap-2">
         <Placeholder className="h-3 w-20" />
         <Placeholder className="h-3 w-2" />
@@ -101,7 +101,7 @@ export function SystemAdminUsersSkeleton() {
 
 export function SystemAdminAuditSkeleton() {
   return (
-    <div role="status" aria-label="Loading audit logs" className="mx-auto max-w-7xl space-y-8">
+    <div role="status" aria-label="Loading audit logs" className="flex flex-col gap-6 sm:gap-8 w-full">
       <Breadcrumb />
       <PageHeader titleWidth="w-60" />
       <section aria-hidden="true" className="space-y-4">
@@ -132,7 +132,7 @@ export function SystemAdminAuditSkeleton() {
 
 export function SystemAdminDashboardSkeleton() {
   return (
-    <div role="status" aria-label="Loading system administration dashboard" className="mx-auto max-w-7xl">
+    <div role="status" aria-label="Loading system administration dashboard" className="flex flex-col gap-6 sm:gap-8 w-full">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="space-y-2">
           <Placeholder className="h-3 w-48" />
@@ -141,7 +141,7 @@ export function SystemAdminDashboardSkeleton() {
         </div>
         <Placeholder className="h-10 w-36" />
       </div>
-      <section aria-hidden="true" className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section aria-hidden="true" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 w-full">
         {skeletonRows.slice(0, 4).map((card) => (
           <div key={card} className="flex h-36 flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
             <Placeholder className="h-3 w-28" />
@@ -150,7 +150,7 @@ export function SystemAdminDashboardSkeleton() {
           </div>
         ))}
       </section>
-      <section aria-hidden="true" className="grid gap-6 lg:grid-cols-3">
+      <section aria-hidden="true" className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 w-full">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
           <Placeholder className="mb-6 h-6 w-40" />
           {skeletonRows.slice(0, 4).map((row) => (

@@ -2,7 +2,6 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import SystemAdminSidebar from "./SystemAdminSidebar";
-import { Search } from "lucide-react";
 
 export default async function SystemAdminLayout({
   children,
@@ -18,28 +17,18 @@ export default async function SystemAdminLayout({
 
   return (
     <div className="min-h-screen bg-[#EFF4FA] text-slate-950">
-      <div className="mx-auto flex min-h-screen max-w-[1480px]">
-        <SystemAdminSidebar
+      <div className="flex min-h-screen w-full">
+        <div className="lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:flex-shrink-0 lg:overflow-y-auto hover-scrollbar">
+          <SystemAdminSidebar
           roleUpdateCount={0}
           databaseStatus={databaseStatus}
-        />
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 border-b border-[#D6E1EC] bg-[#EFF4FA]/85 backdrop-blur-xl">
-            <div className="flex h-16 items-center justify-between gap-4 px-6 lg:px-10">
-              <div className="relative w-full max-w-md">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="search"
-                  placeholder="Search users, logs, actions..."
-                  className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
-                />
-              </div>
-            </div>
-          </header>
-
-          <main className="flex-1 px-6 py-8 lg:px-10 lg:py-10">{children}</main>
+          />
         </div>
+        <main className="min-w-0 flex-1 overflow-x-hidden bg-slate-50">
+          <div className="mx-auto w-full max-w-[1440px] p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8">
+            {children}
+          </div>
+        </main>
       </div>
     </div>
   );

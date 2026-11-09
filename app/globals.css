@@ -5,6 +5,30 @@
   --font-serif: Georgia, Cambria, "Times New Roman", serif;
 }
 
+.hover-scrollbar {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.hover-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  background-color: transparent;
+}
+
+.hover-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 4px;
+}
+
+.hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+}
+
+.hover-scrollbar:hover {
+  scrollbar-color: #cbd5e1 transparent;
+}
+
 .review-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

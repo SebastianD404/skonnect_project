@@ -226,11 +226,13 @@ export default async function AdminGranteesPage({ searchParams }: {
   });
   const totalCount = Number(totalCountRows[0]?.count ?? 0);
   return (
-    <AdminGranteesPageClient
-      grantees={paginatedGranteeRows}
-      page={page}
-      pageSize={pageSize}
-      totalCount={totalCount}
-    />
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
+      <AdminGranteesPageClient
+        grantees={paginatedGranteeRows}
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
+      />
+    </div>
   );
 }

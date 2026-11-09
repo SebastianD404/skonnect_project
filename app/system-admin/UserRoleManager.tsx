@@ -9,6 +9,7 @@ import {
   Eye,
   Filter,
   CheckCircle,
+  ChevronDown,
   GraduationCap,
   LoaderCircle,
   MoreHorizontal,
@@ -156,6 +157,10 @@ export default function UserRoleManager({ users, totalCount }: Props) {
   );
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setDraftRoles(Object.fromEntries(users.map((user) => [user.id, user.role])) as Record<string, Role>);
+  }, [users]);
 
   useEffect(() => {
     if (!openActionsUserId) return;
@@ -505,7 +510,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
           </span>
         </div>
         {filteredUsers.length > 0 ? (
-          <div className="overflow-x-auto">
+          <div className="w-full overflow-x-auto whitespace-nowrap">
             <table className="w-full min-w-[1080px] text-sm">
               <thead className="bg-slate-900 text-[11px] font-bold tracking-wider text-white uppercase">
                 <tr className="text-left">
@@ -544,19 +549,25 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <select
-                            aria-label={`Role for ${user.fullName}`}
-                            value={draftRole}
-                            onChange={(event) => updateRole(user.id, event.target.value as Role)}
-                            className="h-9 w-fit rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
-                            disabled={isPending}
-                          >
-                            {ROLE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="relative w-fit">
+                            <select
+                              aria-label={`Role for ${user.fullName}`}
+                              value={draftRole}
+                              onChange={(event) => updateRole(user.id, event.target.value as Role)}
+                              className="h-9 w-[124px] appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-9 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                              disabled={isPending}
+                            >
+                              {ROLE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown
+                              aria-hidden="true"
+                              className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500"
+                            />
+                          </div>
                           <span className="flex h-5 w-5 shrink-0 items-center justify-center" aria-live="polite">
                             {busy ? (
                               <LoaderCircle className="h-4 w-4 animate-spin text-cyan-700" aria-label="Updating role" />

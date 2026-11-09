@@ -78,6 +78,9 @@ export function KKProfilingRegistrationsTable({
   const cellPadding = fitContainer
     ? showMemberRoleColumn ? "px-3 py-3.5" : "px-3.5 py-3.5"
     : "px-6 py-4";
+  const actionCellPadding = fitContainer
+    ? "pl-2.5 pr-4 py-3.5 sm:pr-6 lg:pr-8"
+    : "px-6 py-4 pr-4 sm:pr-6 lg:pr-8";
   const deferredTableQuery = useDeferredValue(activeTableQuery);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const requestedStatus = (searchParams.get("status") ?? "pending").toLowerCase();
@@ -230,7 +233,7 @@ export function KKProfilingRegistrationsTable({
             ) : null)}
           </div>
         )}
-        <div className={fitContainer ? "relative w-full" : "relative w-full overflow-x-auto"}>
+        <div className={fitContainer ? "relative w-full overflow-x-auto whitespace-nowrap" : "relative w-full overflow-x-auto whitespace-nowrap"}>
           {isLoading ? (
             <div
               role="status"
@@ -286,7 +289,7 @@ export function KKProfilingRegistrationsTable({
                   <th className={`${cellPadding} ${fitContainer ? "whitespace-nowrap" : ""}`}>Submitted</th>
                 </>
               )}
-              <th className={`${fitContainer ? showMemberRoleColumn ? "pr-8 pl-2.5 py-3.5" : "px-2.5 py-3.5" : "px-6 py-4"} text-right`}>Actions</th>
+              <th scope="col" className={`${actionCellPadding} text-right`}>Actions</th>
             </tr>
           </thead>
           <tbody className={`divide-y divide-slate-100 bg-white text-slate-700 transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
@@ -361,7 +364,7 @@ export function KKProfilingRegistrationsTable({
                       {formatDate(registration.submittedAt)}
                     </td>
                   )}
-                  <td className={`${fitContainer ? showMemberRoleColumn ? "pr-8 pl-2.5 py-3.5" : "px-2.5 py-3.5" : "px-6 py-4"} text-right`}>
+                  <td className={`${actionCellPadding} text-right`}>
                     <KKProfilingRowActions
                       registration={registration}
                       onDelete={handleDelete}

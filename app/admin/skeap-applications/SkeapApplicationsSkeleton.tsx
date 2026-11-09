@@ -7,10 +7,10 @@ export default function SkeapApplicationsSkeleton() {
     <div
       role="status"
       aria-label="Loading SKEAP applications"
-      className="min-h-screen animate-pulse bg-slate-50 text-slate-900"
+      className="mx-auto flex min-h-screen w-full max-w-[1200px] flex-col gap-6 animate-pulse bg-slate-50 text-slate-900 sm:gap-8"
     >
-      <div className="mx-auto flex min-h-screen max-w-[1480px] gap-6 px-6">
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 pb-12">
+      <div className="flex min-h-screen w-full">
+        <main className="flex w-full flex-col gap-6 pb-12 sm:gap-8">
           <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div className="space-y-2">
               <div className="h-3 w-36 rounded bg-slate-200" />

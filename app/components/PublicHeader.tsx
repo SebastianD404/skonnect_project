@@ -143,7 +143,6 @@ export function PublicHeader() {
           ) : sessionUser ? (
             sessionUser.role === "YOUTH" || sessionUser.role === "GRANTEE" ? (
               <DashboardHeaderActions
-                requiredRole={sessionUser.role}
                 supportInboxPath={sessionUser.role === "YOUTH" ? "/youth-dashboard/inquiries" : "/grantee-dashboard/inquiries"}
               />
             ) : (

@@ -203,7 +203,7 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
         };
 
   return (
-    <div>
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
       <header className="mb-6">
         <Link
           href="/admin/grantees"

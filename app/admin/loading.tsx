@@ -152,14 +152,14 @@ function GranteesSkeleton() {
 
 function ListSkeleton({ showStats = false }: { showStats?: boolean }) {
   return (
-    <div className="animate-pulse mx-auto max-w-7xl space-y-8 px-6 py-10">
+    <div className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse px-6 py-10">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
         <Placeholder className="h-3 w-28 rounded-full" />
         <Placeholder className="mt-3 h-9 w-2/3 max-w-full rounded-md" />
         <Placeholder className="mt-3 h-3 w-3/4 max-w-full rounded-full bg-slate-100" />
       </section>
       {showStats && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 w-full">
           {Array.from({ length: 4 }, (_, index) => (
             <section key={index} className="h-36 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <Placeholder className="h-2.5 w-28 rounded-full" />
@@ -179,7 +179,7 @@ function ListSkeleton({ showStats = false }: { showStats?: boolean }) {
 
 function SettingsSkeleton() {
   return (
-    <div className="animate-pulse mx-auto max-w-[1480px] px-6 py-10">
+    <div className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse px-6 py-10">
       <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <Placeholder className="h-3 w-40 rounded-full" />
         <Placeholder className="mt-3 h-10 w-2/3 max-w-full rounded-md" />
@@ -210,7 +210,7 @@ function SettingsSkeleton() {
 
 function BroadcastSkeleton() {
   return (
-    <div className="animate-pulse mx-auto max-w-4xl py-4">
+    <div className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse py-4">
       <div className="mb-8">
         <Placeholder className="mb-4 h-12 w-12 rounded-2xl bg-[#0F3D5C]/10" />
         <Placeholder className="h-3 w-28 rounded-full" />
@@ -238,7 +238,7 @@ function BroadcastSkeleton() {
 
 function DetailSkeleton() {
   return (
-    <div className="animate-pulse mx-auto max-w-7xl space-y-6 px-6 py-10">
+    <div className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse px-6 py-10">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <Placeholder className="h-3 w-24 rounded-full" />
         <Placeholder className="mt-3 h-9 w-1/2 max-w-full rounded-md" />

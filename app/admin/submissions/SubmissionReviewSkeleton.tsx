@@ -32,7 +32,7 @@ export default function SubmissionReviewSkeleton() {
           <div className="h-7 w-40 rounded-lg bg-slate-100" />
         </div>
 
-        <div className="relative w-full overflow-x-auto">
+        <div className="relative w-full overflow-x-auto whitespace-nowrap">
           <table className="w-full table-fixed border-collapse text-left text-sm">
             <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
               <tr>

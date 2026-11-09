@@ -116,7 +116,7 @@ export async function ensureProfile(authUser: SupabaseUser) {
 export function getRoleHomePath(role?: Role | null) {
   switch (role) {
     case "YOUTH":
-      return "/";
+      return "/youth-dashboard";
     case "GRANTEE":
       return "/grantee-dashboard";
     case "SK_OFFICIAL":

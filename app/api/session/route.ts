@@ -97,7 +97,18 @@ export async function GET() {
     registrationAddress ||
     normalizeAddressText(skeapApplication?.permanentAddress || "");
 
-  const profileWithApp = { ...profile, address: autofillAddress, skeapApplication, kkProfile, latestKkRegistration };
+  const latestGrantee = await prisma.grantee.findUnique({
+    where: { userId: profile.id },
+    select: { status: true },
+  });
+  const profileWithApp = {
+    ...profile,
+    skeapStatus: latestGrantee?.status ?? null,
+    address: autofillAddress,
+    skeapApplication,
+    kkProfile,
+    latestKkRegistration,
+  };
 
   if (avatarPath) {
     if (!avatarPath.startsWith("http://") && !avatarPath.startsWith("https://")) {

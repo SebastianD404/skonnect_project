@@ -54,7 +54,7 @@ export default async function GranteeRecordsPage({ searchParams }: {
     `);
 
   return (
-    <div className="flex w-full flex-col gap-6 pb-12">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 pb-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Grantee records</span>
@@ -66,7 +66,7 @@ export default async function GranteeRecordsPage({ searchParams }: {
         <GranteeArchiveExportMenu />
       </header>
 
-      <section className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+      <section className="flex w-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
         <ArchivedGranteesTable allRecords={records} initialQuery={query} />
       </section>
     </div>

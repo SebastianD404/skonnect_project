@@ -187,22 +187,24 @@ export default async function SKOfficialDashboardPage() {
   }
 
   return (
-    <AdminDashboardPageClient
-      dateLabel={dateLabel}
-      openInquiryCount={openInquiryCount}
-      pendingSubmissionCount={pendingSubmissionCount}
-      stats={stats}
-      profilingRegistrationCount={profilingRegistrationCount}
-      profilingSeries={profilingSeries}
-      profilingMonths={profilingMonths}
-      recentInquiries={recentInquiries.map((inquiry) => ({
-        ...inquiry,
-        createdAt: inquiry.createdAt.toISOString(),
-      }))}
-      pendingReviews={pendingReviews.map((review) => ({
-        ...review,
-        submittedAt: review.submittedAt.toISOString(),
-      }))}
-    />
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
+      <AdminDashboardPageClient
+        dateLabel={dateLabel}
+        openInquiryCount={openInquiryCount}
+        pendingSubmissionCount={pendingSubmissionCount}
+        stats={stats}
+        profilingRegistrationCount={profilingRegistrationCount}
+        profilingSeries={profilingSeries}
+        profilingMonths={profilingMonths}
+        recentInquiries={recentInquiries.map((inquiry) => ({
+          ...inquiry,
+          createdAt: inquiry.createdAt.toISOString(),
+        }))}
+        pendingReviews={pendingReviews.map((review) => ({
+          ...review,
+          submittedAt: review.submittedAt.toISOString(),
+        }))}
+      />
+    </div>
   );
 }

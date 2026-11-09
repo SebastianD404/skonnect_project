@@ -162,7 +162,7 @@ export default function AdminDashboardPageClient({
 
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 pb-12">
+    <main className="flex w-full flex-col gap-8 pb-12">
       <DashboardHeaderWrapper
         dateLabel={dateLabel}
         openInquiryCount={overview.stats.openInquiries}
@@ -176,18 +176,9 @@ export default function AdminDashboardPageClient({
         <div className="h-px flex-1 rounded-full bg-slate-200/60" />
       </div>
 
-      <div className="grid grid-cols-1 items-stretch gap-4 px-8 md:grid-cols-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 w-full">
             <section className="group relative flex min-h-[320px] flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm">
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-gradient-to-r from-slate-900 via-cyan-800 to-cyan-500" />
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 opacity-[0.4]"
-                style={{
-                  backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
-                  backgroundSize: "24px 24px",
-                }}
-              />
-
               <div className="relative z-10 flex h-full flex-col">
               <header className="flex items-center justify-between border-b border-slate-100/80 bg-white/50 px-6 py-5 backdrop-blur-sm">
                 <div>
@@ -204,7 +195,13 @@ export default function AdminDashboardPageClient({
               </header>
 
               {filteredInquiries.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+                <div
+                  className="flex flex-1 flex-col items-center justify-center bg-white p-8 text-center"
+                  style={{
+                    backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+                    backgroundSize: "24px 24px",
+                  }}
+                >
                   <div className="relative mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-slate-100 bg-white shadow-sm">
                     <div className="absolute inset-0 rounded-full bg-cyan-100/50 blur-md" />
                     <MessageSquare className="relative z-10 h-7 w-7 text-cyan-600" />
@@ -215,12 +212,12 @@ export default function AdminDashboardPageClient({
                   </p>
                 </div>
               ) : (
-                <div className="flex-1 divide-y divide-slate-100">
+                <div className="flex-1 divide-y divide-slate-100 bg-white">
                   {filteredInquiries.map((inquiry) => (
                     <Link
                       key={inquiry.id}
                       href={`/admin/inquiries?id=${encodeURIComponent(inquiry.id)}`}
-                      className="block w-full px-6 py-4 text-left transition-colors hover:bg-slate-50"
+                      className="block w-full bg-white px-6 py-4 text-left transition-colors hover:bg-slate-50"
                     >
                       <p className="truncate text-sm font-semibold text-slate-800">{inquiry.subject}</p>
                       <p className="mt-1 truncate text-xs text-slate-500">
@@ -235,15 +232,6 @@ export default function AdminDashboardPageClient({
 
             <section className="group relative flex min-h-[320px] flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm">
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-gradient-to-r from-slate-900 via-cyan-800 to-cyan-500" />
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 opacity-[0.4]"
-                style={{
-                  backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
-                  backgroundSize: "24px 24px",
-                }}
-              />
-
               <div className="relative z-10 flex h-full flex-col">
               <header className="flex items-center justify-between border-b border-slate-100/80 bg-white/50 px-6 py-5 backdrop-blur-sm">
                 <div>
@@ -255,8 +243,14 @@ export default function AdminDashboardPageClient({
                 </div>
               </header>
 
-              {overview.stats.documentReviews === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+              {overview.pendingReviews.length === 0 ? (
+                <div
+                  className="flex flex-1 flex-col items-center justify-center bg-white p-8 text-center"
+                  style={{
+                    backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+                    backgroundSize: "24px 24px",
+                  }}
+                >
                   <div className="relative mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 shadow-sm">
                     <div className="absolute inset-0 rounded-full bg-emerald-100/30 blur-md" />
                     <FileCheck className="relative z-10 h-7 w-7 text-emerald-600" />
@@ -274,13 +268,13 @@ export default function AdminDashboardPageClient({
                   </Link>
                 </div>
               ) : (
-                <div className="flex flex-1 flex-col">
-                  <div className="divide-y divide-slate-100">
+                <div className="flex flex-1 flex-col bg-white">
+                  <div className="divide-y divide-slate-100 bg-white">
                     {overview.pendingReviews.map((review) => (
                       <Link
                         key={review.id}
                         href="/admin/submissions"
-                        className="block w-full px-6 py-4 text-left transition-colors hover:bg-slate-50"
+                        className="block w-full bg-white px-6 py-4 text-left transition-colors hover:bg-slate-50"
                       >
                         <p className="truncate text-sm font-semibold text-slate-800">
                           {review.grantee.user.fullName}

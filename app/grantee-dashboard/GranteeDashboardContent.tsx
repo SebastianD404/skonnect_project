@@ -53,8 +53,13 @@ export default async function GranteeDashboardContent() {
     },
   });
 
-  if (!appUser || appUser.role !== "GRANTEE") {
-    redirect("/?error=unauthorized_role");
+  if (
+    !appUser ||
+    appUser.role !== "GRANTEE" ||
+    !appUser.grantee ||
+    !["ACTIVE", "PROBATIONARY"].includes(appUser.grantee.status)
+  ) {
+    redirect("/");
   }
 
   let journeyPhotoUrl: string | undefined;

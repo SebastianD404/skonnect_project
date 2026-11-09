@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 
@@ -20,6 +21,7 @@ export async function PATCH(
         include: {
           user: {
             select: {
+              id: true,
               grantee: {
                 select: { id: true, status: true, remarks: true },
               },
@@ -113,6 +115,10 @@ export async function PATCH(
         });
         if (updateResult.count !== 1) {
           throw new Error("GRANTEE_STATUS_CHANGED");
+        }
+
+        if (registration.user?.id) {
+          await downgradeInactiveGranteeRole(tx, registration.user.id);
         }
 
         await writeAuditLog(tx, {

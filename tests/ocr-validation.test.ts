@@ -38,30 +38,40 @@ describe("browser OCR document validation", () => {
     expect(result.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
   });
 
-  it("rejects a low-income certificate even if it mentions residency and eight months", () => {
+  it("rejects a low-income certificate even if it mentions residency and six months", () => {
     const result = validateRecognizedText(
       "certificate",
-      "CERTIFICATE OF LOW-INCOME OF PARENTS OR GUARDIAN. Applicant is a resident of Barangay Pico for 8 months.",
+      "CERTIFICATE OF LOW-INCOME OF PARENTS OR GUARDIAN. Applicant is a resident of Barangay Pico for 6 months.",
     );
 
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
   });
 
-  it("requires residency-specific wording and the eight-month requirement", () => {
+  it("requires residency-specific wording and the six-month requirement", () => {
     const genericCertificate = validateRecognizedText(
       "certificate",
-      "CERTIFICATE OF GOOD MORAL CHARACTER. Applicant completed the program 8 months ago.",
+      "CERTIFICATE OF GOOD MORAL CHARACTER. Applicant completed the program 6 months ago.",
     );
     const residencyCertificate = validateRecognizedText(
       "certificate",
-      "CERTIFICATE OF RESIDENCY. This certifies that Maria Santos is a resident of Barangay Pico and has lived here for 8 months.",
+      "CERTIFICATE OF RESIDENCY. This certifies that Maria Santos is a resident of Barangay Pico and has lived here for 6 months.",
       { firstName: "Maria", lastName: "Santos" },
     );
 
     expect(genericCertificate.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
     expect(residencyCertificate.status).toBe("success");
     expect(residencyCertificate.isValid).toBe(true);
+  });
+
+  it("rejects a residency certificate that states only five months", () => {
+    const result = validateRecognizedText(
+      "certificate",
+      "CERTIFICATE OF RESIDENCY. This certifies that Maria Santos is a resident of Barangay Pico and has lived here for 5 months.",
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
   });
 });
 

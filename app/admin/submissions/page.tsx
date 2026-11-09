@@ -6,8 +6,8 @@ export default async function AdminSubmissionsPage() {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
   return (
-    <div className="min-h-screen bg-slate-50/60 pb-12">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 min-h-screen bg-slate-50/60 pb-12">
+      <div className="w-full">
         <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Document Review Queue</span>

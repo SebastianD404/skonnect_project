@@ -1,6 +1,10 @@
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { hasExplicitBackIdSideEvidence } from "@/lib/ocrWorker";
 import { verifyBackIdBirthdate } from "@/lib/verifyBackIdBirthdate";
+import {
+  MINIMUM_RESIDENCY_MONTHS,
+  MINIMUM_RESIDENCY_MONTHS_TEXT,
+} from "@/lib/residency-requirement";
 
 type DocumentType = "front_id" | "back_id" | "certificate";
 
@@ -220,7 +224,10 @@ export function validateRecognizedText(
   }
 
   const matchedKeywords = findMatches(normalizedText, CERTIFICATE_TERMS);
-  const hasEight = /\b(8|08|eight)\b/i.test(normalizedText);
+  const hasMinimumResidencyMonths = new RegExp(
+    `\\b(${MINIMUM_RESIDENCY_MONTHS}|0${MINIMUM_RESIDENCY_MONTHS}|six)\\b`,
+    "i",
+  ).test(normalizedText);
   const hasMonths = /\b(months?|mos\.?)\b/i.test(normalizedText);
   const isNonResidencyCertificate = NON_RESIDENCY_CERTIFICATE_TERMS.test(normalizedText);
   const hasResidencyEvidence =
@@ -230,12 +237,12 @@ export function validateRecognizedText(
     isNonResidencyCertificate ||
     matchedKeywords.length === 0 ||
     !hasResidencyEvidence ||
-    !hasEight ||
+    !hasMinimumResidencyMonths ||
     !hasMonths
   ) {
     return invalidResult(
       "Unrecognized Document",
-      "We couldn't verify this as a Certificate of Residency that confirms at least eight months of residency.",
+      `We couldn't verify this as a Certificate of Residency that confirms at least ${MINIMUM_RESIDENCY_MONTHS_TEXT} of residency.`,
       normalizedText,
       "UNRECOGNIZED_DOCUMENT",
     );

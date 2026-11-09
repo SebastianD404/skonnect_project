@@ -50,7 +50,7 @@ export default function KnowledgeBaseLoading() {
     <div
       role="status"
       aria-label="Loading knowledge base"
-      className="mx-auto w-full max-w-7xl"
+      className="flex flex-col gap-6 sm:gap-8 w-full"
     >
       <header className="mb-6">
         <Placeholder className="h-3 w-24" />

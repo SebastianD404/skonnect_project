@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Inbox } from "lucide-react";
 import { useNotificationState } from "./NotificationProvider";
@@ -11,7 +11,6 @@ import { Avatar } from "@/components/ui/Avatar";
 interface DashboardHeaderActionsProps {
   notifications?: string[];
   messages?: string[];
-  requiredRole?: string | string[];
   supportInboxPath?: string;
 }
 
@@ -42,9 +41,8 @@ function getSupportReplyKey(inquiry: SupportThread) {
   return `inquiry-reply:${inquiry.id}:${hash.toString(36)}`;
 }
 
-export function DashboardHeaderActions({ notifications = [], requiredRole, supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
+export function DashboardHeaderActions({ notifications = [], supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const { user: authUser } = useAuth();
   const {
     readNotificationIds,
@@ -218,25 +216,6 @@ export function DashboardHeaderActions({ notifications = [], requiredRole, suppo
         // Removed focus and visibility listeners and polling
     };
   }, []);
-
-  // If this header is rendered on a role-protected page, ensure the current
-  // server session matches the required role. If not, clear the session and
-  // redirect to login so the user can authenticate with the appropriate account.
-  useEffect(() => {
-    if (!requiredRole) return;
-    if (serverRole === undefined) return; // not yet known
-
-    const required = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-    if (serverRole && !required.includes(serverRole)) {
-      // sign out on server and redirect
-      (async () => {
-        try {
-          await fetch('/api/auth/signout', { method: 'POST' });
-        } catch (e) {}
-        router.replace("/login");
-      })();
-    }
-  }, [serverRole, requiredRole, router]);
 
   const displayedNotifications: NotificationItem[] = [
     ...notifications.map<NotificationItem>((notification, index) => ({ id: `provided:${index}:${notification}`, text: notification })),

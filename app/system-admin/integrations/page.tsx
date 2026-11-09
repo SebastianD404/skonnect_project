@@ -47,18 +47,18 @@ function IntegrationCard({
   const ready = status === "Connected" || status === "Configured";
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
-            <Icon className="h-5 w-5" />
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#E8F4F7] text-[#0F3D5C]">
+            <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <h2 className="font-semibold text-slate-900">{title}</h2>
-            <p className="mt-1 text-sm leading-5 text-slate-500">{description}</p>
+            <h2 className="text-sm font-bold text-slate-900">{title}</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
           </div>
         </div>
-        <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold ${ready ? "text-emerald-700" : "text-rose-700"}`}>
+        <span className={`inline-flex shrink-0 items-center gap-1.5 text-[11px] font-bold ${ready ? "text-emerald-700" : "text-rose-700"}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${ready ? "bg-emerald-500" : "bg-rose-500"}`} />
           {status}
         </span>
@@ -77,7 +77,7 @@ export default async function SystemAdminIntegrationsPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-6 sm:gap-8">
       <header>
         <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           System Admin / API Integrations
@@ -88,7 +88,7 @@ export default async function SystemAdminIntegrationsPage() {
         </p>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2">
         <IntegrationCard
           title="Google Gemini LLM"
           description="API key configuration used for chatbot responses and text embeddings."

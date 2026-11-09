@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Cable, Database, LayoutDashboard, ScrollText, Users } from "lucide-react";
+import { Cable, Database, LayoutDashboard, Menu, ScrollText, Users, X } from "lucide-react";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { SkLogo } from "@/app/components/SkLogo";
 import { Avatar } from "@/components/ui/Avatar";
@@ -59,6 +59,7 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
   const pathname = usePathname();
   const router = useRouter();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [unreadAuditCount, setUnreadAuditCount] = useState(
     pathname.startsWith("/system-admin/audit") ? 0 : roleUpdateCount,
   );
@@ -184,7 +185,38 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
   ];
 
   return (
-    <aside className="sticky top-0 flex h-screen w-72 shrink-0 flex-col border-r border-[#1C4B67] bg-[#0F2E47] px-4 py-6 text-[#DCE7F0]">
+    <>
+      <div className="fixed inset-x-0 top-0 z-40 flex items-center gap-x-4 bg-[#0F2E47] px-4 py-3 shadow-sm sm:gap-x-6 sm:px-6 lg:hidden">
+        <button type="button" onClick={() => setMobileOpen(true)} className="-m-2.5 p-2.5 text-white" aria-label="Open navigation menu"><Menu aria-hidden="true" className="h-6 w-6" /></button>
+        <div className="flex flex-1 items-center gap-3">
+          <SkLogo className="h-9 w-9" />
+          <span className="font-bold text-white">SKonnect</span>
+        </div>
+      </div>
+      <div
+        className={`fixed inset-0 z-50 lg:hidden ${mobileOpen ? "pointer-events-auto" : "pointer-events-none"}`}
+        aria-hidden={!mobileOpen}
+      >
+        <button
+          type="button"
+          className={`absolute inset-0 bg-slate-950/50 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+            mobileOpen ? "opacity-100" : "opacity-0"
+          }`}
+          onClick={() => setMobileOpen(false)}
+          aria-label="Close navigation menu"
+          tabIndex={mobileOpen ? 0 : -1}
+        />
+        <aside
+          className={`relative h-full w-[min(20rem,85vw)] overflow-y-auto bg-[#0F2E47] px-4 py-6 text-[#DCE7F0] shadow-2xl transition-transform duration-300 ease-in-out ${
+            mobileOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="flex items-center justify-between"><div className="flex items-center gap-3"><SkLogo className="h-9 w-9" /><span className="font-bold text-white">SKonnect</span></div><button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation menu" tabIndex={mobileOpen ? 0 : -1}><X className="h-5 w-5" /></button></div>
+          <nav className="mt-6 flex flex-col gap-1">{navItems.map((item) => { const Icon = item.icon; return <Link key={item.label} href={item.href} onClick={() => setMobileOpen(false)} tabIndex={mobileOpen ? 0 : -1} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[#C6D6E2] hover:bg-[#174968]"><Icon className="h-4 w-4" /><span>{item.label}</span></Link>; })}</nav>
+          <Link href="/system-admin/knowledge-base" onClick={() => setMobileOpen(false)} tabIndex={mobileOpen ? 0 : -1} className="mt-4 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[#C6D6E2] hover:bg-[#174968]"><Database className="h-4 w-4" /><span>Knowledge Base</span></Link>
+        </aside>
+      </div>
+    <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-[#1C4B67] bg-[#0F2E47] px-4 py-6 text-[#DCE7F0] lg:flex">
       <div className="flex items-center gap-3 px-2">
         <SkLogo className="h-11 w-11" />
         <div className="min-w-0">
@@ -288,5 +320,6 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
         </div>
       </div>
     </aside>
+    </>
   );
 }
