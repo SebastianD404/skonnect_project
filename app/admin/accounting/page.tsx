@@ -268,7 +268,7 @@ export default function AdminAccountingPage() {
 
   async function handleExportReport(
     reportLabel: string,
-    reportType: "current_view" | "master_payroll" | "pending_payouts",
+    reportType: "current_view" | "master_payroll" | "pending_payouts" | "received_payouts",
   ) {
     if (isExporting) return;
 
@@ -288,6 +288,8 @@ export default function AdminAccountingPage() {
         }
       } else if (reportType === "pending_payouts") {
         params.set("payoutStatus", "pending");
+      } else if (reportType === "received_payouts") {
+        params.set("payoutStatus", "received");
       }
 
       const response = await fetch(`/api/admin/accounting/export?${params.toString()}`, {
@@ -430,6 +432,17 @@ export default function AdminAccountingPage() {
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
               >
                 Pending Payouts
+              </button>
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={() => {
+                  setIsExportMenuOpen(false);
+                  void handleExportReport("received payouts report", "received_payouts");
+                }}
+                className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Received Payouts
               </button>
             </div> : null}
           </div>

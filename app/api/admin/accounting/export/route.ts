@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   const payoutStatus = searchParams.get("payoutStatus");
   const submissionStatus = searchParams.get("submissionStatus");
   const search = searchParams.get("search")?.trim() ?? "";
-  if (!["current_view", "master_payroll", "pending_payouts"].includes(reportType)) {
+  if (!["current_view", "master_payroll", "pending_payouts", "received_payouts"].includes(reportType)) {
     return NextResponse.json({ error: "Invalid payroll report type." }, { status: 400 });
   }
   if (!semesterId && !semesterName) {
@@ -95,7 +95,13 @@ export async function GET(request: Request) {
     };
 
     const effectivePayoutStatus =
-      currentView ? payoutStatus : reportType === "pending_payouts" ? "pending" : undefined;
+      currentView
+        ? payoutStatus
+        : reportType === "pending_payouts"
+          ? "pending"
+          : reportType === "received_payouts"
+            ? "received"
+            : undefined;
     if (effectivePayoutStatus === "received") {
       where.payout = { is: { claimedAt: { not: null } } };
     } else if (effectivePayoutStatus === "pending") {
@@ -213,6 +219,8 @@ export async function GET(request: Request) {
       ? `SKEAP-PAYROLL-${semesterSlug}-Current-View.xlsx`
       : reportType === "pending_payouts"
         ? `SKEAP-Pending-Payouts-${semesterSlug}.xlsx`
+        : reportType === "received_payouts"
+          ? `SKEAP-Received-Payouts-${semesterSlug}.xlsx`
         : `SKEAP-PAYROLL-${semesterSlug}.xlsx`;
 
     logAuditEvent({
