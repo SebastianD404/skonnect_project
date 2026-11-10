@@ -229,7 +229,7 @@ export default function HomePageContent() {
                 Empowering Barangay Pico youth scholars with scholarship tracking, and accessible multilingual support in one unified portal.
               </p>
               
-              <div className="flex flex-wrap items-center gap-4 pt-4">
+              <div className="flex flex-col items-stretch gap-3 pt-4 md:flex-row md:items-center md:gap-4">
                 <HeroCtaButton
                   hasApplication={
                     user?.id === skeapApplicationState?.userId &&
@@ -242,7 +242,7 @@ export default function HomePageContent() {
                     : user?.role === "YOUTH"
                     ? "/youth-dashboard/inquiries"
                     : "/grantee-dashboard/inquiries"}
-                  className="inline-flex min-h-12 min-w-[220px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 bg-transparent px-6 py-3 font-semibold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+                  className="inline-flex min-h-12 w-full items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 bg-transparent px-6 py-3 text-center font-semibold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 md:w-auto"
                 >
                   {hasPendingKkProfilingApplication ? "Manage Applications" : "Contact Helpdesk"}
                 </Link>
