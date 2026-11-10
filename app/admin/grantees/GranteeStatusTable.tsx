@@ -17,7 +17,7 @@ export interface GranteeTableRow {
   currentJourneySemesterIndex: number;
   validatedJourneySemesterIndexes: number[];
   status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED";
-  generalAverage: number | null;
+  contactNumber: string | null;
   dateEnrolled: string;
   graduatedAt?: string | null;
   retentionExpiresAt?: string | null;
@@ -145,8 +145,8 @@ export function GranteeStatusTable({
                 </span>
               </div>
 
-              <dl className="grid grid-cols-2 gap-x-3 gap-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs">
-                <div className="col-span-2 min-w-0">
+              <dl className="grid grid-cols-1 gap-x-3 gap-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs">
+                <div className="min-w-0">
                   <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">School &amp; year</dt>
                   <dd className="mt-0.5 truncate font-semibold text-slate-800" title={normalizeSkeapSchoolName(grantee.school)}>
                     {normalizeSkeapSchoolName(grantee.school)}
@@ -154,9 +154,13 @@ export function GranteeStatusTable({
                   <dd className="text-[11px] text-slate-500">{grantee.yearLevel}</dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Verified GWA</dt>
-                  <dd className="mt-0.5 text-sm font-bold text-slate-900">
-                    {grantee.generalAverage !== null ? grantee.generalAverage.toFixed(2) : "—"}
+                  <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Contact number</dt>
+                  <dd className="mt-0.5 truncate font-semibold text-slate-800">
+                    {grantee.contactNumber ? (
+                      <a href={`tel:${grantee.contactNumber}`} className="hover:text-cyan-800">
+                        {grantee.contactNumber}
+                      </a>
+                    ) : "—"}
                   </dd>
                 </div>
                 <div>
@@ -219,12 +223,12 @@ export function GranteeStatusTable({
         <table className="w-full min-w-[760px] table-fixed border-collapse text-left text-sm md:min-w-0">
           <thead className="relative z-30 bg-gradient-to-r from-slate-900 to-cyan-900">
             <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
-              <th className="w-[25%] px-3 py-4 sm:px-4">Name</th>
-              <th className="w-[27%] px-3 py-4 sm:px-4">School / Year</th>
+              <th className="w-[22%] px-3 py-4 sm:px-4">Name</th>
+              <th className="w-[26%] px-3 py-4 sm:px-4">School / Year</th>
               <th className="w-[12%] px-3 py-4 sm:px-4">Status</th>
-              <th className="w-[10%] px-3 py-4 sm:px-4">Average</th>
+              <th className="w-[16%] px-3 py-4 sm:px-4">Contact number</th>
               <th className="w-[14%] px-3 py-4 sm:px-4">Enrolled</th>
-              <th className="w-[12%] px-3 py-4 text-center sm:px-4">Action</th>
+              <th className="w-[10%] px-3 py-4 text-center sm:px-4">Action</th>
             </tr>
           </thead>
           <tbody className={`divide-y divide-slate-100 bg-white text-sm transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
@@ -262,13 +266,13 @@ export function GranteeStatusTable({
                         {STATUS_LABELS[grantee.status]}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-4 sm:px-4">
-                      {grantee.generalAverage !== null ? (
-                        <span className="text-sm font-bold text-slate-900">
-                          {grantee.generalAverage.toFixed(2)}
-                        </span>
+                    <td className="truncate px-3 py-4 sm:px-4" title={grantee.contactNumber ?? undefined}>
+                      {grantee.contactNumber ? (
+                        <a href={`tel:${grantee.contactNumber}`} className="text-slate-700 hover:text-cyan-800">
+                          {grantee.contactNumber}
+                        </a>
                       ) : (
-                        <span className="text-sm font-medium text-slate-400">—</span>
+                        <span className="text-slate-400">—</span>
                       )}
                     </td>
                     <td className="whitespace-nowrap px-3 py-4 text-slate-500 sm:px-4">

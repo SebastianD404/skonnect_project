@@ -90,6 +90,14 @@
   text-align: center;
 }
 
+.review-card__ocr-slot {
+  flex: none;
+}
+
+.review-card__ocr-slot:empty {
+  display: none;
+}
+
 .review-card__notes {
   display: flex;
   min-height: 0;
@@ -211,6 +219,7 @@
     height: 128px;
     min-height: 128px;
   }
+
 }
 
 :root {

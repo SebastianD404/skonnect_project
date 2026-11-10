@@ -1,6 +1,6 @@
 import type { GradeReportRow } from "@/lib/grade-report-parser";
 
-const GRADE_FLAGS = new Set(["INC", "DRP", "W", "NG", "FAILED"]);
+const GRADE_FLAGS = new Set(["INC", "DRP", "W", "NG", "NFE", "FAILED"]);
 
 export type CorrectedGradeReportRow = GradeReportRow;
 
@@ -37,8 +37,10 @@ export function validateCorrectedGradeReportRows(value: unknown): CorrectedGrade
     ) {
       throw new Error(`Grade report row ${index + 1} has an unsupported grade flag.`);
     }
-    if (grade !== null && (!Number.isFinite(grade) || grade < 1 || grade >= 5 || flag !== null)) {
-      throw new Error(`Grade report row ${index + 1} must have a numeric grade from 1.0 to below 5.0 or a supported flag.`);
+    const isPhilippineGrade = grade !== null && grade >= 1 && grade <= 3;
+    const isPercentageGrade = grade !== null && grade >= 75 && grade <= 100;
+    if (grade !== null && (!Number.isFinite(grade) || (!isPhilippineGrade && !isPercentageGrade) || flag !== null)) {
+      throw new Error(`Grade report row ${index + 1} must have a numeric grade from 1.0 to 3.0 or 75 to 100, or a supported flag.`);
     }
     if (grade === null && flag === null) {
       throw new Error(`Grade report row ${index + 1} needs a grade or supported flag.`);
@@ -48,6 +50,14 @@ export function validateCorrectedGradeReportRows(value: unknown): CorrectedGrade
 
   if (!rows.some((row) => row.grade !== null)) {
     throw new Error("At least one numeric grade is required to compute GWA.");
+  }
+  const gradeScales = new Set(
+    rows
+      .filter((row): row is CorrectedGradeReportRow & { grade: number } => row.grade !== null)
+      .map((row) => row.grade >= 75 ? "percentage" : "philippine")
+  );
+  if (gradeScales.size > 1) {
+    throw new Error("Use one grading scale throughout the grade report.");
   }
   return rows;
 }

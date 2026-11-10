@@ -30,28 +30,6 @@ function getStatusWhere(status: StatusFilter): Prisma.SubmissionWhereInput {
   }
 }
 
-function normalizeGradeRows(value: unknown): Array<{ subject: string; grade: number }> | null {
-  let rows = value;
-  if (typeof rows === "string") {
-    try {
-      rows = JSON.parse(rows);
-    } catch {
-      return null;
-    }
-  }
-  if (!Array.isArray(rows)) return null;
-
-  const normalized = rows
-    .map((row) => ({ subject: String(row?.subject ?? "").trim(), grade: Number(row?.grade) }))
-    .filter((row) => row.subject.length > 0 && Number.isFinite(row.grade) && row.grade >= 0 && row.grade <= 100);
-  return normalized.length > 0 ? normalized : null;
-}
-
-function computeAverage(rows: Array<{ subject: string; grade: number }> | null) {
-  if (!rows?.length) return null;
-  return Number((rows.reduce((sum, row) => sum + row.grade, 0) / rows.length).toFixed(2));
-}
-
 function buildSearchWhere(search: string): Prisma.SubmissionWhereInput | null {
   if (!search) return null;
 
@@ -134,8 +112,6 @@ export async function GET(request: NextRequest) {
       semester: true,
       gradeFileUrl: true,
       coeFileUrl: true,
-      gradeRows: true,
-      generalAverage: true,
       ...(includeStrictManualReview ? { requiresStrictManualReview: true } : {}),
       status: true,
       coeStatus: true,
@@ -147,7 +123,6 @@ export async function GET(request: NextRequest) {
         select: {
           school: true,
           yearLevel: true,
-          generalAverage: true,
           user: { select: { fullName: true, email: true } },
         },
       },
@@ -181,22 +156,15 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const rows = submissions.map((submission) => {
-      const gradeRows = normalizeGradeRows(submission.gradeRows);
-      return {
-        ...submission,
-        gradeRows,
-        verifiedGwa: submission.generalAverage,
-        flaggedFields: "flaggedFields" in submission ? submission.flaggedFields ?? [] : [],
-        requiresStrictManualReview:
-          "requiresStrictManualReview" in submission
-            ? submission.requiresStrictManualReview
-            : false,
-        generalAverage:
-          submission.generalAverage ?? computeAverage(gradeRows) ?? submission.grantee.generalAverage ?? null,
-        submittedAt: submission.submittedAt.toISOString(),
-      };
-    });
+    const rows = submissions.map((submission) => ({
+      ...submission,
+      flaggedFields: "flaggedFields" in submission ? submission.flaggedFields ?? [] : [],
+      requiresStrictManualReview:
+        "requiresStrictManualReview" in submission
+          ? submission.requiresStrictManualReview
+          : false,
+      submittedAt: submission.submittedAt.toISOString(),
+    }));
 
     return NextResponse.json({
       rows,

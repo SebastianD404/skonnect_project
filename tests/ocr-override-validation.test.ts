@@ -20,12 +20,25 @@ describe("OCR override validation", () => {
     expect(computeGradeReportGwa(rows)).toEqual({ gwa: 1.45, totalUnits: 5 });
   });
 
+  it("supports percentage-scale grades and rejects mixed scales", () => {
+    const rows = validateCorrectedGradeReportRows([
+      { subjectName: "Mathematics", units: 3, grade: 90, flag: null },
+      { subjectName: "English", units: 2, grade: 95, flag: null },
+    ]);
+
+    expect(computeGradeReportGwa(rows)).toEqual({ gwa: 92, totalUnits: 5 });
+    expect(() => validateCorrectedGradeReportRows([
+      { subjectName: "Mathematics", units: 3, grade: 1.25, flag: null },
+      { subjectName: "English", units: 2, grade: 95, flag: null },
+    ])).toThrow("Use one grading scale");
+  });
+
   it("rejects out-of-range grades and unsupported terms", () => {
     expect(() =>
       validateCorrectedGradeReportRows([
         { subjectName: "Mathematics", units: 3, grade: 5, flag: null },
       ])
-    ).toThrow("grade from 1.0 to below 5.0");
+    ).toThrow("grade from 1.0 to 3.0 or 75 to 100");
     expect(isAllowedAcademicSemester("2025-2026 Summer Semester")).toBe(false);
     expect(getPreviousAcademicSemester("2025-2026 First Semester")).toBe(
       "2024-2025 Second Semester"

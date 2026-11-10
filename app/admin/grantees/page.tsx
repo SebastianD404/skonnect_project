@@ -98,7 +98,6 @@ export default async function AdminGranteesPage({ searchParams }: {
         status: true,
         yearLevel: true,
         school: true,
-        generalAverage: true,
         dateEnrolled: true,
         graduatedAt: true,
         ...(hasRetentionColumn ? { retentionExpiresAt: true } : {}),
@@ -107,7 +106,6 @@ export default async function AdminGranteesPage({ searchParams }: {
         submissions: {
           orderBy: { submittedAt: "desc" },
           select: {
-            generalAverage: true,
             semester: true,
             status: true,
           },
@@ -117,6 +115,7 @@ export default async function AdminGranteesPage({ searchParams }: {
             id: true,
             fullName: true,
             email: true,
+            phoneNumber: true,
             kkProfile: {
               select: {
                 firstName: true,
@@ -124,21 +123,14 @@ export default async function AdminGranteesPage({ searchParams }: {
                 lastName: true,
               },
             },
+            skeapApplications: {
+              orderBy: { submittedAt: "desc" },
+              take: 1,
+              select: { contactNumber: true },
+            },
             avatarUrl: true,
             role: true,
             updatedAt: true,
-            inquiries: {
-              orderBy: { createdAt: "desc" },
-              take: 1,
-              select: {
-                id: true,
-                application: {
-                  select: {
-                    gwa: true,
-                  },
-                },
-              },
-            },
           },
         },
       },
@@ -171,12 +163,18 @@ export default async function AdminGranteesPage({ searchParams }: {
       id: true,
       fullName: true,
       email: true,
+      phoneNumber: true,
       kkProfile: {
         select: {
           firstName: true,
           middleName: true,
           lastName: true,
         },
+      },
+      skeapApplications: {
+        orderBy: { submittedAt: "desc" },
+        take: 1,
+        select: { contactNumber: true },
       },
       createdAt: true,
       updatedAt: true,
@@ -187,13 +185,15 @@ export default async function AdminGranteesPage({ searchParams }: {
   });
 
   const granteeRows: GranteeTableRow[] = grantees.map((grantee) => {
-    const latestInquiry = grantee.user.inquiries?.[0] ?? null;
-    const latestSubmission = grantee.submissions?.find((submission) => submission.generalAverage !== null) ?? null;
     const journeyProgress = getAcademicJourneyProgress(grantee.submissions, grantee.dateEnrolled);
     return {
       id: grantee.id,
       fullName: formatDisplayName(grantee.user.kkProfile, grantee.user.fullName),
       email: grantee.user.email,
+      contactNumber:
+        grantee.user.phoneNumber?.trim() ||
+        grantee.user.skeapApplications[0]?.contactNumber?.trim() ||
+        null,
       school: normalizeSkeapSchoolName(grantee.school),
       yearLevel: grantee.yearLevel,
       currentJourneySemesterIndex: journeyProgress.currentSemesterIndex,
@@ -204,8 +204,6 @@ export default async function AdminGranteesPage({ searchParams }: {
           : grantee.user.role !== "GRANTEE" && grantee.status !== "GRADUATED"
             ? "REMOVED"
             : grantee.status,
-      generalAverage:
-        latestSubmission?.generalAverage ?? latestInquiry?.application?.gwa ?? grantee.generalAverage,
       dateEnrolled: grantee.dateEnrolled.toISOString(),
       graduatedAt: grantee.graduatedAt?.toISOString() ?? null,
       retentionExpiresAt: getRetentionExpiryDate(grantee)?.toISOString() ?? null,
@@ -218,12 +216,15 @@ export default async function AdminGranteesPage({ searchParams }: {
     id: `user-${user.id}`,
     fullName: formatDisplayName(user.kkProfile, user.fullName),
     email: user.email,
+    contactNumber:
+      user.phoneNumber?.trim() ||
+      user.skeapApplications[0]?.contactNumber?.trim() ||
+      null,
     school: GRANTEE_PLACEHOLDER_SCHOOL,
     yearLevel: GRANTEE_PLACEHOLDER_YEAR_LEVEL,
     currentJourneySemesterIndex: 0,
     validatedJourneySemesterIndexes: [],
     status: "PROBATIONARY",
-    generalAverage: null,
     dateEnrolled: user.createdAt.toISOString(),
     graduatedAt: null,
     retentionExpiresAt: null,

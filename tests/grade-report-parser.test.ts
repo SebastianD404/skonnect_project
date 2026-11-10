@@ -41,6 +41,52 @@ describe("parseGradeReportText", () => {
     expect(result.gwa).toBe(1.5);
   });
 
+  it("uses the unit column before the final grade when both contain decimals", () => {
+    const result = parseGradeReportText(
+      "SUBJ101 Introduction to Computing 3.0 1.25\nMATH102 College Algebra 3.0 1.75"
+    );
+
+    expect(result.rows.map(({ units, grade }) => ({ units, grade }))).toEqual([
+      { units: 3, grade: 1.25 },
+      { units: 3, grade: 1.75 },
+    ]);
+    expect(result.gwa).toBe(1.5);
+    expect(result.unrecognizedRows).toEqual([]);
+  });
+
+  it("requires manual review for a grade outside the recognized grading scales", () => {
+    const result = parseGradeReportText("SUBJ101 Introduction to Computing 3.0 3.24");
+
+    expect(result.rows).toEqual([]);
+    expect(result.gwa).toBeNull();
+    expect(result.unrecognizedRows).toEqual([
+      "SUBJ101 Introduction to Computing 3.0 3.24",
+    ]);
+  });
+
+  it("prioritizes FAILED and NFE remarks over numeric grades", () => {
+    const result = parseGradeReportText(
+      "SUBJ101 Introduction to Computing 3.0 1.25 FAILED\nMATH102 College Algebra 3.0 1.75 NFE\nENG103 Communication Skills 2.0 1.50 DRP"
+    );
+
+    expect(result.rows.map(({ grade, flag }) => ({ grade, flag }))).toEqual([
+      { grade: null, flag: "FAILED" },
+      { grade: null, flag: "NFE" },
+      { grade: null, flag: "DRP" },
+    ]);
+  });
+
+  it("supports percentage grades but does not combine them with Philippine-scale grades", () => {
+    const result = parseGradeReportText(
+      "SUBJ101 Introduction to Computing 3.0 91.5\nMATH102 College Algebra 3.0 1.75"
+    );
+
+    expect(result.gwa).toBeNull();
+    expect(result.unrecognizedRows).toContain(
+      "Mixed grading scales detected; the weighted average could not be calculated."
+    );
+  });
+
   it("keeps non-numeric and failing rows flagged and excludes them from the average", () => {
     const result = parseGradeReportText(fixtures.incomplete);
 
@@ -64,6 +110,7 @@ describe("parseGradeReportText", () => {
     ["Weighted Average:\n 1.875", 1.88],
     ["Term Average 85.5", 85.5],
     ["Average: 75", 75],
+    ["GWA: 100", 100],
   ])("extracts a labeled average despite OCR spacing: %s", (text, expected) => {
     expect(parseGradeReportText(text).gwa).toBe(expected);
   });

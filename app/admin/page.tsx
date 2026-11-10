@@ -1,10 +1,15 @@
 ﻿import { redirect } from "next/navigation";
+import { Role } from "@prisma/client";
 import { prisma, getProfilingRegistrationCount, getMonthlyProfilingRegistrationCounts } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
 import AdminDashboardPageClient from "./AdminDashboardPageClient";
-import { ensureProfile } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 
 export default async function SKOfficialDashboardPage() {
+  const adminUser = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
+  if (adminUser.role === Role.SUPER_ADMIN) {
+    redirect("/system-admin");
+  }
+
   const supportInquiryFilter = {
     NOT: {
       subject: {
@@ -170,21 +175,6 @@ export default async function SKOfficialDashboardPage() {
       iconName: "CheckSquare" as const,
     },
   ];
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const appUser = await ensureProfile(user);
-
-  if (!appUser) {
-    redirect("/login");
-  }
 
   return (
     <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">

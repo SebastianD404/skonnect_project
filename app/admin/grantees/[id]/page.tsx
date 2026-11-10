@@ -38,7 +38,6 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
         status: true,
         school: true,
         yearLevel: true,
-        generalAverage: true,
         dateEnrolled: true,
         dateRemoved: true,
         graduatedAt: true,
@@ -66,7 +65,6 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
                 id: true,
                 currentCourse: true,
                 yearLevel: true,
-                gwa: true,
                 applicantName: true,
                 permanentAddress: true,
                 dateOfBirth: true,
@@ -180,7 +178,6 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
       : {
           currentCourse: skeapApplication.currentCourse,
           yearLevel: skeapApplication.yearLevel,
-          gwa: skeapApplication.gwa,
           applicantName: skeapApplication.applicantName ?? undefined,
           permanentAddress: skeapApplication.permanentAddress ?? undefined,
           dateOfBirth: skeapApplication.dateOfBirth?.toISOString() ?? undefined,
@@ -260,7 +257,6 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
           dateEnrolled: grantee.dateEnrolled.toISOString(),
           dateRemoved: grantee.dateRemoved?.toISOString() ?? null,
           graduatedAt: grantee.graduatedAt?.toISOString() ?? null,
-          generalAverage: grantee.generalAverage,
           submissions: grantee.submissions.map((submission) => ({
             id: submission.id,
             semester: submission.semester,

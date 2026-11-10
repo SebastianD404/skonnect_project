@@ -11,7 +11,6 @@ import GraduationAction from "./GraduationAction";
 export type SerializableSkeapApplicationFormPayload = {
   currentCourse?: string;
   yearLevel?: string;
-  gwa?: number | null;
   applicantName?: string;
   permanentAddress?: string;
   dateOfBirth?: string;
@@ -51,7 +50,6 @@ type DossierGrantee = {
   dateEnrolled: string;
   dateRemoved: string | null;
   graduatedAt: string | null;
-  generalAverage: number | null;
   submissions: Array<{
     id: string;
     semester: string;
@@ -121,15 +119,6 @@ export default function GranteeDossierView({
           <Detail label="Course">{application?.currentCourse ?? "—"}</Detail>
           <Detail label="Year level">{grantee.yearLevel}</Detail>
           <Detail label="Enrollment date">{formatDate(grantee.dateEnrolled)}</Detail>
-          <Detail label="GWA / GPA">
-            {grantee.generalAverage !== null ? (
-              <span className="tabular-nums">{grantee.generalAverage.toFixed(2)}</span>
-            ) : (
-              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
-                No records yet
-              </span>
-            )}
-          </Detail>
         </dl>
         {application?.grades?.length ? (
           <ul className="mt-5 divide-y divide-slate-100 border-t border-slate-100">

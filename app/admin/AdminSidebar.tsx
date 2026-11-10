@@ -239,7 +239,11 @@ export default function AdminSidebar({
     {
       title: "Overview",
       items: [
-        { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+        {
+          label: "Dashboard",
+          href: userRole === "SUPER_ADMIN" ? "/system-admin" : "/admin",
+          icon: LayoutDashboard,
+        },
       ],
     },
     {

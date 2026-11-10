@@ -58,136 +58,47 @@ beforeEach(() => {
 });
 
 describe('admin review route', () => {
-  it('persists the admin-verified GWA when approving grades', async () => {
+  it('approves grades without requiring or writing a GWA', async () => {
     const submission = {
       id: 's1',
       coeFileUrl: 'coe.pdf',
       gradeFileUrl: 'grades.pdf',
       flaggedFields: [],
       status: 'PENDING',
+      coeStatus: 'APPROVED',
+      gradesStatus: 'PENDING',
       generalAverage: null,
-      grantee: { generalAverage: 91.5 },
+      grantee: { status: 'ACTIVE' },
     };
 
     mockFindUnique.mockResolvedValue(submission);
-    mockUpdate.mockResolvedValue({ ...submission, generalAverage: 91.5 });
+    mockUpdate.mockResolvedValue({
+      ...submission,
+      status: 'APPROVED',
+      gradesStatus: 'APPROVED',
+    });
 
     const request = createRequest({
-        documentType: 'grades',
-        action: 'APPROVE',
-        reviewNotes: '',
-        verifiedNoFailingGrades: true,
-        verifiedNoFailingGradesCheck: true,
-        verifiedNoIncGrades: true,
-        verifiedNoDroppedSubjects: true,
-        verifiedGwa: '91.5',
-      });
+      documentType: 'grades',
+      action: 'APPROVE',
+      reviewNotes: '',
+    });
 
-    await POST(request, createContext('s1'));
+    const response = await POST(request, createContext('s1'));
 
-    // Expect update called and included generalAverage
+    expect(response.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalled();
     const callArg = mockUpdate.mock.calls[0][0];
     expect(callArg).toBeDefined();
     expect(callArg.where).toEqual({ id: 's1' });
-    expect(callArg.data).toBeDefined();
-    expect(callArg.data.generalAverage).toBe(91.5);
-  });
-
-  it('accepts Philippine grading-scale GWA values', async () => {
-    const submission = {
-      id: 's2',
-      coeFileUrl: 'coe.pdf',
-      gradeFileUrl: 'grades.pdf',
-      flaggedFields: [],
-      status: 'PENDING',
-      generalAverage: null,
-      gradeRows: [
-        { subject: 'Math', grade: 90 },
-        { subject: 'Science', grade: 95 },
-      ],
-      grantee: { generalAverage: null },
-    };
-
-    mockFindUnique.mockResolvedValue(submission);
-    mockUpdate.mockResolvedValue({ ...submission, generalAverage: 1.25 });
-
-    const request = createRequest({
-        documentType: 'grades',
-        action: 'APPROVE',
-        reviewNotes: '',
-        verifiedNoFailingGrades: true,
-        verifiedNoFailingGradesCheck: true,
-        verifiedNoIncGrades: true,
-        verifiedNoDroppedSubjects: true,
-        verifiedGwa: '1.25',
-      });
-
-    await POST(request, createContext('s2'));
-
-    expect(mockUpdate).toHaveBeenCalled();
-    const callArg = mockUpdate.mock.calls[0][0];
-    expect(callArg.where).toEqual({ id: 's2' });
-    expect(callArg.data.generalAverage).toBe(1.25);
-  });
-
-  it('rejects grade approval without the manual verification checklist', async () => {
-    const request = createRequest({ documentType: 'grades', action: 'APPROVE', reviewNotes: '' });
-
-    const res = await POST(request, createContext('s1'));
-    const payload = await res.json();
-
-    expect(payload).toHaveProperty('error');
-    expect(payload.error).toContain('Confirm that you verified');
-    expect(mockUpdate).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    'verifiedNoFailingGradesCheck',
-    'verifiedNoIncGrades',
-    'verifiedNoDroppedSubjects',
-  ])('rejects grade approval when %s is not confirmed', async (check) => {
-    const request = createRequest({
-      documentType: 'grades',
-      action: 'APPROVE',
-      verifiedNoFailingGrades: true,
-      verifiedNoFailingGradesCheck: true,
-      verifiedNoIncGrades: true,
-      verifiedNoDroppedSubjects: true,
-      verifiedGwa: '1.25',
-      [check]: false,
-    });
-
-    const res = await POST(request, createContext('s1'));
-    const payload = await res.json();
-
-    expect(payload.error).toContain('Confirm that you verified');
-    expect(mockUpdate).not.toHaveBeenCalled();
-    expect(mockFindUnique).not.toHaveBeenCalled();
-  });
-
-  it('rejects invalid verified GWA values', async () => {
-    const request = createRequest({
-        documentType: 'grades',
-        action: 'APPROVE',
-        verifiedNoFailingGrades: true,
-        verifiedNoFailingGradesCheck: true,
-        verifiedNoIncGrades: true,
-        verifiedNoDroppedSubjects: true,
-        verifiedGwa: '74',
-      });
-
-    const res = await POST(request, createContext('s1'));
-    const payload = await res.json();
-
-    expect(payload.error).toContain('Enter a valid verified GWA');
-    expect(mockFindUnique).not.toHaveBeenCalled();
+    expect(callArg.data.status).toBe('APPROVED');
+    expect(callArg.data).not.toHaveProperty('generalAverage');
   });
 
   it.each([
     { documentType: 'grades', coeStatus: 'PENDING', gradesStatus: 'APPROVED' },
     { documentType: 'coe', coeStatus: 'APPROVED', gradesStatus: 'PENDING' },
-  ])('prevents returning an already approved $documentType document', async ({
+  ])('prevents approving an already approved $documentType document', async ({
     documentType,
     coeStatus,
     gradesStatus,
@@ -206,7 +117,7 @@ describe('admin review route', () => {
 
     const res = await POST(createRequest({
       documentType,
-      action: 'RETURN_FOR_UPDATE',
+      action: 'APPROVE',
       reviewNotes: 'Please correct the document.',
     }), createContext('s1'));
     const payload = await res.json();

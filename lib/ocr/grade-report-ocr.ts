@@ -8,6 +8,7 @@ import {
   hasGradeReportSignature,
   MAX_GRADE_REPORT_BYTES,
 } from "@/lib/ocr/grade-report-file";
+import { hasFailingGradeIndicators } from "@/lib/ocr/failing-grade-indicators";
 
 const MAX_PDF_PAGES = 10;
 const MIN_OCR_CONFIDENCE = 65;
@@ -38,12 +39,14 @@ export function decideGradeReportOcrStatus(
   rowCount: number,
   unrecognizedRowCount: number,
   confidence: number,
-  hasValidGrades = rowCount > 0
+  hasValidGrades = rowCount > 0,
+  hasFailingGrades = false
 ): GradeReportOcrStatus {
   return !hasValidGrades ||
     rowCount === 0 ||
     unrecognizedRowCount > 0 ||
-    confidence < MIN_OCR_CONFIDENCE
+    confidence < MIN_OCR_CONFIDENCE ||
+    hasFailingGrades
     ? "OCR_NEEDS_REVIEW"
     : "OCR_DONE";
 }
@@ -173,13 +176,15 @@ export async function processGradeReportOcr(
 ): Promise<GradeReportOcrResult> {
   const { rawText, confidence } = await extractDocumentOcr(input, contentType, "Grade Report");
   const parsed = parseGradeReportText(rawText);
+  const hasFailingGrades = hasFailingGradeIndicators(rawText);
 
   return {
     status: decideGradeReportOcrStatus(
       parsed.rows.length,
       parsed.unrecognizedRows.length,
       confidence,
-      parsed.gwa !== null
+      parsed.gwa !== null,
+      hasFailingGrades
     ),
     rawText,
     parsed,

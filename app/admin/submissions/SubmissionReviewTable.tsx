@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
-import { parseVerifiedGwa } from "@/lib/grade-report-review";
 import type { AcademicTermWindow } from "@/lib/academic-term-schedule";
 
 interface SubmissionRow {
@@ -29,10 +28,7 @@ interface SubmissionRow {
   semester: string;
   gradeFileUrl: string;
   coeFileUrl: string;
-  generalAverage: number | null;
-  verifiedGwa: number | null;
   requiresStrictManualReview: boolean;
-  gradeRows?: Array<{ subject: string; grade: number }> | null;
   status: SubmissionStatus;
   coeStatus: SubmissionStatus;
   gradesStatus: SubmissionStatus;
@@ -43,19 +39,12 @@ interface SubmissionRow {
     user: { fullName: string; email: string };
     school: string;
     yearLevel: string;
-    generalAverage?: number | null;
   };
 }
 
 type TabType = "pending" | "returned" | "cleared";
 type DocumentReview = { status: "PENDING" | "APPROVED" | "RETURN_FOR_UPDATE"; notes: string };
 type ReviewDraft = { coe: DocumentReview; grades: DocumentReview };
-type GradeVerification = {
-  noFailing: boolean;
-  noInc: boolean;
-  noDropped: boolean;
-  verifiedGwa: string;
-};
 
 interface SubmissionsResponse {
   rows: SubmissionRow[];
@@ -129,15 +118,12 @@ interface DocumentCardProps {
   storedFilePath: string | null | undefined;
   badgeContent?: ReactNode;
   reviewNotesValue: string;
+  ocrReviewContent?: ReactNode;
   onNotesChange: (value: string) => void;
   onApprove: () => void;
   onReturn: () => Promise<boolean>;
   disabled: boolean;
   approved: boolean;
-  gradeVerification?: Omit<GradeVerification, "verifiedGwa">;
-  verifiedGwa?: string;
-  onGradeVerificationChange?: (updates: Partial<Omit<GradeVerification, "verifiedGwa">>) => void;
-  onVerifiedGwaChange?: (value: string) => void;
 }
 
 function DocumentCard({
@@ -148,15 +134,12 @@ function DocumentCard({
   storedFilePath,
   badgeContent,
   reviewNotesValue,
+  ocrReviewContent,
   onNotesChange,
   onApprove,
   onReturn,
   disabled,
   approved,
-  gradeVerification = { noFailing: false, noInc: false, noDropped: false },
-  verifiedGwa = "",
-  onGradeVerificationChange,
-  onVerifiedGwaChange,
 }: DocumentCardProps) {
   const viewerUrl = `/api/submissions/${submissionId}/file?kind=${documentKind}`;
   const [previewType, setPreviewType] = useState<"pdf" | "image" | "unsupported" | "missing" | null>(null);
@@ -278,62 +261,9 @@ function DocumentCard({
         ) : null}
       </div>
 
-      {documentKind === "grade" ? (
-        <div className="mt-4 flex shrink-0 flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <label className="group flex cursor-pointer items-start gap-2.5">
-            <input
-              type="checkbox"
-              checked={approved || (
-                gradeVerification.noFailing &&
-                gradeVerification.noInc &&
-                gradeVerification.noDropped
-              )}
-              disabled={disabled || approved}
-              onChange={(event) => {
-                const checked = event.target.checked;
-                onGradeVerificationChange?.({
-                  noFailing: checked,
-                  noInc: checked,
-                  noDropped: checked,
-                });
-              }}
-              aria-label="Academic requirements met"
-              className="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-slate-300 text-emerald-600 focus:ring-emerald-600"
-            />
-            <span className="flex flex-col">
-              <span className="text-xs font-semibold text-slate-900 transition-colors group-hover:text-emerald-700">
-                Academic requirements met
-              </span>
-              <span className="text-[11px] leading-tight text-slate-500">No failing grades, INC, or DRP</span>
-            </span>
-          </label>
-          <div className="h-px w-full bg-slate-200" />
-          {!approved ? (
-            <div className="flex items-center justify-between">
-              <label htmlFor={`${submissionId}-verified-gwa`} className="text-xs font-medium text-slate-700">
-                Verified GWA
-              </label>
-              <input
-                id={`${submissionId}-verified-gwa`}
-                type="text"
-                value={verifiedGwa}
-                disabled={disabled}
-                onChange={(event) => onVerifiedGwaChange?.(event.target.value)}
-                placeholder="e.g. 92.00 or 1.25"
-                aria-label="Verified GWA"
-                className="w-36 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-900 outline-none transition-shadow focus:border-transparent focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-100"
-              />
-            </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-700">Verified GWA</span>
-              <span className="text-xs font-semibold text-slate-900">
-                {verifiedGwa || "Not recorded"}
-              </span>
-            </div>
-          )}
-        </div>
-      ) : null}
+      <div className="review-card__ocr-slot">
+        {documentKind === "grade" ? ocrReviewContent : null}
+      </div>
 
       {approved ? (
         reviewNotesValue.trim() ? (
@@ -353,9 +283,7 @@ function DocumentCard({
             value={reviewNotesValue}
             disabled={disabled}
             onChange={(event) => onNotesChange(event.target.value)}
-            className={`flex-1 text-slate-900 placeholder:text-slate-400 ${
-              documentKind === "grade" ? "min-h-[160px]" : ""
-            }`}
+            className="flex-1 text-slate-900 placeholder:text-slate-400"
           />
         </div>
       )}
@@ -373,29 +301,23 @@ function DocumentCard({
           </button>
         </div>
       ) : documentKind === "grade" ? (
-        <div className="mt-6 flex items-center gap-4 border-t border-slate-100 pt-4">
+        <div className="review-card__actions">
           <button
             type="button"
             onClick={onReturn}
             disabled={disabled}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="review-button review-button--return"
           >
-            <Undo2 className="h-4 w-4" aria-hidden="true" />
+            <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
             Return
           </button>
           <button
             type="button"
             onClick={onApprove}
-            disabled={
-              disabled ||
-              !gradeVerification.noFailing ||
-              !gradeVerification.noInc ||
-              !gradeVerification.noDropped ||
-              parseVerifiedGwa(verifiedGwa) === null
-            }
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled}
+            className="review-button review-button--approve"
           >
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
             Approve Grades
           </button>
         </div>
@@ -425,13 +347,47 @@ function DocumentCard({
   );
 }
 
-function OcrGwaBadge({
+type OcrGradeRow = {
+  subjectCode: string | null;
+  subjectName: string;
+  units: number;
+  grade: number | null;
+  flag: string | null;
+};
+
+function normalizeOcrGradeRows(value: unknown): OcrGradeRow[] {
+  if (!value || typeof value !== "object" || !("rows" in value) || !Array.isArray(value.rows)) {
+    return [];
+  }
+
+  return value.rows.flatMap((item): OcrGradeRow[] => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const subjectName = typeof row.subjectName === "string" ? row.subjectName.trim() : "";
+    const units = Number(row.units);
+    const grade = row.grade === null || row.grade === undefined ? null : Number(row.grade);
+    if (!subjectName || !Number.isFinite(units) || (grade !== null && !Number.isFinite(grade))) {
+      return [];
+    }
+
+    return [{
+      subjectCode: typeof row.subjectCode === "string" ? row.subjectCode : null,
+      subjectName,
+      units,
+      grade,
+      flag: typeof row.flag === "string" ? row.flag : null,
+    }];
+  });
+}
+
+function OcrGradeReportDetails({
   submissionId,
 }: {
   submissionId: string;
 }) {
   const [ocrStatus, setOcrStatus] = useState<string>("OCR_PENDING");
-  const [ocrGwa, setOcrGwa] = useState<number | null>(null);
+  const [rows, setRows] = useState<OcrGradeRow[]>([]);
+  const [unrecognizedRowCount, setUnrecognizedRowCount] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -445,8 +401,20 @@ function OcrGwaBadge({
         });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Could not load OCR status.");
-        const payload = body as { ocrStatus: string; ocrGwa: number | null };
-        setOcrGwa(payload.ocrGwa);
+        const payload = body as {
+          ocrStatus: string;
+          ocrParsedRows: unknown;
+        };
+        const parsedRows =
+          payload.ocrParsedRows && typeof payload.ocrParsedRows === "object"
+            ? payload.ocrParsedRows
+            : null;
+        setRows(normalizeOcrGradeRows(parsedRows));
+        setUnrecognizedRowCount(
+          parsedRows && "unrecognizedRows" in parsedRows && Array.isArray(parsedRows.unrecognizedRows)
+            ? parsedRows.unrecognizedRows.length
+            : 0
+        );
         setOcrStatus(payload.ocrStatus);
         if (payload.ocrStatus === "OCR_PENDING") {
           timeoutId = setTimeout(() => void loadOcrStatus(), 2500);
@@ -466,34 +434,53 @@ function OcrGwaBadge({
     };
   }, [submissionId]);
 
-  const gwa = ocrGwa;
-  const needsManualReview =
-    ocrStatus === "OCR_FAILED" ||
-    ocrStatus === "OCR_NEEDS_REVIEW" ||
-    (ocrStatus !== "OCR_PENDING" && gwa === null);
+  if (ocrStatus !== "OCR_NEEDS_REVIEW" && rows.length === 0) return null;
 
   return (
-    <div className={`flex h-7 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3 text-xs font-bold ${
-      needsManualReview
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-sky-200 bg-sky-50 text-sky-700"
-    }`}>
-      <span>GWA:</span>
-      {ocrStatus === "OCR_PENDING" ? (
-        <span className="flex items-center gap-1.5 font-medium text-sky-600">
-          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-          Processing...
-        </span>
-      ) : needsManualReview && gwa === null ? (
-        <span className="flex items-center gap-1.5 font-semibold text-amber-700">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-          Manual Review
-        </span>
-      ) : (
-        <span className={`font-extrabold ${needsManualReview ? "text-amber-700" : "text-[#0a1f33]"}`}>
-          {gwa?.toFixed(2)}{needsManualReview ? " · Review" : ""}
-        </span>
-      )}
+    <div className="space-y-3">
+      {ocrStatus === "OCR_NEEDS_REVIEW" ? (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+          <p>Ambiguous grades detected. Please verify the final grades manually against the attached document.</p>
+        </div>
+      ) : null}
+
+      {rows.length > 0 ? (
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">
+            Extracted grade rows
+          </div>
+          <div className="max-h-40 overflow-auto">
+            <table className="w-full text-left text-[11px]">
+              <thead className="sticky top-0 bg-white text-slate-500">
+                <tr>
+                  <th scope="col" className="px-3 py-1.5 font-medium">Subject</th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">Units</th>
+                  <th scope="col" className="px-3 py-1.5 text-right font-medium">Final grade</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {rows.map((row, index) => (
+                  <tr key={`${row.subjectCode ?? row.subjectName}-${index}`}>
+                    <td className="max-w-[200px] truncate px-3 py-1.5" title={`${row.subjectCode ? `${row.subjectCode} ` : ""}${row.subjectName}`}>
+                      {row.subjectCode ? `${row.subjectCode} ` : ""}{row.subjectName}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{row.units}</td>
+                    <td className="px-3 py-1.5 text-right font-medium tabular-nums">
+                      {row.grade?.toFixed(2) ?? row.flag ?? "Review"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {unrecognizedRowCount > 0 ? (
+            <p className="border-t border-slate-100 px-3 py-2 text-[10px] text-amber-700">
+              {unrecognizedRowCount} row{unrecognizedRowCount === 1 ? "" : "s"} could not be read reliably.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -576,13 +563,6 @@ export default function SubmissionReviewTable() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [gradeVerification, setGradeVerification] = useState<GradeVerification & { submissionId: string }>({
-    submissionId: "",
-    noFailing: false,
-    noInc: false,
-    noDropped: false,
-    verifiedGwa: "",
-  });
   const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -678,22 +658,6 @@ export default function SubmissionReviewTable() {
       (selectedSubmission.flaggedFields?.length ?? 0) > 0);
   const gradeReportApproved =
     selectedSubmission?.gradesStatus === "APPROVED" || selectedSubmission?.status === "APPROVED";
-  const currentGradeVerification = gradeReportApproved
-    ? {
-        noFailing: true,
-        noInc: true,
-        noDropped: true,
-        verifiedGwa: selectedSubmission.verifiedGwa === null ? "" : String(selectedSubmission.verifiedGwa),
-      }
-    : gradeVerification.submissionId === selectedSubmissionId
-      ? gradeVerification
-      : { noFailing: false, noInc: false, noDropped: false, verifiedGwa: "" };
-  const isGradeVerificationComplete =
-    currentGradeVerification.noFailing &&
-    currentGradeVerification.noInc &&
-    currentGradeVerification.noDropped;
-  const verifiedGwa =
-    currentGradeVerification.verifiedGwa;
   const draft = selectedSubmission
     ? reviewDrafts[selectedSubmission.id] ?? EMPTY_REVIEW_DRAFT
     : EMPTY_REVIEW_DRAFT;
@@ -771,24 +735,11 @@ export default function SubmissionReviewTable() {
     }));
   }
 
-  function updateGradeVerification(updates: Partial<GradeVerification>) {
-    if (!selectedSubmissionId) return;
-    setGradeVerification((current) => ({
-      submissionId: selectedSubmissionId,
-      noFailing: current.submissionId === selectedSubmissionId ? current.noFailing : false,
-      noInc: current.submissionId === selectedSubmissionId ? current.noInc : false,
-      noDropped: current.submissionId === selectedSubmissionId ? current.noDropped : false,
-      verifiedGwa: current.submissionId === selectedSubmissionId ? current.verifiedGwa : "",
-      ...updates,
-    }));
-  }
-
   async function postDocumentReview(
     submission: SubmissionRow,
     docType: "coe" | "grades",
     action: "APPROVE" | "RETURN_FOR_UPDATE",
     notes: string,
-    verification?: GradeVerification,
   ) {
     const response = await fetch(`/api/admin/submissions/${submission.id}/review`, {
       method: "POST",
@@ -797,15 +748,6 @@ export default function SubmissionReviewTable() {
         documentType: docType,
         action,
         reviewNotes: notes,
-        ...(verification
-          ? {
-            verifiedNoFailingGrades: verification.noFailing && verification.noInc && verification.noDropped,
-            verifiedNoFailingGradesCheck: verification.noFailing,
-            verifiedNoIncGrades: verification.noInc,
-            verifiedNoDroppedSubjects: verification.noDropped,
-            verifiedGwa: verification.verifiedGwa,
-          }
-          : {}),
       }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -832,11 +774,7 @@ export default function SubmissionReviewTable() {
     setValidationError(null);
     setActionSuccess(null);
     try {
-      const verification =
-        docType === "grades" && action === "APPROVE"
-          ? { ...currentGradeVerification }
-          : undefined;
-      await postDocumentReview(submission, docType, action, reviewNotes.trim(), verification);
+      await postDocumentReview(submission, docType, action, reviewNotes.trim());
       updateDraft(submission.id, { [docType]: { status: "PENDING", notes: "" } });
       setActionSuccess(
         action === "APPROVE"
@@ -886,10 +824,6 @@ export default function SubmissionReviewTable() {
 
   async function submitPackageReview() {
     if (!selectedSubmission || isSaving) return;
-    if (!isGradeVerificationComplete || parseVerifiedGwa(verifiedGwa) === null) {
-      setValidationError("Verify the grade report and enter its GWA before approving the submission.");
-      return;
-    }
 
     setSavingSubmissionId(selectedSubmission.id);
     setActionError(null);
@@ -898,9 +832,7 @@ export default function SubmissionReviewTable() {
     try {
       await postDocumentReview(selectedSubmission, "coe", "APPROVE", "");
       if (selectedSubmission.gradeFileUrl) {
-        await postDocumentReview(selectedSubmission, "grades", "APPROVE", "", {
-          ...currentGradeVerification,
-        });
+        await postDocumentReview(selectedSubmission, "grades", "APPROVE", "");
       }
       setActionSuccess("Submission package fully cleared.");
       changeTab("cleared", selectedSubmission.id);
@@ -1224,11 +1156,7 @@ export default function SubmissionReviewTable() {
                             <button
                               type="button"
                               onClick={() => void submitPackageReview()}
-                              disabled={
-                                isSaving ||
-                                !isGradeVerificationComplete ||
-                                parseVerifiedGwa(verifiedGwa) === null
-                              }
+                              disabled={isSaving}
                               className="inline-flex items-center gap-2 rounded-xl bg-[#0a1f33] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#122e48] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <CheckCircle2 className="h-4 w-4" />
@@ -1262,7 +1190,6 @@ export default function SubmissionReviewTable() {
                     <span aria-hidden="true">·</span>
                     <span>Submitted {formatDate(selectedSubmission.submittedAt)}</span>
                     <span aria-hidden="true">·</span>
-                    <span>GPA {(selectedSubmission.generalAverage ?? selectedSubmission.grantee.generalAverage)?.toFixed(2) ?? "—"}</span>
                   </div>
                 </header>
 
@@ -1305,20 +1232,21 @@ export default function SubmissionReviewTable() {
                         {gradeReportApproved ? (
                           <span className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
                             <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
-                            {selectedSubmission.verifiedGwa !== null
-                              ? `GWA: ${selectedSubmission.verifiedGwa.toFixed(2)} · Verified`
-                              : "GWA Verified"}
+                            Approved
                           </span>
                         ) : selectedSubmission.requiresStrictManualReview ? (
                           <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-rose-100 px-2 py-1 text-[9px] font-bold text-rose-700">
                             <AlertTriangle className="h-3 w-3" aria-hidden="true" />
                             Flagged: Possible Failing Grade
                           </span>
-                        ) : (
-                          <OcrGwaBadge submissionId={selectedSubmission.id} />
-                        )}
+                        ) : null}
                       </div>
                     ) : undefined}
+                    ocrReviewContent={
+                      !gradeReportApproved && selectedSubmission.gradeFileUrl
+                        ? <OcrGradeReportDetails submissionId={selectedSubmission.id} />
+                        : undefined
+                    }
                     reviewNotesValue={draft.grades.notes || selectedSubmission.reviewNotes || ""}
                     onNotesChange={(value) => updateDraft(selectedSubmission.id, {
                       grades: { ...draft.grades, notes: value },
@@ -1327,10 +1255,6 @@ export default function SubmissionReviewTable() {
                     onReturn={() => returnDocumentForUpdate(selectedSubmission, "grades")}
                     disabled={isSaving || !selectedSubmission.gradeFileUrl}
                     approved={gradeReportApproved}
-                    gradeVerification={currentGradeVerification}
-                    verifiedGwa={verifiedGwa}
-                    onGradeVerificationChange={(updates) => updateGradeVerification(updates)}
-                    onVerifiedGwaChange={(value) => updateGradeVerification({ verifiedGwa: value })}
                   />
                 </div>
               </>
