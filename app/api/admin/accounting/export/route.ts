@@ -1,30 +1,14 @@
 import ExcelJS from "exceljs";
 import { NextResponse } from "next/server";
 import path from "node:path";
-import { Prisma, Role } from "@prisma/client";
+import { GranteeStatus, Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { ensureProfile } from "@/lib/auth";
+import { formatPayrollGranteeName } from "@/lib/accounting-payroll";
 import { logAuditEvent } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-
-function formatGranteeName(fullName: string, profile: { firstName: string; lastName: string } | null) {
-  if (profile?.firstName && profile.lastName) {
-    return `${profile.lastName}, ${profile.firstName}`;
-  }
-
-  const trimmedName = fullName.trim();
-  if (trimmedName.includes(",")) {
-    const [lastName, ...firstNameParts] = trimmedName.split(",");
-    return `${lastName.trim()}, ${firstNameParts.join(",").trim()}`;
-  }
-
-  const nameParts = trimmedName.split(/\s+/).filter(Boolean);
-  if (nameParts.length < 2) return trimmedName;
-
-  return `${nameParts[nameParts.length - 1]}, ${nameParts[0]}`;
-}
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -39,13 +23,24 @@ export async function GET(request: Request) {
   const searchParams = new URL(request.url).searchParams;
   const semesterId = searchParams.get("semesterId")?.trim();
   const semesterName = searchParams.get("semester")?.trim();
+  const reportType = searchParams.get("reportType") ?? "master_payroll";
   const payoutStatus = searchParams.get("payoutStatus");
+  const submissionStatus = searchParams.get("submissionStatus");
   const search = searchParams.get("search")?.trim() ?? "";
+  if (!["current_view", "master_payroll", "pending_payouts"].includes(reportType)) {
+    return NextResponse.json({ error: "Invalid payroll report type." }, { status: 400 });
+  }
   if (!semesterId && !semesterName) {
     return NextResponse.json({ error: "A semester is required." }, { status: 400 });
   }
   if (payoutStatus && !["pending", "received"].includes(payoutStatus)) {
     return NextResponse.json({ error: "Invalid payout status filter." }, { status: 400 });
+  }
+  if (
+    submissionStatus &&
+    (reportType !== "current_view" || !["submitted", "not_submitted"].includes(submissionStatus))
+  ) {
+    return NextResponse.json({ error: "Invalid submission status filter." }, { status: 400 });
   }
 
   try {
@@ -66,8 +61,28 @@ export async function GET(request: Request) {
     const semesterSubmissionFilter = {
       semester: { equals: selectedSemester, mode: "insensitive" as const },
     };
+    const submittedSemesterFilter = {
+      ...semesterSubmissionFilter,
+      status: {
+        notIn: [SubmissionStatus.REJECTED, SubmissionStatus.RETURNED_FOR_EDIT],
+      },
+    };
+    const currentView = reportType === "current_view";
     const where: Prisma.GranteeWhereInput = {
-      submissions: { some: { ...semesterSubmissionFilter, status: "APPROVED" } },
+      status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+      user: {
+        is: {
+          isActive: true,
+          role: Role.GRANTEE,
+        },
+      },
+      ...(currentView
+        ? submissionStatus === "submitted"
+          ? { submissions: { some: submittedSemesterFilter } }
+          : submissionStatus === "not_submitted"
+            ? { NOT: { submissions: { some: submittedSemesterFilter } } }
+            : {}
+        : {}),
       ...(search
         ? {
             user: {
@@ -79,9 +94,11 @@ export async function GET(request: Request) {
         : {}),
     };
 
-    if (payoutStatus === "received") {
+    const effectivePayoutStatus =
+      currentView ? payoutStatus : reportType === "pending_payouts" ? "pending" : undefined;
+    if (effectivePayoutStatus === "received") {
       where.payout = { is: { claimedAt: { not: null } } };
-    } else if (payoutStatus === "pending") {
+    } else if (effectivePayoutStatus === "pending") {
       where.OR = [
         { payout: { is: null } },
         { payout: { is: { claimedAt: null } } },
@@ -95,7 +112,13 @@ export async function GET(request: Request) {
         user: {
           select: {
             fullName: true,
-            kkProfile: { select: { firstName: true, lastName: true } },
+            kkProfile: {
+              select: {
+                lastName: true,
+                firstName: true,
+                middleName: true,
+              },
+            },
           },
         },
         submissions: {
@@ -116,7 +139,7 @@ export async function GET(request: Request) {
     }
 
     const reportRows = grantees.map((grantee) => ({
-      name: formatGranteeName(grantee.user.fullName, grantee.user.kkProfile),
+      name: formatPayrollGranteeName(grantee.user.kkProfile, grantee.user.fullName),
       status: grantee.payout?.claimedAt ? "Received" : "Pending",
       semester: grantee.submissions[0]?.semester ?? selectedSemester,
     }));
@@ -186,10 +209,10 @@ export async function GET(request: Request) {
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const filename = payoutStatus === "pending"
-      ? "SKEAP-Pending-Payouts.xlsx"
-      : payoutStatus === "received"
-        ? "SKEAP-Received-Payouts.xlsx"
+    const filename = currentView
+      ? `SKEAP-PAYROLL-${semesterSlug}-Current-View.xlsx`
+      : reportType === "pending_payouts"
+        ? `SKEAP-Pending-Payouts-${semesterSlug}.xlsx`
         : `SKEAP-PAYROLL-${semesterSlug}.xlsx`;
 
     logAuditEvent({
@@ -199,7 +222,13 @@ export async function GET(request: Request) {
       resource: "accounting-payroll",
       metadata: {
         recordCount: reportRows.length,
-        filters: { semester: selectedSemester, payoutStatus, search: search || undefined },
+        filters: {
+          semester: selectedSemester,
+          reportType,
+          payoutStatus: effectivePayoutStatus,
+          submissionStatus: currentView ? submissionStatus ?? "all" : undefined,
+          search: search || undefined,
+        },
       },
     });
 

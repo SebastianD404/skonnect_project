@@ -4,6 +4,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Wallet, Search, SearchX, Inbox, Download, LoaderCircle, ChevronDown } from "lucide-react";
 import { getRecentSemesters } from "@/lib/semester";
 import { formatDate } from "@/lib/utils";
+import {
+  getAccountingSubmissionState,
+  isAccountingSubmissionSubmitted,
+} from "@/lib/accounting-submission";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 // If you have shadcn/ui components installed, replace the native select below
 // with shadcn's `Select` imports, e.g.:
@@ -19,9 +23,9 @@ import FloatingFeedback from "@/app/components/FloatingFeedback";
   name: string;
   semester: string;
   status: "Pending Payout" | "Claimed";
-    submitted?: boolean;
+    submitted: boolean;
     submissionStatus?: string | null;
-    submissionState?: string; // 'Approved' | 'Under review' | 'Not submitted'
+    submissionState: string;
     claimedAt?: string | null;
 };
 
@@ -43,7 +47,6 @@ export default function AdminAccountingPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportingReport, setExportingReport] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const savedTimeoutRef = useRef<number | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -189,14 +192,18 @@ export default function AdminAccountingPage() {
               ? apiClaimed
               : payoutStr.toLowerCase().includes("received") || payoutStr.toLowerCase().includes("claimed");
 
+            const submissionStatus = r.submissionStatus ?? r.submission?.status ?? null;
+            const submitted = isAccountingSubmissionSubmitted(submissionStatus);
+
             return {
               id: String(r.id),
               name: String(name),
               semester: effectiveSemester,
               status: isClaimed ? "Claimed" : "Pending Payout",
               claimed: Boolean(isClaimed),
-              submitted: Boolean(r.submitted ?? (r.submission ? true : false)),
-              submissionStatus: r.submissionStatus ?? r.submission?.status ?? null,
+              submitted,
+              submissionStatus,
+              submissionState: getAccountingSubmissionState(submissionStatus),
               claimedAt: r.claimedAt ?? r.claimed_at ?? null,
             };
           })
@@ -261,7 +268,7 @@ export default function AdminAccountingPage() {
 
   async function handleExportReport(
     reportLabel: string,
-    filters: { payoutStatus?: "pending" | "received" } = {},
+    reportType: "current_view" | "master_payroll" | "pending_payouts",
   ) {
     if (isExporting) return;
 
@@ -269,13 +276,19 @@ export default function AdminAccountingPage() {
       .replace(/\s*\(Current\)$/i, "")
       .trim();
     setIsExporting(true);
-    setExportingReport(reportLabel);
     setErrorMessage(null);
 
     try {
-      const params = new URLSearchParams({ semesterId: currentSemester });
-      if (filters.payoutStatus) params.set("payoutStatus", filters.payoutStatus);
-      if (reportLabel === "current view" && query.trim()) params.set("search", query.trim());
+      const params = new URLSearchParams({ semesterId: currentSemester, reportType });
+      if (reportType === "current_view") {
+        if (query.trim()) params.set("search", query.trim());
+        if (submissionFilter !== "all") params.set("submissionStatus", submissionFilter);
+        if (claimedFilter !== "all") {
+          params.set("payoutStatus", claimedFilter === "received" ? "received" : "pending");
+        }
+      } else if (reportType === "pending_payouts") {
+        params.set("payoutStatus", "pending");
+      }
 
       const response = await fetch(`/api/admin/accounting/export?${params.toString()}`, {
         credentials: "same-origin",
@@ -302,7 +315,6 @@ export default function AdminAccountingPage() {
       setErrorMessage(error instanceof Error ? error.message : "Unable to export payroll.");
     } finally {
       setIsExporting(false);
-      setExportingReport(null);
     }
   }
 
@@ -379,11 +391,11 @@ export default function AdminAccountingPage() {
               disabled={isExporting}
               onClick={() => setIsExportMenuOpen((open) => !open)}
               aria-busy={isExporting}
-              className="flex w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-70 sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
+              className="flex w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-70 sm:min-h-[38px] sm:w-auto sm:px-3 sm:py-2 sm:text-sm"
             >
               {isExporting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {isExporting ? `Exporting ${exportingReport ?? "report"}...` : "Export Payroll"}
-              {!isExporting ? <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isExportMenuOpen ? "rotate-180" : ""}`} /> : null}
+              <span>{isExporting ? "Exporting..." : "Export Payroll"}</span>
+              <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isExportMenuOpen && !isExporting ? "rotate-180" : ""} ${isExporting ? "invisible" : ""}`} />
             </button>
             {isExportMenuOpen ? <div id="accounting-export-menu" role="group" aria-label="Export reports" className="absolute right-0 z-30 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
               <button
@@ -391,9 +403,7 @@ export default function AdminAccountingPage() {
                 disabled={isExporting}
                 onClick={() => {
                   setIsExportMenuOpen(false);
-                  void handleExportReport("current view", {
-                    ...(claimedFilter !== "all" ? { payoutStatus: claimedFilter === "pending" ? "pending" : "received" } : {}),
-                  });
+                  void handleExportReport("current view", "current_view");
                 }}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
               >
@@ -404,7 +414,7 @@ export default function AdminAccountingPage() {
                 disabled={isExporting}
                 onClick={() => {
                   setIsExportMenuOpen(false);
-                  void handleExportReport("master payroll");
+                  void handleExportReport("master payroll", "master_payroll");
                 }}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
               >
@@ -415,7 +425,7 @@ export default function AdminAccountingPage() {
                 disabled={isExporting}
                 onClick={() => {
                   setIsExportMenuOpen(false);
-                  void handleExportReport("pending payouts report", { payoutStatus: "pending" });
+                  void handleExportReport("pending payouts report", "pending_payouts");
                 }}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
               >

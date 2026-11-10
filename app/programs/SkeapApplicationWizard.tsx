@@ -862,6 +862,13 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         }
         return acc;
       }, {});
+      const photoFile = findUploadFileForKey(files, SKEAP_UPLOAD_KEY.PHOTO);
+      if (photoFile?.status === "done" && photoFile.url?.trim()) {
+        documentUploads[SKEAP_UPLOAD_KEY.PHOTO] = {
+          name: photoFile.name,
+          url: photoFile.url.trim(),
+        };
+      }
       const voterCertificate = findUploadFileForKey(files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
       if (voterCertificate?.status === "done" && voterCertificate.url?.trim()) {
         documentUploads[SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE] = {
@@ -891,11 +898,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         doneUrls.find((url) => url !== enrollmentFileUrl) ||
         doneUrls[1] ||
         "";
-      const photoFileUrl =
-        files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.PHOTO)?.url ||
-        doneUrls.find((url) => url !== enrollmentFileUrl && url !== reportCardFileUrl) ||
-        doneUrls.find(Boolean) ||
-        "";
+      const photoFileUrl = photoFile?.status === "done" ? photoFile.url?.trim() || "" : "";
       const voterCertificateFileUrl =
         files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)?.url || null;
 

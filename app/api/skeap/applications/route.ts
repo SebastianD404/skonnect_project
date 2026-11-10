@@ -411,6 +411,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const uploadedPhoto = uploadedFiles[SKEAP_UPLOAD_KEY.PHOTO];
+    uploadedFiles[SKEAP_UPLOAD_KEY.PHOTO] = {
+      ...uploadedPhoto,
+      url: photoFileUrl,
+    };
+
     const missingUploadKeys = requiredUploadKeys.filter(
       (key) => !uploadedFiles[key] || !uploadedFiles[key].url?.trim()
     );

@@ -26,6 +26,7 @@ import { Avatar } from "@/components/ui/Avatar";
 type UserItem = {
   id: string;
   fullName: string;
+  displayName: string;
   email: string;
   avatarUrl: string | null;
   role: Role;
@@ -538,12 +539,12 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                         <div className="flex items-center gap-3">
                           <Avatar
                             src={user.avatarUrl}
-                            alt={user.fullName || "User"}
+                            alt={user.displayName || "User"}
                             size={36}
                             className="h-9 w-9"
                           />
                           <div>
-                            <p className="font-bold text-slate-900">{user.fullName || "Unnamed User"}</p>
+                            <p className="font-bold text-slate-900">{user.displayName || "Unnamed User"}</p>
                             <p className="mt-0.5 text-xs text-slate-500">{user.email}</p>
                           </div>
                         </div>
@@ -552,7 +553,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                         <div className="flex items-center gap-2">
                           <div className="relative w-fit">
                             <select
-                              aria-label={`Role for ${user.fullName}`}
+                              aria-label={`Role for ${user.displayName}`}
                               value={draftRole}
                               onChange={(event) => updateRole(user.id, event.target.value as Role)}
                               className="h-9 w-[124px] appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-9 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
@@ -604,8 +605,8 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                           <button
                             type="button"
                             onClick={() => setOpenActionsUserId((current) => current === user.id ? null : user.id)}
-                            title={`Actions for ${user.fullName}`}
-                            aria-label={`Actions for ${user.fullName}`}
+                            title={`Actions for ${user.displayName}`}
+                            aria-label={`Actions for ${user.displayName}`}
                             aria-haspopup="menu"
                             aria-expanded={openActionsUserId === user.id}
                             ref={openActionsUserId === user.id ? actionsTriggerRef : null}
@@ -617,7 +618,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                             <div
                               ref={actionsMenuRef}
                               role="menu"
-                              aria-label={`Actions for ${user.fullName}`}
+                              aria-label={`Actions for ${user.displayName}`}
                               className="fixed z-[100] w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
                               style={actionsMenuPosition}
                             >
@@ -699,13 +700,13 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar
                         src={user.avatarUrl}
-                        alt={user.fullName || "User"}
+                        alt={user.displayName || "User"}
                         size={44}
                         className="h-11 w-11 shrink-0"
                       />
                       <div className="min-w-0 flex-1">
                         <h3 className="truncate font-bold text-slate-900">
-                          {user.fullName || "Unnamed User"}
+                          {user.displayName || "Unnamed User"}
                         </h3>
                         <p className="truncate text-xs text-slate-500">{user.email}</p>
                       </div>
@@ -718,7 +719,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                         </dt>
                         <dd className="relative mt-1">
                           <select
-                            aria-label={`Role for ${user.fullName}`}
+                            aria-label={`Role for ${user.displayName}`}
                             value={draftRole}
                             onChange={(event) => updateRole(user.id, event.target.value as Role)}
                             className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-2 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
@@ -832,13 +833,13 @@ export default function UserRoleManager({ users, totalCount }: Props) {
               <div className="flex min-w-0 items-center gap-3">
                 <Avatar
                   src={viewingUser.avatarUrl}
-                  alt={viewingUser.fullName || "User"}
+                  alt={viewingUser.displayName || "User"}
                   size={48}
                   className="h-12 w-12 shrink-0 bg-slate-100 text-slate-600"
                 />
                 <div className="min-w-0">
                   <h3 className="truncate text-lg font-bold text-slate-900">
-                    {viewingUser.fullName || "Unnamed User"}
+                    {viewingUser.displayName || "Unnamed User"}
                   </h3>
                   <p className="truncate text-sm text-slate-500">{viewingUser.email}</p>
                 </div>
@@ -1040,11 +1041,11 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                   <p id="user-status-description" className="mt-1.5 text-[13px] leading-5 text-slate-600">
                     {statusCandidate.isActive ? (
                       <>
-                        Deactivating <span className="font-semibold text-slate-900">{statusCandidate.fullName}</span>&apos;s account prevents sign-in until it is reactivated.
+                        Deactivating <span className="font-semibold text-slate-900">{statusCandidate.displayName}</span>&apos;s account prevents sign-in until it is reactivated.
                       </>
                     ) : (
                       <>
-                        Reactivating <span className="font-semibold text-slate-900">{statusCandidate.fullName}</span>&apos;s account restores their access to SKonnect.
+                        Reactivating <span className="font-semibold text-slate-900">{statusCandidate.displayName}</span>&apos;s account restores their access to SKonnect.
                       </>
                     )}
                   </p>

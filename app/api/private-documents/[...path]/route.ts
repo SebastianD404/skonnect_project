@@ -15,6 +15,22 @@ const ALLOWED_CONTENT_TYPES = new Set([
   "image/webp",
 ]);
 
+function getImageContentTypeFromPath(path: string[]) {
+  const extension = path.at(-1)?.split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "jpg":
+    case "jpeg":
+    case "jfif":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ path: string[] }> },
@@ -64,7 +80,7 @@ export async function GET(
 
   const contentType = ALLOWED_CONTENT_TYPES.has(data.type)
     ? data.type
-    : "application/octet-stream";
+    : getImageContentTypeFromPath(path) ?? "application/octet-stream";
   return new NextResponse(new Uint8Array(await data.arrayBuffer()), {
     headers: {
       "Cache-Control": "private, no-store",

@@ -1,6 +1,7 @@
 import { SubmissionStatus } from "@prisma/client";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
+import { formatDisplayName } from "@/lib/display-name";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import UserRoleManager from "../UserRoleManager";
@@ -34,6 +35,13 @@ export default async function SystemAdminUsersPage({
       select: {
         id: true,
         fullName: true,
+        kkProfile: {
+          select: {
+            firstName: true,
+            middleName: true,
+            lastName: true,
+          },
+        },
         email: true,
         avatarUrl: true,
         role: true,
@@ -100,6 +108,7 @@ export default async function SystemAdminUsersPage({
         users={users.map((user) => ({
           id: user.id,
           fullName: user.fullName,
+          displayName: formatDisplayName(user.kkProfile, user.fullName),
           email: user.email,
           avatarUrl: user.avatarUrl,
           role: user.grantee?.status === "GRADUATED" || user.grantee?.status === "REMOVED"

@@ -250,12 +250,19 @@ export function AdminKKProfilingFormView({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 sm:p-6">
-      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white text-left shadow-2xl">
+  return typeof document === "undefined"
+    ? null
+    : createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 sm:p-6">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="kk-profiling-submission-title"
+        className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white text-left shadow-2xl"
+      >
         <div className="flex shrink-0 items-start justify-between gap-3 px-6 pt-6">
           <div className="min-w-0">
-            <h3 className="break-words text-left text-xl font-semibold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Submission</h3>
+            <h3 id="kk-profiling-submission-title" className="break-words text-left text-xl font-semibold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Submission</h3>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-left text-sm text-slate-500">
               <span>Submitted on {new Date(registration.submittedAt).toLocaleString()}</span>
               <span className="inline-flex items-center gap-2">
@@ -630,6 +637,7 @@ export function AdminKKProfilingFormView({
             )
           : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

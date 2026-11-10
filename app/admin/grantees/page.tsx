@@ -1,5 +1,6 @@
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
+import { formatDisplayName } from "@/lib/display-name";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import AdminGranteesPageClient from "../AdminGranteesPageClient";
@@ -116,6 +117,13 @@ export default async function AdminGranteesPage({ searchParams }: {
             id: true,
             fullName: true,
             email: true,
+            kkProfile: {
+              select: {
+                firstName: true,
+                middleName: true,
+                lastName: true,
+              },
+            },
             avatarUrl: true,
             role: true,
             updatedAt: true,
@@ -163,6 +171,13 @@ export default async function AdminGranteesPage({ searchParams }: {
       id: true,
       fullName: true,
       email: true,
+      kkProfile: {
+        select: {
+          firstName: true,
+          middleName: true,
+          lastName: true,
+        },
+      },
       createdAt: true,
       updatedAt: true,
     },
@@ -177,7 +192,7 @@ export default async function AdminGranteesPage({ searchParams }: {
     const journeyProgress = getAcademicJourneyProgress(grantee.submissions, grantee.dateEnrolled);
     return {
       id: grantee.id,
-      fullName: grantee.user.fullName,
+      fullName: formatDisplayName(grantee.user.kkProfile, grantee.user.fullName),
       email: grantee.user.email,
       school: normalizeSkeapSchoolName(grantee.school),
       yearLevel: grantee.yearLevel,
@@ -201,7 +216,7 @@ export default async function AdminGranteesPage({ searchParams }: {
 
   const fallbackRows: GranteeTableRow[] = granteeUsersWithoutProfile.map((user) => ({
     id: `user-${user.id}`,
-    fullName: user.fullName,
+    fullName: formatDisplayName(user.kkProfile, user.fullName),
     email: user.email,
     school: GRANTEE_PLACEHOLDER_SCHOOL,
     yearLevel: GRANTEE_PLACEHOLDER_YEAR_LEVEL,

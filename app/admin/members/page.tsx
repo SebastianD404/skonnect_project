@@ -2,6 +2,7 @@ import { GranteeStatus, Role, SubmissionStatus } from "@prisma/client";
 import { BookOpen, BriefcaseBusiness, GraduationCap, Users } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { listProfilingRegistrations } from "@/lib/prisma";
+import { formatDisplayName } from "@/lib/display-name";
 import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
 import { KKProfilingRegistrationsTable } from "../kk-profiling/KKProfilingRegistrationsTable";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
@@ -37,6 +38,13 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
           fullName: true,
           email: true,
           role: true,
+          kkProfile: {
+            select: {
+              firstName: true,
+              middleName: true,
+              lastName: true,
+            },
+          },
           grantee: { select: { id: true, status: true } },
           skeapApplications: {
             where: {
@@ -89,7 +97,10 @@ export default async function AdminMembersPage({ searchParams }: { searchParams:
             : "NONE"
       : GranteeStatus.ACTIVE;
 
-    return { ...member, skeapStatus };
+    const profileName = member.user?.kkProfile;
+    const fullName = formatDisplayName(profileName, member.fullName);
+
+    return { ...member, fullName, skeapStatus };
   });
   const inSchoolYouthCount = approvedClassificationCounts.get("In school Youth") ?? 0;
   const outOfSchoolYouthCount = approvedClassificationCounts.get("Out of School Youth") ?? 0;

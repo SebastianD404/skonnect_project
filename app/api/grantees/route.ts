@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
-import { Role } from "@prisma/client";
+import { GranteeStatus, Role } from "@prisma/client";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { formatDisplayName } from "@/lib/display-name";
+import {
+  getAccountingSubmissionState,
+  isAccountingSubmissionSubmitted,
+} from "@/lib/accounting-submission";
 
 const db = prisma;
 
@@ -39,13 +44,13 @@ export async function GET(req: Request) {
       ? Math.min(MAX_PAGE_SIZE, Math.max(1, requestedLimit))
       : DEFAULT_PAGE_SIZE;
     const where = {
-      ...(normalizedSemester && {
-        submissions: {
-          some: {
-            semester: { equals: normalizedSemester, mode: "insensitive" as const },
-          },
+      status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+      user: {
+        is: {
+          isActive: true,
+          role: Role.GRANTEE,
         },
-      }),
+      },
       ...(claimedFilter === true
         ? { payout: { is: { claimedAt: { not: null } } } }
         : claimedFilter === false
@@ -66,7 +71,18 @@ export async function GET(req: Request) {
         skip: (page - 1) * limit,
         take: limit,
         include: {
-          user: { select: { fullName: true } },
+          user: {
+            select: {
+              fullName: true,
+              kkProfile: {
+                select: {
+                  firstName: true,
+                  middleName: true,
+                  lastName: true,
+                },
+              },
+            },
+          },
           submissions: {
             where: {
               ...(normalizedSemester && {
@@ -84,15 +100,8 @@ export async function GET(req: Request) {
 
     const mapped = rows.map((g) => {
       const submission = g.submissions?.[0] ?? null;
-      const hasSubmission = Boolean(submission);
       const rawStatus = submission?.status ?? null;
-      let submissionState = "Not submitted";
-      if (hasSubmission) {
-        if (rawStatus === "APPROVED") submissionState = "Approved";
-        else if (rawStatus === "PENDING") submissionState = "Pending review";
-        else if (rawStatus === "REJECTED" || rawStatus === "RETURNED_FOR_EDIT") submissionState = "Not submitted";
-        else submissionState = "Pending review";
-      }
+      const submitted = isAccountingSubmissionSubmitted(rawStatus);
 
       const payout = g.payout;
       const claimed = !!(payout && payout.claimedAt);
@@ -100,11 +109,11 @@ export async function GET(req: Request) {
 
       return {
         id: g.id,
-        student_name: g.user?.fullName ?? "",
+        student_name: formatDisplayName(g.user?.kkProfile, g.user?.fullName ?? ""),
         semester: submission?.semester ?? normalizedSemester ?? "",
-        submitted: hasSubmission,
+        submitted,
         submissionStatus: rawStatus,
-        submissionState,
+        submissionState: getAccountingSubmissionState(rawStatus),
         claimed,
         claimedAt,
       };
