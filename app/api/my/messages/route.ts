@@ -23,5 +23,16 @@ export async function GET() {
     select: { id: true, subject: true, body: true, createdAt: true },
   });
 
-  return NextResponse.json({ messages });
+  const normalizedMessages = messages.map((message) => {
+    if (message.subject !== "KK Profiling application returned for edits") return message;
+
+    return {
+      ...message,
+      body: message.body
+        .replace(/\s*Sign in to your account to make the requested changes and resubmit\.\s*$/i, "")
+        .trimEnd(),
+    };
+  });
+
+  return NextResponse.json({ messages: normalizedMessages });
 }

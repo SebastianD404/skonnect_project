@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { hasExplicitBackIdSideEvidence, parseOcrWorkerOutput } from "../../../lib/ocrWorker";
 import { doesOcrTextMatchName } from "../../../lib/ocrNameVerification";
 import { verifyBackIdBirthdate } from "../../../lib/verifyBackIdBirthdate";
+import { validateRecognizedText } from "@/lib/ocrValidation";
 import { SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
 import {
   extractDocxEmbeddedImages,
@@ -83,6 +84,23 @@ function getFriendlyValidationResponse(documentType: DocumentType, result: { suc
   const trimmedText = String(result.text || "").trim();
   const isUnreadable = !result.success || trimmedText.length < 20;
 
+  if (documentType === "certificate") {
+    const validation = validateRecognizedText("certificate", trimmedText);
+    return {
+      success: validation.isValid,
+      status: validation.status,
+      badgeText: validation.badgeText,
+      message: validation.message,
+      isValid: validation.isValid,
+      matchedKeywords: validation.matchedKeywords.length > 0
+        ? validation.matchedKeywords
+        : result.matchedKeywords,
+      text: trimmedText,
+      error: result.error,
+      errorCode: validation.errorCode,
+    };
+  }
+
   if (result.isValid) {
     return {
       success: true,
@@ -138,8 +156,8 @@ function getFriendlyValidationResponse(documentType: DocumentType, result: { suc
   return {
     success: false,
     status: "error",
-    badgeText: "Residency Details Missing",
-    message: `Please upload your Certificate of Residency that states you have lived in Barangay Pico for at least ${MINIMUM_RESIDENCY_MONTHS_TEXT}.`,
+    badgeText: "Unrecognized Document",
+    message: `Please upload a Certificate of Residency that confirms at least ${MINIMUM_RESIDENCY_MONTHS_TEXT} of residency in Barangay Pico.`,
     isValid: false,
     matchedKeywords: result.matchedKeywords,
     text: result.text,

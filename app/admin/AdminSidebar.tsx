@@ -180,6 +180,8 @@ export default function AdminSidebar({
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("admin-inquiries-updated", handleFocus);
     window.addEventListener("admin-submissions-updated", handleFocus);
+    const handleKKProfilingViewed = () => markSectionViewed("/admin/kk-profiling");
+    window.addEventListener("admin-kk-profiling-viewed", handleKKProfilingViewed);
     void refreshCounts();
 
     return () => {
@@ -191,8 +193,9 @@ export default function AdminSidebar({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("admin-inquiries-updated", handleFocus);
       window.removeEventListener("admin-submissions-updated", handleFocus);
+      window.removeEventListener("admin-kk-profiling-viewed", handleKKProfilingViewed);
     };
-  }, [pathname, router, setSectionViewedTimestamp]);
+  }, [markSectionViewed, pathname, router, setSectionViewedTimestamp]);
 
   useEffect(() => {
     let mounted = true;
@@ -328,12 +331,20 @@ export default function AdminSidebar({
                   !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees/records")) &&
                   !(item.href === "/admin/members" && pathname.startsWith("/admin/members/records")));
               const Icon = item.icon;
+              const badgeCount = item.badge ?? 0;
+              const targetHref =
+                item.href === "/admin/kk-profiling" && badgeCount > 0
+                  ? `${item.href}?status=resubmitted`
+                  : item.href;
 
               return (
                 <Link
                   key={item.label}
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
+                  href={targetHref}
+                  onClick={() => {
+                    markSectionViewed(item.href);
+                    setMobileOpen(false);
+                  }}
                   tabIndex={mobileOpen ? 0 : -1}
                   aria-current={isActive ? "page" : undefined}
                   className={`flex items-center gap-3 rounded-2xl border-l-4 px-3 py-2 text-sm transition ${
@@ -342,8 +353,13 @@ export default function AdminSidebar({
                       : "border-transparent text-slate-700 hover:bg-slate-100"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 ${isActive ? "text-cyan-600" : "text-slate-400"}`} />
-                  <span>{item.label}</span>
+                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-cyan-600" : "text-slate-400"}`} />
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  {badgeCount > 0 ? (
+                    <span className="ml-auto inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                      {badgeCount > 99 ? "99+" : badgeCount}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
@@ -370,11 +386,16 @@ export default function AdminSidebar({
                       !(item.href === "/admin/members" && pathname.startsWith("/admin/members/records")));
 
                   const Icon = item.icon;
+                  const badgeCount = item.badge ?? 0;
+                  const targetHref =
+                    item.href === "/admin/kk-profiling" && badgeCount > 0
+                      ? `${item.href}?status=resubmitted`
+                      : item.href;
 
                   return (
                     <Link
                       key={item.label}
-                      href={item.href}
+                      href={targetHref}
                       onClick={() => markSectionViewed(item.href)}
                       className={`group flex items-center gap-3 rounded-2xl border-l-4 px-3 py-2 text-sm transition ${
                         isActive
@@ -382,13 +403,15 @@ export default function AdminSidebar({
                           : "border-transparent text-slate-700 hover:bg-slate-100"
                       }`}
                     >
-                      <Icon className={`h-4 w-4 ${isActive ? "text-cyan-600" : "text-slate-400 group-hover:text-slate-600"}`} />
-                      <span className="flex-1 text-left">{item.label}</span>
+                      <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-cyan-600" : "text-slate-400 group-hover:text-slate-600"}`} />
+                      <span className="min-w-0 flex-1 truncate text-left">
+                        {item.label}
+                      </span>
                       {item.badge && item.badge > 0 &&
                       !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees")) &&
                       !(item.href === "/admin/kk-profiling" && pathname.startsWith("/admin/kk-profiling")) ? (
                         <span
-                          className={`ml-auto flex min-w-[1.25rem] items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold text-center transition-colors duration-150 ${
+                          className={`ml-auto flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold text-center transition-colors duration-150 ${
                             isActive
                               ? "bg-white/20 text-white border-white/20 backdrop-blur-xs"
                               : "border-slate-200/70 bg-slate-100 text-slate-600"

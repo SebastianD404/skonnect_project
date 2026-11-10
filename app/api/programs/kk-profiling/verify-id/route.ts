@@ -110,6 +110,7 @@ export async function POST(request: NextRequest) {
     const updateData: Record<string, unknown> = {
       reviewStatus: "Resubmitted",
       idDocumentType: "Valid ID + Certificate of Residency",
+      submittedAt: new Date(),
     };
 
     updateData.idFrontFileUrl = uploadedFiles.find((file) => file.label === "front")?.url ?? null;

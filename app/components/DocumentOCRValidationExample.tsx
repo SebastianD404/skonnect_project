@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, LoaderCircle, X, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, FileText, LoaderCircle, X, RefreshCw } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
@@ -28,6 +28,7 @@ type DocumentOCRValidationExampleProps = {
   onValidationChange?: (state: Record<DocumentOCRKey, DocumentOCRState>) => void;
   failedOcrAttempts?: Record<DocumentOCRKey, number>;
   onFailedOcrAttempt?: (key: DocumentOCRKey) => void;
+  onManualReviewRequested?: () => void;
   onRemoveFile?: (key: DocumentOCRKey) => void;
   className?: string;
 };
@@ -42,6 +43,7 @@ export default function DocumentOCRValidationExample({
   onValidationChange,
   failedOcrAttempts,
   onFailedOcrAttempt,
+  onManualReviewRequested,
   onRemoveFile,
   showDebug = false,
   className,
@@ -67,6 +69,7 @@ export default function DocumentOCRValidationExample({
     residency: false,
   });
   const [modalKey, setModalKey] = useState<DocumentOCRKey | null>(null);
+  const [showResidencyReviewModal, setShowResidencyReviewModal] = useState(false);
 
   const inputRefs = useRef<Record<DocumentOCRKey, HTMLInputElement | null>>({
     front: null,
@@ -196,6 +199,7 @@ export default function DocumentOCRValidationExample({
 
   async function processFile(file: File | null, key: DocumentOCRKey) {
     const generation = ++previewGenerationRef.current[key];
+    setShowResidencyReviewModal(false);
     previewFallbackAttemptedRef.current[key] = false;
     setPreviewLoading((current) => ({ ...current, [key]: false }));
     if (!file) {
@@ -241,6 +245,14 @@ export default function DocumentOCRValidationExample({
         parsedDates: Array.isArray(result.parsedDates) ? result.parsedDates : undefined,
         birthdateMatched: typeof result.birthdateMatched === "boolean" ? result.birthdateMatched : undefined,
       });
+      if (
+        key === "residency" &&
+        (result.errorCode === "LOW_CONFIDENCE" ||
+          result.errorCode === "RESIDENCY_DURATION_UNCONFIRMED" ||
+          result.errorCode === "UNRECOGNIZED_DOCUMENT")
+      ) {
+        setShowResidencyReviewModal(true);
+      }
     } catch (err: unknown) {
       if (generation !== previewGenerationRef.current[key]) return;
       setDoc(key, {
@@ -474,6 +486,56 @@ export default function DocumentOCRValidationExample({
               />
             </div>
           </div>
+        </div>
+      ) : null}
+      {showResidencyReviewModal ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4"
+          role="presentation"
+        >
+          <section
+            aria-labelledby="residency-review-title"
+            aria-modal="true"
+            className="w-full max-w-md rounded-3xl border border-amber-200 bg-white p-6 shadow-2xl"
+            role="dialog"
+          >
+            <div className="flex items-start gap-4">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                <FileText className="h-6 w-6" aria-hidden="true" />
+              </span>
+              <div>
+                <h2 id="residency-review-title" className="text-lg font-bold text-slate-900">
+                  Needs a Quick Manual Check
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  We couldn&apos;t automatically confirm the residency duration from the photo you uploaded. To qualify for SKEAP, the certificate must show you have lived in Barangay Pico for at least 6 months.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowResidencyReviewModal(false);
+                  onManualReviewRequested?.();
+                }}
+                className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 transition hover:bg-amber-100"
+              >
+                Submit for Manual Staff Review
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowResidencyReviewModal(false);
+                  clearInput("residency");
+                  inputRefs.current.residency?.click();
+                }}
+                className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-700"
+              >
+                Upload a Clearer Photo
+              </button>
+            </div>
+          </section>
         </div>
       ) : null}
     </>

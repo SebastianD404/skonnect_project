@@ -2,33 +2,28 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Archive, Eye, FileText, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, FileText, X } from "lucide-react";
 import { AdminKKProfilingFormView } from "./AdminKKProfilingFormView";
 import type { KKProfilingRegistration } from "./types";
 
 interface RegistrationRowActionsProps {
   registration: KKProfilingRegistration;
-  onDelete: (id: string) => Promise<void>;
   onArchive?: (id: string) => Promise<void>;
   onUpdate: (registration: KKProfilingRegistration) => void;
   onStatusUpdate: (status: "Approved" | "Returned" | "Rejected", registrationId: string) => void;
   compact?: boolean;
   cardView?: boolean;
-  statusAware?: boolean;
 }
 
-export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpdate, onStatusUpdate, compact = false, cardView = false, statusAware = false }: RegistrationRowActionsProps) {
+export function KKProfilingRowActions({ registration, onArchive, onUpdate, onStatusUpdate, compact = false, cardView = false }: RegistrationRowActionsProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<"delete" | "archive" | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"archive" | null>(null);
   const [isConfirmingAction, setIsConfirmingAction] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<KKProfilingRegistration>(registration);
-  const isApproved = registration.reviewStatus?.toLowerCase() === "approved";
-  const showStatusAwareAction = cardView || statusAware;
-  const actionLabel = isApproved ? "View" : "Review";
   const isActiveGrantee =
     (registration.skeapStatus ?? registration.user?.grantee?.status)?.toUpperCase() === "ACTIVE";
 
@@ -37,14 +32,11 @@ export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpd
   }, [registration]);
 
   const handleConfirmAction = async () => {
+    if (!onArchive) return;
     setIsConfirmingAction(true);
     setActionError(null);
     try {
-      if (onArchive) {
-        await onArchive(registration.id);
-      } else {
-        await onDelete(registration.id);
-      }
+      await onArchive(registration.id);
       setConfirmAction(null);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Failed to update profile");
@@ -88,42 +80,24 @@ export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpd
       <button
         type="button"
         onClick={() => setShowDetails(true)}
-        className={`group inline-flex ${
-          cardView
-            ? `${isApproved ? "h-9 w-9 rounded-lg text-slate-700 hover:bg-slate-200" : "min-h-9 gap-1.5 rounded-lg px-3 text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800"} ${isApproved ? "bg-slate-100" : ""}`
-            : statusAware
-              ? `${isApproved ? "h-8 w-8 rounded-lg text-slate-700 hover:bg-slate-200" : "min-h-8 gap-1 rounded-lg px-2.5 text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800"} ${isApproved ? "bg-slate-100" : ""}`
-              : compact
-                ? "h-8 w-8 rounded-full text-slate-700"
-                : "h-10 w-10 rounded-full text-slate-700"
-        } items-center justify-center border border-slate-200 transition`}
-        title={`${actionLabel} ${registration.fullName} application`}
-        aria-label={`${actionLabel} ${registration.fullName} application`}
+        className="group inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-transparent bg-transparent px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+        title={`View details for ${registration.fullName} application`}
+        aria-label={`View details for ${registration.fullName} application`}
       >
-        {isApproved ? (
-          <Eye className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} shrink-0 transition`} aria-hidden="true" />
-        ) : (
-          <FileText className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} shrink-0 transition`} aria-hidden="true" />
-        )}
-        {showStatusAwareAction && !isApproved ? actionLabel : null}
+        <FileText className="h-4 w-4 shrink-0 transition" aria-hidden="true" />
+        <span>View</span>
       </button>
-      <button
-        type="button"
-        onClick={() => setConfirmAction(onArchive ? "archive" : "delete")}
-        className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border transition ${
-          onArchive
-            ? "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100"
-            : "border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100"
-        }`}
-        title={onArchive ? "Archive profile" : "Delete registration"}
-        aria-label={onArchive ? "Archive profile" : "Delete registration"}
-      >
-        {onArchive ? (
+      {onArchive ? (
+        <button
+          type="button"
+          onClick={() => setConfirmAction("archive")}
+          className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border border-amber-200 bg-amber-50 text-amber-700 transition hover:border-amber-300 hover:bg-amber-100`}
+          title="Archive profile"
+          aria-label="Archive profile"
+        >
           <Archive className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} transition`} />
-        ) : (
-          <Trash2 className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} transition group-hover:text-red-900`} />
-        )}
-      </button>
+        </button>
+      ) : null}
 
       {showDetails && (
         <AdminKKProfilingFormView
@@ -382,8 +356,7 @@ export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpd
             aria-labelledby="profile-confirmation-title"
             className="w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.24)]"
           >
-            {confirmAction === "archive" ? (
-              <>
+            <>
                 <div className="h-1 w-full bg-gradient-to-r from-amber-300 via-orange-400 to-amber-500" />
                 <div className="p-5">
                   <div className="flex items-start gap-3 text-left">
@@ -443,49 +416,7 @@ export function KKProfilingRowActions({ registration, onDelete, onArchive, onUpd
                     </button>
                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="p-6">
-                <div className="relative text-center">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmAction(null)}
-                    className="absolute right-0 top-0 rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                    aria-label="Close delete confirmation"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                  <p className="pr-8 text-sm font-semibold uppercase tracking-[0.32em] text-red-600">
-                    Delete registration
-                  </p>
-                  <h3 id="profile-confirmation-title" className="mt-3 text-center text-lg font-semibold text-slate-900">
-                    Are you sure you want to delete this?
-                  </h3>
-                </div>
-                <p className="mt-4 break-words whitespace-normal text-center text-sm leading-relaxed text-slate-600">
-                  This will be permanently deleted and cannot be recovered. Please confirm only if you are sure.
-                </p>
-                {actionError ? <p role="alert" className="mt-3 text-center text-sm text-red-700">{actionError}</p> : null}
-
-                <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmAction(null)}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmAction}
-                    disabled={isConfirmingAction}
-                    className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {isConfirmingAction ? "Deleting..." : "Yes, delete"}
-                  </button>
-                </div>
-              </div>
-            )}
+            </>
           </div>
         </div>,
         document.body,

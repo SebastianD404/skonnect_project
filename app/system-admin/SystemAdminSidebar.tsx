@@ -212,11 +212,68 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
           }`}
         >
           <div className="flex items-center justify-between"><div className="flex items-center gap-3"><SkLogo className="h-9 w-9" /><span className="font-bold text-white">SKonnect</span></div><button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation menu" tabIndex={mobileOpen ? 0 : -1}><X className="h-5 w-5" /></button></div>
-          <nav className="mt-6 flex flex-col gap-1">{navItems.map((item) => { const Icon = item.icon; return <Link key={item.label} href={item.href} onClick={() => setMobileOpen(false)} tabIndex={mobileOpen ? 0 : -1} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[#C6D6E2] hover:bg-[#174968]"><Icon className="h-4 w-4" /><span>{item.label}</span></Link>; })}</nav>
-          <Link href="/system-admin/knowledge-base" onClick={() => setMobileOpen(false)} tabIndex={mobileOpen ? 0 : -1} className="mt-4 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[#C6D6E2] hover:bg-[#174968]"><Database className="h-4 w-4" /><span>Knowledge Base</span></Link>
+          <nav className="mt-6 flex flex-col gap-1">
+            {navItems.map((item) => {
+              const isActive =
+                item.href === "/system-admin"
+                  ? pathname === "/system-admin"
+                  : pathname.startsWith(item.href);
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  onClick={() => {
+                    if (item.href === "/system-admin/audit") markAuditLogsViewed();
+                    setMobileOpen(false);
+                  }}
+                  tabIndex={mobileOpen ? 0 : -1}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                    isActive
+                      ? "bg-[#174968] text-white shadow-md"
+                      : "text-[#C6D6E2] hover:bg-[#174968]/65 hover:text-white"
+                  }`}
+                >
+                  {isActive ? (
+                    <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-[#33A8E2]" />
+                  ) : null}
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                  {item.badge && item.badge > 0 && !(item.href === "/system-admin/audit" && isActive) ? (
+                    <span
+                      className={`flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
+                        isActive ? "bg-white/15 text-white" : "bg-[#0B2132] text-[#DCE7F0]"
+                      }`}
+                    >
+                      {item.badge}
+                    </span>
+                  ) : null}
+                </Link>
+              );
+            })}
+          </nav>
+          <Link
+            href="/system-admin/knowledge-base"
+            onClick={() => setMobileOpen(false)}
+            tabIndex={mobileOpen ? 0 : -1}
+            aria-current={pathname.startsWith("/system-admin/knowledge-base") ? "page" : undefined}
+            className={`group relative mt-4 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+              pathname.startsWith("/system-admin/knowledge-base")
+                ? "bg-[#174968] text-white shadow-md"
+                : "text-[#C6D6E2] hover:bg-[#174968]/65 hover:text-white"
+            }`}
+          >
+            {pathname.startsWith("/system-admin/knowledge-base") ? (
+              <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-[#33A8E2]" />
+            ) : null}
+            <Database className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left">Knowledge Base</span>
+          </Link>
         </aside>
       </div>
-    <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-[#1C4B67] bg-[#0F2E47] px-4 py-6 text-[#DCE7F0] lg:flex">
+    <aside className="hidden h-full w-[17rem] shrink-0 flex-col border-r border-[#1C4B67] bg-[#0F2E47] px-4 py-6 text-[#DCE7F0] lg:flex">
       <div className="flex items-center gap-3 px-2">
         <SkLogo className="h-11 w-11" />
         <div className="min-w-0">

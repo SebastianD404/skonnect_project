@@ -2,6 +2,8 @@ import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { hasExplicitBackIdSideEvidence } from "@/lib/ocrWorker";
 import { verifyBackIdBirthdate } from "@/lib/verifyBackIdBirthdate";
 import {
+  extractResidencyDuration,
+  hasBarangayPicoIssuer,
   MINIMUM_RESIDENCY_MONTHS,
   MINIMUM_RESIDENCY_MONTHS_TEXT,
 } from "@/lib/residency-requirement";
@@ -224,11 +226,7 @@ export function validateRecognizedText(
   }
 
   const matchedKeywords = findMatches(normalizedText, CERTIFICATE_TERMS);
-  const hasMinimumResidencyMonths = new RegExp(
-    `\\b(${MINIMUM_RESIDENCY_MONTHS}|0${MINIMUM_RESIDENCY_MONTHS}|six)\\b`,
-    "i",
-  ).test(normalizedText);
-  const hasMonths = /\b(months?|mos\.?)\b/i.test(normalizedText);
+  const residencyDuration = extractResidencyDuration(normalizedText);
   const isNonResidencyCertificate = NON_RESIDENCY_CERTIFICATE_TERMS.test(normalizedText);
   const hasResidencyEvidence =
     RESIDENCY_CERTIFICATE_TITLE.test(normalizedText) ||
@@ -237,14 +235,31 @@ export function validateRecognizedText(
     isNonResidencyCertificate ||
     matchedKeywords.length === 0 ||
     !hasResidencyEvidence ||
-    !hasMinimumResidencyMonths ||
-    !hasMonths
+    !hasBarangayPicoIssuer(normalizedText)
   ) {
     return invalidResult(
       "Unrecognized Document",
-      `We couldn't verify this as a Certificate of Residency that confirms at least ${MINIMUM_RESIDENCY_MONTHS_TEXT} of residency.`,
+      "Please upload a Certificate of Residency issued by Barangay Pico, La Trinidad.",
       normalizedText,
       "UNRECOGNIZED_DOCUMENT",
+    );
+  }
+
+  if (!residencyDuration) {
+    return invalidResult(
+      "Needs Manual Check",
+      `We couldn't automatically confirm the residency duration from this photo. To qualify for SKEAP, the certificate must show you have lived in Barangay Pico for at least ${MINIMUM_RESIDENCY_MONTHS_TEXT}.`,
+      normalizedText,
+      "RESIDENCY_DURATION_UNCONFIRMED",
+    );
+  }
+
+  if (residencyDuration.months < MINIMUM_RESIDENCY_MONTHS) {
+    return invalidResult(
+      "Residency Duration Too Short",
+      `The certificate must show at least ${MINIMUM_RESIDENCY_MONTHS_TEXT} of residency in Barangay Pico.`,
+      normalizedText,
+      "RESIDENCY_TOO_SHORT",
     );
   }
 

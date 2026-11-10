@@ -46,8 +46,9 @@ export default async function GranteeRecordsPage({ searchParams }: {
         grantee."graduatedAt",
         account."fullName",
         account."email"
-      FROM "public"."inactive_grantees_view" AS grantee
-      LEFT JOIN "public"."users" AS account ON account."id" = grantee."userId"
+      FROM "public"."grantees" AS grantee
+      INNER JOIN "public"."users" AS account ON account."id" = grantee."userId"
+      WHERE grantee."status" IN ('GRADUATED'::"GranteeStatus", 'REMOVED'::"GranteeStatus")
       ORDER BY grantee."graduatedAt" DESC NULLS LAST,
         grantee."dateRemoved" DESC NULLS LAST,
         grantee."updatedAt" DESC

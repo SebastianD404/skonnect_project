@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, ChevronDown, Loader2, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, Search } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
 import type { KKProfilingRegistration } from "./types";
@@ -12,17 +12,10 @@ import AdminExportButton from "../AdminExportButton";
 import { formatDate } from "@/lib/utils";
 import { isKKProfilingManualReview } from "@/lib/kk-profiling-review";
 import { useKKProfilingTableSearch } from "./KKProfilingTableSearch";
-
-const deleteRegistration = async (id: string) => {
-  const response = await fetch(`/api/admin/kk-profiling/${id}`, {
-    method: "DELETE",
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error?.error || "Failed to delete registration");
-  }
-};
+import {
+  KKProfilingMobileTableSkeleton,
+  KKProfilingTableSkeletonRows,
+} from "./KKProfilingTableSkeleton";
 
 function rowsForStatus(registrations: KKProfilingRegistration[], statusLabel?: string) {
   const normalizedTab = String(statusLabel ?? "").toLowerCase();
@@ -79,8 +72,8 @@ export function KKProfilingRegistrationsTable({
     ? showMemberRoleColumn ? "whitespace-nowrap px-3 py-3.5" : "whitespace-nowrap px-3.5 py-3.5"
     : "whitespace-nowrap px-6 py-4";
   const actionCellPadding = fitContainer
-    ? "whitespace-nowrap px-4 py-3.5 sm:pr-6 lg:pr-8"
-    : "whitespace-nowrap px-6 py-4 pr-4 sm:pr-6 lg:pr-8";
+    ? "whitespace-nowrap px-4 py-3.5"
+    : "whitespace-nowrap px-6 py-4";
   const deferredTableQuery = useDeferredValue(activeTableQuery);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const requestedStatus = (searchParams.get("status") ?? "pending").toLowerCase();
@@ -93,7 +86,7 @@ export function KKProfilingRegistrationsTable({
     requestedPage !== (pageNumber ?? 1) ||
     requestedPageSize !== (pageSize ?? 10)
   );
-  const isLoading = routePending;
+  const isLoading = routePending || pageSearch?.isNavigating === true;
 
   const updateMemberTypeFilter = (value: "all" | "grantees" | "kk") => {
     const params = new URLSearchParams(searchParams.toString());
@@ -125,19 +118,6 @@ export function KKProfilingRegistrationsTable({
         (!localQuery || searchableText.includes(localQuery));
     });
   }, [rows, deferredSearchQuery, deferredTableQuery]);
-
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteRegistration(id);
-      setRowState((current) => ({
-        ...current,
-        rows: current.rows.filter((row) => row.id !== id),
-      }));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete registration");
-    }
-  };
 
   const handleArchive = async (id: string) => {
     const response = await fetch(`/api/admin/members/${id}/archive`, { method: "PATCH" });
@@ -234,8 +214,8 @@ export function KKProfilingRegistrationsTable({
           </div>
         )}
         {!fitContainer ? (
-          <div className={`flex flex-col gap-3 p-3 md:hidden ${isLoading ? "pointer-events-none opacity-40" : ""}`}>
-            {filteredRows.map((registration) => {
+          <div className="p-3 md:hidden">
+            {isLoading ? <KKProfilingMobileTableSkeleton /> : filteredRows.map((registration) => {
               const status = registration.reviewStatus || "Pending";
               const normalizedStatus = status.toLowerCase();
               const statusClass =
@@ -286,7 +266,6 @@ export function KKProfilingRegistrationsTable({
                     </span>
                     <KKProfilingRowActions
                       registration={registration}
-                      onDelete={handleDelete}
                       onUpdate={handleUpdate}
                       onStatusUpdate={handleStatusUpdate}
                       cardView
@@ -295,7 +274,7 @@ export function KKProfilingRegistrationsTable({
                 </article>
               );
             })}
-            {filteredRows.length === 0 ? (
+            {!isLoading && filteredRows.length === 0 ? (
               <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
                 {rows.length === 0
                   ? `No ${statusLabel ? statusLabel.toLowerCase() : "registered"} KK profiles yet.`
@@ -305,8 +284,8 @@ export function KKProfilingRegistrationsTable({
           </div>
         ) : null}
         {fitContainer ? (
-          <div className={`flex flex-col gap-3 p-3 md:hidden ${isLoading ? "pointer-events-none opacity-50" : ""}`}>
-            {filteredRows.map((registration) => {
+          <div className="p-3 md:hidden">
+            {isLoading ? <KKProfilingMobileTableSkeleton /> : filteredRows.map((registration) => {
               const isGrantee = registration.skeapStatus?.toUpperCase() === "ACTIVE";
               const isWaitlisted = registration.skeapStatus?.toUpperCase() === "WAITLISTED";
 
@@ -357,7 +336,6 @@ export function KKProfilingRegistrationsTable({
                     </span>
                     <KKProfilingRowActions
                       registration={registration}
-                      onDelete={handleDelete}
                       onUpdate={handleUpdate}
                       onStatusUpdate={handleStatusUpdate}
                       compact
@@ -367,7 +345,7 @@ export function KKProfilingRegistrationsTable({
                 </article>
               );
             })}
-            {filteredRows.length === 0 ? (
+            {!isLoading && filteredRows.length === 0 ? (
               <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
                 {rows.length === 0
                   ? `No ${statusLabel ? statusLabel.toLowerCase() : "registered"} KK profiles yet.`
@@ -380,19 +358,8 @@ export function KKProfilingRegistrationsTable({
           className="relative hidden w-full overflow-x-auto whitespace-nowrap scrollbar-thin md:block"
           style={{ touchAction: "pan-x", WebkitOverflowScrolling: "touch" }}
         >
-          {isLoading ? (
-            <div
-              role="status"
-              aria-live="polite"
-              className="absolute inset-x-0 bottom-0 top-[50px] z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1.5px] transition-all duration-300"
-            >
-              <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 shadow-sm">
-                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-cyan-600" />
-                <span className="text-xs font-semibold text-slate-600">Loading records...</span>
-              </div>
-            </div>
-          ) : null}
-          <table className={fitContainer
+          {isLoading ? <span role="status" aria-live="polite" className="sr-only">Loading applications</span> : null}
+          <table aria-busy={isLoading} className={fitContainer
             ? "w-full min-w-[850px] table-fixed border-collapse text-left text-sm"
             : "min-w-full border-collapse whitespace-nowrap text-left text-sm"}
           >
@@ -435,11 +402,18 @@ export function KKProfilingRegistrationsTable({
                   <th className={`${cellPadding} ${fitContainer ? "whitespace-nowrap" : ""}`}>Submitted</th>
                 </>
               )}
-              <th scope="col" className={`${actionCellPadding} text-right`}>Actions</th>
+              <th scope="col" className={`${actionCellPadding} text-center`}>{archiveAction ? "Actions" : "Action"}</th>
             </tr>
           </thead>
-          <tbody className={`divide-y divide-slate-100 bg-white text-slate-700 transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
-              {filteredRows.map((registration) => (
+          <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
+              {isLoading ? (
+                <KKProfilingTableSkeletonRows
+                  showMemberRoleColumn={showMemberRoleColumn}
+                  cellPadding={cellPadding}
+                  actionCellPadding={actionCellPadding}
+                  centerVoter={fitContainer}
+                />
+              ) : filteredRows.map((registration) => (
                 <tr
                   key={registration.id}
                   className="transition-colors hover:bg-slate-50/50"
@@ -510,22 +484,22 @@ export function KKProfilingRegistrationsTable({
                       {formatDate(registration.submittedAt)}
                     </td>
                   )}
-                  <td className={`${actionCellPadding} text-right`}>
-                    <KKProfilingRowActions
-                      registration={registration}
-                      onDelete={handleDelete}
-                      onUpdate={handleUpdate}
-                      onStatusUpdate={handleStatusUpdate}
-                      compact={fitContainer}
-                      statusAware={!fitContainer}
-                      onArchive={archiveAction ? handleArchive : undefined}
-                    />
+                  <td className={`${actionCellPadding} text-center`}>
+                    <div className="flex items-center justify-center">
+                      <KKProfilingRowActions
+                        registration={registration}
+                        onUpdate={handleUpdate}
+                        onStatusUpdate={handleStatusUpdate}
+                        compact={fitContainer}
+                        onArchive={archiveAction ? handleArchive : undefined}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}
           </tbody>
         </table>
-        {rows.length === 0 || filteredRows.length === 0 ? (
+        {!isLoading && (rows.length === 0 || filteredRows.length === 0) ? (
           <div className="px-6 py-12 text-center text-sm text-slate-500">
             {rows.length === 0
               ? `No ${statusLabel ? statusLabel.toLowerCase() : "registered"} KK profiles yet.`

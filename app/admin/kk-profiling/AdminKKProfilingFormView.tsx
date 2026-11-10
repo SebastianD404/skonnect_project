@@ -1,7 +1,9 @@
 "use client";
 
 import { ExternalLink, Pencil, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { rejectKKProfilingApplication } from "./actions";
 import type { KKProfilingRegistration } from "./types";
 
 function ReadOnlyField({ label, value }: { label: string; value: React.ReactNode }) {
@@ -85,6 +87,21 @@ export function AdminKKProfilingFormView({
   const isRejected = registration.reviewStatus?.toLowerCase() === "rejected";
   const isLocked = isApproved || isRejected;
   const canReturn = !isLocked;
+
+  useEffect(() => {
+    if (!isRejectionOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isRejecting) {
+        setIsRejectionOpen(false);
+        setRejectionNotes("");
+        setRejectionError(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isRejectionOpen, isRejecting]);
 
   const resetCorrectionFlow = () => {
     setCorrectionNotes("");
@@ -190,18 +207,11 @@ export function AdminKKProfilingFormView({
 
     setIsRejecting(true);
     try {
-      const response = await fetch(`/api/admin/kk-profiling/${registration.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reviewStatus: "Rejected", reviewNotes: notes }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || "Failed to reject registration.");
+      const result = await rejectKKProfilingApplication(registration.id, notes);
+      if (result.error) {
+        throw new Error(result.error);
       }
 
-      onReturn?.(data as KKProfilingRegistration);
       onClose();
       onStatusUpdate?.("Rejected", registration.id);
     } catch (error) {
@@ -396,9 +406,9 @@ export function AdminKKProfilingFormView({
         </div>
 
         <div className="sticky bottom-0 z-10 shrink-0 border-t border-slate-100 bg-white/90 p-4 backdrop-blur">
-          {approveError || returnError || rejectionError || reopenError ? (
+          {approveError || returnError || (!isRejectionOpen && rejectionError) || reopenError ? (
             <div role="alert" className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-              {approveError || returnError || rejectionError || reopenError}
+              {approveError || returnError || (!isRejectionOpen && rejectionError) || reopenError}
             </div>
           ) : null}
           {approveSuccess || returnSuccess ? (
@@ -413,7 +423,7 @@ export function AdminKKProfilingFormView({
                   rows={4}
                   value={correctionNotes}
                   onChange={(event) => setCorrectionNotes(event.target.value)}
-                  className="min-h-[100px] w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                  className="min-h-[100px] w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-sky-500 dark:focus:ring-sky-500/30"
                   placeholder="Explain what the applicant needs to fix in this new submission..."
                 />
               </label>
@@ -433,45 +443,6 @@ export function AdminKKProfilingFormView({
                   className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {isReturning ? "Returning..." : "Confirm Return"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-          {canReturn && isRejectionOpen ? (
-            <div className="mb-4 w-full rounded-xl border border-rose-200 bg-rose-50/70 p-4 dark:border-rose-900/60 dark:bg-rose-950/20">
-              <p className="text-sm font-semibold text-rose-900 dark:text-rose-200">Reject this registration?</p>
-              <p className="mb-3 break-words whitespace-normal text-sm leading-tight text-rose-800 dark:text-rose-200">
-                The applicant will see this reason and will not be able to edit or resubmit this form.
-              </p>
-              <textarea
-                rows={3}
-                required
-                aria-label="Reason for rejection"
-                value={rejectionNotes}
-                onChange={(event) => setRejectionNotes(event.target.value)}
-                className="min-h-[80px] w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300/60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500 dark:focus:ring-slate-500/30"
-                placeholder="Explain why this registration cannot be approved."
-              />
-              <div className="mt-2 flex w-full justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRejectionOpen(false);
-                    setRejectionNotes("");
-                    setRejectionError(null);
-                  }}
-                  disabled={isRejecting}
-                  className="inline-flex justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleReject}
-                  disabled={isRejecting || isReturning || isApproving}
-                  className="inline-flex justify-center rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {isRejecting ? "Rejecting..." : "Confirm Rejection"}
                 </button>
               </div>
             </div>
@@ -542,7 +513,7 @@ export function AdminKKProfilingFormView({
                     }}
                     className="inline-flex justify-center rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
                   >
-                    Reject Registration
+                    Reject Application
                   </button>
                   <button
                     type="button"
@@ -559,6 +530,105 @@ export function AdminKKProfilingFormView({
 
           </div>
         </div>
+        {canReturn && isRejectionOpen && typeof document !== "undefined"
+          ? createPortal(
+              <div
+                className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget && !isRejecting) {
+                    setIsRejectionOpen(false);
+                    setRejectionNotes("");
+                    setRejectionError(null);
+                  }
+                }}
+              >
+                <section
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="kk-rejection-title"
+                  aria-describedby="kk-rejection-description"
+                  className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
+                >
+                  <div className="flex items-start justify-between gap-4 border-b border-rose-100 px-6 py-5">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-rose-700">Application decision</p>
+                      <h2 id="kk-rejection-title" className="mt-1 text-lg font-bold text-slate-900">
+                        Are you sure you want to reject this application?
+                      </h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRejectionOpen(false);
+                        setRejectionNotes("");
+                        setRejectionError(null);
+                      }}
+                      disabled={isRejecting}
+                      className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="Close rejection confirmation"
+                    >
+                      <X className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleReject();
+                    }}
+                    className="space-y-4 p-6"
+                  >
+                    <p id="kk-rejection-description" className="text-sm leading-6 text-slate-600">
+                      The applicant will see the reason and will not be able to edit or resubmit this registration.
+                    </p>
+                    <label htmlFor="kk-rejection-reason" className="block text-sm font-semibold text-slate-800">
+                      Reason for Rejection <span className="text-rose-700" aria-hidden="true">*</span>
+                    </label>
+                    <textarea
+                      id="kk-rejection-reason"
+                      rows={4}
+                      required
+                      autoFocus
+                      aria-invalid={Boolean(rejectionError)}
+                      aria-describedby={rejectionError ? "kk-rejection-error" : undefined}
+                      value={rejectionNotes}
+                      onChange={(event) => setRejectionNotes(event.target.value)}
+                      maxLength={1000}
+                      disabled={isRejecting}
+                      className="min-h-[110px] w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 disabled:bg-slate-50"
+                      placeholder="For example: Duplicate submission, invalid ID, or residency requirements not met."
+                    />
+                    {rejectionError ? (
+                      <p id="kk-rejection-error" role="alert" className="text-sm text-rose-700">
+                        {rejectionError}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsRejectionOpen(false);
+                          setRejectionNotes("");
+                          setRejectionError(null);
+                        }}
+                        disabled={isRejecting}
+                        className="inline-flex justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isRejecting || isReturning || isApproving || !rejectionNotes.trim()}
+                        className="inline-flex justify-center rounded-xl border border-rose-300 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isRejecting ? "Rejecting..." : "Confirm Rejection"}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+              </div>,
+              document.body,
+            )
+          : null}
       </div>
     </div>
   );

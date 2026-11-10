@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { CheckCircle2, Eye, LoaderCircle, Upload, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import { CheckCircle2, Eye, FileText, LoaderCircle, Upload, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
 import {
   isValidContactNumber,
@@ -86,17 +88,15 @@ function UnifiedDocumentDropzone({
   const inputRef = useRef<HTMLInputElement>(null);
   const [validationStatus, setValidationStatus] = useState<DocumentValidationStatus>("idle");
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [isPickingFile, setIsPickingFile] = useState(false);
   const scanAttemptRef = useRef(0);
   const hasExistingFile = Boolean(existingUrl);
   const hasSelectedFile = Boolean(selectedFile);
   const selectedFileUrl = useMemo(() => {
-    if (!selectedFile || !selectedFile.type.startsWith("image/")) {
-      return null;
-    }
-
-    return URL.createObjectURL(selectedFile);
+    return selectedFile ? URL.createObjectURL(selectedFile) : null;
   }, [selectedFile]);
   const previewUrl = selectedFileUrl ?? existingUrl;
+  const [failedPreviewUrl, setFailedPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -106,7 +106,19 @@ function UnifiedDocumentDropzone({
     };
   }, [selectedFileUrl]);
 
-  const openFilePicker = () => inputRef.current?.click();
+  const openFilePicker = () => {
+    const input = inputRef.current;
+    if (!input || isPickingFile) return;
+
+    input.value = "";
+    setIsPickingFile(true);
+    window.addEventListener(
+      "focus",
+      () => window.setTimeout(() => setIsPickingFile(false), 100),
+      { once: true },
+    );
+    input.click();
+  };
 
   const scanSelectedFile = async (file: File | null) => {
     const scanAttempt = ++scanAttemptRef.current;
@@ -151,6 +163,12 @@ function UnifiedDocumentDropzone({
     void scanSelectedFile(event.dataTransfer.files?.[0] ?? null);
   };
 
+  const handleUndo = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (inputRef.current) inputRef.current.value = "";
+    void scanSelectedFile(null);
+  };
+
   const statusBadge = validationStatus === "success"
     ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-emerald-700">VERIFIED</span>
     : validationStatus === "error"
@@ -163,6 +181,7 @@ function UnifiedDocumentDropzone({
     <div
       role="button"
       tabIndex={0}
+      aria-busy={isPickingFile}
       onClick={openFilePicker}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -188,8 +207,15 @@ function UnifiedDocumentDropzone({
       {hasSelectedFile || hasExistingFile ? (
         <>
           <div className="group relative mb-3 flex h-36 w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
-            {previewUrl ? (
-              <img src={previewUrl} alt="Document preview" className="h-full w-full object-cover" />
+            {previewUrl && failedPreviewUrl !== previewUrl ? (
+              <img
+                src={previewUrl}
+                alt="Document preview"
+                className="h-full w-full object-cover"
+                onError={() => setFailedPreviewUrl(previewUrl)}
+              />
+            ) : previewUrl ? (
+              <FileText className="h-12 w-12 text-slate-400" aria-label="Document preview unavailable" />
             ) : (
               <span className="text-xs font-semibold uppercase tracking-widest text-slate-400/80">SCAN PREVIEW</span>
             )}
@@ -199,7 +225,7 @@ function UnifiedDocumentDropzone({
                 Scanning document with OCR...
               </div>
             ) : null}
-            {previewUrl ? (
+            {previewUrl && failedPreviewUrl !== previewUrl ? (
               <a
                 href={previewUrl}
                 target="_blank"
@@ -214,18 +240,28 @@ function UnifiedDocumentDropzone({
               </a>
             ) : null}
           </div>
-          <div className="mb-3 flex min-h-6 items-center justify-between gap-2 text-xs text-slate-500" title={validationMessage ?? undefined}>
-            {hasSelectedFile && validationStatus === "error" ? (
-              <span className="font-medium text-rose-700" role="alert">
-                {documentType === "certificate"
-                  ? "We couldn't clearly read this certificate. Please upload a clearer image."
-                  : validationMessage || "We couldn't clearly read this document. Please upload a clearer photo."}
-              </span>
-            ) : hasSelectedFile ? (
-              <span className="inline-flex min-w-0 items-center font-medium text-emerald-600">
-                <CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span className="truncate">{selectedFile ? `Selected: ${selectedFile.name}` : "New file ready to save"}</span>
-              </span>
+          <div className="mb-3 flex min-h-6 flex-col items-start justify-center gap-1 text-xs text-slate-500" title={validationMessage ?? undefined}>
+            {hasSelectedFile ? (
+              <>
+                <span className="inline-flex min-w-0 items-center font-medium text-emerald-600">
+                  <CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{selectedFile?.name ?? "New file ready to save"}</span>
+                  <button
+                    type="button"
+                    onClick={handleUndo}
+                    className="ml-2 shrink-0 cursor-pointer text-xs font-normal text-slate-400 transition-colors hover:text-red-600 hover:underline"
+                  >
+                    (Undo)
+                  </button>
+                </span>
+                {validationStatus === "error" ? (
+                  <span className="font-medium text-rose-700" role="alert">
+                    {documentType === "certificate"
+                      ? "We couldn't clearly read this certificate. Please upload a clearer image."
+                      : validationMessage || "We couldn't clearly read this document. Please upload a clearer photo."}
+                  </span>
+                ) : null}
+              </>
             ) : (
               <span>Existing document on file</span>
             )}
@@ -246,26 +282,23 @@ function UnifiedDocumentDropzone({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              if (inputRef.current) {
-                inputRef.current.value = "";
-              }
-              void scanSelectedFile(null);
+              openFilePicker();
             }}
-            className="inline-flex items-center justify-center gap-2 self-end rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-sm font-semibold text-blue-800 transition hover:bg-blue-100"
+            disabled={isPickingFile}
+            aria-busy={isPickingFile}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 py-2.5 text-sm font-medium text-white transition-all hover:bg-slate-800 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-80"
           >
-            <X className="h-4 w-4" aria-hidden="true" />
-            Undo
-          </button>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              inputRef.current?.click();
-            }}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-          >
-            <Upload className="h-4 w-4" aria-hidden="true" />
-            Replace file
+            {isPickingFile ? (
+              <>
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Choose a file...
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4" aria-hidden="true" />
+                Change selected file
+              </>
+            )}
           </button>
         </div>
       ) : hasExistingFile ? (
@@ -274,12 +307,23 @@ function UnifiedDocumentDropzone({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              inputRef.current?.click();
+              openFilePicker();
             }}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+            disabled={isPickingFile}
+            aria-busy={isPickingFile}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 py-2.5 text-sm font-medium text-white transition-all hover:bg-slate-800 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-80"
           >
-            <Upload className="h-4 w-4" aria-hidden="true" />
-            Replace file
+            {isPickingFile ? (
+              <>
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Choose a file...
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4" aria-hidden="true" />
+                Replace file
+              </>
+            )}
           </button>
         </div>
       ) : null}
@@ -288,7 +332,12 @@ function UnifiedDocumentDropzone({
         ref={inputRef}
         type="file"
         accept={accept}
-        onChange={(event) => void scanSelectedFile(event.target.files?.[0] ?? null)}
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => {
+          setIsPickingFile(false);
+          const file = event.currentTarget.files?.item(0) ?? null;
+          if (file) void scanSelectedFile(file);
+        }}
         className="hidden"
       />
     </div>
@@ -366,21 +415,33 @@ function getEditFormValues(registration: KKProfilingRegistrationData) {
 }
 
 export default function KKProfilingFormModal({ isOpen, registration, onClose, onSaved }: Props) {
+  const router = useRouter();
   const [form, setForm] = useState(() => getEditFormValues(registration));
   const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({ front: null, back: null, single: null });
-  const [isSaving, setIsSaving] = useState(false);
+  const selectedFilesRef = useRef<SelectedFiles>({ front: null, back: null, single: null });
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: "success" | "error" | "warning"; message: string } | null>(null);
 
   useEffect(() => {
     setForm(getEditFormValues(registration));
+    selectedFilesRef.current = { front: null, back: null, single: null };
     setSelectedFiles({ front: null, back: null, single: null });
     setMessage(null);
     setValidationMessage(null);
-  }, [registration]);
+    // Keep a selected replacement when the parent recreates this registration object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registration.id]);
 
   if (!isOpen) {
-    return null;
+    return feedback ? (
+      <FloatingFeedback
+        message={feedback.message}
+        type={feedback.type}
+        onDismiss={() => setFeedback(null)}
+      />
+    ) : null;
   }
 
   function setField<Key extends keyof typeof form>(key: Key, value: typeof form[Key]) {
@@ -396,13 +457,15 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
   }
 
   function handleFileChange(field: keyof SelectedFiles, file: File | null) {
-    setSelectedFiles((current) => ({
-      ...current,
+    const updatedFiles = {
+      ...selectedFilesRef.current,
       [field]: file,
-    }));
+    };
+    selectedFilesRef.current = updatedFiles;
+    setSelectedFiles(updatedFiles);
   }
 
-  function validate() {
+  function validate(files: SelectedFiles) {
     if (!form.lastName.trim() || !form.firstName.trim() || !form.middleName.trim()) return "First, middle, and last name are required.";
     if (![form.firstName, form.middleName, form.lastName].every(isValidNameInput)) {
       return "First, middle, and last names must each contain at least two letters and no numbers.";
@@ -424,24 +487,42 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     if (!form.attendedKKAssembly.trim()) return "KK Assembly attendance is required.";
     if (form.attendedKKAssembly === "Yes" && !form.assemblyTimes?.trim()) return "Please indicate how many assemblies you attended.";
     if (form.attendedKKAssembly === "No" && !form.noAssemblyReason?.trim()) return "Please explain why you did not attend a KK Assembly.";
-    if (!selectedFiles.front && !registration.idFrontFileUrl) return "Please upload the front of your valid ID.";
-    if (!selectedFiles.back && !registration.idBackFileUrl) return "Please upload the back of your valid ID.";
-    if (!selectedFiles.single && !registration.idSingleFileUrl) return "Please upload your Certificate of Residency.";
+    if (!files.front && !registration.idFrontFileUrl) return "Please upload the front of your valid ID.";
+    if (!files.back && !registration.idBackFileUrl) return "Please upload the back of your valid ID.";
+    if (!files.single && !registration.idSingleFileUrl) return "Please upload your Certificate of Residency.";
     // Residency confirmation is captured from the uploaded document itself; no checkbox required.
     return null;
   }
 
   async function handleSave() {
-    setMessage(null);
-    setValidationMessage(null);
-    const validationError = validate();
-    if (validationError) {
-      setValidationMessage(validationError);
+    const currentFiles = selectedFilesRef.current;
+    const initialForm = getEditFormValues(registration);
+    const hasFormChanges = Object.keys(initialForm).some(
+      (key) => form[key as keyof typeof form] !== initialForm[key as keyof typeof initialForm],
+    );
+    const hasSelectedFiles = Boolean(currentFiles.front || currentFiles.back || currentFiles.single);
+    const isReturned = registration.reviewStatus.trim().toLowerCase() === "returned";
+
+    if (isReturned && !hasFormChanges && !hasSelectedFiles) {
+      setFeedback({
+        type: "warning",
+        message: "Please edit the file(s) or detail(s) we requested you to update to proceed.",
+      });
       return;
     }
 
-    setIsSaving(true);
+    setMessage(null);
+    setValidationMessage(null);
+    setFeedback(null);
+    setIsSubmitting(true);
     try {
+      const files = selectedFilesRef.current;
+      const validationError = validate(files);
+      if (validationError) {
+        setValidationMessage(validationError);
+        return;
+      }
+
       const formData = new FormData();
       const fullName = [form.firstName, form.middleName, form.lastName].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
       const address = [form.sitio, form.barangay, form.municipality, form.province].filter(Boolean).join(", ");
@@ -473,41 +554,60 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       formData.append("noAssemblyReason", form.noAssemblyReason ?? "");
       formData.append("documentType", "Valid ID + Certificate of Residency");
 
-      if (selectedFiles.front) {
-        formData.append("frontFile", selectedFiles.front);
-      }
-      if (selectedFiles.back) {
-        formData.append("backFile", selectedFiles.back);
-      }
-      if (selectedFiles.single) {
-        formData.append("residencyFile", selectedFiles.single);
-      }
+      const appendSelectedFile = (field: string, file: File | null | undefined) => {
+        if (file instanceof File && file.size > 0) {
+          formData.append(field, file);
+        }
+      };
+      appendSelectedFile("frontFile", files.front);
+      appendSelectedFile("backFile", files.back);
+      appendSelectedFile("residencyFile", files.single);
 
       const response = await fetch("/api/programs/kk-profiling/registration-with-id", {
         method: "PUT",
         body: formData,
       });
 
-      const body = await response.json();
+      const responseText = await response.text();
+      let body: Record<string, unknown> = {};
+      if (responseText) {
+        try {
+          body = JSON.parse(responseText) as Record<string, unknown>;
+        } catch {
+          throw new Error(`The server returned an invalid response (${response.status}). Please try again.`);
+        }
+      }
       if (!response.ok) {
-        setMessage(body.error || "Unable to save changes. Please try again.");
-        return;
+        throw new Error(
+          typeof body.error === "string" ? body.error : `Unable to resubmit your application (${response.status}).`,
+        );
       }
 
+      setFeedback({ type: "success", message: "Application successfully resubmitted." });
       onSaved({
         ...registration,
         ...body,
       });
       onClose();
+      router.refresh();
     } catch (error) {
-      setMessage("Unable to save changes. Please try again.");
+      const errorMessage = error instanceof Error ? error.message : "Unable to resubmit your application.";
+      setMessage(errorMessage);
+      setFeedback({ type: "error", message: errorMessage });
     } finally {
-      setIsSaving(false);
+      setIsSubmitting(false);
     }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+      {feedback ? (
+        <FloatingFeedback
+          message={feedback.message}
+          type={feedback.type}
+          onDismiss={() => setFeedback(null)}
+        />
+      ) : null}
       <div className="relative mx-auto flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6 py-5 sm:px-8">
           <div>
@@ -516,6 +616,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
           <button
             type="button"
             onClick={onClose}
+            disabled={isSubmitting}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200"
             aria-label="Close form"
           >
@@ -849,17 +950,24 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex justify-center rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              disabled={isSubmitting}
+              className="inline-flex justify-center rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleSave}
-              disabled={isSaving}
-              className="inline-flex justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+              className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSaving ? "Saving..." : "Save changes & Resubmit"}
+              {isSubmitting ? (
+                <>
+                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                  Resubmitting...
+                </>
+              ) : "Save changes & Resubmit"}
             </button>
           </div>
         </div>

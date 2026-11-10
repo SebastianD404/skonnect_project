@@ -100,9 +100,10 @@ export async function GET(request: NextRequest) {
         grantee."dateEnrolled",
         COALESCE(grantee."graduatedAt", grantee."dateRemoved") AS "endDate",
         grantee."remarks"
-      FROM "public"."inactive_grantees_view" AS grantee
-      LEFT JOIN "public"."users" AS account ON account."id" = grantee."userId"
-      WHERE (${statusFilter} = 'ALL' OR grantee."status"::text = ${statusFilter})
+      FROM "public"."grantees" AS grantee
+      INNER JOIN "public"."users" AS account ON account."id" = grantee."userId"
+      WHERE grantee."status" IN ('GRADUATED'::"GranteeStatus", 'REMOVED'::"GranteeStatus")
+        AND (${statusFilter} = 'ALL' OR grantee."status"::text = ${statusFilter})
       ORDER BY grantee."graduatedAt" DESC NULLS LAST,
         grantee."dateRemoved" DESC NULLS LAST,
         grantee."updatedAt" DESC

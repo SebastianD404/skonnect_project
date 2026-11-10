@@ -86,82 +86,82 @@ export default async function SystemAdminDashboardPage() {
         </div>
       </div>
 
-      <section className="mb-8 grid w-full grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
+      <section className="mb-6 grid w-full grid-cols-2 gap-3 sm:mb-8 sm:gap-4 lg:grid-cols-4 lg:gap-8">
         <Link
           href="/system-admin/users"
-          className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+          className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md sm:rounded-3xl sm:p-5"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-cyan-600">
+            <span className="min-w-0 truncate text-[10px] font-bold tracking-wider text-slate-400 uppercase transition-colors group-hover:text-cyan-600 sm:text-[11px] sm:tracking-widest">
               Active Users
             </span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-600">
+            <div className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-cyan-600 sm:h-9 sm:w-9 sm:rounded-2xl">
               <Users className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-4 text-3xl font-black tracking-tight text-slate-900">
+          <div className="mt-3 text-2xl font-black tracking-tight text-slate-900 sm:mt-4 sm:text-3xl">
             {activeUsersCount}
           </div>
-          <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
-            Manage accounts <ArrowRight className="h-3 w-3" />
+          <div className="mt-2 flex items-center gap-1 truncate text-[11px] text-slate-500 sm:text-xs">
+            <span className="truncate">Manage accounts</span> <ArrowRight className="h-3 w-3 shrink-0" />
           </div>
         </Link>
 
         <Link
           href="/system-admin/audit"
-          className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+          className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md sm:rounded-3xl sm:p-5"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-cyan-600">
+            <span className="min-w-0 truncate text-[10px] font-bold tracking-wider text-slate-400 uppercase transition-colors group-hover:text-cyan-600 sm:text-[11px] sm:tracking-widest">
               Audit Entries
             </span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-600">
+            <div className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-cyan-600 sm:h-9 sm:w-9 sm:rounded-2xl">
               <FileText className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-4 text-3xl font-black tracking-tight text-slate-900">
+          <div className="mt-3 text-2xl font-black tracking-tight text-slate-900 sm:mt-4 sm:text-3xl">
             {auditEntriesCount}
           </div>
-          <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
-            View compliance logs <ArrowRight className="h-3 w-3" />
+          <div className="mt-2 flex items-center gap-1 truncate text-[11px] text-slate-500 sm:text-xs">
+            <span className="truncate">View compliance logs</span> <ArrowRight className="h-3 w-3 shrink-0" />
           </div>
         </Link>
 
         <Link
           href="/system-admin/users"
-          className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+          className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md sm:rounded-3xl sm:p-5"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-indigo-600">
+            <span className="min-w-0 truncate text-[10px] font-bold tracking-wider text-slate-400 uppercase transition-colors group-hover:text-indigo-600 sm:text-[11px] sm:tracking-widest">
               Privileged Accounts
             </span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
+            <div className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 sm:h-9 sm:w-9 sm:rounded-2xl">
               <Shield className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-4 text-3xl font-black tracking-tight text-slate-900">
+          <div className="mt-3 text-2xl font-black tracking-tight text-slate-900 sm:mt-4 sm:text-3xl">
             {adminAccountsCount}
           </div>
-          <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
-            Active SK Officials &amp; Super Admins <ArrowRight className="h-3 w-3" />
+          <div className="mt-2 flex items-center gap-1 truncate text-[11px] text-slate-500 sm:text-xs">
+            <span className="truncate">Active SK Officials &amp; Super Admins</span> <ArrowRight className="h-3 w-3 shrink-0" />
           </div>
         </Link>
 
         <Link
           href="/system-admin/reconcile"
-          className="group flex cursor-pointer flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+          className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md sm:rounded-3xl sm:p-5"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold tracking-widest text-slate-400 uppercase transition-colors group-hover:text-emerald-600">
+            <span className="min-w-0 truncate text-[10px] font-bold tracking-wider text-slate-400 uppercase transition-colors group-hover:text-emerald-600 sm:text-[11px] sm:tracking-widest">
               System Security
             </span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+            <div className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 sm:h-9 sm:w-9 sm:rounded-2xl">
               <ShieldCheck className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-4 text-3xl font-black tracking-tight text-slate-900">Enforced</div>
-          <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
-            System Admin routes are role-gated <ArrowRight className="h-3 w-3" />
+          <div className="mt-3 text-2xl font-black tracking-tight text-slate-900 sm:mt-4 sm:text-3xl">Enforced</div>
+          <div className="mt-2 flex items-center gap-1 truncate text-[11px] text-slate-500 sm:text-xs">
+            <span className="truncate">System Admin routes are role-gated</span> <ArrowRight className="h-3 w-3 shrink-0" />
           </div>
         </Link>
 

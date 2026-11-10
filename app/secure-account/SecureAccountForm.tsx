@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -48,6 +48,10 @@ export default function SecureAccountForm({
   const passwordStrengthLabel =
     matchedChecks <= 1 ? "Needs work" : matchedChecks === 2 ? "Getting there" : matchedChecks === 3 ? "Strong" : "Excellent";
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, []);
 
   useEffect(() => {
     if (!state?.redirectTo) return;

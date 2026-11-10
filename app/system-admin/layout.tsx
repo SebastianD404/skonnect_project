@@ -18,7 +18,7 @@ export default async function SystemAdminLayout({
   return (
     <div className="min-h-screen bg-[#EFF4FA] text-slate-950">
       <div className="flex min-h-screen w-full">
-        <div className="lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:flex-shrink-0 lg:overflow-y-auto hover-scrollbar">
+        <div className="lg:sticky lg:top-0 lg:h-screen lg:w-[17rem] lg:flex-shrink-0 lg:overflow-y-auto hover-scrollbar">
           <SystemAdminSidebar
           roleUpdateCount={0}
           databaseStatus={databaseStatus}

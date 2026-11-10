@@ -1,20 +1,28 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { Search } from "lucide-react";
 
 type KKProfilingTableSearchContextValue = {
   query: string;
   setQuery: (query: string) => void;
+  isNavigating: boolean;
+  setIsNavigating: (isNavigating: boolean) => void;
 };
 
 const KKProfilingTableSearchContext = createContext<KKProfilingTableSearchContextValue | null>(null);
 
 export function KKProfilingTableSearchProvider({ children }: { children: ReactNode }) {
   const [query, setQuery] = useState("");
+  const [isNavigating, setIsNavigating] = useState(false);
+  const updateIsNavigating = useCallback((value: boolean) => setIsNavigating(value), []);
+  const contextValue = useMemo(
+    () => ({ query, setQuery, isNavigating, setIsNavigating: updateIsNavigating }),
+    [query, isNavigating, updateIsNavigating],
+  );
 
   return (
-    <KKProfilingTableSearchContext.Provider value={{ query, setQuery }}>
+    <KKProfilingTableSearchContext.Provider value={contextValue}>
       {children}
     </KKProfilingTableSearchContext.Provider>
   );

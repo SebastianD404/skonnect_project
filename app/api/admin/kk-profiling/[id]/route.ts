@@ -99,7 +99,7 @@ export async function PUT(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const saved = await (tx as any).profilingRegistration.update({
+      const saved = await tx.profilingRegistration.update({
         where: { id },
         data: {
           fullName: fullName !== undefined ? fullName.trim() : registration.fullName,
@@ -157,8 +157,35 @@ export async function PUT(
         },
       });
 
-      await writeAuditLog(tx as any, {
-        action: "MANUAL_PROFILE_UPDATE",
+      const isReturnedForEdits =
+        typeof reviewStatus === "string" &&
+        reviewStatus.trim().toLowerCase() === "returned" &&
+        (registration.reviewStatus.trim().toLowerCase() !== "returned" ||
+          saved.reviewNotes !== registration.reviewNotes);
+
+      if (isReturnedForEdits && registration.userId) {
+        const message = await tx.granteeMessage.create({
+          data: {
+            userId: registration.userId,
+            senderId: auth.user.id,
+            subject: "KK Profiling application returned for edits",
+            body: `Your KK Profiling application was returned for edits.\n\nCorrection notes from the reviewer:\n${saved.reviewNotes || "Please review and update your application."}`,
+          },
+        });
+
+        await tx.notification.create({
+          data: {
+            userId: registration.userId,
+            sourceKey: `message:${message.id}`,
+          },
+        });
+      }
+
+      await writeAuditLog(tx, {
+        action:
+          typeof reviewStatus === "string" && reviewStatus.trim().toLowerCase() === "rejected"
+            ? "KK_PROFILING_APPLICATION_REJECTED"
+            : "MANUAL_PROFILE_UPDATE",
         actorId: auth.user.id,
         targetTable: "kk_profiling_registrations",
         targetId: id,
@@ -169,6 +196,9 @@ export async function PUT(
           targetEmail: saved.email,
           targetId: id,
           changedFields: Object.keys(payload).filter((key) => payload[key] !== undefined),
+          ...(typeof reviewStatus === "string" && reviewStatus.trim().toLowerCase() === "rejected"
+            ? { reason: saved.reviewNotes }
+            : {}),
         },
       });
 
@@ -181,57 +211,6 @@ export async function PUT(
     console.error("Failed to update profiling registration:", errorMessage, error);
     return NextResponse.json(
       { error: "Failed to update profiling registration", details: errorMessage },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const appUser = await ensureProfile(user);
-
-    if (!appUser) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    if (appUser.role !== "SK_OFFICIAL" && appUser.role !== "SUPER_ADMIN") {
-      return NextResponse.json(
-        { error: "Only SK officials can delete profiling registrations" },
-        { status: 403 }
-      );
-    }
-
-    const registration = await prisma.profilingRegistration.findUnique({
-      where: { id },
-    });
-
-    if (!registration) {
-      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
-    }
-
-    await prisma.profilingRegistration.delete({
-      where: { id },
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("Failed to delete profiling registration:", errorMessage, error);
-    return NextResponse.json(
-      { error: "Failed to delete profiling registration", details: errorMessage },
       { status: 500 }
     );
   }

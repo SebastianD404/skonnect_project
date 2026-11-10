@@ -25,6 +25,10 @@ export default function HomePageContent() {
     userId: string;
     hasApplication: boolean;
   } | null>(null);
+  const [kkProfilingApplicationState, setKkProfilingApplicationState] = useState<{
+    userId: string;
+    hasPendingApplication: boolean;
+  } | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(searchQuery);
@@ -96,6 +100,43 @@ export default function HomePageContent() {
 
   useEffect(() => {
     let mounted = true;
+    if (authLoading || !user?.id || user.role !== "YOUTH") return;
+    const userId = user.id;
+    const controller = new AbortController();
+
+    const checkKkProfilingApplication = async () => {
+      try {
+        const response = await fetch("/api/my/kk-profiling-application", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to check KK Profiling application status (${response.status}).`);
+        }
+
+        const data = await response.json();
+        if (mounted && !controller.signal.aborted) {
+          setKkProfilingApplicationState({
+            userId,
+            hasPendingApplication: data.hasPendingApplication === true,
+          });
+        }
+      } catch (error) {
+        if (mounted && !controller.signal.aborted) {
+          console.error("Could not check KK Profiling application status:", error);
+        }
+      }
+    };
+
+    void checkKkProfilingApplication();
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [authLoading, user?.id, user?.role]);
+
+  useEffect(() => {
+    let mounted = true;
     setLoadingMetrics(true);
 
     fetch("/api/homepage-metrics", { cache: "no-store" })
@@ -139,6 +180,10 @@ export default function HomePageContent() {
 
   const navLinkClass = (href: string) =>
     `px-4 py-2 font-semibold transition-all rounded-lg ${activeLink === href ? "text-[#0F3D5C] bg-[#0F3D5C]/10" : "text-[#3C3C3C] hover:text-[#0F3D5C] hover:bg-[#0F3D5C]/5"}`;
+  const hasPendingKkProfilingApplication =
+    user?.role === "YOUTH" &&
+    user.id === kkProfilingApplicationState?.userId &&
+    kkProfilingApplicationState?.hasPendingApplication === true;
 
   const handleFooterHomeClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (pathname !== "/" || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -192,10 +237,14 @@ export default function HomePageContent() {
                   }
                 />
                 <Link
-                  href={user?.role === "YOUTH" ? "/youth-dashboard/inquiries" : "/grantee-dashboard/inquiries"}
+                  href={hasPendingKkProfilingApplication
+                    ? "/applications"
+                    : user?.role === "YOUTH"
+                    ? "/youth-dashboard/inquiries"
+                    : "/grantee-dashboard/inquiries"}
                   className="inline-flex min-h-12 min-w-[220px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 bg-transparent px-6 py-3 font-semibold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
                 >
-                  Contact Helpdesk
+                  {hasPendingKkProfilingApplication ? "Manage Applications" : "Contact Helpdesk"}
                 </Link>
               </div>
               {/* Stats row */}

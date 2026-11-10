@@ -95,13 +95,10 @@ export async function GET(request: NextRequest) {
         },
       }),
       prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: submissionsLastViewed ?? startOfToday } } }),
-      prisma.profilingRegistration.count({
-        where: {
-          submittedAt: kkProfilingLastViewed
-            ? { gt: kkProfilingLastViewed }
-            : { gte: startOfToday },
-        },
-      }),
+      getProfilingRegistrationCountByStatusSince(
+        "Resubmitted",
+        kkProfilingLastViewed ?? startOfToday,
+      ),
       prisma.grantee.count({
         where: {
           createdAt: granteesLastViewed

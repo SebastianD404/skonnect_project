@@ -23,7 +23,10 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
   const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
     ? requestedPageSize
     : 10;
-  const statusParam = String(rawStatus || "pending").toLowerCase();
+  const requestedStatus = String(rawStatus || "pending").toLowerCase();
+  const statusParam = ["pending", "returned", "resubmitted", "approved", "rejected"].includes(requestedStatus)
+    ? requestedStatus
+    : "pending";
   const skip = (page - 1) * pageSize;
 
   const hasReviewStatusColumn = await hasProfilingRegistrationColumn("reviewStatus");

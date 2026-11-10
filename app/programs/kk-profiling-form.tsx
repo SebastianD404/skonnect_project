@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase/browser";
@@ -148,6 +148,9 @@ function SelectWithChevron({
 
 export default function KKProfilingForm() {
   const router = useRouter();
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const submissionFeedbackRef = useRef<HTMLDivElement>(null);
+  const accountExistsRef = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [failedOcrAttempts, setFailedOcrAttempts] = useState({
@@ -155,6 +158,7 @@ export default function KKProfilingForm() {
     backId: 0,
     certResidency: 0,
   });
+  const [manualReviewRequested, setManualReviewRequested] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -187,10 +191,26 @@ export default function KKProfilingForm() {
   const areDocumentsReady = Object.values(ocrValidationState).every(
     (state) => state.status === "success"
   );
-  const manualReviewAvailable = Object.values(failedOcrAttempts).some((attempts) => attempts >= 3);
+  const manualReviewAvailable =
+    manualReviewRequested || Object.values(failedOcrAttempts).some((attempts) => attempts >= 3);
   const lastNameError = getNameFieldError("lastName");
   const firstNameError = getNameFieldError("firstName");
   const middleNameError = getNameFieldError("middleInitial");
+
+  useEffect(() => {
+    const target = emailError
+      ? emailInputRef.current
+      : actionError || message
+        ? submissionFeedbackRef.current
+        : accountExistsFallback
+          ? accountExistsRef.current
+          : null;
+
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.focus({ preventScroll: true });
+  }, [emailError, actionError, message, accountExistsFallback]);
 
   useEffect(() => {
     let active = true;
@@ -623,6 +643,7 @@ export default function KKProfilingForm() {
         void clearProfilingFiles().catch((error) => console.warn("Unable to clear KK profiling documents", error));
         setIdFiles({ front: null, back: null, residency: null });
         setFailedOcrAttempts({ frontId: 0, backId: 0, certResidency: 0 });
+        setManualReviewRequested(false);
         setOcrValidationState({
           front: { status: "idle", file: null },
           back: { status: "idle", file: null },
@@ -828,6 +849,7 @@ export default function KKProfilingForm() {
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Email Address *</span>
           <input
+            ref={emailInputRef}
             type="email"
             value={form.email}
             onChange={(e) => setField("email", e.target.value)}
@@ -1000,6 +1022,7 @@ export default function KKProfilingForm() {
           initialFiles={idFiles}
           onFileSelected={(key, file) => {
             const field = key === "front" ? "front" : key === "back" ? "back" : "residency";
+            if (key === "residency" && file) setManualReviewRequested(false);
             handleIdFileChange(field as keyof typeof idFiles, file);
           }}
           onRemoveFile={(key) => {
@@ -1013,6 +1036,7 @@ export default function KKProfilingForm() {
             residency: failedOcrAttempts.certResidency,
           }}
           onFailedOcrAttempt={recordFailedOcrAttempt}
+          onManualReviewRequested={() => setManualReviewRequested(true)}
         />
           </div>
 
@@ -1047,7 +1071,11 @@ export default function KKProfilingForm() {
       )}
 
       {accountExistsFallback && (
-        <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-slate-900 shadow-sm">
+        <div
+          ref={accountExistsRef}
+          tabIndex={-1}
+          className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-slate-900 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+        >
           <div className="flex items-center gap-2 text-teal-900 font-semibold text-sm">
             <svg className="h-5 w-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1091,16 +1119,27 @@ export default function KKProfilingForm() {
           </button>
           {manualReviewAvailable ? (
             <p className="text-xs font-medium text-amber-700 dark:text-amber-500 m-0">
-              Maximum verification attempts reached. You may proceed by submitting your application for manual review by an SK Admin.
+              {manualReviewRequested
+                ? "Your application will be checked by an SK Admin."
+                : "Maximum verification attempts reached. You may proceed by submitting your application for manual review by an SK Admin."}
             </p>
           ) : null}
         </div>
-        {actionError ? (
-          <p role="alert" className="min-w-0 flex-1 text-sm leading-relaxed text-rose-600">
-            {actionError}
-          </p>
+        {actionError || message ? (
+          <div
+            ref={submissionFeedbackRef}
+            tabIndex={-1}
+            aria-live={actionError ? "assertive" : "polite"}
+            className={`max-w-2xl rounded-xl border px-4 py-3 text-sm leading-relaxed focus:outline-none focus-visible:ring-2 ${
+              magicLinkSent
+                ? "border-teal-200 bg-teal-50 text-teal-800 focus-visible:ring-teal-500"
+                : "border-rose-200 bg-rose-50 text-rose-800 focus-visible:ring-rose-500"
+            }`}
+          >
+            {actionError ? <p role="alert">{actionError}</p> : null}
+            {message ? <p role="status">{message}</p> : null}
+          </div>
         ) : null}
-        {message && <p className="text-sm text-slate-700">{message}</p>}
       </div>
       </form>
 
@@ -1205,7 +1244,7 @@ export default function KKProfilingForm() {
                     }
 
                     setShowSuccessModal(false);
-                    router.push(securePath);
+                    router.push(securePath, { scroll: false });
                   } catch (error) {
                     setSecureAccountError(
                       error instanceof Error

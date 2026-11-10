@@ -5,6 +5,9 @@ import {
   KK_PROFILING_MANUAL_REVIEW_NOTE,
 } from "@/lib/kk-profiling-review";
 
+const validResidencyCertificate = (duration: string) =>
+  `CERTIFICATE OF RESIDENCY. Barangay Pico, La Trinidad. Maria Santos has lived here for ${duration}.`;
+
 describe("browser OCR document validation", () => {
   it("recognizes a readable front ID and checks its name", () => {
     const result = validateRecognizedText(
@@ -55,7 +58,7 @@ describe("browser OCR document validation", () => {
     );
     const residencyCertificate = validateRecognizedText(
       "certificate",
-      "CERTIFICATE OF RESIDENCY. This certifies that Maria Santos is a resident of Barangay Pico and has lived here for 6 months.",
+      "CERTIFICATE OF RESIDENCY. This certifies that Maria Santos is a resident of Barangay Pico, La Trinidad and has lived here for 6 months.",
       { firstName: "Maria", lastName: "Santos" },
     );
 
@@ -67,7 +70,50 @@ describe("browser OCR document validation", () => {
   it("rejects a residency certificate that states only five months", () => {
     const result = validateRecognizedText(
       "certificate",
-      "CERTIFICATE OF RESIDENCY. This certifies that Maria Santos is a resident of Barangay Pico and has lived here for 5 months.",
+      "CERTIFICATE OF RESIDENCY. This certifies that Maria Santos is a resident of Barangay Pico, La Trinidad and has lived here for 5 months.",
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("RESIDENCY_TOO_SHORT");
+  });
+
+  it("does not accept a duration described as less than six months", () => {
+    const result = validateRecognizedText(
+      "certificate",
+      validResidencyCertificate("less than 6 months"),
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("RESIDENCY_DURATION_UNCONFIRMED");
+  });
+
+  it.each([
+    "6 months",
+    "seven (7) months",
+    "1 year",
+    "two years",
+  ])("accepts a residency duration of %s", (duration) => {
+    const result = validateRecognizedText("certificate", validResidencyCertificate(duration));
+
+    expect(result.status).toBe("success");
+    expect(result.isValid).toBe(true);
+  });
+
+  it("requests a manual check when the duration cannot be read from an issued residency certificate", () => {
+    const result = validateRecognizedText(
+      "certificate",
+      "CERTIFICATE OF RESIDENCY. Barangay Pico, La Trinidad. Maria Santos is a resident of this barangay.",
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("RESIDENCY_DURATION_UNCONFIRMED");
+    expect(result.badgeText).toBe("Needs Manual Check");
+  });
+
+  it("requires the residency certificate to identify Barangay Pico, La Trinidad", () => {
+    const result = validateRecognizedText(
+      "certificate",
+      "CERTIFICATE OF RESIDENCY. Barangay Pico. Maria Santos has lived here for 6 months.",
     );
 
     expect(result.status).toBe("error");

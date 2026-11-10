@@ -510,8 +510,9 @@ export default function UserRoleManager({ users, totalCount }: Props) {
           </span>
         </div>
         {filteredUsers.length > 0 ? (
-          <div className="w-full overflow-x-auto whitespace-nowrap">
-            <table className="w-full min-w-[1080px] text-sm">
+          <>
+            <div className="hidden w-full overflow-x-auto whitespace-nowrap md:block">
+            <table className="hidden w-full min-w-[1080px] text-sm md:table">
               <thead className="bg-slate-900 text-[11px] font-bold tracking-wider text-white uppercase">
                 <tr className="text-left">
                   <th className="py-4 pl-[72px] pr-6">User / Email</th>
@@ -678,7 +679,142 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                 })}
               </tbody>
             </table>
-          </div>
+            </div>
+
+            <div className="flex flex-col gap-4 p-4 md:hidden">
+              {filteredUsers.map((user) => {
+                const draftRole = draftRoles[user.id] ?? user.role;
+                const busy = isPending && pendingUserId === user.id;
+                const scholarStatusBadge = user.skeapStatus === "WAITLISTED"
+                  ? SCHOLAR_STATUS_BADGES.WAITLISTED
+                  : user.granteeStatus
+                    ? SCHOLAR_STATUS_BADGES[user.granteeStatus]
+                    : null;
+
+                return (
+                  <article
+                    key={user.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar
+                        src={user.avatarUrl}
+                        alt={user.fullName || "User"}
+                        size={44}
+                        className="h-11 w-11 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <h3 className="truncate font-bold text-slate-900">
+                          {user.fullName || "Unnamed User"}
+                        </h3>
+                        <p className="truncate text-xs text-slate-500">{user.email}</p>
+                      </div>
+                    </div>
+
+                    <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-4 text-sm">
+                      <div className="min-w-0">
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Current Role
+                        </dt>
+                        <dd className="relative mt-1">
+                          <select
+                            aria-label={`Role for ${user.fullName}`}
+                            value={draftRole}
+                            onChange={(event) => updateRole(user.id, event.target.value as Role)}
+                            className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-2 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                            disabled={isPending}
+                          >
+                            {ROLE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown
+                            aria-hidden="true"
+                            className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500"
+                          />
+                          {busy ? (
+                            <LoaderCircle className="absolute right-7 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-cyan-700" aria-label="Updating role" />
+                          ) : null}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Account Status
+                        </dt>
+                        <dd className={`mt-1 inline-flex items-center gap-1.5 text-sm font-medium ${user.isActive ? "text-emerald-700" : "text-slate-500"}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
+                          {user.isActive ? "Active" : "Inactive"}
+                        </dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          SKEAP Status
+                        </dt>
+                        <dd className="mt-1">
+                          {scholarStatusBadge ? (
+                            <span className={`inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold ${scholarStatusBadge.className}`}>
+                              <scholarStatusBadge.Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+                              <span className="truncate">{scholarStatusBadge.label}</span>
+                            </span>
+                          ) : (
+                            <span className="text-xs font-medium text-slate-400">N/A</span>
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Joined Date
+                        </dt>
+                        <dd className="mt-1 text-sm tabular-nums text-slate-600">
+                          {new Date(user.createdAt).toLocaleDateString()}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => setViewingUser(user)}
+                        className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                        View details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditUser(user)}
+                        className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                        Edit profile
+                      </button>
+                      {(!user.isActive || user.role !== "SUPER_ADMIN") ? (
+                        <button
+                          type="button"
+                          onClick={() => requestUserStatusChange(user)}
+                          disabled={busy}
+                          className={`inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                            user.isActive
+                              ? "border-red-200 text-red-600 hover:bg-red-50"
+                              : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          }`}
+                        >
+                          {user.isActive ? (
+                            <UserX className="h-3.5 w-3.5" aria-hidden="true" />
+                          ) : (
+                            <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                          {user.isActive ? "Deactivate account" : "Reactivate account"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </>
         ) : (
           <div className="p-10">
             <p className="text-lg font-semibold text-slate-900">No users found.</p>
