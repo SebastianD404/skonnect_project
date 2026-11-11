@@ -23,9 +23,7 @@ export function PublicHeader() {
     sessionUser?.role === "GRANTEE" || pathname.startsWith("/grantee-dashboard");
   const homeHref = isGranteeNavigation ? "/grantee-dashboard" : "/";
   const aboutHref = isGranteeNavigation ? "/about?from=dashboard" : "/about";
-  const applicationsHref = isGranteeNavigation
-    ? "/applications?from=dashboard"
-    : "/applications";
+  const applicationsHref = "/applications";
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "messages" | "settings">("none");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeHash, setActiveHash] = useState("");

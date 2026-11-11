@@ -51,7 +51,12 @@ export default async function GranteeDashboardLayout({
   }
 
   if (!appUser.grantee) {
-    redirect("/applications");
+    return (
+      <AccessDeniedState
+        reason="Your account is marked as a Grantee, but its active scholarship record is missing."
+        title="Profile Setup Incomplete"
+      />
+    );
   }
 
   return (
@@ -66,7 +71,7 @@ function AccessDeniedState({
   title,
 }: {
   reason: string | null;
-  title: "Access Revoked" | "Scholarship Completed";
+  title: "Access Revoked" | "Scholarship Completed" | "Profile Setup Incomplete";
 }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
@@ -78,7 +83,9 @@ function AccessDeniedState({
         <p className="mt-1 mb-6 text-sm text-slate-500">
           {title === "Access Revoked"
             ? "Your SKEAP scholarship status has been updated by the administration. You have been transitioned to a standard youth member."
-            : "Your SKEAP scholarship has been marked as completed. You can still access your account and application history."}
+            : title === "Scholarship Completed"
+            ? "Your SKEAP scholarship has been marked as completed. You can still access your account and application history."
+            : "Your Grantee dashboard is not ready yet. Please contact the SKEAP administration for assistance."}
         </p>
         {reason?.trim() ? (
           <div className="mb-6 w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-left">
@@ -92,7 +99,13 @@ function AccessDeniedState({
           Please contact the SKEAP administration if you have questions about this decision.
         </p>
         <a
-          href={title === "Access Revoked" ? "/youth-dashboard" : "/applications"}
+          href={
+            title === "Access Revoked"
+              ? "/youth-dashboard"
+              : title === "Scholarship Completed"
+              ? "/applications"
+              : "/profile"
+          }
           className="w-full rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#0B3049] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C]/40 focus-visible:ring-offset-2"
         >
           Okay, I Understand

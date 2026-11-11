@@ -135,7 +135,7 @@ export default async function SkeapHistoryReceipt({ applicationId }: Props) {
                 </p>
               </div>
               <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-700">
-                Past Grantee
+                {profile.role === "GRANTEE" ? "Active Grantee" : "Past Grantee"}
               </span>
             </div>
 

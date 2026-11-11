@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
@@ -8,6 +8,8 @@ import { logAuditEvent, writeAuditLog } from "@/lib/audit/logger";
 import { ensureThreadMessage } from "@/lib/inquiries/thread";
 import { normalizeUploadedFiles } from "@/lib/skeap-upload";
 import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
+import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 interface AttachedFileNote {
   fileId: string;
@@ -194,8 +196,19 @@ export async function PATCH(
           createdAt: true,
           userId: true,
           reviewStatus: true,
-          user: { select: { grantee: { select: { status: true } } } },
-          application: { select: { id: true, status: true, school: true, currentCourse: true, yearLevel: true, applicantName: true, uploadedFiles: true } },
+          application: {
+            select: {
+              id: true,
+              userId: true,
+              status: true,
+              school: true,
+              currentCourse: true,
+              yearLevel: true,
+              applicantName: true,
+              uploadedFiles: true,
+              user: { select: { grantee: { select: { status: true } } } },
+            },
+          },
         },
       });
 
@@ -212,27 +225,28 @@ export async function PATCH(
         }
       }
 
-      if (action === "approve" && currentInquiry?.user?.grantee?.status === "GRADUATED") {
+      if (action === "approve" && currentInquiry?.application?.user.grantee?.status === "GRADUATED") {
         throw new Error("GRANTEE_ARCHIVED");
       }
       if (action === "approve" && currentInquiry?.application?.status === "WAITLISTED") {
         throw new Error("Waitlisted applications must be promoted from the waitlist before approval.");
-      }
-      if (action === "approve" && currentInquiry?.application?.status === "APPROVED") {
-        throw new Error("This application has already been approved.");
       }
 
       let approvalStatus: "APPROVED" | "WAITLISTED" | undefined;
       let approvalMessage = message;
       let waitlistPosition: number | null = null;
       if (action === "approve") {
-        if (!currentInquiry?.application?.id || maxSlots === null) {
+        if (!currentInquiry?.application?.id || !currentInquiry.application.userId || maxSlots === null) {
           throw new Error("The linked SKEAP application could not be found.");
         }
-        const activeCount = await tx.skeapApplication.count({
-          where: ACTIVE_SKEAP_APPLICATION_WHERE,
-        });
-        approvalStatus = activeCount >= maxSlots ? "WAITLISTED" : "APPROVED";
+        if (currentInquiry.application.status === "APPROVED") {
+          approvalStatus = "APPROVED";
+        } else {
+          const activeCount = await tx.skeapApplication.count({
+            where: ACTIVE_SKEAP_APPLICATION_WHERE,
+          });
+          approvalStatus = activeCount >= maxSlots ? "WAITLISTED" : "APPROVED";
+        }
         if (approvalStatus === "WAITLISTED") {
           waitlistPosition = (await tx.skeapApplication.count({ where: { status: "WAITLISTED" } })) + 1;
         }
@@ -320,7 +334,8 @@ export async function PATCH(
         });
       }
 
-      if (action === "approve" && currentInquiry?.userId) {
+      if (action === "approve" && currentInquiry?.application?.userId) {
+        const applicantId = currentInquiry.application.userId;
         if (currentInquiry.application?.id) {
           await tx.skeapApplication.update({
             where: { id: currentInquiry.application.id },
@@ -331,6 +346,35 @@ export async function PATCH(
           });
         }
 
+        if (approvalStatus === "APPROVED") {
+          const school = normalizeSkeapSchoolName(
+            currentInquiry.application?.school ||
+              currentInquiry.application?.currentCourse ||
+              GRANTEE_PLACEHOLDER_SCHOOL
+          );
+          const yearLevel = currentInquiry.application?.yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL;
+
+          await tx.user.update({
+            where: { id: applicantId },
+            data: { role: Role.GRANTEE },
+          });
+          await tx.grantee.upsert({
+            where: { userId: applicantId },
+            create: {
+              userId: applicantId,
+              school,
+              yearLevel,
+              status: "ACTIVE",
+              dateEnrolled: new Date(),
+            },
+            update: {
+              school,
+              yearLevel,
+              status: "ACTIVE",
+              dateRemoved: null,
+            },
+          });
+        }
       }
 
       return updated;
@@ -373,6 +417,13 @@ export async function PATCH(
     revalidatePath("/admin");
     revalidatePath("/admin/inquiries");
     revalidatePath(`/applications/${id}`);
+    if (action === "approve" && updatedInquiry.reviewStatus === "Approved") {
+      revalidatePath("/applications");
+      revalidatePath("/youth-dashboard");
+      revalidatePath("/grantee-dashboard");
+      revalidatePath("/admin/members");
+      revalidatePath("/admin/kk-profiling");
+    }
 
     return NextResponse.json({
       success: true,
@@ -399,7 +450,7 @@ export async function PATCH(
     }
     if (
       message === "Waitlisted applications must be promoted from the waitlist before approval." ||
-      message === "This application has already been approved."
+      message === "The linked SKEAP application could not be found."
     ) {
       return NextResponse.json({ error: message }, { status: 409 });
     }

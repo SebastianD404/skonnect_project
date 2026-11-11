@@ -8,6 +8,7 @@ import {
 } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { reconcileApprovedSkeapGrantee } from "@/lib/reconcile-approved-skeap-grantee";
 
 export const metadata: Metadata = {
   title: "SKonnect — SK Barangay Pico Youth Services",
@@ -76,6 +77,7 @@ async function getInitialAuthUser() {
     return null;
   }
 
+  const isApprovedGrantee = await reconcileApprovedSkeapGrantee(profile.id, profile.role);
   const grantee = await prisma.grantee.findUnique({
     where: { userId: profile.id },
     select: { status: true },
@@ -86,7 +88,7 @@ async function getInitialAuthUser() {
     fullName: profile.fullName,
     email: profile.email,
     avatarUrl: profile.avatarUrl ?? undefined,
-    role: profile.role,
+    role: isApprovedGrantee ? "GRANTEE" : profile.role,
     skeapStatus: grantee?.status ?? null,
   };
 }

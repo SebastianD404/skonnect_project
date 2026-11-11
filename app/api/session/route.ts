@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { reconcileApprovedSkeapGrantee } from "@/lib/reconcile-approved-skeap-grantee";
 import { formatAddressParts, formatKkAddress, normalizeAddressText } from "@/lib/address";
 
 const OFFICIAL_SITE_SEGMENTS = ["Bayabas", "Shamolog", "Shamlolog", "Balangabang", "Cogcoga", "Dreamland - Piripin Bato", "Km 4", "Km 5", "Toyong"];
@@ -26,6 +27,8 @@ export async function GET() {
   if (!profile) {
     return NextResponse.json({ user: null });
   }
+
+  const isApprovedGrantee = await reconcileApprovedSkeapGrantee(profile.id, profile.role);
 
   // Fetch the latest SKEAP application for this user (if any) so the client
   // can autofill additional profile fields like address, age, gender, contact.
@@ -103,6 +106,7 @@ export async function GET() {
   });
   const profileWithApp = {
     ...profile,
+    role: isApprovedGrantee ? "GRANTEE" as const : profile.role,
     skeapStatus: latestGrantee?.status ?? null,
     address: autofillAddress,
     skeapApplication,

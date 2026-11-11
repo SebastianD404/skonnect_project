@@ -1,4 +1,5 @@
 import { Role } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
@@ -91,6 +92,7 @@ export async function POST(
           school: normalizeSkeapSchoolName(application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL),
           yearLevel: application.yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL,
           status: "ACTIVE",
+          dateEnrolled: new Date(),
         },
         update: {
           school: normalizeSkeapSchoolName(application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL),
@@ -151,6 +153,15 @@ export async function POST(
         resultingStatus: "APPROVED",
       },
     });
+
+    revalidatePath("/admin");
+    revalidatePath("/admin/skeap-waitlist");
+    revalidatePath("/applications");
+    revalidatePath("/youth-dashboard");
+    revalidatePath("/grantee-dashboard");
+    revalidatePath("/admin/grantees");
+    revalidatePath("/admin/members");
+    revalidatePath("/admin/kk-profiling");
 
     return NextResponse.json({ success: true, emailSent, application: promotedApplication });
   } catch (error) {
