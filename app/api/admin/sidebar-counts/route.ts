@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
       openInquiryCount,
       skeapApplicationCount,
       pendingDocumentCount,
-      profilingRegistrationCount,
+      pendingProfilingRegistrationCount,
+      resubmittedProfilingRegistrationCount,
       newGranteeCount,
       approvedMemberCount,
     ] = await Promise.all([
@@ -95,6 +96,10 @@ export async function GET(request: NextRequest) {
         },
       }),
       prisma.submission.count({ where: { status: "PENDING", submittedAt: { gte: submissionsLastViewed ?? startOfToday } } }),
+      getProfilingRegistrationCountByStatusSince(
+        "Pending",
+        kkProfilingLastViewed ?? startOfToday,
+      ),
       getProfilingRegistrationCountByStatusSince(
         "Resubmitted",
         kkProfilingLastViewed ?? startOfToday,
@@ -115,7 +120,10 @@ export async function GET(request: NextRequest) {
           openInquiryCount,
           skeapApplicationCount,
           pendingDocumentCount,
-          profilingRegistrationCount,
+          profilingRegistrationCount:
+            pendingProfilingRegistrationCount + resubmittedProfilingRegistrationCount,
+          pendingProfilingRegistrationCount,
+          resubmittedProfilingRegistrationCount,
           newGranteeCount,
           approvedMemberCount,
         },

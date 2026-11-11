@@ -33,8 +33,8 @@ export default function KKProfilingStatusTabs({ currentStatus }: KKProfilingStat
         throw new Error(`Unable to check for resubmitted applications (${response.status}).`);
       }
 
-      const data = (await response.json()) as { counts?: { profilingRegistrationCount?: number } };
-      const count = data.counts?.profilingRegistrationCount;
+      const data = (await response.json()) as { counts?: { resubmittedProfilingRegistrationCount?: number } };
+      const count = data.counts?.resubmittedProfilingRegistrationCount;
       if (!Number.isInteger(count) || count === undefined) {
         throw new Error("The resubmitted application count was invalid.");
       }

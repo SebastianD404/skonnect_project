@@ -64,6 +64,8 @@ interface SidebarCounts {
   skeapApplicationCount: number;
   pendingDocumentCount: number;
   profilingRegistrationCount: number;
+  pendingProfilingRegistrationCount: number;
+  resubmittedProfilingRegistrationCount: number;
   newGranteeCount: number;
   approvedMemberCount: number;
 }
@@ -96,6 +98,8 @@ export default function AdminSidebar({
     skeapApplicationCount,
     pendingDocumentCount,
     profilingRegistrationCount,
+    pendingProfilingRegistrationCount: 0,
+    resubmittedProfilingRegistrationCount: 0,
     newGranteeCount: newGranteesToday,
     approvedMemberCount,
   });
@@ -338,7 +342,7 @@ export default function AdminSidebar({
               const badgeCount = item.badge ?? 0;
               const targetHref =
                 item.href === "/admin/kk-profiling" && badgeCount > 0
-                  ? `${item.href}?status=resubmitted`
+                  ? `${item.href}?status=${liveCounts.pendingProfilingRegistrationCount > 0 ? "pending" : "resubmitted"}`
                   : item.href;
 
               return (
@@ -393,7 +397,7 @@ export default function AdminSidebar({
                   const badgeCount = item.badge ?? 0;
                   const targetHref =
                     item.href === "/admin/kk-profiling" && badgeCount > 0
-                      ? `${item.href}?status=resubmitted`
+                      ? `${item.href}?status=${liveCounts.pendingProfilingRegistrationCount > 0 ? "pending" : "resubmitted"}`
                       : item.href;
 
                   return (
