@@ -158,7 +158,6 @@ export default function KKProfilingForm() {
     backId: 0,
     certResidency: 0,
   });
-  const [manualReviewRequested, setManualReviewRequested] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -192,7 +191,7 @@ export default function KKProfilingForm() {
     (state) => state.status === "success"
   );
   const manualReviewAvailable =
-    manualReviewRequested || Object.values(failedOcrAttempts).some((attempts) => attempts >= 3);
+    Object.values(failedOcrAttempts).some((attempts) => attempts >= 3);
   const lastNameError = getNameFieldError("lastName");
   const firstNameError = getNameFieldError("firstName");
   const middleNameError = getNameFieldError("middleInitial");
@@ -643,7 +642,6 @@ export default function KKProfilingForm() {
         void clearProfilingFiles().catch((error) => console.warn("Unable to clear KK profiling documents", error));
         setIdFiles({ front: null, back: null, residency: null });
         setFailedOcrAttempts({ frontId: 0, backId: 0, certResidency: 0 });
-        setManualReviewRequested(false);
         setOcrValidationState({
           front: { status: "idle", file: null },
           back: { status: "idle", file: null },
@@ -1022,7 +1020,6 @@ export default function KKProfilingForm() {
           initialFiles={idFiles}
           onFileSelected={(key, file) => {
             const field = key === "front" ? "front" : key === "back" ? "back" : "residency";
-            if (key === "residency" && file) setManualReviewRequested(false);
             handleIdFileChange(field as keyof typeof idFiles, file);
           }}
           onRemoveFile={(key) => {
@@ -1036,7 +1033,6 @@ export default function KKProfilingForm() {
             residency: failedOcrAttempts.certResidency,
           }}
           onFailedOcrAttempt={recordFailedOcrAttempt}
-          onManualReviewRequested={() => setManualReviewRequested(true)}
         />
           </div>
 
@@ -1119,9 +1115,7 @@ export default function KKProfilingForm() {
           </button>
           {manualReviewAvailable ? (
             <p className="text-xs font-medium text-amber-700 dark:text-amber-500 m-0">
-              {manualReviewRequested
-                ? "Your application will be checked by an SK Admin."
-                : "Maximum verification attempts reached. You may proceed by submitting your application for manual review by an SK Admin."}
+              Maximum verification attempts reached. You may proceed by submitting your application for manual review by an SK Admin.
             </p>
           ) : null}
         </div>
