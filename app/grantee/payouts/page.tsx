@@ -56,6 +56,8 @@ export default async function GranteePayoutsPage() {
       },
     }),
   ]);
+  const payoutAwaitingConfirmation =
+    payouts.find((payout) => payout.status === "DISBURSED_UNCONFIRMED") ?? null;
   const currentStatus = currentPayout
     ? currentPayout.status === "CONFIRMED"
       ? "Confirmed"
@@ -128,7 +130,7 @@ export default async function GranteePayoutsPage() {
           </div>
         </Card>
 
-        {currentPayout?.status === "DISBURSED_UNCONFIRMED" ? (
+        {payoutAwaitingConfirmation ? (
           <section
             aria-labelledby="payout-confirmation-title"
             className="mt-5 flex flex-col gap-4 rounded-2xl border border-cyan-200 bg-cyan-50/80 p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6"
@@ -140,11 +142,13 @@ export default async function GranteePayoutsPage() {
                   Confirm your cash receipt
                 </h2>
                 <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
-                  This payout was marked as disbursed. Confirm only after you have received the cash.
+                  The {payoutAwaitingConfirmation.semester ?? "SKEAP"} payout of{" "}
+                  {currencyFormatter.format(payoutAwaitingConfirmation.amount)} was marked as disbursed.
+                  Confirm only after you have received the cash.
                 </p>
               </div>
             </div>
-            <PayoutConfirmButton payoutId={currentPayout.id} />
+            <PayoutConfirmButton payoutId={payoutAwaitingConfirmation.id} />
           </section>
         ) : null}
 
@@ -170,7 +174,6 @@ export default async function GranteePayoutsPage() {
                       ? payout.status
                       : "Pending";
                     const confirmed = status === "Confirmed";
-                    const awaitingConfirmation = status === "Awaiting Confirmation";
                     const payoutDate = payout.claimedAt ?? payout.disbursedAt;
                     return (
                       <TableRow key={payout.id}>
@@ -179,14 +182,9 @@ export default async function GranteePayoutsPage() {
                         </TableCell>
                         <TableCell>{currencyFormatter.format(payout.amount || GRANT_AMOUNT)}</TableCell>
                         <TableCell>
-                          <div className="flex flex-col items-start gap-2">
-                            <Badge variant={confirmed ? "received" : "pending"}>
-                              {status}
-                            </Badge>
-                            {awaitingConfirmation && "payoutId" in payout && payout.payoutId ? (
-                              <PayoutConfirmButton payoutId={payout.payoutId} />
-                            ) : null}
-                          </div>
+                          <Badge variant={confirmed ? "received" : "pending"}>
+                            {status}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-slate-600">
                           {formatPayoutDate(payoutDate)}

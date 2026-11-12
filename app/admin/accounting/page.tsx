@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Wallet, Search, SearchX, Inbox, Download, LoaderCircle, ChevronDown } from "lucide-react";
+import { AlertTriangle, Check, Wallet, Search, SearchX, Inbox, Download, LoaderCircle, ChevronDown } from "lucide-react";
 import { getRecentSemesters } from "@/lib/semester";
 import { formatDate } from "@/lib/utils";
 import {
@@ -72,6 +72,12 @@ export default function AdminAccountingPage() {
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [processingIds, setProcessingIds] = useState<Record<string, boolean>>({});
+  const [disbursementCandidate, setDisbursementCandidate] = useState<Grantee | null>(null);
+  const disbursementDialogRef = useRef<HTMLElement>(null);
+  const cancelDisbursementButtonRef = useRef<HTMLButtonElement>(null);
+  const disbursementTriggerRef = useRef<HTMLInputElement | null>(null);
+  const restoreDisbursementFocusRef = useRef(true);
+  const accountingHeadingRef = useRef<HTMLHeadingElement>(null);
   const formatter = useMemo(
     () =>
       new Intl.NumberFormat("en-PH", {
@@ -85,6 +91,46 @@ export default function AdminAccountingPage() {
   useEffect(() => () => {
     if (savedTimeoutRef.current !== null) window.clearTimeout(savedTimeoutRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!disbursementCandidate) {
+      if (restoreDisbursementFocusRef.current) {
+        disbursementTriggerRef.current?.focus();
+      } else {
+        accountingHeadingRef.current?.focus();
+      }
+      disbursementTriggerRef.current = null;
+      restoreDisbursementFocusRef.current = true;
+      return;
+    }
+
+    cancelDisbursementButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDisbursementCandidate(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusableElements = disbursementDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusableElements?.length) return;
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [disbursementCandidate]);
 
   useEffect(() => {
     if (!isExportMenuOpen) return;
@@ -368,13 +414,28 @@ export default function AdminAccountingPage() {
     }
   }
 
+  function requestPayoutDisbursement(grantee: Grantee, trigger: HTMLInputElement) {
+    if (grantee.status !== "Pending Payout") return;
+    disbursementTriggerRef.current = trigger;
+    restoreDisbursementFocusRef.current = true;
+    setDisbursementCandidate(grantee);
+  }
+
+  function confirmPayoutDisbursement() {
+    if (!disbursementCandidate) return;
+    const granteeId = disbursementCandidate.id;
+    restoreDisbursementFocusRef.current = false;
+    setDisbursementCandidate(null);
+    void dispatchPayoutToGrantee(granteeId);
+  }
+
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pb-12 pt-8 sm:gap-8 sm:px-6">
       {loadError ? <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
       {errorMessage ? <FloatingFeedback message={errorMessage} type="error" onDismiss={() => setErrorMessage(null)} /> : null}
       <div className="flex w-full flex-col justify-between gap-4 sm:flex-row sm:items-start sm:gap-6">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Accounting • Cash Disbursements</h1>
+          <h1 ref={accountingHeadingRef} tabIndex={-1} className="text-2xl font-semibold text-slate-900">Accounting • Cash Disbursements</h1>
           <p className="mt-1 text-sm text-slate-600">Track and mark offline cash payouts for grantees.</p>
         </div>
 
@@ -690,7 +751,7 @@ export default function AdminAccountingPage() {
                               type="checkbox"
                               checked={g.status !== "Pending Payout"}
                               disabled={g.status !== "Pending Payout" || Boolean(processingIds[g.id])}
-                              onChange={() => void dispatchPayoutToGrantee(g.id)}
+                              onChange={(event) => requestPayoutDisbursement(g, event.currentTarget)}
                               aria-label={g.status === "Pending Payout" ? `Disburse payout to ${g.name}` : `Payout for ${g.name} has been disbursed`}
                               aria-busy={processingIds[g.id] ? true : undefined}
                               className="h-4 w-4 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-900"
@@ -808,7 +869,7 @@ export default function AdminAccountingPage() {
                                 type="checkbox"
                                 checked={g.status !== "Pending Payout"}
                                 disabled={g.status !== "Pending Payout" || Boolean(processingIds[g.id])}
-                                onChange={() => void dispatchPayoutToGrantee(g.id)}
+                                onChange={(event) => requestPayoutDisbursement(g, event.currentTarget)}
                                 aria-label={g.status === "Pending Payout" ? `Disburse payout to ${g.name}` : `Payout for ${g.name} has been disbursed`}
                                 aria-busy={processingIds[g.id] ? true : undefined}
                                 className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-900"
@@ -934,6 +995,66 @@ export default function AdminAccountingPage() {
             </div>
           </div>
         </div>
+        {disbursementCandidate ? (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setDisbursementCandidate(null);
+            }}
+          >
+            <section
+              ref={disbursementDialogRef}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="payout-disbursement-title"
+              aria-describedby="payout-disbursement-description"
+              className="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-6 shadow-2xl"
+            >
+              <div className="flex items-start gap-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-amber-200">
+                  <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <h2 id="payout-disbursement-title" className="text-lg font-bold tracking-tight text-slate-900">
+                    Confirm cash disbursement
+                  </h2>
+                  <p id="payout-disbursement-description" className="mt-2 text-sm leading-relaxed text-slate-600">
+                    Confirm only if the cash has already been handed to this grantee. This records the payout as disbursed and notifies them to confirm receipt. It cannot be undone from this screen.
+                  </p>
+                </div>
+              </div>
+
+              <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl bg-slate-50 p-4 text-sm">
+                <dt className="text-slate-500">Grantee</dt>
+                <dd className="text-right font-semibold text-slate-900">{disbursementCandidate.name}</dd>
+                <dt className="text-slate-500">Semester</dt>
+                <dd className="text-right font-medium text-slate-900">
+                  {String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim()}
+                </dd>
+                <dt className="text-slate-500">Cash amount</dt>
+                <dd className="text-right font-semibold text-slate-900">{formatter.format(GRANT_AMOUNT)}</dd>
+              </dl>
+
+              <div className="mt-6 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+                <button
+                  ref={cancelDisbursementButtonRef}
+                  type="button"
+                  onClick={() => setDisbursementCandidate(null)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmPayoutDisbursement}
+                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
+                >
+                  Confirm disbursement
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
     </main>
   );
 }

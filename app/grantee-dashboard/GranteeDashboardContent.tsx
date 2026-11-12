@@ -25,6 +25,7 @@ import {
   resolveScheduledJourneyStepStatus,
 } from "@/lib/academic-journey";
 import { getAcademicTermScheduleState, getAcademicTermDeadlineTarget } from "@/lib/academic-term-schedule";
+import { buildGranteeActivity } from "@/lib/grantee-activity";
 
 export default async function GranteeDashboardContent() {
   const db = prisma;
@@ -47,6 +48,15 @@ export default async function GranteeDashboardContent() {
         include: {
           submissions: {
             orderBy: { submittedAt: "desc" },
+          },
+          payout: {
+            select: {
+              id: true,
+              semester: true,
+              amount: true,
+              disbursedAt: true,
+              claimedAt: true,
+            },
           },
         },
       },
@@ -80,6 +90,8 @@ export default async function GranteeDashboardContent() {
   }
 
   const submissions = appUser.grantee?.submissions ?? [];
+  const payout = appUser.grantee?.payout ?? null;
+  const recentActivity = buildGranteeActivity(submissions, payout).slice(0, 4);
   const pendingCount = submissions.filter((s) => s.status === "PENDING").length;
   const approvedCount = submissions.filter((s) => s.status === "APPROVED").length;
   const needsEditCount = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
@@ -331,46 +343,48 @@ export default async function GranteeDashboardContent() {
           <div className="flex h-full flex-col rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold tracking-tight text-slate-900">Recent activity</h2>
-              <Link href="/grantee-dashboard/documents" className="text-xs font-medium text-slate-500 hover:text-slate-900">
+              <Link
+                href="/grantee-dashboard/activity"
+                className="text-xs font-medium text-slate-500 transition-colors hover:text-slate-900 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2"
+              >
                 View all {"->"}
               </Link>
             </div>
             <div className="mt-1 flex flex-1 flex-col justify-start">
               <ol className="space-y-4">
-                {submissions.slice(0, 4).map((s, i, arr) => {
-                  const tone = s.status === "APPROVED" ? "approved" : s.status === "REJECTED" ? "edit" : "event";
+                {recentActivity.map((activity, i, arr) => {
+                  const toneClasses = {
+                    approved: "bg-emerald-100 text-emerald-700",
+                    attention: "bg-rose-100 text-rose-700",
+                    pending: "bg-sky-100 text-sky-700",
+                    confirmed: "bg-emerald-100 text-emerald-700",
+                  }[activity.kind];
                   return (
-                    <li key={s.id} className="flex gap-3">
+                    <li key={activity.id} className="flex gap-3">
                       <div className="relative flex flex-col items-center">
-                        <div
-                          className={
-                            "flex h-8 w-8 items-center justify-center rounded-full ring-4 ring-white " +
-                            (tone === "approved"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : tone === "edit"
-                              ? "bg-rose-100 text-rose-700"
-                              : "bg-sky-100 text-sky-700")
-                          }
-                        >
-                          {tone === "approved" ? (
-                            <CheckCircle2 className="h-4 w-4" />
-                          ) : tone === "edit" ? (
-                            <PencilLine className="h-4 w-4" />
+                        <div className={`flex h-8 w-8 items-center justify-center rounded-full ring-4 ring-white ${toneClasses}`}>
+                          {activity.kind === "approved" || activity.kind === "confirmed" ? (
+                            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                          ) : activity.kind === "attention" ? (
+                            <PencilLine className="h-4 w-4" aria-hidden="true" />
                           ) : (
-                            <Clock3 className="h-4 w-4" />
+                            <Clock3 className="h-4 w-4" aria-hidden="true" />
                           )}
                         </div>
                         {i < arr.length - 1 && <div className="mt-1 h-full w-px flex-1 bg-slate-200" />}
                       </div>
-                      <div className="pb-2">
-                        <div className="text-sm font-medium text-slate-900">Submission · {s.status.toLowerCase()}</div>
-                        <div className="mt-0.5 text-xs text-slate-500">{new Date(s.submittedAt).toLocaleDateString()}</div>
+                      <div className="min-w-0 pb-2">
+                        <div className="truncate text-sm font-medium text-slate-900">{activity.label}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          {activity.date.toLocaleDateString("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" })}
+                          {activity.detail ? ` · ${activity.detail}` : ""}
+                        </div>
                       </div>
                     </li>
                   );
                 })}
-                {submissions.length === 0 && (
-                  <li className="text-sm text-slate-500">No activity yet. Start by submitting your first requirement.</li>
+                {recentActivity.length === 0 && (
+                  <li className="text-sm text-slate-500">No activity yet. Your submissions and payout updates will appear here.</li>
                 )}
               </ol>
             </div>
