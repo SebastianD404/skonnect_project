@@ -35,17 +35,21 @@ function LoginForm() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,61,92,0.08),_transparent_35%),linear-gradient(180deg,#f7f9fc_0%,#f4f7fb_100%)] px-4 py-10 text-slate-900">
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-6xl flex-col items-center justify-center gap-8">
-        <div className="flex items-center gap-3 text-left">
+        <Link
+          href="/"
+          aria-label="SKonnect Home - Return to landing page"
+          className="group flex cursor-pointer items-center gap-3 text-left transition-opacity hover:opacity-90 focus-visible:rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-4"
+        >
           <SkLogo className="h-12 w-12" />
           <div>
-            <div className="text-xl font-semibold tracking-tight text-[#0D2E47]">SKonnect</div>
+            <div className="text-xl font-semibold tracking-tight text-[#0D2E47] transition-colors group-hover:text-[#0F3D5C]">SKonnect</div>
             <div className="text-sm text-slate-500">Barangay Pico Youth Services Portal</div>
           </div>
-        </div>
+        </Link>
 
         <div className="w-full max-w-[430px] rounded-[2rem] border border-slate-200 bg-white p-7 shadow-[0_28px_70px_rgba(15,61,92,0.10)] sm:p-8">
           <div className="text-center">
-            <h1 className="text-3xl font-semibold tracking-tight text-[#0D2E47]">Welcome back</h1>
+            <h1 className="text-3xl font-semibold tracking-tight text-[#0D2E47]">Welcome Back!</h1>
             <p className="mt-2 text-sm text-slate-500">Sign in to access your SKonnect account</p>
           </div>
 
@@ -123,14 +127,25 @@ function LoginForm() {
                   }}
                   className="secure-login-password w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-900 transition hover:bg-slate-100 hover:text-[#0F3D5C]"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                <span
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 transition-all duration-200 ${
+                    password.length > 0
+                      ? "translate-x-0 opacity-100"
+                      : "pointer-events-none translate-x-1 opacity-0"
+                  }`}
+                  aria-hidden={password.length === 0}
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+                  {password.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((value) => !value)}
+                      className="rounded-full p-2 text-slate-900 transition hover:bg-slate-100 hover:text-[#0F3D5C]"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  ) : null}
+                </span>
               </div>
             </div>
 

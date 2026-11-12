@@ -1,10 +1,13 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, LoaderCircle, X, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import Image from "next/image";
+import { Clock3, FileText, LoaderCircle, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
+export type OcrStrategy = "none" | "photo" | "residency" | "birth-certificate" | "front-id" | "back-id";
+type ScannerDocumentType = "front_id" | "back_id" | "certificate";
 
 export type DocumentOCRState = {
   status: "idle" | "scanning" | "success" | "error";
@@ -17,463 +20,481 @@ export type DocumentOCRState = {
   file?: File | null;
 };
 
-type DocumentOCRValidationExampleProps = {
+type DocumentUploadCardProps = {
+  title: string;
+  acceptedFormats: string;
+  accept: string;
+  maxSize: number;
+  ocrStrategy: OcrStrategy;
+  onUpload: (file: File | null) => void;
+  initialFile?: File | null;
   firstName?: string;
   middleInitial?: string;
   lastName?: string;
-  initialFiles?: Partial<Record<DocumentOCRKey, File | null>>;
-  showDebug?: boolean;
   profileBirthDate?: string;
-  onFileSelected?: (key: DocumentOCRKey, file: File | null) => void;
-  onValidationChange?: (state: Record<DocumentOCRKey, DocumentOCRState>) => void;
-  failedOcrAttempts?: Record<DocumentOCRKey, number>;
-  onFailedOcrAttempt?: (key: DocumentOCRKey) => void;
-  onRemoveFile?: (key: DocumentOCRKey) => void;
-  className?: string;
+  onOcrStateChange?: (state: DocumentOCRState) => void;
+  onFailedOcrAttempt?: () => void;
 };
 
-export default function DocumentOCRValidationExample({
+export function evaluateDocumentOcr(
+  strategy: OcrStrategy,
+  text: string,
+  scannerIsValid = true,
+) {
+  const normalizedText = text.toLowerCase();
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  const characterCount = text.replace(/\s/g, "").length;
+
+  switch (strategy) {
+    case "photo":
+      return wordCount > 4 || characterCount > 20
+        ? { isValid: false, error: "Please upload a clear 2x2 portrait photo of your face. Avoid uploading documents or certificates here." }
+        : { isValid: true, error: null };
+    case "residency":
+      return /\b(pico|residency)\b/i.test(normalizedText)
+        ? { isValid: true, error: null }
+        : { isValid: false, error: "This doesn't look like a valid certificate. Please check your file and try uploading again." };
+    case "birth-certificate":
+      return /\b(birth|registry)\b/i.test(normalizedText)
+        ? { isValid: true, error: null }
+        : { isValid: false, error: "This doesn't look like a valid certificate. Please check your file and try uploading again." };
+    case "front-id":
+    case "back-id":
+      return scannerIsValid
+        ? { isValid: true, error: null }
+        : { isValid: false, error: "We couldn't check this file automatically. Our team will review it." };
+    case "none":
+      return { isValid: true, error: null };
+  }
+}
+
+function getScannerDocumentType(strategy: OcrStrategy): ScannerDocumentType | null {
+  switch (strategy) {
+    case "front-id":
+      return "front_id";
+    case "back-id":
+      return "back_id";
+    case "residency":
+      return "certificate";
+    case "photo":
+    case "birth-certificate":
+      return "front_id";
+    case "none":
+      return null;
+  }
+}
+
+async function scanBirthCertificatePdf(file: File) {
+  const pdfjs = await import("pdfjs-dist");
+  if ("Worker" in window) {
+    pdfjs.GlobalWorkerOptions.workerSrc =
+      `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+  }
+
+  const loadingTask = pdfjs.getDocument({ data: await file.arrayBuffer() });
+  let pdf: Awaited<typeof loadingTask.promise> | null = null;
+  try {
+    pdf = await loadingTask.promise;
+    const recognizedTexts: string[] = [];
+    const maxPages = Math.min(pdf.numPages, 3);
+
+    for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      try {
+        const textContent = await page.getTextContent();
+        const embeddedText = textContent.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+          .trim();
+        if (embeddedText) recognizedTexts.push(embeddedText);
+
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Could not prepare the birth certificate page for text scanning.");
+
+        await page.render({ canvasContext: context, viewport }).promise;
+        const imageBlob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("Could not prepare the birth certificate page for text scanning."));
+          }, "image/png");
+        });
+        canvas.width = 0;
+        canvas.height = 0;
+
+        const imageFile = new File([imageBlob], `birth-certificate-page-${pageNumber}.png`, {
+          type: "image/png",
+        });
+        const result = await scanDocument(imageFile, "front_id");
+        if (result.text) recognizedTexts.push(result.text);
+      } finally {
+        page.cleanup();
+      }
+    }
+
+    return recognizedTexts.join("\n");
+  } finally {
+    if (pdf) await pdf.destroy();
+    else await loadingTask.destroy();
+  }
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function DocumentUploadCard({
+  title,
+  acceptedFormats,
+  accept,
+  maxSize,
+  ocrStrategy,
+  onUpload,
+  initialFile,
   firstName,
-  profileBirthDate,
   middleInitial,
   lastName,
-  initialFiles,
-  onFileSelected,
-  onValidationChange,
-  failedOcrAttempts,
+  profileBirthDate,
+  onOcrStateChange,
   onFailedOcrAttempt,
-  onRemoveFile,
-  showDebug = false,
-  className,
-}: DocumentOCRValidationExampleProps) {
-  const [docs, setDocs] = useState<Record<DocumentOCRKey, DocumentOCRState>>({
-    front: { status: "idle", file: null },
-    back: { status: "idle", file: null },
-    residency: { status: "idle", file: null },
+}: DocumentUploadCardProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const generationRef = useRef(0);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [ocrStatus, setOcrStatus] = useState<DocumentOCRState>({
+    status: "idle",
+    file: null,
   });
-  const [previews, setPreviews] = useState<Record<DocumentOCRKey, string | null>>({
-    front: null,
-    back: null,
-    residency: null,
-  });
-  const [previewErrors, setPreviewErrors] = useState<Record<DocumentOCRKey, boolean>>({
-    front: false,
-    back: false,
-    residency: false,
-  });
-  const [previewLoading, setPreviewLoading] = useState<Record<DocumentOCRKey, boolean>>({
-    front: false,
-    back: false,
-    residency: false,
-  });
-  const [modalKey, setModalKey] = useState<DocumentOCRKey | null>(null);
-
-  const inputRefs = useRef<Record<DocumentOCRKey, HTMLInputElement | null>>({
-    front: null,
-    back: null,
-    residency: null,
-  });
-  const restoredInitialFiles = useRef(false);
-  const previewUrlsRef = useRef<Record<DocumentOCRKey, string | null>>({
-    front: null,
-    back: null,
-    residency: null,
-  });
-  const previewGenerationRef = useRef<Record<DocumentOCRKey, number>>({
-    front: 0,
-    back: 0,
-    residency: 0,
-  });
-  const previewFallbackAttemptedRef = useRef<Record<DocumentOCRKey, boolean>>({
-    front: false,
-    back: false,
-    residency: false,
-  });
-
-  useEffect(() => () => {
-    Object.values(previewUrlsRef.current).forEach((url) => {
-      if (url) URL.revokeObjectURL(url);
-    });
-    previewUrlsRef.current = { front: null, back: null, residency: null };
-  }, []);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const previewUrl = useMemo(
+    () => selectedFile ? URL.createObjectURL(selectedFile) : null,
+    [selectedFile],
+  );
 
   useEffect(() => {
-    onValidationChange?.(docs);
-  }, [docs, onValidationChange]);
-
-  const setDoc = (key: DocumentOCRKey, patch: Partial<DocumentOCRState>) => {
-    setDocs((d) => ({ ...d, [key]: { ...d[key], ...patch } }));
-  };
-
-  const isValidImageFile = (file: File) => {
-    return ["image/jpeg", "image/png", "image/webp"].includes(file.type);
-  };
-
-  const clearInput = (key: DocumentOCRKey) => {
-    const input = inputRefs.current[key];
-    if (input) {
-      input.value = "";
-    }
-  };
-
-  const setPreviewUrl = (key: DocumentOCRKey, url: string | null) => {
-    const previousUrl = previewUrlsRef.current[key];
-    if (previousUrl && previousUrl !== url) URL.revokeObjectURL(previousUrl);
-    previewUrlsRef.current[key] = url;
-    setPreviews((current) => ({ ...current, [key]: url }));
-    setPreviewErrors((current) => ({ ...current, [key]: false }));
-  };
-
-  const recoverPreview = async (key: DocumentOCRKey, file: File) => {
-    if (previewFallbackAttemptedRef.current[key]) {
-      setPreviewErrors((current) => ({ ...current, [key]: true }));
-      return;
-    }
-
-    previewFallbackAttemptedRef.current[key] = true;
-    const generation = previewGenerationRef.current[key];
-    setPreviewLoading((current) => ({ ...current, [key]: true }));
-    setPreviewErrors((current) => ({ ...current, [key]: true }));
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch("/api/programs/kk-profiling/preview", {
-        method: "POST",
-        body: formData,
-      });
-      if (!response.ok) {
-        throw new Error(`Preview conversion failed (${response.status}).`);
-      }
-
-      const previewBlob = await response.blob();
-      if (!previewBlob.type.startsWith("image/")) {
-        throw new Error("Preview conversion did not return an image.");
-      }
-      if (generation !== previewGenerationRef.current[key]) return;
-
-      setPreviewUrl(key, URL.createObjectURL(previewBlob));
-    } catch (error) {
-      if (generation !== previewGenerationRef.current[key]) return;
-      console.warn("Could not prepare a browser preview for the KK Profiling image.", {
-        fileName: file.name,
-        error,
-      });
-      setPreviewErrors((current) => ({ ...current, [key]: true }));
-    } finally {
-      if (generation === previewGenerationRef.current[key]) {
-        setPreviewLoading((current) => ({ ...current, [key]: false }));
-      }
-    }
-  };
-
-  const clearPreview = (key: DocumentOCRKey) => setPreviewUrl(key, null);
-
-  const openPreviewModal = (key: DocumentOCRKey) => {
-    if (previews[key] && !previewErrors[key]) {
-      setModalKey(key);
-    }
-  };
-
-  const closePreviewModal = () => setModalKey(null);
-
-  const handleInvalidFile = (key: DocumentOCRKey) => {
-    previewGenerationRef.current[key] += 1;
-    previewFallbackAttemptedRef.current[key] = false;
-    clearInput(key);
-    clearPreview(key);
-    setPreviewLoading((current) => ({ ...current, [key]: false }));
-    setDoc(key, {
-      file: null,
-      status: "error",
-      message: "Please upload a JPG, PNG, or WebP image.",
-      text: undefined,
-      parsedDates: undefined,
-      birthdateMatched: undefined,
-    });
-    onFileSelected?.(key, null);
-  };
-
-  async function processFile(file: File | null, key: DocumentOCRKey) {
-    const generation = ++previewGenerationRef.current[key];
-    previewFallbackAttemptedRef.current[key] = false;
-    setPreviewLoading((current) => ({ ...current, [key]: false }));
-    if (!file) {
-      setPreviewUrl(key, null);
-      setDoc(key, { file: null, status: "idle", message: undefined, text: undefined, parsedDates: undefined, birthdateMatched: undefined });
-      onFileSelected?.(key, null);
-      return;
-    }
-
-    if (!isValidImageFile(file)) {
-      handleInvalidFile(key);
-      return;
-    }
-
-    if (!(file instanceof Blob) || !file.type.startsWith("image/")) {
-      setPreviewUrl(key, null);
-    } else {
-      const previewUrl = URL.createObjectURL(file);
-      setPreviewUrl(key, previewUrl);
-    }
-    onFileSelected?.(key, file);
-    setDoc(key, { file, status: "scanning", message: "Scanning document...", text: undefined });
-
-    try {
-      const docType = key === "residency" ? "certificate" : key === "front" ? "front_id" : "back_id";
-      const result = await scanDocument(file, docType as never, {
-        firstName: key === "front" || key === "residency" ? firstName : undefined,
-        lastName: key === "front" || key === "residency" ? lastName : undefined,
-        middleInitial: key === "front" ? middleInitial : undefined,
-        profileBirthDate: key === "back" ? profileBirthDate : undefined,
-      });
-
-      if (generation !== previewGenerationRef.current[key]) return;
-      if (result.errorCode === "LOW_CONFIDENCE" || result.errorCode === "UNRECOGNIZED_DOCUMENT") {
-        onFailedOcrAttempt?.(key);
-      }
-      setDoc(key, {
-        status: result.status === "success" ? "success" : "error",
-        badgeText: result.badgeText,
-        message: result.message,
-        errorCode: result.errorCode,
-        text: result.text,
-        parsedDates: Array.isArray(result.parsedDates) ? result.parsedDates : undefined,
-        birthdateMatched: typeof result.birthdateMatched === "boolean" ? result.birthdateMatched : undefined,
-      });
-    } catch (err: unknown) {
-      if (generation !== previewGenerationRef.current[key]) return;
-      setDoc(key, {
-        status: "error",
-        badgeText: "Scanner Unavailable",
-        errorCode: "SCANNER_UNAVAILABLE",
-        message: String(err instanceof Error ? err.message : err) || "Unable to process this image. Please try again.",
-        parsedDates: undefined,
-        birthdateMatched: undefined,
-      });
-    }
-  }
-
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>, key: DocumentOCRKey) {
-    const file = e.target.files?.[0] ?? null;
-    await processFile(file, key);
-  }
-
-  async function handleFileDrop(e: React.DragEvent<HTMLDivElement>, key: DocumentOCRKey) {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0] ?? null;
-    if (!file) return;
-    await processFile(file, key);
-  }
-
-  useEffect(() => {
-    if (restoredInitialFiles.current || !initialFiles) return;
-
-    const filesToRestore = (Object.entries(initialFiles) as Array<[DocumentOCRKey, File | null]>)
-      .filter(([, file]) => Boolean(file));
-    if (filesToRestore.length === 0) return;
-
-    restoredInitialFiles.current = true;
-    void Promise.all(filesToRestore.map(([key, file]) => processFile(file, key)));
-  }, [initialFiles]);
-
-  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>, key: DocumentOCRKey) {
-    const file = e.clipboardData.files?.[0] ?? null;
-    if (!file) return;
-    e.preventDefault();
-    handleInvalidFile(key);
-  }
-
-  const isAnyScanning = Object.values(docs).some((s) => s.status === "scanning");
-
-  function renderInput(key: DocumentOCRKey, label: string) {
-    const state = docs[key];
-    const file = state.file;
-    const isImageFile = Boolean(file && file.type.startsWith("image/"));
-    const previewUrl = isImageFile && !previewErrors[key] ? previews[key] : null;
-    const hasFile = Boolean(file);
-    const isError = state.status === "error";
-    const isSuccess = state.status === "success";
-    const isScanning = state.status === "scanning";
-    const failedAttempts = failedOcrAttempts?.[key] ?? 0;
-    const isCountedOcrFailure =
-      state.errorCode === "LOW_CONFIDENCE" || state.errorCode === "UNRECOGNIZED_DOCUMENT";
-
-    const handleImageClick = () => {
-      if (hasFile) {
-        openPreviewModal(key);
-      } else {
-        inputRefs.current[key]?.click();
-      }
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
+  }, [previewUrl]);
 
-    const feedbackTitle = isError
-      ? state.errorCode === "UNRECOGNIZED_DOCUMENT"
-        ? "Unrecognized Document"
-        : state.badgeText || "Unreadable image"
-      : "";
-    const feedbackText = state.message;
-    return (
-      <div className="flex h-full flex-col rounded-2xl border-2 border-dashed border-gray-300 bg-white p-4 transition">
-        <input
-          id={`ocr-input-${key}`}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          ref={(el) => {
-            inputRefs.current[key] = el;
-          }}
-          onChange={(e) => handleFileChange(e, key)}
-          disabled={isAnyScanning}
-          data-testid={`ocr-input-${key}`}
-          className="hidden"
-        />
+  const publishOcrState = useCallback((state: DocumentOCRState) => {
+    setOcrStatus(state);
+    onOcrStateChange?.(state);
+  }, [onOcrStateChange]);
 
-        <div className="mb-3 flex w-full items-start justify-between">
-          <div className="flex flex-col gap-1 text-left">
-            <p className="text-sm font-semibold text-slate-900">{label}</p>
-            <p className="text-xs text-slate-500">JPG, PNG, or WebP · Max 10MB</p>
-          </div>
-          {isSuccess ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-              <Check className="h-3.5 w-3.5" aria-hidden="true" />
-              Verified
-            </span>
-          ) : null}
-        </div>
+  const processFile = useCallback(async (file: File | null) => {
+    const generation = ++generationRef.current;
+    setFileError(null);
+    setSelectedFile(file);
+    onUpload(file);
 
-        <div
-          className="relative mt-4 flex h-48 w-full cursor-pointer flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
-          onClick={handleImageClick}
-        >
-          <div className="flex min-h-0 flex-1 items-center justify-center">
-            {previewUrl ? (
-              <img
-                src={previewUrl}
-                alt="ID Preview"
-                className="h-full w-full object-contain"
-                onError={() => {
-                  if (file) void recoverPreview(key, file);
-                }}
-              />
-            ) : file && previewLoading[key] ? (
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" aria-hidden="true" />
-                <span>Preparing preview…</span>
-              </div>
-            ) : (
-              <div className="text-sm text-slate-400">
-                {file ? "Image preview unavailable" : "No file selected"}
-              </div>
-            )}
-          </div>
-          {isScanning ? (
-            <div
-              role="status"
-              aria-live="polite"
-              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-sm"
-            >
-              <LoaderCircle className="h-6 w-6 animate-spin text-slate-800" aria-hidden="true" />
-              <span className="text-xs font-medium text-slate-700">Scanning document text...</span>
-            </div>
-          ) : null}
-          {isError && feedbackText ? (
-            <div className="flex w-full items-start gap-2 border-t border-amber-200 bg-amber-50 p-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-              <p className="text-xs leading-snug text-amber-900">
-                {isCountedOcrFailure && failedAttempts > 0 && failedAttempts < 3
-                  ? "Unrecognized document. Please upload a clearer photo or double-check the document type."
-                  : (
-                    <>
-                      <span className="font-medium">
-                        {state.errorCode === "UNRECOGNIZED_DOCUMENT" ? "Unrecognized document." : `${feedbackTitle}.`}
-                      </span>{" "}
-                      {feedbackText}
-                    </>
-                  )}
-              </p>
-            </div>
-          ) : null}
-        </div>
+    if (!file) {
+      publishOcrState({ status: "idle", file: null });
+      return;
+    }
 
-        {showDebug && state.parsedDates && state.parsedDates.length > 0 ? (
-          <div className="mt-2 text-xs text-slate-600">
-            <div><strong>Parsed dates:</strong> {state.parsedDates.join(", ")}</div>
-            {typeof state.birthdateMatched === "boolean" ? (
-              <div><strong>Birthdate matched:</strong> {state.birthdateMatched ? "yes" : "no"}</div>
-            ) : null}
-          </div>
-        ) : null}
+    const acceptedTypes = accept
+      .split(",")
+      .map((type) => type.trim().toLowerCase())
+      .filter((type) => type.startsWith("image/") || type.startsWith("application/"));
+    if (!acceptedTypes.includes(file.type.toLowerCase())) {
+      setSelectedFile(null);
+      onUpload(null);
+      setFileError(`Choose a file in these formats: ${acceptedFormats}.`);
+      publishOcrState({ status: "error", message: "Unsupported file format.", file: null });
+      return;
+    }
+    if (file.size === 0 || file.size > maxSize) {
+      setSelectedFile(null);
+      onUpload(null);
+      setFileError(`File must be no larger than ${formatFileSize(maxSize)}.`);
+      publishOcrState({ status: "error", message: "File exceeds the upload size limit.", file: null });
+      return;
+    }
 
-        {hasFile ? (
-          <div className="mt-auto flex items-center justify-between border-t border-gray-100 pt-3 text-xs font-medium text-gray-700">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                inputRefs.current[key]?.click();
-              }}
-              disabled={isAnyScanning}
-              className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Upload a new photo
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                clearInput(key);
-                clearPreview(key);
-                setDoc(key, { file: null, status: "idle", message: undefined, text: undefined, parsedDates: undefined, birthdateMatched: undefined });
-                onFileSelected?.(key, null);
-                onRemoveFile?.(key);
-              }}
-              disabled={isAnyScanning}
-              className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
-            >
-              <X className="h-4 w-4" />
-              Remove
-            </button>
-          </div>
-        ) : null}
-      </div>
-    );
+    if (ocrStrategy === "none") {
+      publishOcrState({ status: "idle", file });
+      return;
+    }
+    if (!file.type.startsWith("image/") && !(file.type === "application/pdf" && ocrStrategy === "birth-certificate")) {
+      const evaluation = evaluateDocumentOcr(ocrStrategy, "");
+      publishOcrState({
+        status: "error",
+        message: evaluation.error ?? "We couldn't check this file automatically. Our team will review it.",
+        file,
+      });
+      return;
+    }
+
+    publishOcrState({ status: "scanning", message: "Scanning document text…", file });
+    try {
+      const scannerType = getScannerDocumentType(ocrStrategy);
+      if (!scannerType) return;
+      const result = file.type === "application/pdf" && ocrStrategy === "birth-certificate"
+        ? {
+            text: await scanBirthCertificatePdf(file),
+            status: "success" as const,
+            isValid: true,
+            badgeText: "Text extracted",
+            message: "",
+            errorCode: undefined,
+            parsedDates: undefined,
+            birthdateMatched: undefined,
+          }
+        : await scanDocument(file, scannerType, {
+            firstName: ocrStrategy === "front-id" || ocrStrategy === "residency" ? firstName : undefined,
+            lastName: ocrStrategy === "front-id" || ocrStrategy === "residency" ? lastName : undefined,
+            middleInitial: ocrStrategy === "front-id" ? middleInitial : undefined,
+            profileBirthDate: ocrStrategy === "back-id" ? profileBirthDate : undefined,
+          });
+      if (generation !== generationRef.current) return;
+
+      const evaluation = evaluateDocumentOcr(
+        ocrStrategy,
+        result.text,
+        result.status === "success" && result.isValid,
+      );
+      const state: DocumentOCRState = {
+        status: evaluation.isValid ? "success" : "error",
+        badgeText: result.badgeText,
+        message: evaluation.error ?? result.message,
+        errorCode: evaluation.error ? "DOCUMENT_STRATEGY_FAILED" : result.errorCode,
+        text: result.text,
+        parsedDates: result.parsedDates,
+        birthdateMatched: result.birthdateMatched,
+        file,
+      };
+      if (!evaluation.isValid && ocrStrategy === "photo") {
+        onUpload(null);
+      }
+      if (!evaluation.isValid) {
+        onFailedOcrAttempt?.();
+      }
+      publishOcrState(state);
+    } catch {
+      if (generation !== generationRef.current) return;
+      const evaluation = evaluateDocumentOcr(ocrStrategy, "");
+      if (ocrStrategy === "photo") onUpload(null);
+      publishOcrState({
+        status: "error",
+        badgeText: "Scanner unavailable",
+        message: evaluation.error ?? "We couldn't check this file automatically. Our team will review it.",
+        errorCode: "SCANNER_UNAVAILABLE",
+        file,
+      });
+    }
+  }, [accept, acceptedFormats, firstName, lastName, maxSize, middleInitial, ocrStrategy, onFailedOcrAttempt, onUpload, profileBirthDate, publishOcrState]);
+
+  useEffect(() => {
+    if (initialFile && initialFile !== selectedFile) {
+      const timer = window.setTimeout(() => void processFile(initialFile), 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [initialFile, processFile, selectedFile]);
+
+  function chooseFile() {
+    inputRef.current?.click();
   }
+
+  function removeFile(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (inputRef.current) inputRef.current.value = "";
+    void processFile(null);
+  }
+
+  const ocrFailed = ocrStrategy !== "none" && ocrStatus.status === "error";
+  const isPdf = selectedFile?.type === "application/pdf";
 
   return (
     <>
-      <div className={className} data-testid="ocr-validation-section">
-        <div className="grid gap-3 md:grid-cols-2">
-          {renderInput("front", "Front of Valid ID *")}
-          {renderInput("back", "Back of Valid ID *")}
-          <div className="md:col-span-2">{renderInput("residency", "Certificate of Residency *")}</div>
-        </div>
-        {isAnyScanning && <div className="sr-only">Processing document validation</div>}
-      </div>
-      {modalKey && previews[modalKey] && !previewErrors[modalKey] ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="relative max-h-full w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div
+        role="group"
+        tabIndex={0}
+        aria-label={`${selectedFile ? "Replace" : "Upload"} ${title}`}
+        onClick={chooseFile}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            chooseFile();
+          }
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          const file = event.dataTransfer.files?.[0];
+          if (file) void processFile(file);
+        }}
+        className={`group flex h-[130px] min-h-[130px] flex-col justify-between overflow-hidden rounded-xl border p-4 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 ${
+          ocrFailed
+            ? "border-red-400 bg-red-50/60 hover:bg-red-50"
+            : selectedFile
+              ? "border-amber-500/50 bg-amber-50/30 hover:border-slate-400 hover:bg-slate-100/60"
+              : "cursor-pointer border-dashed border-slate-300 bg-slate-50/50 hover:border-slate-400 hover:bg-slate-100/60"
+        } ${selectedFile ? "cursor-default" : ""}`}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          aria-label={`Select ${title}`}
+          className="hidden"
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0] ?? null;
+            event.currentTarget.value = "";
+            void processFile(file);
+          }}
+        />
+
+        <div className="flex min-h-0 items-center gap-3">
+          {selectedFile ? (
             <button
               type="button"
-              onClick={closePreviewModal}
-              className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-900 shadow-md hover:bg-slate-100"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setIsPreviewOpen(true);
+              }}
+              aria-label={`View ${title}`}
+              className="h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-white transition-opacity hover:opacity-90"
             >
-              <X className="h-5 w-5" />
+              {previewUrl ? (
+                <Image
+                  src={previewUrl}
+                  alt={`${title} thumbnail`}
+                  width={64}
+                  height={64}
+                  unoptimized
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <FileText className="mx-auto h-7 w-7 text-slate-500" aria-hidden="true" />
+              )}
             </button>
-            <div className="flex h-full w-full items-center justify-center bg-white p-6">
-              <img
-                src={previews[modalKey] ?? ""}
-                alt="Uploaded preview"
-                className="max-h-[80vh] max-w-full rounded-3xl object-contain"
-                onError={() => {
-                  if (modalKey) {
-                    setPreviewErrors((current) => ({ ...current, [modalKey]: true }));
-                  }
-                  setModalKey(null);
-                }}
-              />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="text-sm font-medium text-slate-900">{title}</p>
+              {selectedFile && !ocrFailed ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                  {ocrStatus.status === "scanning"
+                    ? <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" />
+                    : <Clock3 className="h-3 w-3" aria-hidden="true" />}
+                  For Verification
+                </span>
+              ) : null}
             </div>
+            <p className="truncate text-xs text-slate-500">
+              {selectedFile ? "Original must be presented at the barangay." : `${acceptedFormats} · Max ${formatFileSize(maxSize)}`}
+            </p>
+            {selectedFile ? (
+              <p className="truncate text-xs text-slate-700" title={selectedFile.name}>
+                {selectedFile.name} · {formatFileSize(selectedFile.size)}
+              </p>
+            ) : null}
           </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                chooseFile();
+              }}
+              aria-label={selectedFile ? `Replace ${title}` : `Upload ${title}`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-100"
+            >
+              {selectedFile ? <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> : <Upload className="h-3.5 w-3.5" aria-hidden="true" />}
+              {selectedFile ? "Replace" : "Upload"}
+            </button>
+            {selectedFile ? (
+              <button
+                type="button"
+                onClick={removeFile}
+                aria-label={`Remove ${title}`}
+                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-red-600 shadow-sm hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="h-8 overflow-hidden">
+          {ocrFailed ? (
+            <p role="alert" className="line-clamp-2 text-xs font-medium text-red-800">
+              {ocrStatus.errorCode === "NAME_MISMATCH"
+                ? "Name on ID does not match your account. Please replace with your own ID."
+                : ocrStatus.message || "We couldn't check this file automatically. Our team will review it."}
+            </p>
+          ) : !selectedFile && fileError ? (
+            <p role="alert" className="line-clamp-2 text-xs text-rose-700">{fileError}</p>
+          ) : ocrStatus.status === "scanning" ? (
+            <p role="status" className="flex items-center gap-1.5 text-xs text-slate-600">
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              Checking your file…
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      {isPreviewOpen && selectedFile ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsPreviewOpen(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setIsPreviewOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${title} preview`}
+            className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold text-slate-900">{title}</h2>
+                <p className="truncate text-xs text-slate-500">{selectedFile.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(false)}
+                aria-label="Close preview"
+                className="ml-4 rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-100 p-4">
+              {isPdf && previewUrl ? (
+                <iframe title={`${title} full preview`} src={previewUrl} className="h-[75vh] w-full rounded-lg bg-white" />
+              ) : previewUrl ? (
+                <Image
+                  src={previewUrl}
+                  alt={`${title} full preview`}
+                  width={1600}
+                  height={1200}
+                  unoptimized
+                  className="max-h-[75vh] max-w-full rounded-lg object-contain"
+                />
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <FileText className="h-6 w-6" aria-hidden="true" />
+                  Preview is unavailable for this file.
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       ) : null}
     </>

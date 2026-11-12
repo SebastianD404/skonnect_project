@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/audit/logger";
 import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
-import { ACTIVE_SKEAP_APPLICATION_WHERE, DEFAULT_SKEAP_MAX_SLOTS, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { DEFAULT_SKEAP_MAX_SLOTS, getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
@@ -37,8 +37,9 @@ export async function POST(
 
   let maxSlots = DEFAULT_SKEAP_MAX_SLOTS;
   try {
-    maxSlots = await getSkeapMaxSlots();
     const promoted = await prisma.$transaction(async (tx) => {
+      await lockSkeapCapacity(tx);
+      maxSlots = await getSkeapMaxSlots(tx);
       const application = await tx.skeapApplication.findUnique({
         where: { id },
         select: {
@@ -63,7 +64,7 @@ export async function POST(
       });
       if (existingGrantee?.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
 
-      const activeCount = await tx.skeapApplication.count({ where: ACTIVE_SKEAP_APPLICATION_WHERE });
+      const activeCount = await getSkeapCapacityCount(tx, application.userId);
       if (activeCount >= maxSlots) throw new Error("CAPACITY_FULL");
 
       await tx.skeapApplication.update({
@@ -169,7 +170,12 @@ export async function POST(
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });
     if (message === "NOT_WAITLISTED") return NextResponse.json({ error: "Application is not currently waitlisted." }, { status: 409 });
     if (message === "GRANTEE_ARCHIVED") return NextResponse.json({ error: "Graduated Grantee records cannot be changed by SKEAP promotion." }, { status: 409 });
-    if (message === "CAPACITY_FULL") return NextResponse.json({ error: `All ${maxSlots} SKEAP slots are currently filled.` }, { status: 409 });
+    if (message === "CAPACITY_FULL") {
+      return NextResponse.json(
+        { error: `All ${maxSlots} SKEAP slots are currently filled. The applicant remains WAITLISTED.` },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

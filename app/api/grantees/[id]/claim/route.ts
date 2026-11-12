@@ -1,55 +1,41 @@
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/audit/logger";
-
-const db = prisma; // explicit db variable
+import { dispatchPayout } from "@/lib/payout-disbursement";
+import { createClient } from "@/lib/supabase/server";
+import { getRecentSemesters } from "@/lib/semester";
 
 export async function PATCH(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'Missing id' }, { status: 400 });
-  }
+  if (!id) return NextResponse.json({ ok: false, error: "Missing grantee ID." }, { status: 400 });
 
   try {
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
 
     const actor = await ensureProfile(user);
     if (!actor || (actor.role !== Role.SK_OFFICIAL && actor.role !== Role.SUPER_ADMIN)) {
-      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
     }
 
-    await db.$transaction(async (tx) => {
-      const before = await tx.accountingPayout.findUnique({ where: { granteeId: id } });
-      await tx.accountingPayout.upsert({
-        where: { granteeId: id },
-        update: { amount: 5000, claimedAt: new Date() },
-        create: { granteeId: id, amount: 5000, claimedAt: new Date() },
-      });
-      const after = await tx.accountingPayout.findUnique({ where: { granteeId: id } });
-      await writeAuditLog(tx, {
-        action: "Mark payout claimed",
-        actorId: actor.id,
-        targetTable: "accounting_payouts",
-        targetId: id,
-        beforeData: before,
-        afterData: after,
-        metadata: { source: "grantee_claim_endpoint" },
-      });
+    const result = await dispatchPayout({
+      granteeId: id,
+      semester: getRecentSemesters()[0].name,
+      actorId: actor.id,
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      status: result.payout.status,
+      emailStatus: result.emailStatus,
+      ...(result.emailError ? { emailError: result.emailError } : {}),
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : "Unable to dispatch payout.";
+    console.error("Could not dispatch grantee payout:", { granteeId: id, error });
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

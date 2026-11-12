@@ -66,6 +66,7 @@ describe("processSubmissionGradeReportOcr", () => {
         ocrGwa: null,
         ocrTotalUnits: null,
         ocrConfidence: null,
+        requiresStrictManualReview: true,
       },
     });
   });
@@ -90,6 +91,7 @@ describe("processSubmissionGradeReportOcr", () => {
         ocrGwa: null,
         ocrTotalUnits: null,
         ocrConfidence: null,
+        requiresStrictManualReview: true,
       },
     });
     vi.useRealTimers();
@@ -130,6 +132,7 @@ describe("processSubmissionGradeReportOcr", () => {
             gradeReport: false,
           },
         }),
+        requiresStrictManualReview: true,
       }),
     }));
   });
@@ -205,21 +208,59 @@ describe("processSubmissionGradeReportOcr", () => {
       confidence: 99,
     });
     mocks.processGradeReportOcr.mockResolvedValue({
-      status: "OCR_DONE",
+      status: "OCR_NEEDS_REVIEW",
       rawText: "Transcript of Grades\nMATH 101 3 74",
       parsed: {
-        rows: [{ subjectCode: "MATH101", subjectName: "Math", units: 3, grade: 74, flag: "FAIL" }],
+        rows: [{ subjectCode: "MATH101", subjectName: "Math", units: 3, grade: null, flag: "FAILED" }],
         unrecognizedRows: [],
-        gwa: 74,
-        totalUnits: 3,
+        ambiguousRows: [],
+        conflictingRows: [],
+        gradingScale: "percentage",
+        requiresStrictManualReview: true,
+        gwa: null,
+        totalUnits: 0,
       },
       confidence: 99,
+      requiresStrictManualReview: true,
     });
 
     await processSubmissionGradeReportOcr("submission-1");
 
     expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
+        requiresStrictManualReview: true,
+      }),
+    }));
+  });
+
+  it("persists strict manual review when OCR confidence is below 85 percent", async () => {
+    mocks.extractDocumentOcr.mockResolvedValue({
+      rawText: "Certificate of Enrollment and Academic Schedule",
+      confidence: 99,
+    });
+    mocks.processGradeReportOcr.mockResolvedValue({
+      status: "OCR_NEEDS_REVIEW",
+      rawText: "Transcript of Grades\nSUBJ101 Computing 3 1.25",
+      parsed: {
+        rows: [{ subjectCode: "SUBJ101", subjectName: "Computing", units: 3, grade: 1.25, flag: null }],
+        unrecognizedRows: [],
+        ambiguousRows: [],
+        conflictingRows: [],
+        gradingScale: "collegiate",
+        requiresStrictManualReview: true,
+        gwa: 1.25,
+        totalUnits: 3,
+      },
+      confidence: 84,
+      requiresStrictManualReview: true,
+    });
+
+    await processSubmissionGradeReportOcr("submission-1");
+
+    expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        ocrStatus: "OCR_NEEDS_REVIEW",
+        ocrConfidence: 84,
         requiresStrictManualReview: true,
       }),
     }));

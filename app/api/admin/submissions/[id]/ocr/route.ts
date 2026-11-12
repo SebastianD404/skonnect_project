@@ -25,6 +25,7 @@ export async function GET(
       ocrGwa: true,
       ocrTotalUnits: true,
       ocrConfidence: true,
+      requiresStrictManualReview: true,
     },
   });
   if (!submission) {
@@ -44,6 +45,7 @@ export async function GET(
     ocrGwa: submission.ocrGwa,
     ocrTotalUnits: submission.ocrTotalUnits,
     ocrConfidence: submission.ocrConfidence,
+    requiresStrictManualReview: submission.requiresStrictManualReview,
     fileUrl: `/api/submissions/${submission.id}/file?kind=grade`,
     fileExtension: submission.gradeFileUrl.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() ?? "",
   });

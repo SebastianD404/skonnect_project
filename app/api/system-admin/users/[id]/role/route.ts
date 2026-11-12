@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -76,6 +78,55 @@ export async function PATCH(
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      if (requestedRole === Role.GRANTEE) {
+        await lockSkeapCapacity(tx);
+        const maxSlots = await getSkeapMaxSlots(tx);
+        const existingGrantee = await tx.grantee.findUnique({
+          where: { userId: target.id },
+          select: { status: true },
+        });
+        const alreadyOccupiesSlot =
+          existingGrantee?.status === "ACTIVE" || existingGrantee?.status === "PROBATIONARY";
+        if (!alreadyOccupiesSlot && (await getSkeapCapacityCount(tx, target.id)) >= maxSlots) {
+          const applicationsToWaitlist = await tx.skeapApplication.findMany({
+            where: {
+              userId: target.id,
+              status: { in: ["PENDING", "APPROVED"] },
+            },
+            orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+            select: { id: true, status: true },
+          });
+          let waitlistPosition =
+            (await tx.skeapApplication.count({ where: { status: "WAITLISTED" } })) + 1;
+          for (const application of applicationsToWaitlist) {
+            await tx.skeapApplication.update({
+              where: { id: application.id },
+              data: { status: "WAITLISTED", waitlistPosition },
+            });
+            await writeAuditLog(tx, {
+              action: "APPLICATION_ADDED_TO_WAITLIST",
+              actorId: actor.id,
+              targetTable: "skeap_applications",
+              targetId: application.id,
+              beforeData: { status: application.status },
+              afterData: { status: "WAITLISTED", waitlistPosition },
+              metadata: { target: target.id, reason: "Scholarship capacity limit reached" },
+            });
+            waitlistPosition += 1;
+          }
+          if (applicationsToWaitlist.length > 0) {
+            await tx.user.update({ where: { id: target.id }, data: { role: Role.YOUTH } });
+            await reindexSkeapWaitlist(tx);
+          }
+          return {
+            capacityFull: true as const,
+            applicationWaitlisted: applicationsToWaitlist.length > 0,
+            user: null,
+            granteeStatusChanged: false,
+          };
+        }
+      }
+
       let granteeStatusChanged = false;
       const nextUser = await tx.user.update({
         where: { id: target.id },
@@ -169,8 +220,19 @@ export async function PATCH(
         },
       });
 
-      return { user: nextUser, granteeStatusChanged };
+      return { capacityFull: false as const, user: nextUser, granteeStatusChanged };
     });
+
+    if (result.capacityFull) {
+      return NextResponse.json(
+        {
+          error: result.applicationWaitlisted
+            ? "All 55 slots are filled; this applicant was moved to the waitlist."
+            : "All 55 SKEAP scholarship slots are filled.",
+        },
+        { status: 409 }
+      );
+    }
 
     if (result.granteeStatusChanged) {
       try {
@@ -187,6 +249,9 @@ export async function PATCH(
     return NextResponse.json({ success: true, user: result.user });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update role";
+    if (message === "SKEAP_CAPACITY_FULL") {
+      return NextResponse.json({ error: "All 55 SKEAP scholarship slots are filled." }, { status: 409 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -52,12 +52,12 @@ export async function GET(req: Request) {
         },
       },
       ...(claimedFilter === true
-        ? { payout: { is: { claimedAt: { not: null } } } }
+        ? { payout: { is: { disbursedAt: { not: null } } } }
         : claimedFilter === false
           ? {
               OR: [
                 { payout: { is: null } },
-                { payout: { is: { claimedAt: null } } },
+                { payout: { is: { disbursedAt: null } } },
               ],
             }
           : {}),
@@ -93,7 +93,14 @@ export async function GET(req: Request) {
             take: 1,
             select: { id: true, status: true, semester: true, submittedAt: true },
           },
-          payout: { select: { claimedAt: true } },
+          payout: {
+            select: {
+              status: true,
+              disbursedAt: true,
+              claimedAt: true,
+              disbursementEmailSentAt: true,
+            },
+          },
         },
       }),
     ]);
@@ -104,18 +111,23 @@ export async function GET(req: Request) {
       const submitted = isAccountingSubmissionSubmitted(rawStatus);
 
       const payout = g.payout;
-      const claimed = !!(payout && payout.claimedAt);
+      const claimed = !!(payout && payout.disbursedAt);
       const claimedAt = payout?.claimedAt ?? null;
+      const disbursedAt = payout?.disbursedAt ?? null;
 
       return {
         id: g.id,
         student_name: formatDisplayName(g.user?.kkProfile, g.user?.fullName ?? ""),
+        accountName: g.user?.fullName ?? "",
         semester: submission?.semester ?? normalizedSemester ?? "",
         submitted,
         submissionStatus: rawStatus,
         submissionState: getAccountingSubmissionState(rawStatus),
         claimed,
         claimedAt,
+        disbursedAt,
+        disbursementEmailSentAt: payout?.disbursementEmailSentAt ?? null,
+        payoutStatus: payout?.status ?? "PENDING",
       };
     });
 

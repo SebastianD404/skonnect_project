@@ -47,6 +47,7 @@ export async function ensureProfile(authUser: SupabaseUser) {
     fullName: true,
     email: true,
     role: true,
+    kkStatus: true,
     avatarUrl: true,
     username: true,
     mustSecureAccount: true,

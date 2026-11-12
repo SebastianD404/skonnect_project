@@ -103,11 +103,11 @@ export async function GET(request: Request) {
             ? "received"
             : undefined;
     if (effectivePayoutStatus === "received") {
-      where.payout = { is: { claimedAt: { not: null } } };
+      where.payout = { is: { disbursedAt: { not: null } } };
     } else if (effectivePayoutStatus === "pending") {
       where.OR = [
         { payout: { is: null } },
-        { payout: { is: { claimedAt: null } } },
+        { payout: { is: { disbursedAt: null } } },
       ];
     }
 
@@ -133,7 +133,7 @@ export async function GET(request: Request) {
           take: 1,
           select: { semester: true, status: true },
         },
-        payout: { select: { claimedAt: true } },
+        payout: { select: { status: true, disbursedAt: true, claimedAt: true } },
       },
     });
 
@@ -146,7 +146,11 @@ export async function GET(request: Request) {
 
     const reportRows = grantees.map((grantee) => ({
       name: formatPayrollGranteeName(grantee.user.kkProfile, grantee.user.fullName),
-      status: grantee.payout?.claimedAt ? "Received" : "Pending",
+      status: grantee.payout?.status === "CONFIRMED"
+        ? "Confirmed"
+        : grantee.payout?.status === "DISBURSED_UNCONFIRMED"
+          ? "Awaiting Confirmation"
+          : "Pending",
       semester: grantee.submissions[0]?.semester ?? selectedSemester,
     }));
 
@@ -220,7 +224,7 @@ export async function GET(request: Request) {
       : reportType === "pending_payouts"
         ? `SKEAP-Pending-Payouts-${semesterSlug}.xlsx`
         : reportType === "received_payouts"
-          ? `SKEAP-Received-Payouts-${semesterSlug}.xlsx`
+          ? `SKEAP-Disbursed-Payouts-${semesterSlug}.xlsx`
         : `SKEAP-PAYROLL-${semesterSlug}.xlsx`;
 
     logAuditEvent({

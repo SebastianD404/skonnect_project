@@ -54,14 +54,69 @@ describe("parseGradeReportText", () => {
     expect(result.unrecognizedRows).toEqual([]);
   });
 
-  it("requires manual review for a grade outside the recognized grading scales", () => {
+  it("treats collegiate grades above 3.0 through 5.0 as failing", () => {
     const result = parseGradeReportText("SUBJ101 Introduction to Computing 3.0 3.24");
 
-    expect(result.rows).toEqual([]);
-    expect(result.gwa).toBeNull();
-    expect(result.unrecognizedRows).toEqual([
-      "SUBJ101 Introduction to Computing 3.0 3.24",
+    expect(result.rows).toEqual([
+      {
+        subjectCode: "SUBJ101",
+        subjectName: "Introduction to Computing",
+        units: 3,
+        grade: null,
+        flag: "FAILED",
+      },
     ]);
+    expect(result.gwa).toBeNull();
+    expect(result.requiresStrictManualReview).toBe(true);
+  });
+
+  it("uses header order when the grade column comes before the credits column", () => {
+    const result = parseGradeReportText(
+      "Course Description  Final Grade  Credits\nSUBJ101 Introduction to Computing 4.0 3"
+    );
+
+    expect(result.rows).toMatchObject([
+      { units: 3, grade: null, flag: "FAILED" },
+    ]);
+    expect(result.gradingScale).toBe("collegiate");
+  });
+
+  it("flags identical standard unit and grade values as ambiguous", () => {
+    const result = parseGradeReportText(
+      "Course Description  Units  Final Grade\nSUBJ101 Introduction to Computing 3 3"
+    );
+
+    expect(result.rows).toEqual([]);
+    expect(result.ambiguousRows).toEqual([
+      "SUBJ101 Introduction to Computing 3 3",
+    ]);
+    expect(result.requiresStrictManualReview).toBe(true);
+    expect(result.gwa).toBeNull();
+  });
+
+  it("uses percentage thresholds and flags grades below 75 for review", () => {
+    const result = parseGradeReportText(
+      "Course Description  Units  Final Grade\nSUBJ101 Introduction to Computing 3 74\nMATH102 College Algebra 3 85"
+    );
+
+    expect(result.gradingScale).toBe("percentage");
+    expect(result.rows.map(({ grade, flag }) => ({ grade, flag }))).toEqual([
+      { grade: null, flag: "FAILED" },
+      { grade: 85, flag: null },
+    ]);
+    expect(result.requiresStrictManualReview).toBe(true);
+  });
+
+  it("flags conflicting numeric grades and remarks for manual review", () => {
+    const result = parseGradeReportText(
+      "SUBJ101 Introduction to Computing 3 2.0 FAILED"
+    );
+
+    expect(result.conflictingRows).toEqual([
+      "SUBJ101 Introduction to Computing 3 2.0 FAILED",
+    ]);
+    expect(result.requiresStrictManualReview).toBe(true);
+    expect(result.gwa).toBeNull();
   });
 
   it("prioritizes FAILED and NFE remarks over numeric grades", () => {
@@ -82,9 +137,8 @@ describe("parseGradeReportText", () => {
     );
 
     expect(result.gwa).toBeNull();
-    expect(result.unrecognizedRows).toContain(
-      "Mixed grading scales detected; the weighted average could not be calculated."
-    );
+    expect(result.gradingScale).toBe("mixed");
+    expect(result.requiresStrictManualReview).toBe(true);
   });
 
   it("keeps non-numeric and failing rows flagged and excludes them from the average", () => {

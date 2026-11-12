@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { CheckCircle2, X } from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
 import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-profile-client";
@@ -11,6 +10,7 @@ import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { getSkeapRequiredDocuments } from "@/lib/skeap-upload";
 import type { SkeapEducationLevel } from "@/lib/skeap-education";
+import AccountRequiredModal from "@/app/components/AccountRequiredModal";
 
 type Props = {
   slug: string;
@@ -68,7 +68,6 @@ function prefetchProgramStatus(slug: string) {
 }
 
 export default function ProgramApplyClient({ slug }: Props) {
-  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [open, setOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<KKProfile | null>(null);
@@ -76,6 +75,7 @@ export default function ProgramApplyClient({ slug }: Props) {
   const [kkCheckError, setKkCheckError] = useState<string | null>(null);
   const [kkCheckUnavailable, setKkCheckUnavailable] = useState(false);
   const [showKkRequiredModal, setShowKkRequiredModal] = useState(false);
+  const [showAuthRequiredModal, setShowAuthRequiredModal] = useState(false);
   const [status, setStatus] = useState<ProgramStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [footerActionsTarget, setFooterActionsTarget] = useState<HTMLDivElement | null>(null);
@@ -92,6 +92,7 @@ export default function ProgramApplyClient({ slug }: Props) {
   function openApplicationModal(profile: KKProfile) {
     setUserProfile(profile);
     setStatus(getCachedProgramStatus(slug));
+    setLoading(true);
     setEducationLevel("");
     setYearLevel("");
     setOpen(true);
@@ -107,17 +108,17 @@ export default function ProgramApplyClient({ slug }: Props) {
 
       if (error) {
         console.error("Unable to check authentication before SKEAP application:", error);
-        router.push("/programs/kk-profiling");
+        setShowAuthRequiredModal(true);
         return;
       }
 
       if (!session) {
-        router.push("/programs/kk-profiling");
+        setShowAuthRequiredModal(true);
         return;
       }
     } catch (error) {
       console.error("Auth check failed:", error);
-      router.push("/programs/kk-profiling");
+      setShowAuthRequiredModal(true);
       return;
     }
 
@@ -198,16 +199,6 @@ export default function ProgramApplyClient({ slug }: Props) {
     if (!open) return;
     let mounted = true;
 
-    const cachedStatus = getCachedProgramStatus(slug);
-    if (cachedStatus) {
-      setStatus(cachedStatus);
-      setLoading(false);
-      return () => {
-        mounted = false;
-      };
-    }
-
-    setLoading(true);
     fetchProgramStatus(slug)
       .then((json) => {
         if (!mounted) return;
@@ -225,6 +216,15 @@ export default function ProgramApplyClient({ slug }: Props) {
       mounted = false;
     };
   }, [open, slug]);
+
+  useEffect(() => {
+    if (!showAuthRequiredModal) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowAuthRequiredModal(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showAuthRequiredModal]);
 
   const isOpen =
     (status?.label || "").toLowerCase().includes("open") ||
@@ -246,7 +246,15 @@ export default function ProgramApplyClient({ slug }: Props) {
         {checkingKkProfile ? "Checking KK profile..." : "Apply for SKEAP →"}
       </button>
 
-      {showKkRequiredModal ? (
+        <AccountRequiredModal
+          open={showAuthRequiredModal}
+          title="Account Required"
+          description="You need a secure SKonnect account to apply for the SKEAP scholarship and track your status."
+          nextPath="/programs/skeap"
+          onClose={() => setShowAuthRequiredModal(false)}
+        />
+
+        {showKkRequiredModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"

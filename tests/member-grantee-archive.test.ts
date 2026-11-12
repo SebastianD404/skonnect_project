@@ -50,7 +50,7 @@ describe("member profile archive and linked grantee lifecycle", () => {
     mocks.updateRegistration.mockResolvedValue({
       id: "profile-id",
       reviewStatus: "Archived",
-      archivedReason: "Archived by administrator",
+      archivedReason: "Transferred Residence",
       archivedAt: new Date("2026-11-07T00:00:00.000Z"),
     });
     mocks.updateGrantee.mockResolvedValue({ count: 1 });
@@ -66,7 +66,11 @@ describe("member profile archive and linked grantee lifecycle", () => {
   });
 
   it("archives the member and removes an active linked grantee without changing the user", async () => {
-    const response = await PATCH(new Request("http://localhost"), {
+    const response = await PATCH(new Request("http://localhost", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archiveReason: "Transferred Residence" }),
+    }), {
       params: Promise.resolve({ id: "profile-id" }),
     });
 
@@ -75,7 +79,7 @@ describe("member profile archive and linked grantee lifecycle", () => {
       where: { id: "profile-id" },
       data: {
         reviewStatus: "Archived",
-        archivedReason: "Archived by administrator",
+        archivedReason: "Transferred Residence",
         archivedAt: expect.any(Date),
       },
     });
@@ -99,7 +103,11 @@ describe("member profile archive and linked grantee lifecycle", () => {
       user: { grantee: { id: "grantee-id", status: "GRADUATED", remarks: null } },
     });
 
-    const response = await PATCH(new Request("http://localhost"), {
+    const response = await PATCH(new Request("http://localhost", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archiveReason: "Deceased" }),
+    }), {
       params: Promise.resolve({ id: "profile-id" }),
     });
 
@@ -107,5 +115,18 @@ describe("member profile archive and linked grantee lifecycle", () => {
     expect(mocks.updateGrantee).not.toHaveBeenCalled();
     expect(mocks.refreshView).not.toHaveBeenCalled();
     expect(mocks.updateUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects archive reasons outside the supported list", async () => {
+    const response = await PATCH(new Request("http://localhost", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archiveReason: "Archived by administrator" }),
+    }), {
+      params: Promise.resolve({ id: "profile-id" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,8 @@ import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 
 async function authorizeUser() {
   const supabase = await createClient();
@@ -81,6 +83,48 @@ export async function PATCH(
       if (!current) throw new Error("GRANTEE_NOT_FOUND");
       if (current.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
 
+      if (
+        nextStatus === "ACTIVE" &&
+        current.status !== "ACTIVE" &&
+        current.status !== "PROBATIONARY"
+      ) {
+        await lockSkeapCapacity(tx);
+        const maxSlots = await getSkeapMaxSlots(tx);
+        if (await getSkeapCapacityCount(tx, current.userId) >= maxSlots) {
+          const applicationsToWaitlist = await tx.skeapApplication.findMany({
+            where: { userId: current.userId, status: { in: ["APPROVED", "PENDING"] } },
+            orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+            select: { id: true, status: true },
+          });
+          let waitlistPosition =
+            (await tx.skeapApplication.count({ where: { status: "WAITLISTED" } })) + 1;
+          for (const application of applicationsToWaitlist) {
+            await tx.skeapApplication.update({
+              where: { id: application.id },
+              data: { status: "WAITLISTED", waitlistPosition },
+            });
+            waitlistPosition += 1;
+            await writeAuditLog(tx, {
+              action: "APPLICATION_ADDED_TO_WAITLIST",
+              actorId: auth.user.id,
+              targetTable: "skeap_applications",
+              targetId: application.id,
+              beforeData: { status: application.status },
+              afterData: { status: "WAITLISTED" },
+              metadata: { target: current.userId, reason: "Scholarship capacity limit reached" },
+            });
+          }
+          if (applicationsToWaitlist.length > 0) {
+            await tx.user.update({
+              where: { id: current.userId },
+              data: { role: "YOUTH" },
+            });
+            await reindexSkeapWaitlist(tx);
+          }
+          return { capacityFull: true as const, applicationWaitlisted: applicationsToWaitlist.length > 0 };
+        }
+      }
+
       const updateResult = await tx.grantee.updateMany({
         where: { id, status: { not: "GRADUATED" } },
         data: {
@@ -116,8 +160,19 @@ export async function PATCH(
         },
       });
 
-      return saved;
+      return { capacityFull: false as const, grantee: saved };
     });
+
+    if (updated.capacityFull) {
+      return NextResponse.json(
+        {
+          error: updated.applicationWaitlisted
+            ? "All 55 slots are filled; this applicant was moved to the waitlist."
+            : "All 55 SKEAP scholarship slots are filled.",
+        },
+        { status: 409 }
+      );
+    }
 
     try {
       await refreshInactiveGranteesView();
@@ -128,7 +183,7 @@ export async function PATCH(
         { status: 503 }
       );
     }
-    return NextResponse.json({ success: true, grantee: updated });
+    return NextResponse.json({ success: true, grantee: updated.grantee });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (errorMessage === "GRANTEE_ARCHIVED") {

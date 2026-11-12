@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 
-const AGED_OUT_REASON = "Aged Out (Turned 31)";
+const AGED_OUT_REASON = "Aged Out (31+)";
 const AGED_OUT_GRANTEE_REMARK = "Disqualified: Exceeded KK age limit (Turned 31)";
 
 export async function checkAndArchiveAgedOutMembers(actorId: string) {

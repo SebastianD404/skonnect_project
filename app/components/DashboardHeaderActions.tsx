@@ -41,6 +41,14 @@ function getSupportReplyKey(inquiry: SupportThread) {
   return `inquiry-reply:${inquiry.id}:${hash.toString(36)}`;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+}
+
+function getString(value: unknown, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
 export function DashboardHeaderActions({ notifications = [], supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
   const pathname = usePathname();
   const { user: authUser } = useAuth();
@@ -180,13 +188,33 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
           try {
             const remindersRes = await fetch('/api/my/reminders', { cache: 'no-store' });
             if (remindersRes.ok) {
-              const data = await remindersRes.json();
-              const reminders = (data.reminders || []).map((item: any) => {
-                const subject = item.metadata?.subject || item.targetType || "Reminder";
-                const body = item.metadata?.body || item.metadata?.message || item.channel || "You have a reminder.";
-                return { id: `reminder:${item.id}`, text: `${subject}: ${body}`, createdAt: item.createdAt || item.sentAt };
+              const data: unknown = await remindersRes.json();
+              const reminderPayload = asRecord(data);
+              const reminderRows: unknown[] =
+                reminderPayload && Array.isArray(reminderPayload.reminders)
+                  ? reminderPayload.reminders
+                  : [];
+              const reminders = reminderRows.flatMap((value): NotificationItem[] => {
+                const item = asRecord(value);
+                if (!item || (typeof item.id !== "string" && typeof item.id !== "number")) return [];
+                const metadata = asRecord(item.metadata);
+                const subject =
+                  getString(metadata?.subject) ||
+                  getString(item.targetType, "Reminder");
+                const body =
+                  getString(metadata?.body) ||
+                  getString(metadata?.message) ||
+                  getString(item.channel, "You have a reminder.");
+                return [{
+                  id: `reminder:${item.id}`,
+                  text: `${subject}: ${body}`,
+                  createdAt: getString(item.createdAt) || getString(item.sentAt),
+                }];
               });
-              setInAppNotifications(reminders);
+              setInAppNotifications((current) => [
+                ...current.filter((item) => !item.id.startsWith("reminder:")),
+                ...reminders,
+              ]);
             }
           } catch {
             // ignore reminder fetch errors
@@ -293,33 +321,87 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
 
     async function refreshGranteeMessages() {
       try {
-        const [inquiriesResponse, messagesResponse, announcementsResponse] = await Promise.all([
+        const [inquiriesResponse, messagesResponse, announcementsResponse, notificationsResponse] = await Promise.all([
           fetch("/api/my/inquiries", { cache: "no-store" }),
           fetch("/api/my/messages", { cache: "no-store" }),
           fetch("/api/announcements", { cache: "no-store" }),
+          fetch("/api/my/notifications", { cache: "no-store" }),
         ]);
         if (!active) return;
 
-        const inquiriesData = inquiriesResponse.ok ? await inquiriesResponse.json() : { inquiries: [] };
-        const messagesData = messagesResponse.ok ? await messagesResponse.json() : { messages: [] };
-        const announcementsData = announcementsResponse.ok ? await announcementsResponse.json() : [];
-        const broadcastMessages = (messagesData.messages || [])
-          .map((item: any) => ({ id: `message:${item.id}`, text: `${item.subject}: ${item.body}`, createdAt: item.createdAt }));
-
-        setSupportThreads((inquiriesData.inquiries || []).map((item: any) => ({
-          id: item.id,
-          subject: item.subject,
-          createdAt: item.createdAt,
-          response: item.response ?? null,
-          respondedAt: item.respondedAt ?? null,
-          isResolved: Boolean(item.isResolved),
-        })));
+        const [inquiriesData, messagesData, announcementsData, notificationsData]: unknown[] = await Promise.all([
+          inquiriesResponse.ok ? inquiriesResponse.json() : { inquiries: [] },
+          messagesResponse.ok ? messagesResponse.json() : { messages: [] },
+          announcementsResponse.ok ? announcementsResponse.json() : [],
+          notificationsResponse.ok
+            ? notificationsResponse.json()
+            : { notifications: [] },
+        ]);
+        const inquiryPayload = asRecord(inquiriesData);
+        const messagePayload = asRecord(messagesData);
+        const inquiryRows: unknown[] =
+          inquiryPayload && Array.isArray(inquiryPayload.inquiries)
+            ? inquiryPayload.inquiries
+            : [];
+        const messageRows: unknown[] =
+          messagePayload && Array.isArray(messagePayload.messages)
+            ? messagePayload.messages
+            : [];
+        const broadcastMessages = messageRows.flatMap((value): NotificationItem[] => {
+          const item = asRecord(value);
+          if (!item || (typeof item.id !== "string" && typeof item.id !== "number")) return [];
+          const subject = getString(item.subject, "Message");
+          return [{
+            id: `message:${item.id}`,
+            text: `${subject}: ${getString(item.body)}`,
+            createdAt: getString(item.createdAt),
+          }];
+        });
+        const supportThreads = inquiryRows.flatMap((value): SupportThread[] => {
+          const item = asRecord(value);
+          if (!item || typeof item.id !== "string") return [];
+          return [{
+            id: item.id,
+            subject: getString(item.subject),
+            createdAt: getString(item.createdAt),
+            response: typeof item.response === "string" ? item.response : null,
+            respondedAt: typeof item.respondedAt === "string" ? item.respondedAt : null,
+            isResolved: item.isResolved === true,
+          }];
+        });
+        setSupportThreads(supportThreads);
         setBroadcastNotifications(broadcastMessages);
-        const announcementNotifications = (Array.isArray(announcementsData) ? announcementsData : [])
-          .map((item: any) => ({ id: `announcement:${item.id}`, text: `Announcement: ${item.title}: ${item.content}`, createdAt: item.publishedAt || item.createdAt }));
+        const announcementRows: unknown[] = Array.isArray(announcementsData)
+          ? announcementsData
+          : [];
+        const announcementNotifications = announcementRows.flatMap((value): NotificationItem[] => {
+          const item = asRecord(value);
+          if (!item || (typeof item.id !== "string" && typeof item.id !== "number")) return [];
+          return [{
+            id: `announcement:${item.id}`,
+            text: `Announcement: ${getString(item.title)}: ${getString(item.content)}`,
+            createdAt: getString(item.publishedAt) || getString(item.createdAt),
+          }];
+        });
+        const notificationPayload = asRecord(notificationsData);
+        const payoutRows: unknown[] = notificationPayload && Array.isArray(notificationPayload.notifications)
+          ? notificationPayload.notifications
+          : [];
+        const payoutNotifications = payoutRows.flatMap((value): NotificationItem[] => {
+          const item = asRecord(value);
+          if (!item || typeof item.id !== "string" || typeof item.text !== "string") return [];
+          return [{
+            id: item.id,
+            text: item.text,
+            createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
+          }];
+        });
         setInAppNotifications((current) => [
-          ...current.filter((item) => !item.text.startsWith("Announcement: ")),
+          ...current.filter((item) =>
+            !item.text.startsWith("Announcement: ") && !item.id.startsWith("payout-disbursed:")
+          ),
           ...announcementNotifications,
+          ...payoutNotifications,
         ]);
       } catch {
         // Keep the last successful message state when a refresh is unavailable.

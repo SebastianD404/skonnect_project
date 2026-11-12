@@ -78,7 +78,7 @@ describe("checkAndArchiveAgedOutMembers", () => {
       },
       data: {
         reviewStatus: "Archived",
-        archivedReason: "Aged Out (Turned 31)",
+        archivedReason: "Aged Out (31+)",
         archivedAt: expect.any(Date),
       },
     }));

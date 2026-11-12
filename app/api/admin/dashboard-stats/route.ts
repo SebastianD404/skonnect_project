@@ -2,7 +2,10 @@ import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getScholarDistributionAnalytics } from "@/lib/admin-scholar-analytics";
 import { createClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
 
 const supportInquiryFilter = {
   NOT: {
@@ -11,24 +14,6 @@ const supportInquiryFilter = {
       mode: "insensitive" as const,
     },
   },
-};
-
-const pendingApplicationsFilter = {
-  subject: { contains: "SKEAP application", mode: "insensitive" as const },
-  NOT: [
-    { reviewStatus: { contains: "cancel", mode: "insensitive" as const } },
-    { reviewStatus: { contains: "approve", mode: "insensitive" as const } },
-  ],
-  AND: [
-    {
-      OR: [
-        { reviewStatus: { contains: "pending", mode: "insensitive" as const } },
-        { reviewStatus: { contains: "return", mode: "insensitive" as const } },
-        { reviewStatus: { contains: "resubm", mode: "insensitive" as const } },
-        { reviewStatus: { contains: "respond", mode: "insensitive" as const } },
-      ],
-    },
-  ],
 };
 
 export async function GET() {
@@ -45,17 +30,15 @@ export async function GET() {
 
   try {
     const [
-      totalGrantees,
       openInquiries,
       documentReviews,
-      pendingApplications,
+      scholarAnalytics,
       recentInquiries,
       pendingReviews,
     ] = await Promise.all([
-      prisma.grantee.count({ where: { status: { in: ["ACTIVE", "PROBATIONARY"] } } }),
       prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false } }),
       prisma.submission.count({ where: { status: "PENDING" } }),
-      prisma.inquiry.count({ where: pendingApplicationsFilter }),
+      getScholarDistributionAnalytics(),
       prisma.inquiry.findMany({
         take: 4,
         orderBy: { createdAt: "desc" },
@@ -92,7 +75,8 @@ export async function GET() {
 
     return NextResponse.json(
       {
-        stats: { totalGrantees, pendingApplications, openInquiries, documentReviews },
+        stats: { openInquiries, documentReviews },
+        scholarAnalytics,
         recentInquiries: recentInquiries.map((inquiry) => ({
           ...inquiry,
           createdAt: inquiry.createdAt.toISOString(),

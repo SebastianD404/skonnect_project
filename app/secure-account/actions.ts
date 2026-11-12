@@ -4,8 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { ensureProfile, getRoleHomePath } from "@/lib/auth";
-
-type SecureState = { error?: string; redirectTo?: string } | null;
+import type { AuthState } from "@/app/actions/auth";
 
 function strongPassword(value: string) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(value);
@@ -16,9 +15,9 @@ function isAllowedUsername(value: string) {
 }
 
 export async function secureAccount(
-  _prevState: SecureState,
+  _prevState: AuthState,
   formData: FormData
-): Promise<SecureState> {
+): Promise<AuthState> {
   const username = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
   const confirmPassword = String(formData.get("confirmPassword") || "");

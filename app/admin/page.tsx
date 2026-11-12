@@ -1,6 +1,7 @@
 ﻿import { redirect } from "next/navigation";
 import { Role } from "@prisma/client";
-import { prisma, getProfilingRegistrationCount, getMonthlyProfilingRegistrationCounts } from "@/lib/prisma";
+import { prisma, getMonthlyProfilingRegistrationCounts } from "@/lib/prisma";
+import { getScholarDistributionAnalytics } from "@/lib/admin-scholar-analytics";
 import AdminDashboardPageClient from "./AdminDashboardPageClient";
 import { requireRole } from "@/lib/auth";
 
@@ -20,43 +21,21 @@ export default async function SKOfficialDashboardPage() {
   };
 
   const [
-    totalGranteesCount,
     openInquiryCount,
     pendingSubmissionCount,
-    skeapApplicationCount,
-    profilingRegistrationCount,
     profilingMonthlyRows,
+    scholarAnalytics,
     recentInquiries,
     pendingReviews,
   ] = await Promise.all([
-    prisma.grantee.count({ where: { status: { in: ["ACTIVE", "PROBATIONARY"] } } }),
     prisma.inquiry.count({
       where: { ...supportInquiryFilter, isResolved: false },
     }),
     prisma.submission.count({
       where: { status: "PENDING" },
     }),
-    prisma.inquiry.count({
-      where: {
-        subject: { contains: "SKEAP application", mode: "insensitive" as const },
-        NOT: [
-          { reviewStatus: { contains: "cancel", mode: "insensitive" as const } },
-          { reviewStatus: { contains: "approve", mode: "insensitive" as const } },
-        ],
-        AND: [
-          {
-            OR: [
-              { reviewStatus: { contains: "pending", mode: "insensitive" as const } },
-              { reviewStatus: { contains: "return", mode: "insensitive" as const } },
-              { reviewStatus: { contains: "resubm", mode: "insensitive" as const } },
-              { reviewStatus: { contains: "respond", mode: "insensitive" as const } },
-            ],
-          },
-        ],
-      },
-    }),
-    getProfilingRegistrationCount(),
     getMonthlyProfilingRegistrationCounts(6),
+    getScholarDistributionAnalytics(),
     prisma.inquiry.findMany({
       take: 4,
       orderBy: { createdAt: "desc" },
@@ -141,51 +120,15 @@ export default async function SKOfficialDashboardPage() {
     day: "numeric",
   });
 
-  const stats = [
-    {
-      label: "Total Grantees",
-      value: `${totalGranteesCount}`,
-      sub: "currently active",
-      href: "/admin/grantees",
-      accent: "cyan" as const,
-      iconName: "Users" as const,
-    },
-    {
-      label: "SKEAP Applications",
-      value: `${skeapApplicationCount}`,
-      sub: "pending, returned, resubmitted",
-      href: "/admin/skeap-applications",
-      accent: "amber" as const,
-      iconName: "FileText" as const,
-    },
-    {
-      label: "Open Inquiries",
-      value: `${openInquiryCount}`,
-      sub: "unresolved",
-      href: "/admin/inquiries",
-      accent: "amber" as const,
-      iconName: "Inbox" as const,
-    },
-    {
-      label: "Document Reviews",
-      value: `${pendingSubmissionCount}`,
-      sub: "needs action",
-      href: "/admin/submissions",
-      accent: "amber" as const,
-      iconName: "CheckSquare" as const,
-    },
-  ];
-
   return (
     <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
       <AdminDashboardPageClient
         dateLabel={dateLabel}
         openInquiryCount={openInquiryCount}
         pendingSubmissionCount={pendingSubmissionCount}
-        stats={stats}
-        profilingRegistrationCount={profilingRegistrationCount}
         profilingSeries={profilingSeries}
         profilingMonths={profilingMonths}
+        scholarAnalytics={scholarAnalytics}
         recentInquiries={recentInquiries.map((inquiry) => ({
           ...inquiry,
           createdAt: inquiry.createdAt.toISOString(),

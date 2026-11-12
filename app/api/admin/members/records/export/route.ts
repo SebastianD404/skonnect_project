@@ -5,6 +5,7 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/audit/logger";
+import { getKKMemberArchiveReasonLabel } from "@/lib/kk-member-archive";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,7 @@ const COLUMNS = [
   { header: "Single ID File URL", key: "idSingleFileUrl", width: 48 },
   { header: "Submitted Date", key: "submittedAt", width: 20 },
   { header: "Review Status", key: "reviewStatus", width: 16 },
+  { header: "Archive Reason", key: "archivedReason", width: 26 },
   { header: "Review Notes", key: "reviewNotes", width: 36 },
 ] as const;
 
@@ -89,7 +91,7 @@ export async function GET() {
 
   try {
     const records = await prisma.profilingRegistration.findMany({
-      where: { reviewStatus: { in: ["Archived", "Rejected"] } },
+      where: { reviewStatus: "Archived" },
       orderBy: { submittedAt: "desc" },
       select: {
         id: true,
@@ -123,6 +125,7 @@ export async function GET() {
         idSingleFileUrl: true,
         submittedAt: true,
         reviewStatus: true,
+        archivedReason: true,
         reviewNotes: true,
       },
     });
@@ -130,9 +133,12 @@ export async function GET() {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "SKonnect";
     workbook.created = new Date();
-    const worksheet = workbook.addWorksheet("Archived Members");
+    const worksheet = workbook.addWorksheet("Archived KK Youth");
     worksheet.columns = [...COLUMNS];
-    worksheet.addRows(records);
+    worksheet.addRows(records.map((record) => ({
+      ...record,
+      archivedReason: getKKMemberArchiveReasonLabel(record.archivedReason),
+    })));
     styleWorksheet(worksheet);
 
     logAuditEvent({
@@ -142,7 +148,7 @@ export async function GET() {
       resource: "kk_profiling_registrations",
       metadata: {
         recordCount: records.length,
-        filters: { reviewStatus: ["Archived", "Rejected"] },
+        filters: { reviewStatus: "Archived" },
       },
     });
 
@@ -150,7 +156,7 @@ export async function GET() {
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": 'attachment; filename="KK-Archived-Members.xlsx"',
+        "Content-Disposition": 'attachment; filename="Archived-KK-Youth.xlsx"',
         "Cache-Control": "no-store",
       },
     });

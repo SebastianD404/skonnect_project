@@ -11,7 +11,11 @@ import {
   keepContactNumberDigits,
   removeNameNumbers,
 } from "@/lib/kk-profiling-inputs";
-import DocumentOCRValidationExample, { type DocumentOCRKey, type DocumentOCRState } from "@/app/components/DocumentOCRValidationExample";
+import {
+  DocumentUploadCard,
+  type DocumentOCRKey,
+  type DocumentOCRState,
+} from "@/app/components/DocumentOCRValidationExample";
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { ChevronDown, Eye, EyeOff } from "lucide-react";
 
@@ -46,7 +50,7 @@ const initialForm = {
 const KK_PROFILING_DRAFT_KEY = "skonnect:kk-profiling-draft";
 const KK_PROFILING_FILES_DB = "skonnect-kk-profiling-files";
 const KK_PROFILING_FILES_STORE = "documents";
-type ProfilingDocumentKey = "front" | "back" | "residency";
+type ProfilingDocumentKey = "photo" | "birthCertificate" | "front" | "back" | "residency";
 type NameField = "lastName" | "firstName" | "middleInitial";
 
 function openProfilingFilesDb() {
@@ -72,7 +76,7 @@ async function saveProfilingFile(key: ProfilingDocumentKey, file: File | null) {
 async function loadProfilingFiles() {
   const db = await openProfilingFilesDb();
   const files = await Promise.all(
-    (["front", "back", "residency"] as ProfilingDocumentKey[]).map(
+    (["photo", "birthCertificate", "front", "back", "residency"] as ProfilingDocumentKey[]).map(
       (key) =>
         new Promise<[ProfilingDocumentKey, File | null]>((resolve, reject) => {
           const request = db
@@ -168,7 +172,7 @@ export default function KKProfilingForm() {
   });
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [idFiles, setIdFiles] = useState<{ front?: File | null; back?: File | null; residency?: File | null }>({ front: null, back: null, residency: null });
+  const [idFiles, setIdFiles] = useState<Partial<Record<ProfilingDocumentKey, File | null>>>({});
   const [successMessage, setSuccessMessage] = useState("Your KK Profiling application has been received and is now pending verification.");
   const [successRedirectTo, setSuccessRedirectTo] = useState("/programs/kk-profiling/status");
   const [successCredentials, setSuccessCredentials] = useState<{ username: string; temporaryPassword: string } | null>(null);
@@ -176,7 +180,6 @@ export default function KKProfilingForm() {
   const [signedIn, setSignedIn] = useState(false);
   const [existingAccount, setExistingAccount] = useState(false);
   const [secureAccountError, setSecureAccountError] = useState<string | null>(null);
-  const [isOpeningSecureAccount, setIsOpeningSecureAccount] = useState(false);
   const [accountExistsFallback, setAccountExistsFallback] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
@@ -268,6 +271,9 @@ export default function KKProfilingForm() {
         if (!sessionData.user) {
           if (mounted) setIsCheckingStatus(false);
           return;
+        }
+        if (typeof sessionData.user.email === "string" && mounted) {
+          setForm((current) => ({ ...current, email: sessionData.user.email }));
         }
 
         const response = await fetch("/api/my/kk-profile", { cache: "no-store", credentials: "include" });
@@ -476,6 +482,10 @@ export default function KKProfilingForm() {
     }));
   }
 
+  function updateOcrDocumentState(key: DocumentOCRKey, state: DocumentOCRState) {
+    setOcrValidationState((current) => ({ ...current, [key]: state }));
+  }
+
   async function handleTriggerMagicLink(email: string) {
     if (!email.trim()) {
       setMessage("Please enter your email to receive a one-time access link.");
@@ -547,6 +557,14 @@ export default function KKProfilingForm() {
 
     if (!idFiles.residency) {
       return "Please upload your Certificate of Residency.";
+    }
+
+    if (!idFiles.photo) {
+      return "Please upload your 2x2 ID picture.";
+    }
+
+    if (!idFiles.birthCertificate) {
+      return "Please upload your Birth Certificate.";
     }
 
     if (!areDocumentsReady && !manualReview) {
@@ -628,6 +646,8 @@ export default function KKProfilingForm() {
       formData.append("frontFile", idFiles.front as File);
       formData.append("backFile", idFiles.back as File);
       formData.append("residencyFile", idFiles.residency as File);
+      formData.append("photoFile", idFiles.photo as File);
+      formData.append("birthCertificateFile", idFiles.birthCertificate as File);
 
       const res = await fetch("/api/programs/kk-profiling/register-with-id", {
         method: "POST",
@@ -640,7 +660,13 @@ export default function KKProfilingForm() {
         setForm(initialForm);
         window.sessionStorage.removeItem(KK_PROFILING_DRAFT_KEY);
         void clearProfilingFiles().catch((error) => console.warn("Unable to clear KK profiling documents", error));
-        setIdFiles({ front: null, back: null, residency: null });
+        setIdFiles({
+          photo: null,
+          birthCertificate: null,
+          front: null,
+          back: null,
+          residency: null,
+        });
         setFailedOcrAttempts({ frontId: 0, backId: 0, certResidency: 0 });
         setOcrValidationState({
           front: { status: "idle", file: null },
@@ -650,7 +676,7 @@ export default function KKProfilingForm() {
         setMessage(null);
         setSuccessMessage(
           body?.message ||
-            "Your KK Profiling request has been received and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates."
+            "Your KK Profiling request has been received and is now pending verification."
         );
         setSuccessRedirectTo(body?.redirectTo || "/programs/kk-profiling/status");
         setSuccessCredentials(
@@ -663,8 +689,8 @@ export default function KKProfilingForm() {
         );
         setCredentialsCopied(false);
 
-        setSignedIn(Boolean(body?.signedIn));
-        setExistingAccount(Boolean(body?.existingAccount));
+        setSignedIn(true);
+        setExistingAccount(true);
         setSecureAccountError(null);
         setShowSuccessModal(true);
       } else {
@@ -850,11 +876,12 @@ export default function KKProfilingForm() {
             ref={emailInputRef}
             type="email"
             value={form.email}
-            onChange={(e) => setField("email", e.target.value)}
+            readOnly
             required
+            aria-readonly="true"
             aria-invalid={Boolean(emailError)}
             aria-describedby={emailError ? "kk-profiling-email-error" : undefined}
-            className={`rounded-lg border px-3 py-2 ${emailError ? "border-rose-400 focus-visible:outline-rose-500" : ""}`}
+            className={`rounded-lg border bg-slate-100 px-3 py-2 ${emailError ? "border-rose-400 focus-visible:outline-rose-500" : ""}`}
           />
           {emailError ? (
             <p id="kk-profiling-email-error" className="text-sm text-rose-700" role="alert">
@@ -1005,35 +1032,77 @@ export default function KKProfilingForm() {
         <div className="flex flex-col gap-5">
           <div>
             <h3 className="border-b border-slate-200 pb-2 text-lg font-bold text-slate-900">
-              PART III: Valid ID and Certificate of Residency
+              PART III: Documents
             </h3>
-            <p className="mt-2 text-sm text-slate-500">Please upload both a valid ID and a Certificate of Residency. Your residency document must state that you have lived in Barangay Pico for at least 6 months.</p>
+            <p className="mt-2 text-sm text-slate-500">Upload the four foundational identity documents. Your Certificate of Residency must state that you have lived in Barangay Pico for at least 6 months.</p>
           </div>
 
-          <div className="space-y-4">
-        <DocumentOCRValidationExample
-          className="space-y-3"
-          firstName={form.firstName}
-          middleInitial={form.middleInitial}
-          lastName={form.lastName}
-          profileBirthDate={form.birthDate}
-          initialFiles={idFiles}
-          onFileSelected={(key, file) => {
-            const field = key === "front" ? "front" : key === "back" ? "back" : "residency";
-            handleIdFileChange(field as keyof typeof idFiles, file);
-          }}
-          onRemoveFile={(key) => {
-            const field = key === "front" ? "front" : key === "back" ? "back" : "residency";
-            handleIdFileChange(field as keyof typeof idFiles, null);
-          }}
-          onValidationChange={setOcrValidationState}
-          failedOcrAttempts={{
-            front: failedOcrAttempts.frontId,
-            back: failedOcrAttempts.backId,
-            residency: failedOcrAttempts.certResidency,
-          }}
-          onFailedOcrAttempt={recordFailedOcrAttempt}
-        />
+          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+            <DocumentUploadCard
+              title="2x2 ID Picture *"
+              acceptedFormats="JPG, PNG, WebP"
+              accept="image/jpeg,image/png,image/webp"
+              maxSize={10 * 1024 * 1024}
+              ocrStrategy="photo"
+              initialFile={idFiles.photo ?? null}
+              onUpload={(file) => handleIdFileChange("photo", file)}
+            />
+            <DocumentUploadCard
+              title="Birth Certificate *"
+              acceptedFormats="PDF, JPG, PNG, WebP"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              maxSize={10 * 1024 * 1024}
+              ocrStrategy="birth-certificate"
+              initialFile={idFiles.birthCertificate ?? null}
+              onUpload={(file) => handleIdFileChange("birthCertificate", file)}
+            />
+            <DocumentUploadCard
+              title="Valid ID (Front) *"
+              acceptedFormats="JPG, PNG, WebP"
+              accept="image/jpeg,image/png,image/webp"
+              maxSize={10 * 1024 * 1024}
+              ocrStrategy="front-id"
+              initialFile={idFiles.front ?? null}
+              firstName={form.firstName}
+              middleInitial={form.middleInitial}
+              lastName={form.lastName}
+              profileBirthDate={form.birthDate}
+              onUpload={(file) => handleIdFileChange("front", file)}
+              onOcrStateChange={(state) => updateOcrDocumentState("front", state)}
+              onFailedOcrAttempt={() => recordFailedOcrAttempt("front")}
+            />
+            <DocumentUploadCard
+              title="Valid ID (Back) *"
+              acceptedFormats="JPG, PNG, WebP"
+              accept="image/jpeg,image/png,image/webp"
+              maxSize={10 * 1024 * 1024}
+              ocrStrategy="back-id"
+              initialFile={idFiles.back ?? null}
+              firstName={form.firstName}
+              middleInitial={form.middleInitial}
+              lastName={form.lastName}
+              profileBirthDate={form.birthDate}
+              onUpload={(file) => handleIdFileChange("back", file)}
+              onOcrStateChange={(state) => updateOcrDocumentState("back", state)}
+              onFailedOcrAttempt={() => recordFailedOcrAttempt("back")}
+            />
+            <div className="md:col-span-2">
+              <DocumentUploadCard
+                title="Certificate of Residency *"
+                acceptedFormats="JPG, PNG, WebP"
+                accept="image/jpeg,image/png,image/webp"
+                maxSize={10 * 1024 * 1024}
+                ocrStrategy="residency"
+                initialFile={idFiles.residency ?? null}
+                firstName={form.firstName}
+                middleInitial={form.middleInitial}
+                lastName={form.lastName}
+                profileBirthDate={form.birthDate}
+                onUpload={(file) => handleIdFileChange("residency", file)}
+                onOcrStateChange={(state) => updateOcrDocumentState("residency", state)}
+                onFailedOcrAttempt={() => recordFailedOcrAttempt("residency")}
+              />
+            </div>
           </div>
 
           <label className="flex items-start gap-3">
@@ -1212,46 +1281,13 @@ export default function KKProfilingForm() {
               </button>
               <button
                 type="button"
-                disabled={isOpeningSecureAccount}
-                onClick={async () => {
-                  setSecureAccountError(null);
-                  setIsOpeningSecureAccount(true);
-                  const securePath = `/secure-account?redirect=${encodeURIComponent(successRedirectTo)}`;
-
-                  try {
-                    if (!signedIn) {
-                      if (!successCredentials) {
-                        setShowSuccessModal(false);
-                        router.push(`/login?next=${encodeURIComponent(securePath)}`);
-                        return;
-                      }
-
-                      const browserSupabase = createBrowserClient();
-                      const { error } = await browserSupabase.auth.signInWithPassword({
-                        email: successCredentials.username,
-                        password: successCredentials.temporaryPassword,
-                      });
-                      if (error) {
-                        throw new Error("Automatic sign-in failed. Please sign in with the credentials above, then secure your account.");
-                      }
-                      setSignedIn(true);
-                    }
-
-                    setShowSuccessModal(false);
-                    router.push(securePath, { scroll: false });
-                  } catch (error) {
-                    setSecureAccountError(
-                      error instanceof Error
-                        ? error.message
-                        : "Unable to open account security. Please sign in and try again."
-                    );
-                  } finally {
-                    setIsOpeningSecureAccount(false);
-                  }
+                onClick={() => {
+                  setShowSuccessModal(false);
+                  router.push("/youth-dashboard");
                 }}
                 className="inline-flex min-h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
               >
-                {isOpeningSecureAccount ? "Opening..." : existingAccount && !signedIn ? "Sign in to secure" : "Secure account"}
+                Return to dashboard
               </button>
             </div>
             {!signedIn ? (

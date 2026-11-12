@@ -22,6 +22,7 @@ import {
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import type { AcademicTermWindow } from "@/lib/academic-term-schedule";
+import { ADMIN_TABLE_PAGE_SIZES, DEFAULT_ADMIN_TABLE_PAGE_SIZE } from "@/lib/admin-pagination";
 
 interface SubmissionRow {
   id: string;
@@ -63,7 +64,6 @@ interface TabDef {
   description: string;
 }
 
-const PAGE_SIZE_DEFAULT = 10;
 const EMPTY_REVIEW_DRAFT: ReviewDraft = {
   coe: { status: "PENDING", notes: "" },
   grades: { status: "PENDING", notes: "" },
@@ -73,7 +73,7 @@ const EMPTY_RESPONSE: SubmissionsResponse = {
   counts: { pending: 0, returned: 0, cleared: 0 },
   totalCount: 0,
   page: 1,
-  pageSize: PAGE_SIZE_DEFAULT,
+  pageSize: DEFAULT_ADMIN_TABLE_PAGE_SIZE,
   totalPages: 1,
   semesters: [],
   academicTermWindow: { status: "UNCONFIGURED", semester: null, opensAt: null, closesAt: null },
@@ -142,6 +142,7 @@ function DocumentCard({
   approved,
 }: DocumentCardProps) {
   const viewerUrl = `/api/submissions/${submissionId}/file?kind=${documentKind}`;
+  const hasOcrReviewContent = documentKind === "grade" && Boolean(ocrReviewContent);
   const [previewType, setPreviewType] = useState<"pdf" | "image" | "unsupported" | "missing" | null>(null);
   const [rawStorageUrl, setRawStorageUrl] = useState<string | null>(null);
 
@@ -205,65 +206,67 @@ function DocumentCard({
         {badgeContent ? <div className="shrink-0">{badgeContent}</div> : null}
       </div>
 
-      <div className={`review-card__preview group relative ${storedFilePath && previewType !== null && previewType !== "missing" ? "cursor-pointer" : ""}`}>
-        {previewType === "pdf" ? (
-          <div className="flex flex-col items-center gap-3 text-slate-400">
-            <div className="mb-1 flex h-12 w-12 items-center justify-center rounded-xl bg-rose-100">
-              <FileText className="h-6 w-6 text-rose-600" aria-hidden="true" />
-            </div>
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
-              PDF Document
+      <div className={hasOcrReviewContent ? "grid min-h-0 grid-cols-1 gap-2 sm:grid-cols-2" : ""}>
+        <div className={`review-card__preview group relative ${hasOcrReviewContent ? "!h-[220px] !min-h-[220px]" : ""} ${storedFilePath && previewType !== null && previewType !== "missing" ? "cursor-pointer" : ""}`}>
+          {previewType === "pdf" ? (
+            <iframe src={viewerUrl} title={`${title} preview`} className="h-full w-full border-0" />
+          ) : previewType === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={viewerUrl} alt={title} className="h-full w-full object-contain" />
+          ) : previewType === null && storedFilePath ? (
+            <span className="flex items-center gap-2 text-xs font-medium text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Checking preview...
             </span>
-          </div>
-        ) : previewType === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={viewerUrl} alt={title} className="h-full w-full object-contain" />
-        ) : previewType === null && storedFilePath ? (
-          <span className="flex items-center gap-2 text-xs font-medium text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            Checking preview...
-          </span>
-        ) : (
-          <div className="space-y-2 text-center">
-            <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/60 bg-white text-slate-700 shadow-2xs">
-              <FileText className="h-4 w-4" />
+          ) : (
+            <div className="space-y-2 text-center">
+              <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/60 bg-white text-slate-700 shadow-2xs">
+                <FileText className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-700">
+                  {previewType === "missing"
+                    ? "Uploaded file not found"
+                    : storedFilePath
+                      ? "Preview not available"
+                      : "No document uploaded"}
+                </p>
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  {previewType === "missing"
+                    ? "The file is missing from storage. Re-upload the document before reviewing it."
+                    : storedFilePath
+                      ? "Open in a new tab to view or download."
+                      : "This submission does not include this document."}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-bold text-slate-700">
-                {previewType === "missing"
-                  ? "Uploaded file not found"
-                  : storedFilePath
-                    ? "Preview not available"
-                    : "No document uploaded"}
-              </p>
-              <p className="mt-0.5 text-[11px] text-slate-400">
-                {previewType === "missing"
-                  ? "The file is missing from storage. Re-upload the document before reviewing it."
-                  : storedFilePath
-                  ? "Open in a new tab to view or download."
-                  : "This submission does not include this document."}
-              </p>
-            </div>
+          )}
+          {storedFilePath && rawStorageUrl && previewType === "image" ? (
+            <button
+              type="button"
+              onClick={() => window.open(rawStorageUrl, "_blank", "noopener,noreferrer")}
+              aria-label={`View ${title} in a new tab`}
+              className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/0 text-slate-900 transition-colors hover:bg-slate-900/10 focus-visible:bg-slate-900/10 focus-visible:outline focus-visible:outline-2 focus-visible:[outline-offset:-3px] focus-visible:outline-sky-500"
+            >
+              <span className="inline-flex translate-y-1 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-900 opacity-0 shadow-md transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                View
+              </span>
+            </button>
+          ) : null}
+        </div>
+        {hasOcrReviewContent ? (
+          <div className="max-h-[220px] min-h-0 min-w-0 overflow-y-auto">
+            {ocrReviewContent}
           </div>
-        )}
-        {storedFilePath && rawStorageUrl && previewType !== null && previewType !== "missing" ? (
-          <button
-            type="button"
-            onClick={() => window.open(rawStorageUrl, "_blank", "noopener,noreferrer")}
-            aria-label={`View ${title} in a new tab`}
-            className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/0 text-slate-900 transition-colors hover:bg-slate-900/10 focus-visible:bg-slate-900/10 focus-visible:outline focus-visible:outline-2 focus-visible:[outline-offset:-3px] focus-visible:outline-sky-500"
-          >
-            <span className="inline-flex translate-y-1 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-900 opacity-0 shadow-md transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              View
-            </span>
-          </button>
         ) : null}
       </div>
 
-      <div className="review-card__ocr-slot">
-        {documentKind === "grade" ? ocrReviewContent : null}
-      </div>
+      {!hasOcrReviewContent ? (
+        <div className="review-card__ocr-slot">
+          {documentKind === "grade" ? ocrReviewContent : null}
+        </div>
+      ) : null}
 
       {approved ? (
         reviewNotesValue.trim() ? (
@@ -387,7 +390,11 @@ function OcrGradeReportDetails({
 }) {
   const [ocrStatus, setOcrStatus] = useState<string>("OCR_PENDING");
   const [rows, setRows] = useState<OcrGradeRow[]>([]);
-  const [unrecognizedRowCount, setUnrecognizedRowCount] = useState(0);
+  const [unrecognizedRows, setUnrecognizedRows] = useState<string[]>([]);
+  const [ambiguousRows, setAmbiguousRows] = useState<string[]>([]);
+  const [conflictingRows, setConflictingRows] = useState<string[]>([]);
+  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
+  const [requiresStrictManualReview, setRequiresStrictManualReview] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -404,17 +411,31 @@ function OcrGradeReportDetails({
         const payload = body as {
           ocrStatus: string;
           ocrParsedRows: unknown;
+          ocrConfidence: number | null;
+          requiresStrictManualReview: boolean;
         };
         const parsedRows =
           payload.ocrParsedRows && typeof payload.ocrParsedRows === "object"
             ? payload.ocrParsedRows
             : null;
         setRows(normalizeOcrGradeRows(parsedRows));
-        setUnrecognizedRowCount(
+        setUnrecognizedRows(
           parsedRows && "unrecognizedRows" in parsedRows && Array.isArray(parsedRows.unrecognizedRows)
-            ? parsedRows.unrecognizedRows.length
-            : 0
+            ? parsedRows.unrecognizedRows.filter((row): row is string => typeof row === "string")
+            : [],
         );
+        setAmbiguousRows(
+          parsedRows && "ambiguousRows" in parsedRows && Array.isArray(parsedRows.ambiguousRows)
+            ? parsedRows.ambiguousRows.filter((row): row is string => typeof row === "string")
+            : [],
+        );
+        setConflictingRows(
+          parsedRows && "conflictingRows" in parsedRows && Array.isArray(parsedRows.conflictingRows)
+            ? parsedRows.conflictingRows.filter((row): row is string => typeof row === "string")
+            : [],
+        );
+        setOcrConfidence(typeof payload.ocrConfidence === "number" ? payload.ocrConfidence : null);
+        setRequiresStrictManualReview(payload.requiresStrictManualReview === true);
         setOcrStatus(payload.ocrStatus);
         if (payload.ocrStatus === "OCR_PENDING") {
           timeoutId = setTimeout(() => void loadOcrStatus(), 2500);
@@ -434,14 +455,30 @@ function OcrGradeReportDetails({
     };
   }, [submissionId]);
 
-  if (ocrStatus !== "OCR_NEEDS_REVIEW" && rows.length === 0) return null;
+  const needsManualReview =
+    requiresStrictManualReview ||
+    ocrStatus === "OCR_NEEDS_REVIEW" ||
+    ocrStatus === "OCR_FAILED" ||
+    (ocrConfidence !== null && ocrConfidence < 85);
 
   return (
-    <div className="space-y-3">
-      {ocrStatus === "OCR_NEEDS_REVIEW" ? (
-        <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
-          <p>Ambiguous grades detected. Please verify the final grades manually against the attached document.</p>
+    <div className="space-y-2">
+      {needsManualReview ? (
+        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[10px] leading-relaxed text-amber-950">
+          <p className="inline-flex items-center gap-1 font-bold text-amber-800">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            OCR Parse Warning: Manual Verification Required
+          </p>
+          <p className="mt-1">
+            {ocrConfidence !== null ? `OCR confidence: ${ocrConfidence}%. ` : ""}
+            Verify extracted grades against the uploaded report before approval.
+          </p>
+          {ambiguousRows.length > 0 || conflictingRows.length > 0 ? (
+            <p className="mt-1">
+              {ambiguousRows.length > 0 ? `${ambiguousRows.length} ambiguous row(s). ` : ""}
+              {conflictingRows.length > 0 ? `${conflictingRows.length} conflicting row(s).` : ""}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -474,13 +511,29 @@ function OcrGradeReportDetails({
               </tbody>
             </table>
           </div>
-          {unrecognizedRowCount > 0 ? (
-            <p className="border-t border-slate-100 px-3 py-2 text-[10px] text-amber-700">
-              {unrecognizedRowCount} row{unrecognizedRowCount === 1 ? "" : "s"} could not be read reliably.
-            </p>
+          {unrecognizedRows.length > 0 || ambiguousRows.length > 0 || conflictingRows.length > 0 ? (
+            <div className="border-t border-slate-100 px-3 py-2 text-[10px] text-amber-800">
+              <p className="font-semibold">Text requiring verification</p>
+              <ul className="mt-1 max-h-14 space-y-1 overflow-y-auto">
+                {[...new Set([...ambiguousRows, ...conflictingRows, ...unrecognizedRows])]
+                  .slice(0, 5)
+                  .map((line, index) => <li key={`${line}-${index}`} className="break-words">{line}</li>)}
+              </ul>
+              {unrecognizedRows.length > 5 ? (
+                <p className="mt-1">{unrecognizedRows.length - 5} additional row(s) need review.</p>
+              ) : null}
+            </div>
           ) : null}
         </div>
-      ) : null}
+      ) : (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
+          {ocrStatus === "OCR_PENDING"
+            ? "OCR extraction is still processing."
+            : ocrStatus === "OCR_FAILED"
+              ? "OCR could not read this report. Verify it manually."
+              : "No subject rows were extracted from this report."}
+        </p>
+      )}
     </div>
   );
 }
@@ -551,7 +604,7 @@ export default function SubmissionReviewTable() {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<TabType>("pending");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT);
+  const [pageSize, setPageSize] = useState(DEFAULT_ADMIN_TABLE_PAGE_SIZE);
   const [responseData, setResponseData] = useState<SubmissionsResponse>(EMPTY_RESPONSE);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [isMobileReviewOpen, setIsMobileReviewOpen] = useState(false);
@@ -1087,9 +1140,9 @@ export default function SubmissionReviewTable() {
                       }}
                       className="rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-700"
                     >
-                      <option value={10}>10</option>
-                      <option value={20}>20</option>
-                      <option value={50}>50</option>
+                      {ADMIN_TABLE_PAGE_SIZES.map((size) => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
                     </select>
                   </label>
                   <div className="flex items-center gap-2">
@@ -1229,21 +1282,22 @@ export default function SubmissionReviewTable() {
                     storedFilePath={selectedSubmission.gradeFileUrl}
                     badgeContent={selectedSubmission.gradeFileUrl ? (
                       <div className="flex items-center gap-2">
-                        {gradeReportApproved ? (
+                        {selectedSubmission.requiresStrictManualReview ? (
+                          <span className="inline-flex max-w-[220px] items-center gap-1 whitespace-normal rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[9px] font-bold leading-tight text-amber-800">
+                            <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                            OCR Parse Warning: Manual Verification Required
+                          </span>
+                        ) : gradeReportApproved ? (
                           <span className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
                             <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
                             Approved
-                          </span>
-                        ) : selectedSubmission.requiresStrictManualReview ? (
-                          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-rose-100 px-2 py-1 text-[9px] font-bold text-rose-700">
-                            <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                            Flagged: Possible Failing Grade
                           </span>
                         ) : null}
                       </div>
                     ) : undefined}
                     ocrReviewContent={
-                      !gradeReportApproved && selectedSubmission.gradeFileUrl
+                      (selectedSubmission.requiresStrictManualReview || !gradeReportApproved) &&
+                      selectedSubmission.gradeFileUrl
                         ? <OcrGradeReportDetails submissionId={selectedSubmission.id} />
                         : undefined
                     }

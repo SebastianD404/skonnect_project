@@ -267,14 +267,15 @@ export default function AdminLoading() {
 
   if (pathname === "/admin" || pathname === "/admin/") return <AdminDashboardSkeleton />;
   if (pathname.startsWith("/admin/inquiries")) return <InquiriesPageSkeleton />;
-  if (pathname.startsWith("/admin/skeap-applications")) return <SkeapApplicationsSkeleton />;
-  if (pathname.startsWith("/admin/skeap-waitlist")) return <SkeapWaitlistSkeleton />;
+  if (pathname.startsWith("/admin/skeap-applications") || pathname.startsWith("/admin/skeap/pending")) return <SkeapApplicationsSkeleton />;
+  if (pathname.startsWith("/admin/skeap-waitlist") || pathname.startsWith("/admin/skeap/waitlist")) return <SkeapWaitlistSkeleton />;
   if (pathname.startsWith("/admin/submissions")) return <SubmissionReviewSkeleton />;
-  if (pathname === "/admin/grantees") return <GranteesSkeleton />;
+  if (pathname === "/admin/grantees" || pathname === "/admin/skeap/active") return <GranteesSkeleton />;
   if (pathname.startsWith("/admin/grantees/records")) return <GranteeRecordsLoading />;
   if (pathname.startsWith("/admin/grantees/")) return <DetailSkeleton />;
   if (pathname.startsWith("/admin/settings")) return <SettingsSkeleton />;
   if (pathname.startsWith("/admin/members/records")) return <MemberRecordsLoading />;
+  if (pathname.startsWith("/admin/registry")) return <ListSkeleton showStats />;
   if (pathname.startsWith("/admin/members")) return <ListSkeleton showStats />;
   if (pathname.startsWith("/admin/accounting")) return <ListSkeleton />;
   if (pathname.startsWith("/admin/broadcast")) return <BroadcastSkeleton />;

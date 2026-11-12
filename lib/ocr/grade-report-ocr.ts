@@ -11,7 +11,7 @@ import {
 import { hasFailingGradeIndicators } from "@/lib/ocr/failing-grade-indicators";
 
 const MAX_PDF_PAGES = 10;
-const MIN_OCR_CONFIDENCE = 65;
+export const MIN_OCR_CONFIDENCE = 85;
 const MAX_IMAGE_WIDTH = 3600;
 const MAX_IMAGE_HEIGHT = 5000;
 const DEFAULT_IMAGE_WIDTH = 2600;
@@ -28,6 +28,7 @@ export type GradeReportOcrResult = {
   rawText: string;
   parsed: ReturnType<typeof parseGradeReportText>;
   confidence: number;
+  requiresStrictManualReview: boolean;
 };
 
 export type ExtractedDocumentOcr = {
@@ -176,7 +177,12 @@ export async function processGradeReportOcr(
 ): Promise<GradeReportOcrResult> {
   const { rawText, confidence } = await extractDocumentOcr(input, contentType, "Grade Report");
   const parsed = parseGradeReportText(rawText);
-  const hasFailingGrades = hasFailingGradeIndicators(rawText);
+  const hasFailingGrades = hasFailingGradeIndicators(rawText, parsed);
+  const requiresStrictManualReview =
+    confidence < MIN_OCR_CONFIDENCE ||
+    parsed.requiresStrictManualReview ||
+    parsed.rows.length === 0 ||
+    hasFailingGrades;
 
   return {
     status: decideGradeReportOcrStatus(
@@ -189,5 +195,6 @@ export async function processGradeReportOcr(
     rawText,
     parsed,
     confidence,
+    requiresStrictManualReview,
   };
 }

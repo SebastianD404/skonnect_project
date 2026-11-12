@@ -5,10 +5,11 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { ensureProfile, getRoleHomePath } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AuthState = {
   error?: string;
+  message?: string;
+  redirectTo?: string;
 } | null;
 
 export type PasswordRecoveryState = {
@@ -143,12 +144,21 @@ export async function signup(
   _prevState: AuthState,
   formData: FormData
 ): Promise<AuthState> {
-  const email = formData.get("email") as string;
-  const password = formData.get("password") as string;
-  const fullName = formData.get("fullName") as string;
+  const email = String(formData.get("email") || "").trim().toLowerCase();
+  const password = String(formData.get("password") || "");
+  const confirmPassword = String(formData.get("confirmPassword") || "");
 
-  if (!email || !password || !fullName) {
-    return { error: "All fields are required." };
+  if (!email || !password || !confirmPassword) {
+    return { error: "Email, password, and password confirmation are required." };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "Enter a valid email address." };
+  }
+  if (!isStrongPassword(password)) {
+    return { error: "Use at least 8 characters with uppercase, lowercase, and a number." };
+  }
+  if (password !== confirmPassword) {
+    return { error: "Passwords do not match." };
   }
 
   const existingProfile = await prisma.user.findFirst({
@@ -162,11 +172,21 @@ export async function signup(
   }
 
   const supabase = await createClient();
-
-  // 1. Create the Supabase Auth identity
+  const requestHeaders = await headers();
+  const origin =
+    requestHeaders.get("origin") ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "http://localhost:3000";
+  const requestedNext = String(formData.get("next") || "");
+  const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//")
+    ? requestedNext
+    : "/youth-dashboard";
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+    },
   });
 
   if (authError) {
@@ -177,44 +197,35 @@ export async function signup(
     return { error: "Signup failed - no user returned." };
   }
 
-  // 2. Create the matching row in our Postgres `users` table via Prisma.
-  // New signups always start as YOUTH. Role upgrades to GRANTEE, SK_OFFICIAL,
-  // or SUPER_ADMIN happen later through an admin action, never at signup time.
   try {
-    await prisma.user.create({
-      data: {
+    await prisma.user.upsert({
+      where: { authId: authData.user.id },
+      update: {},
+      create: {
         authId: authData.user.id,
         email,
-        fullName,
+        fullName: email.split("@")[0] || "SK Youth",
         role: "YOUTH",
+        kkStatus: "UNPROFILED",
       },
     });
-  } catch (dbError) {
-    console.error("Failed to create User row:", dbError);
-    try {
-      const { error: signOutError } = await supabase.auth.signOut();
-      if (signOutError) {
-        console.error("Could not clear the session after signup profile creation failed:", signOutError);
-      }
-    } catch (signOutError) {
-      console.error("Could not clear the session after signup profile creation failed:", signOutError);
-    }
-
-    try {
-      const { error: deleteError } = await createAdminClient().auth.admin.deleteUser(authData.user.id);
-      if (deleteError && deleteError.status !== 404) {
-        console.error("Could not remove the orphaned Supabase signup identity:", deleteError);
-      }
-    } catch (cleanupError) {
-      console.error("Could not remove the orphaned Supabase signup identity:", cleanupError);
-    }
-
-    return { error: "Account profile setup failed. Please contact support before trying again." };
+  } catch (error) {
+    console.error("New account profile synchronization failed.", {
+      authId: authData.user.id,
+      error,
+    });
+    return {
+      error: "Your account was created, but its profile could not be initialized. Please contact support.",
+    };
   }
 
-  const next = (formData.get("next") as string) || "";
-  const nextQuery = next ? `&next=${encodeURIComponent(next)}` : "";
-  redirect(`/login?notice=confirm_email${nextQuery}`);
+  if (authData.session) {
+    redirect(next);
+  }
+
+  return {
+    message: "Account created. Check your email to confirm your address, then you’ll continue to your requested page.",
+  };
 }
 
 export async function login(

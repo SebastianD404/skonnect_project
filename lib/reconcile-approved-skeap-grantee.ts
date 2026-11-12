@@ -1,12 +1,15 @@
-import { Prisma, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { prisma } from "@/lib/prisma";
+import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 export async function reconcileApprovedSkeapGrantee(userId: string, role: Role) {
   if (role !== Role.YOUTH && role !== Role.GRANTEE) return false;
 
   return prisma.$transaction(async (tx) => {
+    await lockSkeapCapacity(tx);
+    const maxSlots = await getSkeapMaxSlots(tx);
     const user = await tx.user.findUnique({
       where: { id: userId },
       select: { role: true, isActive: true },
@@ -29,6 +32,7 @@ export async function reconcileApprovedSkeapGrantee(userId: string, role: Role) 
       select: { status: true },
     });
     if (grantee?.status === "REMOVED" || grantee?.status === "GRADUATED") return false;
+    if (!grantee && await getSkeapCapacityCount(tx, userId) >= maxSlots) return false;
 
     if (user.role === Role.YOUTH) {
       await tx.user.update({
@@ -54,5 +58,5 @@ export async function reconcileApprovedSkeapGrantee(userId: string, role: Role) 
     }
 
     return true;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  });
 }

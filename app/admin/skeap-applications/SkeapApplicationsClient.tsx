@@ -351,6 +351,7 @@ function getDocumentInlineRemark(doc: DocumentItem, reviewThread: ApplicationMes
 
 export default function SkeapApplicationsClient({
   applications: initialApplications,
+  initialSelectedApplicationId,
   counts,
   hasNextPage: initialHasNextPage,
   initialCursor,
@@ -358,6 +359,7 @@ export default function SkeapApplicationsClient({
   academicYears,
 }: {
   applications: ApplicationRecord[];
+  initialSelectedApplicationId?: string;
   counts?: ApplicationCounts;
   hasNextPage: boolean;
   initialCursor: { id: string; createdAt: string } | null;
@@ -367,8 +369,10 @@ export default function SkeapApplicationsClient({
   const router = useRouter();
   const [applications, setApplications] = useState<ApplicationRecord[]>(initialApplications);
   const [applicationCounts, setApplicationCounts] = useState<ApplicationCounts | undefined>(counts);
-  const [selectedAppId, setSelectedAppId] = useState<string>(initialApplications[0]?.id ?? "");
-  const [showMobileDetails, setShowMobileDetails] = useState(false);
+  const [selectedAppId, setSelectedAppId] = useState<string>(
+    initialSelectedApplicationId ?? initialApplications[0]?.id ?? "",
+  );
+  const [showMobileDetails, setShowMobileDetails] = useState(Boolean(initialSelectedApplicationId));
   const [viewFilter, setViewFilter] = useState<"pending" | "resubmitted" | "returned" | "approved">("pending");
   const [selectedAcademicYear, setSelectedAcademicYear] = useState(initialAcademicYear);
   const itemsPerPage = 10;
@@ -2358,7 +2362,7 @@ export default function SkeapApplicationsClient({
               </div>
               <p className="mt-4 leading-7">
                 {approvalCapacityFull
-                  ? `Dear ${selectedApplication.applicantName || "Applicant"}, your SKEAP application has been approved and routed to the scholarship waitlist. Promotion and capacity management will be handled there.`
+                  ? `Dear ${selectedApplication.applicantName || "Applicant"}, SKEAP scholarship capacity is currently full. Your application will be placed on the scholarship waitlist, and you will be contacted if a slot becomes available.`
                   : `Dear ${selectedApplication.applicantName || "Applicant"}, your SKEAP application has been successfully approved! You have been granted an active scholarship slot for Barangay Pico. Please check your portal for next steps.`}
               </p>
             </div>

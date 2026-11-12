@@ -63,7 +63,14 @@ export async function analyzeSubmissionOcr(
       ? gradeReportResult.status
       : SubmissionOcrStatus.OCR_NEEDS_REVIEW;
 
-    return { ...gradeReportResult, documentValidation, status };
+    return {
+      ...gradeReportResult,
+      requiresStrictManualReview:
+        gradeReportResult.requiresStrictManualReview ||
+        !Object.values(documentValidation).every(Boolean),
+      documentValidation,
+      status,
+    };
   };
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -129,6 +136,9 @@ export async function processSubmissionGradeReportOcr(
           ocrParsedRows: {
             rows: result.parsed.rows,
             unrecognizedRows: result.parsed.unrecognizedRows,
+            ambiguousRows: result.parsed.ambiguousRows,
+            conflictingRows: result.parsed.conflictingRows,
+            gradingScale: result.parsed.gradingScale,
             documentValidation: result.documentValidation,
             ...(manualReviewRequired ? { forcedManualReview: true } : {}),
           },
@@ -136,7 +146,10 @@ export async function processSubmissionGradeReportOcr(
           ocrTotalUnits: result.parsed.totalUnits,
           ocrConfidence: result.confidence,
           requiresStrictManualReview:
-            submission.requiresStrictManualReview || hasFailingGradeIndicators(result.rawText),
+            submission.requiresStrictManualReview ||
+            manualReviewRequired ||
+            result.requiresStrictManualReview ||
+            hasFailingGradeIndicators(result.rawText, result.parsed),
         },
       });
     };
@@ -174,6 +187,7 @@ export async function processSubmissionGradeReportOcr(
         ocrGwa: null,
         ocrTotalUnits: null,
         ocrConfidence: null,
+        requiresStrictManualReview: true,
       },
     });
   }

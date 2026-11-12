@@ -246,6 +246,9 @@ export async function POST(
       gradesStatus,
       ...(documentType === "coe" ? { coeApprovedAt: action === "APPROVE" ? reviewedAt : null } : {}),
       ...(documentType === "grades" ? { gradesApprovedAt: action === "APPROVE" ? reviewedAt : null } : {}),
+      ...(documentType === "grades" && action === "APPROVE"
+        ? { requiresStrictManualReview: false }
+        : {}),
       reviewNotes: newReviewNotes,
       flaggedFields,
       reviewedAt,

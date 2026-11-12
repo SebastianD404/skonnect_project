@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 
 const PROGRAM_STATUS_DEFAULTS: Record<string, { badge: string; label: string }> = {
   "skeap-scholarship": {
@@ -24,7 +24,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
     prisma.grantee.count({ where: { status: "REMOVED" } }),
     prisma.submission.count({ where: { status: "PENDING" } }),
     getSkeapMaxSlots(),
-    prisma.skeapApplication.count({ where: ACTIVE_SKEAP_APPLICATION_WHERE }),
+    getSkeapCapacityCount(),
   ]);
 
   const remainingSlots = Math.max(0, maxSlots - activeScholarsCount);

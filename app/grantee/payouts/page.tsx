@@ -1,10 +1,11 @@
-import { CheckCircle2, Clock3, WalletCards } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, WalletCards } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getRecentSemesters } from "@/lib/semester";
+import { PayoutConfirmButton } from "./PayoutConfirmButton";
 
 const GRANT_AMOUNT = 5000;
 const currencyFormatter = new Intl.NumberFormat("en-PH", {
@@ -13,10 +14,10 @@ const currencyFormatter = new Intl.NumberFormat("en-PH", {
   maximumFractionDigits: 0,
 });
 
-function formatClaimedDate(date: Date | null) {
+function formatPayoutDate(date: Date | null) {
   return date
     ? new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" }).format(date)
-    : "Not claimed yet";
+    : "Not disbursed yet";
 }
 
 export default async function GranteePayoutsPage() {
@@ -33,7 +34,13 @@ export default async function GranteePayoutsPage() {
   const [currentPayout, payouts] = await Promise.all([
     db.accountingPayout.findFirst({
       where: { ...payoutWhere, semester: currentSemesterName },
-      select: { amount: true, claimedAt: true },
+      select: {
+        id: true,
+        amount: true,
+        status: true,
+        disbursedAt: true,
+        claimedAt: true,
+      },
     }),
     db.accountingPayout.findMany({
       where: payoutWhere,
@@ -42,28 +49,43 @@ export default async function GranteePayoutsPage() {
         id: true,
         amount: true,
         semester: true,
+        status: true,
+        disbursedAt: true,
         claimedAt: true,
         createdAt: true,
       },
     }),
   ]);
   const currentStatus = currentPayout
-    ? currentPayout.claimedAt
-      ? "Received"
-      : "Pending"
+    ? currentPayout.status === "CONFIRMED"
+      ? "Confirmed"
+      : currentPayout.status === "DISBURSED_UNCONFIRMED"
+        ? "Awaiting Confirmation"
+        : "Pending"
     : "Not yet filed";
+  const historyRows = payouts.map((payout) => ({
+    ...payout,
+    payoutId: payout.id,
+    status: payout.status === "CONFIRMED"
+      ? "Confirmed"
+      : payout.status === "DISBURSED_UNCONFIRMED"
+        ? "Awaiting Confirmation"
+        : "Pending",
+  }));
   const payoutHistory = currentPayout
-    ? payouts
+    ? historyRows
     : [
         {
           id: `current-${currentSemesterName}`,
           amount: GRANT_AMOUNT,
           semester: currentSemesterName,
+          disbursedAt: null,
           claimedAt: null,
           createdAt: new Date(),
+          payoutId: null,
           status: "Not yet filed" as const,
         },
-        ...payouts,
+        ...historyRows,
       ];
 
   return (
@@ -76,7 +98,7 @@ export default async function GranteePayoutsPage() {
           </div>
           <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">My Payouts</h1>
           <p className="mt-3 text-base leading-relaxed text-slate-600">
-            Track your SKEAP grant disbursements and see when each semester&apos;s assistance was claimed.
+            Track your SKEAP grant disbursements and confirm when you receive each semester&apos;s assistance.
           </p>
         </header>
 
@@ -86,13 +108,13 @@ export default async function GranteePayoutsPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-200">{currentSemesterName}</p>
               <h2 className="mt-3 text-2xl font-semibold tracking-tight">{currentSemesterName} payout</h2>
               <div className="mt-5 flex items-center gap-3">
-                {currentStatus === "Received" ? (
+                {currentStatus === "Confirmed" ? (
                   <CheckCircle2 className="h-5 w-5 text-emerald-300" />
                 ) : (
                   <Clock3 className="h-5 w-5 text-amber-300" />
                 )}
                 <span className="text-sm text-slate-200">Status:</span>
-                <Badge variant={currentStatus === "Received" ? "received" : "pending"}>
+                <Badge variant={currentStatus === "Confirmed" ? "received" : "pending"}>
                   {currentStatus}
                 </Badge>
               </div>
@@ -105,6 +127,26 @@ export default async function GranteePayoutsPage() {
             </div>
           </div>
         </Card>
+
+        {currentPayout?.status === "DISBURSED_UNCONFIRMED" ? (
+          <section
+            aria-labelledby="payout-confirmation-title"
+            className="mt-5 flex flex-col gap-4 rounded-2xl border border-cyan-200 bg-cyan-50/80 p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6"
+          >
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" aria-hidden="true" />
+              <div>
+                <h2 id="payout-confirmation-title" className="font-semibold text-slate-900">
+                  Confirm your cash receipt
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+                  This payout was marked as disbursed. Confirm only after you have received the cash.
+                </p>
+              </div>
+            </div>
+            <PayoutConfirmButton payoutId={currentPayout.id} />
+          </section>
+        ) : null}
 
         <Card className="mt-8 border-slate-200/80">
           <CardHeader>
@@ -119,17 +161,17 @@ export default async function GranteePayoutsPage() {
                     <TableHead>Semester Name</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Claimed Date</TableHead>
+                    <TableHead>Disbursed / Confirmed Date</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {payoutHistory.map((payout) => {
                     const status = "status" in payout
                       ? payout.status
-                      : payout.claimedAt
-                        ? "Received"
-                        : "Pending";
-                    const received = status === "Received";
+                      : "Pending";
+                    const confirmed = status === "Confirmed";
+                    const awaitingConfirmation = status === "Awaiting Confirmation";
+                    const payoutDate = payout.claimedAt ?? payout.disbursedAt;
                     return (
                       <TableRow key={payout.id}>
                         <TableCell className="font-medium text-slate-900">
@@ -137,11 +179,18 @@ export default async function GranteePayoutsPage() {
                         </TableCell>
                         <TableCell>{currencyFormatter.format(payout.amount || GRANT_AMOUNT)}</TableCell>
                         <TableCell>
-                          <Badge variant={received ? "received" : "pending"}>
-                            {status}
-                          </Badge>
+                          <div className="flex flex-col items-start gap-2">
+                            <Badge variant={confirmed ? "received" : "pending"}>
+                              {status}
+                            </Badge>
+                            {awaitingConfirmation && "payoutId" in payout && payout.payoutId ? (
+                              <PayoutConfirmButton payoutId={payout.payoutId} />
+                            ) : null}
+                          </div>
                         </TableCell>
-                        <TableCell className="text-slate-600">{formatClaimedDate(payout.claimedAt)}</TableCell>
+                        <TableCell className="text-slate-600">
+                          {formatPayoutDate(payoutDate)}
+                        </TableCell>
                       </TableRow>
                     );
                   })}

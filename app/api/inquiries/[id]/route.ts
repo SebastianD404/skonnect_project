@@ -7,7 +7,7 @@ import { ensureProfile } from "@/lib/auth";
 import { logAuditEvent, writeAuditLog } from "@/lib/audit/logger";
 import { ensureThreadMessage } from "@/lib/inquiries/thread";
 import { normalizeUploadedFiles } from "@/lib/skeap-upload";
-import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
@@ -186,8 +186,12 @@ export async function PATCH(
       updateData.lastUpdatedBy = "admin";
     }
 
-    const maxSlots = action === "approve" ? await getSkeapMaxSlots() : null;
     const updatedInquiry = await prisma.$transaction(async (tx) => {
+      let maxSlots: number | null = null;
+      if (action === "approve") {
+        await lockSkeapCapacity(tx);
+        maxSlots = await getSkeapMaxSlots(tx);
+      }
       const currentInquiry = await tx.inquiry.findUnique({
         where: { id },
         select: {
@@ -239,12 +243,12 @@ export async function PATCH(
         if (!currentInquiry?.application?.id || !currentInquiry.application.userId || maxSlots === null) {
           throw new Error("The linked SKEAP application could not be found.");
         }
-        if (currentInquiry.application.status === "APPROVED") {
+        const granteeStatus = currentInquiry.application.user.grantee?.status;
+        const alreadyHasScholarSlot = granteeStatus === "ACTIVE" || granteeStatus === "PROBATIONARY";
+        if (currentInquiry.application.status === "APPROVED" && alreadyHasScholarSlot) {
           approvalStatus = "APPROVED";
         } else {
-          const activeCount = await tx.skeapApplication.count({
-            where: ACTIVE_SKEAP_APPLICATION_WHERE,
-          });
+          const activeCount = await getSkeapCapacityCount(tx, currentInquiry.application.userId);
           approvalStatus = activeCount >= maxSlots ? "WAITLISTED" : "APPROVED";
         }
         if (approvalStatus === "WAITLISTED") {
@@ -252,7 +256,7 @@ export async function PATCH(
         }
         const applicantName = currentInquiry.application.applicantName || "Applicant";
         const approvalText = approvalStatus === "WAITLISTED"
-          ? `Dear ${applicantName}, your SKEAP application has been approved and placed on the scholarship waitlist at position ${waitlistPosition}. Promotion and capacity management will be handled there.`
+          ? `Dear ${applicantName}, SKEAP scholarship capacity is currently full. Your application has been placed on the scholarship waitlist at position ${waitlistPosition}. You will be contacted if a slot becomes available.`
           : `Dear ${applicantName}, your SKEAP application has been successfully approved. You have been granted an active scholarship slot for Barangay Pico. Please check your portal for next steps.`;
         approvalMessage = { ...message, text: approvalText };
       }
@@ -378,7 +382,11 @@ export async function PATCH(
       }
 
       return updated;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, {
+      isolationLevel: action === "approve"
+        ? Prisma.TransactionIsolationLevel.ReadCommitted
+        : Prisma.TransactionIsolationLevel.Serializable,
+    });
 
     if (action === "resolve") {
       logAuditEvent({

@@ -5,8 +5,7 @@ import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 import { KKProfilingRegistrationsTable } from "@/app/admin/kk-profiling/KKProfilingRegistrationsTable";
 import { KKProfilingTableSearchField, KKProfilingTableSearchProvider } from "./KKProfilingTableSearch";
 import KKProfilingStatusTabs from "./KKProfilingStatusTabs";
-
-const PAGE_SIZES = [10, 20, 50] as const;
+import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 
 export default async function AdminKKProfilingPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; status?: string | string[]; focus?: string | string[] }> }) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
@@ -20,9 +19,7 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
   const requestedPage = Number(rawPage || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(rawPageSize);
-  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
-    ? requestedPageSize
-    : 10;
+  const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const requestedStatus = String(rawStatus || "pending").toLowerCase();
   const statusParam = ["pending", "returned", "resubmitted", "approved", "rejected"].includes(requestedStatus)
     ? requestedStatus

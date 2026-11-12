@@ -8,7 +8,7 @@ import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-input
 
 const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-type DocumentSuffix = "front" | "back" | "residency";
+type DocumentSuffix = "front" | "back" | "residency" | "photo" | "birth-certificate";
 
 function getOptionalFile(formData: FormData, field: string): File | null {
   const value = formData.get(field);
@@ -75,15 +75,26 @@ export async function PUT(request: NextRequest) {
     const frontFile = getOptionalFile(formData, "frontFile");
     const backFile = getOptionalFile(formData, "backFile");
     const residencyFile = getOptionalFile(formData, "residencyFile");
+    const photoFile = getOptionalFile(formData, "photoFile");
+    const birthCertificateFile = getOptionalFile(formData, "birthCertificateFile");
     const files: Array<{ field: string; suffix: DocumentSuffix; file: File }> = [];
     if (frontFile) files.push({ field: "frontFile", suffix: "front", file: frontFile });
     if (backFile) files.push({ field: "backFile", suffix: "back", file: backFile });
     if (residencyFile) files.push({ field: "residencyFile", suffix: "residency", file: residencyFile });
+    if (photoFile) files.push({ field: "photoFile", suffix: "photo", file: photoFile });
+    if (birthCertificateFile) files.push({ field: "birthCertificateFile", suffix: "birth-certificate", file: birthCertificateFile });
 
     for (const { field, file } of files) {
-      if (!ALLOWED_TYPES.has(file.type)) {
+      const allowedTypes = field === "photoFile"
+        ? new Set(["image/png", "image/jpeg", "image/webp"])
+        : ALLOWED_TYPES;
+      if (!allowedTypes.has(file.type)) {
         return NextResponse.json(
-          { error: `${field} must be a PDF, JPG, PNG, or WEBP file.` },
+          {
+            error: field === "photoFile"
+              ? "photoFile must be a JPG, PNG, or WEBP image."
+              : `${field} must be a PDF, JPG, PNG, or WEBP file.`,
+          },
           { status: 400 },
         );
       }
@@ -98,6 +109,12 @@ export async function PUT(request: NextRequest) {
     if (!residencyFile && !registration.idSingleFileUrl) {
       return NextResponse.json({ error: "Please upload your Certificate of Residency." }, { status: 400 });
     }
+    if (!photoFile && !registration.photoFileUrl) {
+      return NextResponse.json({ error: "Please upload your 2x2 ID picture." }, { status: 400 });
+    }
+    if (!birthCertificateFile && !registration.birthCertificateFileUrl) {
+      return NextResponse.json({ error: "Please upload your Birth Certificate." }, { status: 400 });
+    }
 
     const updatedFileUrls: Partial<Record<DocumentSuffix, string>> = {};
     for (const { suffix, file } of files) {
@@ -107,11 +124,19 @@ export async function PUT(request: NextRequest) {
     const frontFileUrl = updatedFileUrls.front ?? registration.idFrontFileUrl;
     const backFileUrl = updatedFileUrls.back ?? registration.idBackFileUrl;
     const residencyFileUrl = updatedFileUrls.residency ?? registration.idSingleFileUrl;
+    const photoFileUrl = updatedFileUrls.photo ?? registration.photoFileUrl;
+    const birthCertificateFileUrl = updatedFileUrls["birth-certificate"] ?? registration.birthCertificateFileUrl;
     if (!frontFileUrl || !backFileUrl) {
       return NextResponse.json({ error: "Please upload both the front and back of your valid ID." }, { status: 400 });
     }
     if (!residencyFileUrl) {
       return NextResponse.json({ error: "Please upload your Certificate of Residency." }, { status: 400 });
+    }
+    if (!photoFileUrl) {
+      return NextResponse.json({ error: "Please upload your 2x2 ID picture." }, { status: 400 });
+    }
+    if (!birthCertificateFileUrl) {
+      return NextResponse.json({ error: "Please upload your Birth Certificate." }, { status: 400 });
     }
 
     const updateData: Prisma.ProfilingRegistrationUpdateInput = {
@@ -138,7 +163,7 @@ export async function PUT(request: NextRequest) {
       noAssemblyReason: formData.get("noAssemblyReason")
         ? String(formData.get("noAssemblyReason"))
         : registration.noAssemblyReason,
-      idDocumentType: "Valid ID + Certificate of Residency",
+      idDocumentType: "2x2 ID Picture + Birth Certificate + Valid ID + Certificate of Residency",
       reviewStatus: "Resubmitted",
       submittedAt: new Date(),
     };
@@ -146,6 +171,10 @@ export async function PUT(request: NextRequest) {
     if (updatedFileUrls.front) updateData.idFrontFileUrl = updatedFileUrls.front;
     if (updatedFileUrls.back) updateData.idBackFileUrl = updatedFileUrls.back;
     if (updatedFileUrls.residency) updateData.idSingleFileUrl = updatedFileUrls.residency;
+    if (updatedFileUrls.photo) updateData.photoFileUrl = updatedFileUrls.photo;
+    if (updatedFileUrls["birth-certificate"]) {
+      updateData.birthCertificateFileUrl = updatedFileUrls["birth-certificate"];
+    }
 
     const updated = await prisma.profilingRegistration.update({
       where: { id: registration.id },

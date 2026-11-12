@@ -3,14 +3,16 @@
 import type { ReactNode } from "react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, ChevronDown, Search } from "lucide-react";
+import { AlertTriangle, Search } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
 import type { KKProfilingRegistration } from "./types";
 import { useAdminSearch } from "../AdminSearchContext";
 import AdminExportButton from "../AdminExportButton";
 import { formatDate } from "@/lib/utils";
+import { DEFAULT_ADMIN_TABLE_PAGE_SIZE, normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import { isKKProfilingManualReview } from "@/lib/kk-profiling-review";
+import type { KKMemberArchiveReason } from "@/lib/kk-member-archive";
 import { useKKProfilingTableSearch } from "./KKProfilingTableSearch";
 import {
   KKProfilingMobileTableSkeleton,
@@ -24,6 +26,46 @@ function rowsForStatus(registrations: KKProfilingRegistration[], statusLabel?: s
     : registrations;
 }
 
+function getSkeapStatusBadge(status?: string | null) {
+  switch (status?.toUpperCase()) {
+    case "ACTIVE":
+      return {
+        label: "Active Scholar",
+        className: "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200",
+      };
+    case "PROBATIONARY":
+      return {
+        label: "Probationary Scholar",
+        className: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+      };
+    case "APPROVED":
+      return {
+        label: "Approved Application",
+        className: "bg-sky-50 text-sky-700 ring-1 ring-sky-200",
+      };
+    case "WAITLISTED":
+      return {
+        label: "Waitlisted",
+        className: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+      };
+    case "PENDING":
+      return {
+        label: "Application Pending",
+        className: "bg-slate-100 text-slate-600",
+      };
+    case "REMOVED":
+      return {
+        label: "Former Scholar",
+        className: "bg-slate-100 text-slate-600",
+      };
+    default:
+      return {
+        label: "KK Profile Only",
+        className: "bg-slate-100 text-slate-600",
+      };
+  }
+}
+
 export function KKProfilingRegistrationsTable({
   registrations,
   statusLabel,
@@ -31,7 +73,6 @@ export function KKProfilingRegistrationsTable({
   fitContainer = false,
   archiveAction = false,
   showMemberRoleColumn = false,
-  memberTypeFilter = "all",
   exportHref,
   exportMenu,
   pageNumber,
@@ -43,7 +84,6 @@ export function KKProfilingRegistrationsTable({
   fitContainer?: boolean;
   archiveAction?: boolean;
   showMemberRoleColumn?: boolean;
-  memberTypeFilter?: "all" | "grantees" | "kk";
   exportHref?: string;
   exportMenu?: ReactNode;
   pageNumber?: number;
@@ -79,23 +119,16 @@ export function KKProfilingRegistrationsTable({
   const requestedStatus = (searchParams.get("status") ?? "pending").toLowerCase();
   const requestedPageValue = Number(searchParams.get("page") ?? "1");
   const requestedPage = Number.isFinite(requestedPageValue) ? Math.max(1, Math.floor(requestedPageValue)) : 1;
-  const requestedPageSizeValue = Number(searchParams.get("pageSize") ?? "10");
-  const requestedPageSize = Number.isFinite(requestedPageSizeValue) ? requestedPageSizeValue : 10;
+  const requestedPageSizeValue = Number(
+    searchParams.get("pageSize") ?? String(DEFAULT_ADMIN_TABLE_PAGE_SIZE),
+  );
+  const requestedPageSize = normalizeAdminTablePageSize(requestedPageSizeValue);
   const routePending = pathname === "/admin/kk-profiling" && (
     requestedStatus !== String(statusLabel ?? "Pending").toLowerCase() ||
     requestedPage !== (pageNumber ?? 1) ||
-    requestedPageSize !== (pageSize ?? 10)
+    requestedPageSize !== (pageSize ?? DEFAULT_ADMIN_TABLE_PAGE_SIZE)
   );
   const isLoading = routePending || pageSearch?.isNavigating === true;
-
-  const updateMemberTypeFilter = (value: "all" | "grantees" | "kk") => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value === "all") params.delete("memberType");
-    else params.set("memberType", value);
-    params.delete("page");
-    const search = params.toString();
-    router.replace(`${pathname}${search ? `?${search}` : ""}`, { scroll: false });
-  };
 
   const filteredRows = useMemo(() => {
     const workspaceQuery = deferredSearchQuery.trim().toLowerCase();
@@ -119,8 +152,12 @@ export function KKProfilingRegistrationsTable({
     });
   }, [rows, deferredSearchQuery, deferredTableQuery]);
 
-  const handleArchive = async (id: string) => {
-    const response = await fetch(`/api/admin/members/${id}/archive`, { method: "PATCH" });
+  const handleArchive = async (id: string, archiveReason: KKMemberArchiveReason) => {
+    const response = await fetch(`/api/admin/members/${id}/archive`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archiveReason }),
+    });
     const payload = await response.json();
     if (!response.ok) {
       throw new Error(payload?.error || "Failed to archive profile");
@@ -180,29 +217,6 @@ export function KKProfilingRegistrationsTable({
                   className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 placeholder:text-slate-400"
                 />
               </label>
-              {showMemberRoleColumn ? (
-                <div className="relative w-full sm:w-auto">
-                  <select
-                    aria-label="Filter members by SKEAP status"
-                    value={memberTypeFilter}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      if (value === "all" || value === "grantees" || value === "kk") {
-                        updateMemberTypeFilter(value);
-                      }
-                    }}
-                    className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-9 text-xs font-medium text-slate-700 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 sm:w-auto"
-                  >
-                    <option value="all">All Members</option>
-                    <option value="grantees">SKEAP Grantees</option>
-                    <option value="kk">Not a SKEAP Grantee</option>
-                  </select>
-                  <ChevronDown
-                    aria-hidden="true"
-                    className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500"
-                  />
-                </div>
-              ) : null}
             </div>
             {exportMenu ?? (exportHref ? (
               <AdminExportButton
@@ -286,8 +300,7 @@ export function KKProfilingRegistrationsTable({
         {fitContainer ? (
           <div className="p-3 md:hidden">
             {isLoading ? <KKProfilingMobileTableSkeleton /> : filteredRows.map((registration) => {
-              const isGrantee = registration.skeapStatus?.toUpperCase() === "ACTIVE";
-              const isWaitlisted = registration.skeapStatus?.toUpperCase() === "WAITLISTED";
+              const statusBadge = getSkeapStatusBadge(registration.skeapStatus);
 
               return (
                 <article key={registration.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -300,14 +313,8 @@ export function KKProfilingRegistrationsTable({
                         {registration.email}
                       </p>
                     </div>
-                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                      isGrantee
-                        ? "bg-emerald-50 text-emerald-700"
-                        : isWaitlisted
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-slate-100 text-slate-600"
-                    }`}>
-                      {isGrantee ? "Grantee" : isWaitlisted ? "Waitlisted" : "Not a grantee"}
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge.className}`}>
+                      {statusBadge.label}
                     </span>
                   </div>
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-y border-slate-100 py-3">
@@ -326,7 +333,7 @@ export function KKProfilingRegistrationsTable({
                     <div>
                       <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Member status</dt>
                       <dd className="mt-0.5 text-xs font-medium text-slate-700">
-                        {isGrantee ? "SKEAP Grantee" : isWaitlisted ? "Waitlisted" : "KK Member"}
+                        {statusBadge.label}
                       </dd>
                     </div>
                   </dl>
@@ -465,19 +472,14 @@ export function KKProfilingRegistrationsTable({
                   ) : null}
                   {showMemberRoleColumn ? (
                     <td className={`${cellPadding} ${fitContainer ? "text-center" : ""}`}>
-                      {registration.skeapStatus?.toUpperCase() === "ACTIVE" ? (
-                        <span className="whitespace-nowrap text-xs font-semibold tracking-tight text-[#0F3D5C]">
-                          Grantee
-                        </span>
-                      ) : registration.skeapStatus?.toUpperCase() === "WAITLISTED" ? (
-                        <span className="whitespace-nowrap text-xs font-medium tracking-tight text-slate-500">
-                          Waitlisted
-                        </span>
-                      ) : (
-                        <span className="whitespace-nowrap text-xs font-medium tracking-tight text-slate-500">
-                          Not a grantee
-                        </span>
-                      )}
+                      {(() => {
+                        const statusBadge = getSkeapStatusBadge(registration.skeapStatus);
+                        return (
+                          <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge.className}`}>
+                            {statusBadge.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                   ) : (
                     <td className={`${cellPadding} text-slate-500 ${fitContainer ? "whitespace-nowrap" : ""}`}>

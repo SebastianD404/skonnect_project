@@ -89,6 +89,7 @@ async function getInitialAuthUser() {
     email: profile.email,
     avatarUrl: profile.avatarUrl ?? undefined,
     role: isApprovedGrantee ? "GRANTEE" : profile.role,
+    kkStatus: profile.kkStatus,
     skeapStatus: grantee?.status ?? null,
   };
 }

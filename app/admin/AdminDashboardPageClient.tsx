@@ -2,9 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, FileCheck, MessageSquare } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  CheckSquare,
+  ClipboardList,
+  FileCheck,
+  FileText,
+  MessageSquare,
+  Users,
+} from "lucide-react";
 import { useAdminSearch } from "./AdminSearchContext";
 import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
+import ScholarDistributionAnalytics, {
+  type DashboardMetricCardData,
+} from "./ScholarDistributionAnalytics";
+import type { ScholarDistributionAnalytics as ScholarAnalytics } from "@/lib/admin-scholar-analytics";
 
 interface InquiryItem {
   id: string;
@@ -16,17 +29,6 @@ interface InquiryItem {
     fullName: string;
     email: string;
   };
-}
-
-interface StatItem {
-  label: string;
-  value: string;
-  sub: string;
-  iconName: "Users" | "CalendarDays" | "Inbox" | "Check" | "FileText" | "CheckSquare" | "GraduationCap";
-  delta?: string;
-  up?: boolean;
-  href?: string;
-  accent?: "cyan" | "amber" | "emerald";
 }
 
 interface PendingReviewItem {
@@ -44,23 +46,21 @@ interface PendingReviewItem {
 
 interface DashboardOverview {
   stats: {
-    totalGrantees: number;
-    pendingApplications: number;
     openInquiries: number;
     documentReviews: number;
   };
   recentInquiries: InquiryItem[];
   pendingReviews: PendingReviewItem[];
+  scholarAnalytics: ScholarAnalytics;
 }
 
 interface AdminDashboardPageClientProps {
   dateLabel: string;
   openInquiryCount: number;
   pendingSubmissionCount: number;
-  stats: StatItem[];
-  profilingRegistrationCount: number;
   profilingSeries: number[];
   profilingMonths: string[];
+  scholarAnalytics: ScholarAnalytics;
   recentInquiries: InquiryItem[];
   pendingReviews: PendingReviewItem[];
 }
@@ -69,25 +69,63 @@ export default function AdminDashboardPageClient({
   dateLabel,
   openInquiryCount,
   pendingSubmissionCount,
-  stats,
-  profilingRegistrationCount,
   profilingSeries,
   profilingMonths,
+  scholarAnalytics,
   recentInquiries,
   pendingReviews,
 }: AdminDashboardPageClientProps) {
   const { searchQuery } = useAdminSearch();
   const [overview, setOverview] = useState<DashboardOverview>({
     stats: {
-      totalGrantees: Number(stats.find((stat) => stat.label === "Total Grantees")?.value ?? 0),
-      pendingApplications: Number(stats.find((stat) => stat.label === "SKEAP Applications")?.value ?? 0),
       openInquiries: openInquiryCount,
       documentReviews: pendingSubmissionCount,
     },
     recentInquiries,
     pendingReviews,
+    scholarAnalytics,
   });
   const requestInProgress = useRef(false);
+
+  const metricCards = useMemo<DashboardMetricCardData[]>(() => {
+    const analytics = overview.scholarAnalytics;
+
+    return [
+      {
+        key: "totalYouth",
+        href: "/admin/registry/masterlist",
+        label: "Total Youth",
+        value: analytics.totalRegisteredYouth,
+        subtitle: "registered in barangay",
+        icon: Users,
+        featured: true,
+      },
+      {
+        key: "skeapSlot",
+        href: "/admin/skeap/active",
+        label: "SKEAP Slot",
+        value: `${analytics.capacityUsed} / ${analytics.maxSlots}`,
+        subtitle: "maximum slots filled",
+        icon: FileText,
+      },
+      {
+        key: "skeapPending",
+        href: "/admin/skeap/pending",
+        label: "SKEAP Pending",
+        value: analytics.pendingApplications,
+        subtitle: "needs action",
+        icon: CheckSquare,
+      },
+      {
+        key: "kkPending",
+        href: "/admin/registry/applications",
+        label: "KK Pending",
+        value: analytics.pendingProfilingApplications,
+        subtitle: "awaiting KK review",
+        icon: ClipboardList,
+      },
+    ];
+  }, [overview.scholarAnalytics]);
 
   useEffect(() => {
     let disposed = false;
@@ -124,6 +162,7 @@ export default function AdminDashboardPageClient({
     };
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    void refreshOverview();
 
     return () => {
       disposed = true;
@@ -134,18 +173,6 @@ export default function AdminDashboardPageClient({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
-
-  const liveStats = useMemo(() => {
-    const values: Record<string, number> = {
-      "Total Grantees": overview.stats.totalGrantees,
-      "SKEAP Applications": overview.stats.pendingApplications,
-      "Open Inquiries": overview.stats.openInquiries,
-      "Document Reviews": overview.stats.documentReviews,
-    };
-    return stats.map((stat) =>
-      Object.hasOwn(values, stat.label) ? { ...stat, value: String(values[stat.label]) } : stat
-    );
-  }, [overview.stats, stats]);
 
   const filteredInquiries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -160,23 +187,26 @@ export default function AdminDashboardPageClient({
     });
   }, [overview.recentInquiries, searchQuery]);
 
-
   return (
     <main className="flex w-full flex-col gap-8 pb-12">
       <DashboardHeaderWrapper
         dateLabel={dateLabel}
         openInquiryCount={overview.stats.openInquiries}
         pendingSubmissionCount={overview.stats.documentReviews}
-        stats={liveStats}
         operationalSnapshot
       />
 
-      <div className="flex items-center gap-4 px-8 py-2">
-        <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">Action Center</span>
-        <div className="h-px flex-1 rounded-full bg-slate-200/60" />
-      </div>
+      <div className="flex flex-col gap-6 px-4 sm:px-8">
+        <ScholarDistributionAnalytics
+          analytics={overview.scholarAnalytics}
+          metricCards={metricCards}
+        />
+        <div className="flex items-center gap-4 py-2">
+          <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">Action Center</span>
+          <div className="h-px flex-1 rounded-full bg-slate-200/60" />
+        </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 w-full">
+        <div className="grid w-full grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
             <section className="group relative flex min-h-[320px] flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm">
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-gradient-to-r from-slate-900 via-cyan-800 to-cyan-500" />
               <div className="relative z-10 flex h-full flex-col">
@@ -307,6 +337,7 @@ export default function AdminDashboardPageClient({
               )}
               </div>
             </section>
+      </div>
       </div>
     </main>
   );

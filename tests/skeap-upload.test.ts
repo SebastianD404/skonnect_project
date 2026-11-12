@@ -12,49 +12,30 @@ import {
   mergeSkeapDraftReplacement,
   mergeSkeapResubmittedFiles,
   normalizeUploadedFiles,
+  normalizeUploadRequirement,
   SKEAP_UPLOAD_KEY,
 } from "@/lib/skeap-upload";
 
 describe("SKEAP required document labels", () => {
-  it("uses the ordinance labels and helper text for all applicants", () => {
+  it("requires only academic documents in SKEAP applications", () => {
     expect(getSkeapRequiredDocuments("College", "1st Year")).toEqual([
-      { key: SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE, label: "Birth Certificate", helperText: "Original and Photocopy" },
       {
         key: SKEAP_UPLOAD_KEY.FAMILY_INCOME,
-        label: "Certificate of Low-income of Parents or Guardian",
+        label: "Certificate of Low-Income",
         helperText: 'Stating for the purpose of "Sangguniang Kabataan Educational Assistance Program"',
       },
-      { key: SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY, label: "Certificate of Residency" },
       {
         key: SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
-        label: "Certified True Copy of Enrollment Form or Certificate of Enrollment",
+        label: "Certificate of Enrollment",
       },
-      { key: SKEAP_UPLOAD_KEY.GRADE_REPORT, label: "Grades issued by the school registrar" },
+      { key: SKEAP_UPLOAD_KEY.GRADE_REPORT, label: "Certified Grades / Form 138" },
     ]);
   });
 
-  it.each(["Junior High School", "Senior High School"])(
-    "uses the report-card requirement for %s",
-    (educationLevel) => {
-      expect(getSkeapRequiredDocuments(educationLevel, "1st Year").at(-1)).toEqual({
-        key: SKEAP_UPLOAD_KEY.GRADE_REPORT,
-        label: "Certified true copy of report card or form 138",
-      });
-    }
-  );
-
-  it("uses the report-card requirement for incoming College freshmen", () => {
-    expect(getSkeapRequiredDocuments("College", "Incoming Freshman").at(-1)).toEqual({
-      key: SKEAP_UPLOAD_KEY.GRADE_REPORT,
-      label: "Certified true copy of report card or form 138",
-    });
-  });
-
-  it("keeps registrar grades for Vocational incoming freshmen", () => {
-    expect(getSkeapRequiredDocuments("Vocational", "Incoming Freshman").at(-1)).toEqual({
-      key: SKEAP_UPLOAD_KEY.GRADE_REPORT,
-      label: "Grades issued by the school registrar",
-    });
+  it("keeps the same academic document requirements across education levels", () => {
+    expect(getSkeapRequiredDocuments("Junior High School", "1st Year")).toEqual(
+      getSkeapRequiredDocuments("Vocational", "Incoming Freshman"),
+    );
   });
 });
 
@@ -77,6 +58,13 @@ describe("SKEAP document file types", () => {
     { name: "photo.png", type: "image/svg+xml" },
   ])("rejects unsupported file $name", (file) => {
     expect(getSupportedSkeapDocumentType(file)).toBeNull();
+  });
+});
+
+describe("KK identity document mapping", () => {
+  it("keeps the two valid ID sides distinct from other upload requirements", () => {
+    expect(normalizeUploadRequirement("kkIdFront")).toBe(SKEAP_UPLOAD_KEY.KK_ID_FRONT);
+    expect(normalizeUploadRequirement("kkIdBack")).toBe(SKEAP_UPLOAD_KEY.KK_ID_BACK);
   });
 });
 
@@ -164,7 +152,7 @@ describe("SKEAP upload verification state", () => {
       attachments: [
         {
           fileId: "incomeCertificate",
-          documentLabel: "Certificate of Low-income of Parents or Guardian",
+          documentLabel: "Certificate of Low-Income",
           fileName: "income-proof.pdf",
           fileUrl: "https://example.com/income-proof.pdf",
           fileType: "application/pdf",

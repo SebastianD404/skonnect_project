@@ -205,6 +205,10 @@ export default async function ProgramPage({ params }: Props) {
     appUser = await ensureProfile(supabaseUser);
   }
 
+  if (slug === "kk-profiling" && !supabaseUser) {
+    redirect("/signup?next=%2Fprograms%2Fkk-profiling");
+  }
+
   let shouldRedirectToKkStatus = false;
 
   if (slug === "kk-profiling" && appUser) {

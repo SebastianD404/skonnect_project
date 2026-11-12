@@ -13,6 +13,7 @@
     "db:status": "prisma migrate status",
     "db:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
+    "db:seed:demo": "tsx prisma/seed.ts",
     "test:audit": "vitest run lib/audit/metadata.test.ts",
     "reminders": "npx tsx scripts/send-reminders.ts",
     "reconcile:users": "node scripts/reconcile-auth-users.js",
@@ -53,6 +54,7 @@
     "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
+    "@faker-js/faker": "^9.9.0",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.1",

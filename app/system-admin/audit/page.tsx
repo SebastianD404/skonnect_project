@@ -1,8 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getAuditStartDate } from "@/lib/audit/time-range";
+import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import AuditLogsTable from "./AuditLogsTable";
-
-const PAGE_SIZES = [10, 20, 50] as const;
 
 export default async function SystemAdminAuditPage({
   searchParams,
@@ -17,9 +16,7 @@ export default async function SystemAdminAuditPage({
   const requestedPage = Number(rawPage || 1);
   const page = Number.isSafeInteger(requestedPage) ? Math.max(1, requestedPage) : 1;
   const requestedPageSize = Number(rawPageSize);
-  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
-    ? requestedPageSize
-    : 10;
+  const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const startDate = getAuditStartDate("30d");
   const where = startDate ? { createdAt: { gte: startDate } } : undefined;
   const totalCount = await prisma.auditLog.count({ where });

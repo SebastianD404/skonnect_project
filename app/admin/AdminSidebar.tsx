@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { Role } from "@prisma/client";
-import { Archive, Banknote, ClipboardList, Database, FileCheck, FileText, Inbox, LayoutDashboard, Menu, Radio, Settings, Users, X } from "lucide-react";
+import { Archive, BadgeCheck, Banknote, ClipboardList, Clock, Database, FileCheck, FileText, GraduationCap, History, Inbox, LayoutDashboard, Menu, Radio, Settings, UserX, UsersRound, X } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { Avatar } from "@/components/ui/Avatar";
@@ -76,8 +76,8 @@ const BADGE_SECTIONS = [
   { href: "/admin/skeap-applications", countKey: "skeapApplicationCount", cookie: "admin-skeap-applications-last-viewed" },
   { href: "/admin/submissions", countKey: "pendingDocumentCount", cookie: "admin-submissions-last-viewed" },
   { href: "/admin/kk-profiling", countKey: "profilingRegistrationCount", cookie: "admin-kk-profiling-last-viewed" },
-  { href: "/admin/grantees", countKey: "newGranteeCount", cookie: "admin-grantees-last-viewed" },
-  { href: "/admin/members", countKey: "approvedMemberCount", cookie: "admin-members-last-viewed" },
+  { href: "/admin/skeap/active", countKey: "newGranteeCount", cookie: "admin-grantees-last-viewed" },
+  { href: "/admin/registry/masterlist", countKey: "approvedMemberCount", cookie: "admin-members-last-viewed" },
 ] as const;
 
 export default function AdminSidebar({
@@ -131,11 +131,7 @@ export default function AdminSidebar({
     let mounted = true;
     let controller: AbortController | null = null;
 
-    const activeBadgeSection = BADGE_SECTIONS.find((section) =>
-      section.href === "/admin/grantees"
-        ? pathname.startsWith(section.href) && !pathname.startsWith("/admin/grantees/records")
-        : pathname.startsWith(section.href)
-    );
+    const activeBadgeSection = BADGE_SECTIONS.find((section) => pathname.startsWith(section.href));
     if (activeBadgeSection) setSectionViewedTimestamp(activeBadgeSection.href);
 
     async function refreshCounts() {
@@ -251,19 +247,23 @@ export default function AdminSidebar({
       ],
     },
     {
-      title: "People Management",
+      title: "KK Youth Registry",
       items: [
-        { label: "Members", href: "/admin/members", icon: Users, badge: liveCounts.approvedMemberCount },
-        { label: "Grantees", href: "/admin/grantees", icon: Users, badge: liveCounts.newGranteeCount },
+        { label: "All Profiled Youth", href: "/admin/registry/masterlist", icon: UsersRound, badge: liveCounts.approvedMemberCount },
+        { label: "KK Profiled Youth", href: "/admin/registry/regular", icon: BadgeCheck },
+        { label: "Profiling Applications", href: "/admin/kk-profiling", icon: ClipboardList, badge: liveCounts.profilingRegistrationCount },
+        { label: "Archived KK Youth", href: "/admin/members/records", icon: Archive },
       ],
     },
     {
-      title: "Program Applications",
+      title: "SKEAP Management",
       items: [
-        { label: "KK Profiling Applications", href: "/admin/kk-profiling", icon: ClipboardList, badge: liveCounts.profilingRegistrationCount },
+        { label: "Active Grantees", href: "/admin/skeap/active", icon: GraduationCap, badge: liveCounts.newGranteeCount },
         { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: liveCounts.skeapApplicationCount },
-        { label: "SKEAP Waitlist", href: "/admin/skeap-waitlist", icon: ClipboardList },
+        { label: "Waitlist", href: "/admin/skeap-waitlist", icon: Clock },
         { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: liveCounts.pendingDocumentCount },
+        { label: "Revoked Grantees", href: "/admin/skeap/revoked", icon: UserX },
+        { label: "Graduated Scholars", href: "/admin/grantees/records", icon: History },
       ],
     },
     {
@@ -287,13 +287,6 @@ export default function AdminSidebar({
           ],
         }]
       : []),
-    {
-      title: "Archives",
-      items: [
-        { label: "Past Grantees", href: "/admin/grantees/records", icon: Archive },
-        { label: "Member Archives", href: "/admin/members/records", icon: Archive },
-      ],
-    },
     {
       title: "System",
       items: [
@@ -365,7 +358,7 @@ export default function AdminSidebar({
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   {badgeCount > 0 ? (
                     <span className="ml-auto inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-                      {badgeCount > 99 ? "99+" : badgeCount}
+                      {badgeCount > 9 ? "9+" : badgeCount}
                     </span>
                   ) : null}
                 </Link>
@@ -416,6 +409,7 @@ export default function AdminSidebar({
                         {item.label}
                       </span>
                       {item.badge && item.badge > 0 &&
+                      !(item.href === "/admin/skeap/active" && pathname.startsWith("/admin/skeap/active")) &&
                       !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees")) &&
                       !(item.href === "/admin/kk-profiling" && pathname.startsWith("/admin/kk-profiling")) ? (
                         <span

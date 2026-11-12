@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 export async function reindexSkeapWaitlist(tx: Prisma.TransactionClient) {
@@ -60,7 +60,7 @@ export async function getSkeapWaitlistSnapshot(): Promise<SkeapWaitlistSnapshot>
   });
 
   const [activeCount, maxSlots] = await Promise.all([
-    prisma.skeapApplication.count({ where: ACTIVE_SKEAP_APPLICATION_WHERE }),
+    getSkeapCapacityCount(),
     getSkeapMaxSlots(),
   ]);
 

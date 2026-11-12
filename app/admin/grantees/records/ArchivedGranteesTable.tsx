@@ -1,32 +1,21 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Eye, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { ADMIN_TABLE_PAGE_SIZES, DEFAULT_ADMIN_TABLE_PAGE_SIZE } from "@/lib/admin-pagination";
 
 type HistoricalGranteeRecord = {
   id: string;
-  userId: string;
-  status: string;
   yearLevel: string;
   school: string;
   dateEnrolled: Date;
-  dateRemoved: Date | null;
   remarks: string | null;
-  updatedAt: Date;
   graduatedAt: Date | null;
   fullName: string | null;
   email: string | null;
 };
-
-type StatusTab = "ALL" | "GRADUATED" | "REMOVED";
-
-const TABS: { value: StatusTab; label: string }[] = [
-  { value: "ALL", label: "All" },
-  { value: "GRADUATED", label: "Graduated" },
-  { value: "REMOVED", label: "Removed" },
-];
 
 export default function ArchivedGranteesTable({
   allRecords,
@@ -35,27 +24,17 @@ export default function ArchivedGranteesTable({
   allRecords: HistoricalGranteeRecord[];
   initialQuery: string;
 }) {
-  const [activeTab, setActiveTab] = useState<StatusTab>("ALL");
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [isPending, startTransition] = useTransition();
-
+  const [pageSize, setPageSize] = useState(DEFAULT_ADMIN_TABLE_PAGE_SIZE);
   const filteredRecords = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
-    return allRecords.filter((record) => {
-      const matchesTab =
-        activeTab === "ALL" ||
-        (activeTab === "GRADUATED" && record.status === "GRADUATED") ||
-        (activeTab === "REMOVED" && record.status === "REMOVED");
-      const matchesSearch =
-        !normalizedQuery ||
-        [record.fullName, record.email, record.school, record.yearLevel, record.remarks]
-          .some((value) => value?.toLowerCase().includes(normalizedQuery));
-
-      return matchesTab && matchesSearch;
-    });
-  }, [activeTab, allRecords, searchQuery]);
+    return allRecords.filter((record) =>
+      !normalizedQuery ||
+      [record.fullName, record.email, record.school, record.yearLevel, record.remarks]
+        .some((value) => value?.toLowerCase().includes(normalizedQuery))
+    );
+  }, [allRecords, searchQuery]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
   const page = Math.min(currentPage, totalPages);
@@ -83,31 +62,12 @@ export default function ArchivedGranteesTable({
           />
         </label>
 
-        <nav aria-label="Filter historical grantee records" className="flex shrink-0 items-center gap-1 rounded-xl bg-slate-100 p-1">
-          {TABS.map(({ value, label }) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => {
-                setCurrentPage(1);
-                startTransition(() => setActiveTab(value));
-              }}
-              aria-pressed={activeTab === value}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-200 ${
-                activeTab === value
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+        <p className="text-xs font-medium text-slate-500">Graduated scholars only</p>
       </div>
 
       <div className="flex flex-col gap-3 p-3 md:hidden">
         {pageRecords.map((record) => {
-          const endDate = record.graduatedAt ?? record.dateRemoved;
+          const endDate = record.graduatedAt;
           return (
             <article key={record.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex min-w-0 items-start justify-between gap-3">
@@ -119,12 +79,8 @@ export default function ArchivedGranteesTable({
                     {record.email ?? "No email"}
                   </p>
                 </div>
-                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                  record.status === "GRADUATED"
-                    ? "bg-slate-100 text-slate-700"
-                    : "bg-rose-100 text-rose-700"
-                }`}>
-                  {record.status === "GRADUATED" ? "Graduated" : "Removed"}
+                <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-700">
+                  Graduated
                 </span>
               </div>
 
@@ -184,9 +140,9 @@ export default function ArchivedGranteesTable({
               <th className="w-[5%] px-4 py-3.5 text-right">View</th>
             </tr>
           </thead>
-          <tbody className={`divide-y divide-slate-100 text-slate-700 transition-opacity duration-150 ease-in-out ${isPending ? "opacity-60" : "opacity-100"}`}>
+          <tbody className="divide-y divide-slate-100 text-slate-700">
             {pageRecords.map((record) => {
-              const endDate = record.graduatedAt ?? record.dateRemoved;
+              const endDate = record.graduatedAt;
               return (
                 <tr key={record.id} className="hover:bg-slate-50/70">
                   <td className="px-4 py-3.5">
@@ -198,12 +154,8 @@ export default function ArchivedGranteesTable({
                     </div>
                   </td>
                   <td className="px-4 py-3.5">
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                      record.status === "GRADUATED"
-                        ? "bg-slate-100 text-slate-700"
-                        : "bg-rose-100 text-rose-700"
-                    }`}>
-                      {record.status === "GRADUATED" ? "Graduated" : "Removed"}
+                    <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                      Graduated
                     </span>
                   </td>
                   <td className="px-4 py-3.5">
@@ -263,9 +215,9 @@ export default function ArchivedGranteesTable({
               }}
               className="min-h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
             >
-              <option value={10}>10 rows</option>
-              <option value={20}>20 rows</option>
-              <option value={50}>50 rows</option>
+              {ADMIN_TABLE_PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>{size} rows</option>
+              ))}
             </select>
           </label>
         </div>

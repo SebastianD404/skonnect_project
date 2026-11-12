@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Archive, FileText, X } from "lucide-react";
+import {
+  KK_MEMBER_ARCHIVE_REASONS,
+  type KKMemberArchiveReason,
+} from "@/lib/kk-member-archive";
 import { AdminKKProfilingFormView } from "./AdminKKProfilingFormView";
 import type { KKProfilingRegistration } from "./types";
 
 interface RegistrationRowActionsProps {
   registration: KKProfilingRegistration;
-  onArchive?: (id: string) => Promise<void>;
+  onArchive?: (id: string, reason: KKMemberArchiveReason) => Promise<void>;
   onUpdate: (registration: KKProfilingRegistration) => void;
   onStatusUpdate: (status: "Approved" | "Returned" | "Rejected", registrationId: string) => void;
   compact?: boolean;
@@ -19,6 +23,7 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
   const [showDetails, setShowDetails] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"archive" | null>(null);
+  const [archiveReason, setArchiveReason] = useState<KKMemberArchiveReason | "">("");
   const [isConfirmingAction, setIsConfirmingAction] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -32,11 +37,11 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
   }, [registration]);
 
   const handleConfirmAction = async () => {
-    if (!onArchive) return;
+    if (!onArchive || !archiveReason) return;
     setIsConfirmingAction(true);
     setActionError(null);
     try {
-      await onArchive(registration.id);
+      await onArchive(registration.id, archiveReason);
       setConfirmAction(null);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Failed to update profile");
@@ -90,7 +95,10 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
       {onArchive ? (
         <button
           type="button"
-          onClick={() => setConfirmAction("archive")}
+          onClick={() => {
+            setArchiveReason("");
+            setConfirmAction("archive");
+          }}
           className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border border-amber-200 bg-amber-50 text-amber-700 transition hover:border-amber-300 hover:bg-amber-100`}
           title="Archive profile"
           aria-label="Archive profile"
@@ -392,6 +400,24 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                       </p>
                     </div>
                   ) : null}
+                  <label className="mt-4 block text-left">
+                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">Archive reason</span>
+                    <select
+                      value={archiveReason}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setArchiveReason(
+                          KK_MEMBER_ARCHIVE_REASONS.find((reason) => reason === value) ?? "",
+                        );
+                      }}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-500/10"
+                    >
+                      <option value="">Select a reason</option>
+                      {KK_MEMBER_ARCHIVE_REASONS.map((reason) => (
+                        <option key={reason} value={reason}>{reason}</option>
+                      ))}
+                    </select>
+                  </label>
                   {actionError ? (
                     <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                       {actionError}
@@ -408,7 +434,7 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                     <button
                       type="button"
                       onClick={handleConfirmAction}
-                      disabled={isConfirmingAction}
+                      disabled={isConfirmingAction || !archiveReason}
                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Archive className="h-4 w-4" aria-hidden="true" />

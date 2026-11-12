@@ -38,12 +38,16 @@ type KKProfilingRegistrationData = {
   idFrontFileUrl?: string | null;
   idBackFileUrl?: string | null;
   idSingleFileUrl?: string | null;
+  photoFileUrl?: string | null;
+  birthCertificateFileUrl?: string | null;
   residencyStatementAcknowledgement?: boolean;
   reviewStatus: string;
   submittedAt?: string | null;
 };
 
 type SelectedFiles = {
+  photo?: File | null;
+  birthCertificate?: File | null;
   front?: File | null;
   back?: File | null;
   single?: File | null;
@@ -71,6 +75,52 @@ type UnifiedDocumentDropzoneProps = {
 };
 
 type DocumentValidationStatus = "idle" | "scanning" | "success" | "error";
+
+type SimpleDocumentReplacementProps = {
+  title: string;
+  existingUrl?: string | null;
+  selectedFile?: File | null;
+  accept: string;
+  helper: string;
+  onFileChange: (file: File | null) => void;
+};
+
+function SimpleDocumentReplacement({
+  title,
+  existingUrl,
+  selectedFile,
+  accept,
+  helper,
+  onFileChange,
+}: SimpleDocumentReplacementProps) {
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4">
+      <span className="font-semibold text-slate-900">{title}</span>
+      <span className="text-xs text-slate-500">{helper}</span>
+      {existingUrl ? (
+        <a
+          href={existingUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-sm font-medium text-blue-700 underline"
+          onClick={(event) => event.stopPropagation()}
+        >
+          View document currently on file
+        </a>
+      ) : (
+        <span className="text-xs font-medium text-amber-700">No document on file — upload is required.</span>
+      )}
+      <input
+        type="file"
+        accept={accept}
+        aria-label={`Replace ${title}`}
+        onChange={(event) => onFileChange(event.currentTarget.files?.[0] ?? null)}
+        className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700"
+      />
+      {selectedFile ? <span className="truncate text-xs text-emerald-700">{selectedFile.name}</span> : null}
+    </div>
+  );
+}
 
 function UnifiedDocumentDropzone({
   title,
@@ -417,8 +467,20 @@ function getEditFormValues(registration: KKProfilingRegistrationData) {
 export default function KKProfilingFormModal({ isOpen, registration, onClose, onSaved }: Props) {
   const router = useRouter();
   const [form, setForm] = useState(() => getEditFormValues(registration));
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({ front: null, back: null, single: null });
-  const selectedFilesRef = useRef<SelectedFiles>({ front: null, back: null, single: null });
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({
+    photo: null,
+    birthCertificate: null,
+    front: null,
+    back: null,
+    single: null,
+  });
+  const selectedFilesRef = useRef<SelectedFiles>({
+    photo: null,
+    birthCertificate: null,
+    front: null,
+    back: null,
+    single: null,
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
@@ -426,8 +488,9 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
   useEffect(() => {
     setForm(getEditFormValues(registration));
-    selectedFilesRef.current = { front: null, back: null, single: null };
-    setSelectedFiles({ front: null, back: null, single: null });
+    const emptyFiles = { photo: null, birthCertificate: null, front: null, back: null, single: null };
+    selectedFilesRef.current = emptyFiles;
+    setSelectedFiles(emptyFiles);
     setMessage(null);
     setValidationMessage(null);
     // Keep a selected replacement when the parent recreates this registration object.
@@ -490,6 +553,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     if (!files.front && !registration.idFrontFileUrl) return "Please upload the front of your valid ID.";
     if (!files.back && !registration.idBackFileUrl) return "Please upload the back of your valid ID.";
     if (!files.single && !registration.idSingleFileUrl) return "Please upload your Certificate of Residency.";
+    if (!files.photo && !registration.photoFileUrl) return "Please upload your 2x2 ID picture.";
+    if (!files.birthCertificate && !registration.birthCertificateFileUrl) return "Please upload your Birth Certificate.";
     // Residency confirmation is captured from the uploaded document itself; no checkbox required.
     return null;
   }
@@ -500,7 +565,13 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     const hasFormChanges = Object.keys(initialForm).some(
       (key) => form[key as keyof typeof form] !== initialForm[key as keyof typeof initialForm],
     );
-    const hasSelectedFiles = Boolean(currentFiles.front || currentFiles.back || currentFiles.single);
+    const hasSelectedFiles = Boolean(
+      currentFiles.photo ||
+      currentFiles.birthCertificate ||
+      currentFiles.front ||
+      currentFiles.back ||
+      currentFiles.single,
+    );
     const isReturned = registration.reviewStatus.trim().toLowerCase() === "returned";
 
     if (isReturned && !hasFormChanges && !hasSelectedFiles) {
@@ -562,6 +633,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       appendSelectedFile("frontFile", files.front);
       appendSelectedFile("backFile", files.back);
       appendSelectedFile("residencyFile", files.single);
+      appendSelectedFile("photoFile", files.photo);
+      appendSelectedFile("birthCertificateFile", files.birthCertificate);
 
       const response = await fetch("/api/programs/kk-profiling/registration-with-id", {
         method: "PUT",
@@ -905,6 +978,25 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
             <div>
               <h3 id="document-management-heading" className="text-lg font-semibold text-slate-950">Document management</h3>
               <p className="mt-1 text-sm text-slate-600">Review the documents currently on file or choose replacements below.</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <SimpleDocumentReplacement
+                title="2x2 ID Picture"
+                existingUrl={registration.photoFileUrl}
+                selectedFile={selectedFiles.photo}
+                accept="image/jpeg,image/png,image/webp"
+                helper="JPG, PNG, or WebP (max. 10MB)"
+                onFileChange={(file) => handleFileChange("photo", file)}
+              />
+              <SimpleDocumentReplacement
+                title="Birth Certificate"
+                existingUrl={registration.birthCertificateFileUrl}
+                selectedFile={selectedFiles.birthCertificate}
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                helper="PDF, JPG, PNG, or WebP (max. 10MB)"
+                onFileChange={(file) => handleFileChange("birthCertificate", file)}
+              />
             </div>
 
             <div className="grid grid-cols-1 items-stretch gap-5 md:grid-cols-3">

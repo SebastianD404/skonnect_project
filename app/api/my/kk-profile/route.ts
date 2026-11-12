@@ -109,6 +109,8 @@ async function getKKProfile() {
       idFrontFileUrl: true,
       idBackFileUrl: true,
       idSingleFileUrl: true,
+      photoFileUrl: true,
+      birthCertificateFileUrl: true,
     },
   });
 
@@ -137,6 +139,8 @@ async function getKKProfile() {
       idFrontFileUrl: latestRegistration?.idFrontFileUrl ?? null,
       idBackFileUrl: latestRegistration?.idBackFileUrl ?? null,
       idSingleFileUrl: latestRegistration?.idSingleFileUrl ?? null,
+      photoFileUrl: latestRegistration?.photoFileUrl ?? null,
+      birthCertificateFileUrl: latestRegistration?.birthCertificateFileUrl ?? null,
       registration: latestRegistration
         ? {
             id: latestRegistration.id,
@@ -165,6 +169,8 @@ async function getKKProfile() {
             idFrontFileUrl: latestRegistration.idFrontFileUrl,
             idBackFileUrl: latestRegistration.idBackFileUrl,
             idSingleFileUrl: latestRegistration.idSingleFileUrl,
+            photoFileUrl: latestRegistration.photoFileUrl,
+            birthCertificateFileUrl: latestRegistration.birthCertificateFileUrl,
           }
         : null,
     },

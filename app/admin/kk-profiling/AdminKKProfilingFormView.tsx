@@ -389,6 +389,12 @@ export function AdminKKProfilingFormView({
               <p className="mt-2 text-sm text-slate-600">{registration.idDocumentType || "Not uploaded"}</p>
 
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                {registration.photoFileUrl ? (
+                  <PrintableDocumentCard title="2x2 ID Picture" subtitle="Profile photo" url={registration.photoFileUrl} />
+                ) : null}
+                {registration.birthCertificateFileUrl ? (
+                  <PrintableDocumentCard title="Birth Certificate" subtitle="Foundational identity document" url={registration.birthCertificateFileUrl} />
+                ) : null}
                 {registration.idFrontFileUrl ? (
                   <PrintableDocumentCard title="Front of ID" subtitle="Identity Document" url={registration.idFrontFileUrl} />
                 ) : null}
@@ -403,7 +409,7 @@ export function AdminKKProfilingFormView({
                     fullWidth
                   />
                 ) : null}
-                {!registration.idFrontFileUrl && !registration.idBackFileUrl && !registration.idSingleFileUrl ? (
+                {!registration.photoFileUrl && !registration.birthCertificateFileUrl && !registration.idFrontFileUrl && !registration.idBackFileUrl && !registration.idSingleFileUrl ? (
                   <p className="col-span-1 text-sm text-slate-600 md:col-span-2">No uploaded ID documents were stored for this registration.</p>
                 ) : null}
               </div>

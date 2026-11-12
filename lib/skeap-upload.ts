@@ -6,6 +6,8 @@ export const SKEAP_UPLOAD_KEY = {
   FAMILY_INCOME: "incomeCertificate",
   PHOTO: "photo",
   VOTER_CERTIFICATE: "voterCertificate",
+  KK_ID_FRONT: "kkIdFront",
+  KK_ID_BACK: "kkIdBack",
   OTHER: "other",
 } as const;
 
@@ -204,55 +206,45 @@ export const SKEAP_UPLOAD_ORDER: SkeapUploadKey[] = [
   SKEAP_UPLOAD_KEY.FAMILY_INCOME,
   SKEAP_UPLOAD_KEY.PHOTO,
   SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+  SKEAP_UPLOAD_KEY.KK_ID_FRONT,
+  SKEAP_UPLOAD_KEY.KK_ID_BACK,
   SKEAP_UPLOAD_KEY.OTHER,
 ];
 
 export const SKEAP_UPLOAD_LABELS: Record<SkeapUploadKey, string> = {
   [SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE]: "Birth Certificate",
   [SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY]: "Certificate of Residency",
-  [SKEAP_UPLOAD_KEY.ENROLLMENT_CERT]: "Certified True Copy of Enrollment Form or Certificate of Enrollment",
-  [SKEAP_UPLOAD_KEY.GRADE_REPORT]: "Grades issued by the school registrar",
-  [SKEAP_UPLOAD_KEY.FAMILY_INCOME]: "Certificate of Low-income of Parents or Guardian",
+  [SKEAP_UPLOAD_KEY.ENROLLMENT_CERT]: "Certificate of Enrollment",
+  [SKEAP_UPLOAD_KEY.GRADE_REPORT]: "Certified Grades / Form 138",
+  [SKEAP_UPLOAD_KEY.FAMILY_INCOME]: "Certificate of Low-Income",
   [SKEAP_UPLOAD_KEY.PHOTO]: "2x2 Photo (ID)",
   [SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE]: "Voter's Certificate",
+  [SKEAP_UPLOAD_KEY.KK_ID_FRONT]: "Valid ID (Front)",
+  [SKEAP_UPLOAD_KEY.KK_ID_BACK]: "Valid ID (Back)",
   [SKEAP_UPLOAD_KEY.OTHER]: "Additional Document",
 };
 
-export function getSkeapRequiredDocuments(educationLevel: string, yearLevel: string): SkeapRequiredDocument[] {
-  const academicRecordLabel = educationLevel.includes("High School") ||
-    (educationLevel === "College" && yearLevel === "Incoming Freshman")
-    ? "Certified true copy of report card or form 138"
-    : "Grades issued by the school registrar";
-
+export function getSkeapRequiredDocuments(_educationLevel: string, _yearLevel: string): SkeapRequiredDocument[] {
+  void _educationLevel;
+  void _yearLevel;
   return [
     {
-      key: SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE,
-      label: SKEAP_UPLOAD_LABELS[SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE],
-      helperText: "Original and Photocopy",
-    },
-    {
       key: SKEAP_UPLOAD_KEY.FAMILY_INCOME,
-      label: SKEAP_UPLOAD_LABELS[SKEAP_UPLOAD_KEY.FAMILY_INCOME],
+      label: "Certificate of Low-Income",
       helperText: 'Stating for the purpose of "Sangguniang Kabataan Educational Assistance Program"',
     },
     {
-      key: SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY,
-      label: SKEAP_UPLOAD_LABELS[SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY],
-    },
-    {
       key: SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
-      label: SKEAP_UPLOAD_LABELS[SKEAP_UPLOAD_KEY.ENROLLMENT_CERT],
+      label: "Certificate of Enrollment",
     },
     {
       key: SKEAP_UPLOAD_KEY.GRADE_REPORT,
-      label: academicRecordLabel,
+      label: "Certified Grades / Form 138",
     },
   ];
 }
 
 export const CORE_UPLOAD_KEYS: SkeapUploadKey[] = [
-  SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE,
-  SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY,
   SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
   SKEAP_UPLOAD_KEY.GRADE_REPORT,
   SKEAP_UPLOAD_KEY.FAMILY_INCOME,
@@ -389,6 +381,8 @@ export function getFileTypeLabel(url: string) {
 export function normalizeUploadRequirement(value: string): SkeapUploadKey {
   const normalized = String(value || "").trim().toLowerCase();
 
+  if (/kkidfront|valididfront/.test(normalized)) return SKEAP_UPLOAD_KEY.KK_ID_FRONT;
+  if (/kkidback|valididback/.test(normalized)) return SKEAP_UPLOAD_KEY.KK_ID_BACK;
   if (/2x2|photo|id photo/.test(normalized)) return SKEAP_UPLOAD_KEY.PHOTO;
   if (/birth|valid id|passport|license/.test(normalized)) return SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE;
   if (/barangay|residency|residence|proof of residency|residence certificate/.test(normalized)) return SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY;

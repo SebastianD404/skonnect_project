@@ -6,8 +6,7 @@ import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import UserRoleManager from "../UserRoleManager";
 import AdminTablePaginationFooter from "@/app/admin/AdminTablePaginationFooter";
-
-const PAGE_SIZES = [10, 20, 50] as const;
+import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 
 export default async function SystemAdminUsersPage({
   searchParams,
@@ -22,9 +21,7 @@ export default async function SystemAdminUsersPage({
   const requestedPage = Number(rawPage || 1);
   const page = Number.isSafeInteger(requestedPage) ? Math.max(1, requestedPage) : 1;
   const requestedPageSize = Number(rawPageSize);
-  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
-    ? requestedPageSize
-    : 10;
+  const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const hasRetentionColumn = await hasGranteeRetentionColumn();
   const [totalCount, users] = await Promise.all([
     prisma.user.count(),

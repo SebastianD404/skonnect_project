@@ -1,4 +1,4 @@
-import { GranteeStatus, Prisma, Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import GranteeArchiveExportMenu from "./GranteeArchiveExportMenu";
@@ -6,14 +6,10 @@ import ArchivedGranteesTable from "./ArchivedGranteesTable";
 
 type HistoricalGranteeRecord = {
   id: string;
-  userId: string;
-  status: GranteeStatus;
   yearLevel: string;
   school: string;
   dateEnrolled: Date;
-  dateRemoved: Date | null;
   remarks: string | null;
-  updatedAt: Date;
   graduatedAt: Date | null;
   fullName: string | null;
   email: string | null;
@@ -35,33 +31,27 @@ export default async function GranteeRecordsPage({ searchParams }: {
   const records = await prisma.$queryRaw<HistoricalGranteeRecord[]>(Prisma.sql`
       SELECT
         grantee."id",
-        grantee."userId",
-        grantee."status",
         grantee."yearLevel",
         grantee."school",
         grantee."dateEnrolled",
-        grantee."dateRemoved",
         grantee."remarks",
-        grantee."updatedAt",
         grantee."graduatedAt",
         account."fullName",
         account."email"
       FROM "public"."grantees" AS grantee
       INNER JOIN "public"."users" AS account ON account."id" = grantee."userId"
-      WHERE grantee."status" IN ('GRADUATED'::"GranteeStatus", 'REMOVED'::"GranteeStatus")
-      ORDER BY grantee."graduatedAt" DESC NULLS LAST,
-        grantee."dateRemoved" DESC NULLS LAST,
-        grantee."updatedAt" DESC
+      WHERE grantee."status" = 'GRADUATED'::"GranteeStatus"
+      ORDER BY grantee."graduatedAt" DESC NULLS LAST, grantee."updatedAt" DESC
     `);
 
   return (
     <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 pb-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Grantee records</span>
-          <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Archived Grantee Reports</h1>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">SKEAP records</span>
+          <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Graduated Scholars</h1>
           <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
-            Generate reports and review historical data for graduated and removed SKEAP scholars.
+            SKEAP scholars appear here when an administrator marks them as graduated. Revoked scholars are listed separately.
           </p>
         </div>
         <GranteeArchiveExportMenu />

@@ -11,7 +11,6 @@ import {
   type SkeapVerificationStatus,
   type SkeapUploadKey,
 } from "@/lib/skeap-upload";
-import SmartPortraitDropzone from "@/components/SmartPortraitDropzone";
 import type { KKProfile } from "@/lib/kk-profile-client";
 import { validateDocumentOCR } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
@@ -46,6 +45,26 @@ type SkeapUploadValue = {
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
 };
+
+type KkIdentityDocuments = {
+  photo: string;
+  birthCertificate: string;
+  validIdFront: string;
+  validIdBack: string;
+  residency: string;
+};
+
+function isKkIdentityDocuments(value: unknown): value is KkIdentityDocuments {
+  if (!value || typeof value !== "object") return false;
+  const documents = value as Record<string, unknown>;
+  return [
+    documents.photo,
+    documents.birthCertificate,
+    documents.validIdFront,
+    documents.validIdBack,
+    documents.residency,
+  ].every((url) => typeof url === "string" && url.startsWith("/api/private-documents/"));
+}
 
 const MAX_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024;
 const ACCEPTED_DOCUMENT_TYPES = "image/jpeg,image/png,image/webp,application/pdf";
@@ -440,6 +459,10 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
   const [vocationalYearGraduated, setVocationalYearGraduated] = useState("");
 
   const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [identityDocuments, setIdentityDocuments] = useState<KkIdentityDocuments | null>(null);
+  const [identityDocumentsError, setIdentityDocumentsError] = useState<string | null>(null);
+  const [loadingIdentityDocuments, setLoadingIdentityDocuments] = useState(true);
+  const [updatingPhoto, setUpdatingPhoto] = useState(false);
   const [invalidFields, setInvalidFields] = useState<Set<string>>(new Set());
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [showGlobalError, setShowGlobalError] = useState(false);
@@ -448,9 +471,63 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
   const [actionError, setActionError] = useState<string | null>(null);
   const previewObjectUrlsRef = useRef(new Set<string>());
 
+  async function updateProfilePhoto(file: File) {
+    setUpdatingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append("photo", file);
+      const response = await fetch("/api/my/kk-identity-documents/photo", {
+        method: "POST",
+        body: formData,
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Unable to update your photo.");
+      }
+      if (typeof result.photo !== "string" || !result.photo.startsWith("/api/private-documents/")) {
+        throw new Error("The updated photo reference was invalid.");
+      }
+
+      setIdentityDocuments((current) => current ? { ...current, photo: result.photo } : current);
+      window.dispatchEvent(new Event("skonnect-profile-updated"));
+    } finally {
+      setUpdatingPhoto(false);
+    }
+  }
+
   useEffect(() => () => {
     previewObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     previewObjectUrlsRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/my/kk-identity-documents", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Unable to load your verified KK identity documents.");
+        }
+        if (!isKkIdentityDocuments(result.documents)) {
+          throw new Error("The approved KK Profile returned incomplete identity document references.");
+        }
+        setIdentityDocuments(result.documents);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error("Could not load approved KK identity documents for SKEAP:", error);
+        setIdentityDocumentsError(
+          error instanceof Error ? error.message : "Unable to load verified KK identity documents."
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingIdentityDocuments(false);
+      });
+
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -472,12 +549,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
     return files.find((f) => f.status === "done")?.url;
   }, [files]);
 
-  const photoFileRecord = useMemo(
-    () => files.find((f) => f.status === "done" && f.url && f.requirement === SKEAP_UPLOAD_KEY.PHOTO),
-    [files]
-  );
-
-  const photoFileUrl = photoFileRecord?.url;
+  const photoFileUrl = identityDocuments?.photo ?? "";
 
   const reportCardFileUrl = useMemo(() => {
     const byRequirement = files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.GRADE_REPORT);
@@ -514,7 +586,14 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
       if (!gender.trim()) addError("gender", "Gender is required.");
       if (!contactNumber.trim()) addError("contactNumber", "Contact number is required.");
       if (!emailAddress.trim()) addError("emailAddress", "Email address is required.");
-      if (!photoFileUrl) addError("photoFile", "Please upload a 2x2 photo (ID).");
+      if (!photoFileUrl) {
+        addError(
+          "photoFile",
+          loadingIdentityDocuments
+            ? "Loading your verified KK Profile photo."
+            : identityDocumentsError || "Your verified KK Profile photo is unavailable."
+        );
+      }
       if (registeredVoter === null) addError("registeredVoter", "Please indicate Registered Voter (Yes/No).");
       if (registeredVoter === true && Number(age) >= 18) {
         if (!isUploadCompleteForKey(files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)) {
@@ -862,11 +941,10 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         }
         return acc;
       }, {});
-      const photoFile = findUploadFileForKey(files, SKEAP_UPLOAD_KEY.PHOTO);
-      if (photoFile?.status === "done" && photoFile.url?.trim()) {
+      if (identityDocuments?.photo) {
         documentUploads[SKEAP_UPLOAD_KEY.PHOTO] = {
-          name: photoFile.name,
-          url: photoFile.url.trim(),
+          name: "2x2 ID Picture",
+          url: identityDocuments.photo,
         };
       }
       const voterCertificate = findUploadFileForKey(files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
@@ -898,7 +976,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         doneUrls.find((url) => url !== enrollmentFileUrl) ||
         doneUrls[1] ||
         "";
-      const photoFileUrl = photoFile?.status === "done" ? photoFile.url?.trim() || "" : "";
+      const photoFileUrl = identityDocuments?.photo ?? "";
       const voterCertificateFileUrl =
         files.find((f) => f.status === "done" && f.requirement === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)?.url || null;
 
@@ -923,7 +1001,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
           gwa: gwa,
           enrollmentFileUrl: enrollmentFileUrl || doneUrls[0],
           reportCardFileUrl: reportCardFileUrl || doneUrls[1],
-          photoFileUrl: photoFileUrl || doneUrls.find(Boolean),
+          photoFileUrl,
           signatureUrl,
           // Send the structured name fields so the API can require and format the full legal name.
           applicantName,
@@ -1238,17 +1316,24 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
               />
             </label>
             <div className="mt-2 md:col-span-2">
-              <p className="mb-2 block text-sm font-semibold text-slate-900">2x2 Photo (ID) <span className="text-black" aria-hidden="true">*</span></p>
-              <SmartPortraitDropzone
-                invalid={invalidFields.has("photoFile")}
-                uploadedUrl={photoFileUrl}
-                uploadedName={photoFileRecord?.name}
-                onFileSelected={async (file) => {
-                  markFieldValid("photoFile");
-                  const uploadError = await onChooseFiles([file], "2x2 Photo");
-                  if (uploadError) throw new Error(uploadError);
-                }}
-              />
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <p className="text-sm font-semibold text-slate-900">2x2 ID Picture</p>
+                <p className="mt-1 text-xs text-emerald-800">Attached securely from your approved KK Profile.</p>
+                {identityDocuments?.photo ? (
+                  <a
+                    href={identityDocuments.photo}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex text-xs font-semibold text-emerald-800 underline"
+                  >
+                    View verified photo
+                  </a>
+                ) : loadingIdentityDocuments ? (
+                  <p className="mt-2 text-xs text-slate-500">Loading verified photo…</p>
+                ) : (
+                  <p className="mt-2 text-xs text-rose-700">{identityDocumentsError || "Verified photo is unavailable."}</p>
+                )}
+              </div>
             </div>
             <fieldset className="mt-2 flex flex-col gap-2 md:col-span-2">
               <legend className="text-sm font-semibold text-slate-900">Registered Voter <span className="text-black" aria-hidden="true">*</span></legend>
@@ -1709,7 +1794,41 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
 
         {step === 3 ? (
         <div className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-6">
-          <p className="text-sm font-semibold text-slate-900">Upload your required application documents</p>
+          <section aria-labelledby="verified-identity-documents-title" className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
+            <h3 id="verified-identity-documents-title" className="text-base font-bold text-slate-900">
+              Verified Identity Documents
+            </h3>
+            <p className="mt-1 text-xs text-slate-600">
+              These documents are securely attached from your approved KK Profile. No re-upload is needed.
+            </p>
+            {loadingIdentityDocuments ? (
+              <p role="status" className="mt-4 text-sm text-slate-600">Loading your approved KK Profile documents…</p>
+            ) : identityDocumentsError ? (
+              <p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                {identityDocumentsError}
+              </p>
+            ) : identityDocuments ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <UpdatablePhotoDocumentCard
+                  label="2x2 ID Picture"
+                  href={identityDocuments.photo}
+                  onUpdate={updateProfilePhoto}
+                  isUploading={updatingPhoto}
+                />
+                <VerifiedIdentityDocumentCard label="Birth Certificate" links={[{ label: "View document", href: identityDocuments.birthCertificate }]} />
+                <VerifiedIdentityDocumentCard
+                  label="Valid ID (Front & Back)"
+                  links={[
+                    { label: "Front", href: identityDocuments.validIdFront },
+                    { label: "Back", href: identityDocuments.validIdBack },
+                  ]}
+                />
+                <VerifiedIdentityDocumentCard label="Certificate of Residency" links={[{ label: "View document", href: identityDocuments.residency }]} />
+              </div>
+            ) : null}
+          </section>
+
+          <p className="text-sm font-semibold text-slate-900">Upload this term&apos;s required application documents</p>
 
           <div className="grid gap-3">
             {requiredDocuments.map((requiredDocument) => {
@@ -1992,6 +2111,116 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         footerActionsTarget
       ) : null}
     </div>
+  );
+}
+
+function VerifiedIdentityDocumentCard({
+  label,
+  links,
+}: {
+  label: string;
+  links: Array<{ label: string; href: string }>;
+}) {
+  return (
+    <article className="rounded-xl border border-emerald-200 bg-white p-3">
+      <div className="flex items-start gap-2">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold text-slate-900">{label}</h4>
+          <p className="mt-1 text-xs text-emerald-700">Attached securely from your KK Profile</p>
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+            {links.map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-semibold text-[#0F3D5C] underline"
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function UpdatablePhotoDocumentCard({
+  label,
+  href,
+  onUpdate,
+  isUploading,
+}: {
+  label: string;
+  href: string;
+  onUpdate: (file: File) => Promise<void>;
+  isUploading: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleFileChange(file: File | null) {
+    setError(null);
+    if (!file) return;
+    if (!["image/jpeg", "image/png"].includes(file.type)) {
+      setError("Choose a JPG or PNG image.");
+      return;
+    }
+    if (file.size === 0 || file.size > 10 * 1024 * 1024) {
+      setError("Photo must be no larger than 10MB.");
+      return;
+    }
+    try {
+      await onUpdate(file);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Unable to update your photo.");
+    }
+  }
+
+  return (
+    <article className="rounded-xl border border-emerald-200 bg-white p-3">
+      <div className="flex items-start gap-2">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <h4 className="text-sm font-semibold text-slate-900">{label}</h4>
+          <p className="mt-1 text-xs text-emerald-700">Attached securely from your KK Profile</p>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-flex text-xs font-semibold text-[#0F3D5C] underline"
+          >
+            View current photo
+          </a>
+          <p className="mt-2 text-xs text-slate-600">
+            Ensure this is your latest photo. Click to update if needed.
+          </p>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+            className="hidden"
+            aria-label="Upload a new 2x2 ID picture"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0] ?? null;
+              event.currentTarget.value = "";
+              void handleFileChange(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={isUploading}
+            className="mt-3 inline-flex items-center rounded-lg border border-[#0F3D5C] px-3 py-1.5 text-xs font-semibold text-[#0F3D5C] transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+          >
+            {isUploading ? "Updating photo…" : "Update Photo"}
+          </button>
+          {error ? <p role="alert" className="mt-2 text-xs text-rose-700">{error}</p> : null}
+        </div>
+      </div>
+    </article>
   );
 }
 

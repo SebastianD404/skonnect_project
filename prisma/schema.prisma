@@ -15,6 +15,7 @@ model User {
   fullName               String
   phoneNumber            String?
   role                   Role                    @default(YOUTH)
+  kkStatus               String                  @default("UNPROFILED") @map("kk_status")
   languagePref           Language                @default(ENGLISH)
   barangay               String                  @default("Pico")
   isActive               Boolean                 @default(true)
@@ -230,8 +231,10 @@ model ProfilingRegistration {
   archivedAt                        DateTime? @map("archived_at")
   reviewNotes                       String?
   idBackFileUrl                     String?
+  birthCertificateFileUrl           String?
   idDocumentType                    String?
   idFrontFileUrl                    String?
+  photoFileUrl                      String?
   idSingleFileUrl                   String?
   residencyStatementAcknowledgement Boolean  @default(false)
   middleName                        String   @default("")
@@ -296,6 +299,7 @@ model Notification {
   id        String    @id @default(uuid())
   userId    String
   sourceKey String
+  message   String?
   isRead    Boolean   @default(false)
   readAt    DateTime?
   createdAt DateTime  @default(now())
@@ -453,15 +457,24 @@ model Semester {
 }
 
 model AccountingPayout {
-  id        String    @id @default(uuid())
-  granteeId String    @unique
-  amount    Int
-  semester  String?
-  claimedAt DateTime? @map("claimed_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  grantee   Grantee   @relation(fields: [granteeId], references: [id])
+  id                      String                 @id @default(uuid())
+  granteeId               String                 @unique
+  amount                  Int
+  semester                String?
+  status                  AccountingPayoutStatus @default(PENDING)
+  disbursedAt             DateTime?              @map("disbursed_at")
+  claimedAt               DateTime?              @map("claimed_at")
+  disbursementEmailSentAt DateTime?              @map("disbursement_email_sent_at")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  grantee                 Grantee                @relation(fields: [granteeId], references: [id])
 
   @@map("accounting_payouts")
+}
+
+enum AccountingPayoutStatus {
+  PENDING
+  DISBURSED_UNCONFIRMED
+  CONFIRMED
 }
 
 model registrations {

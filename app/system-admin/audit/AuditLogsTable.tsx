@@ -13,6 +13,7 @@ import {
   shortAuditId,
 } from "@/lib/audit/metadata";
 import { formatPhilippineTime } from "@/lib/audit/time";
+import { ADMIN_TABLE_PAGE_SIZES } from "@/lib/admin-pagination";
 
 type AuditItem = {
   id: string;
@@ -593,9 +594,9 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
                 onChange={(event) => navigateToPage(1, Number(event.target.value))}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
               >
-                <option value={10}>10 rows</option>
-                <option value={20}>20 rows</option>
-                <option value={50}>50 rows</option>
+                {ADMIN_TABLE_PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>{size} rows</option>
+                ))}
               </select>
             </label>
           </div>

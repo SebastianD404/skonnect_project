@@ -1,62 +1,56 @@
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/audit/logger";
+import { dispatchPayout } from "@/lib/payout-disbursement";
+import { createClient } from "@/lib/supabase/server";
+import { getRecentSemesters } from "@/lib/semester";
 
-const db = prisma; // explicit db variable as requested
-
-export async function PATCH(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-
-  if (!id) {
-    return NextResponse.json({ ok: false, error: 'Missing id' }, { status: 400 });
-  }
+  if (!id) return NextResponse.json({ ok: false, error: "Missing grantee ID." }, { status: 400 });
 
   try {
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
 
     const actor = await ensureProfile(user);
     if (!actor || (actor.role !== Role.SK_OFFICIAL && actor.role !== Role.SUPER_ADMIN)) {
-      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
     }
 
-    // Check if accounting_payouts table exists
-    const existsRes = await db.$queryRaw<Array<{ exists: boolean }>>`SELECT to_regclass('public.accounting_payouts') IS NOT NULL AS exists`;
-    const exists = Array.isArray(existsRes) && existsRes[0] && existsRes[0].exists;
-    if (!exists) {
-      return NextResponse.json({ ok: false, error: 'accounting_payouts table does not exist. Create it or run prisma migrations.' }, { status: 501 });
+    const body = await request.json().catch(() => null);
+    if (body && typeof body === "object" && "claimed" in body && body.claimed === false) {
+      return NextResponse.json(
+        { ok: false, error: "A disbursed payout cannot be unmarked. Confirmations are recorded by the grantee." },
+        { status: 409 },
+      );
+    }
+    const requestedSemester =
+      body && typeof body === "object" && "semester" in body && typeof body.semester === "string"
+        ? body.semester.trim()
+        : "";
+    if (requestedSemester.length > 120) {
+      return NextResponse.json({ ok: false, error: "Semester name is too long." }, { status: 400 });
     }
 
-    await db.$transaction(async (tx) => {
-      const before = await tx.accountingPayout.findUnique({ where: { granteeId: id } });
-      await tx.accountingPayout.upsert({
-        where: { granteeId: id },
-        update: { amount: 5000, claimedAt: new Date() },
-        create: { granteeId: id, amount: 5000, claimedAt: new Date() },
-      });
-      const after = await tx.accountingPayout.findUnique({ where: { granteeId: id } });
-      await writeAuditLog(tx, {
-        action: "Mark payout claimed",
-        actorId: actor.id,
-        targetTable: "accounting_payouts",
-        targetId: id,
-        beforeData: before,
-        afterData: after,
-        metadata: { source: "disbursements_endpoint" },
-      });
+    const result = await dispatchPayout({
+      granteeId: id,
+      semester: requestedSemester || getRecentSemesters()[0].name,
+      actorId: actor.id,
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      status: result.payout.status,
+      emailStatus: result.emailStatus,
+      ...(result.emailError ? { emailError: result.emailError } : {}),
+    });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: String(error) }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Unable to dispatch payout.";
+    console.error("Could not dispatch payout:", { granteeId: id, error });
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

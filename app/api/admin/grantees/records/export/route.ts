@@ -7,10 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-type ExportStatus = "all" | "graduated" | "removed";
 type ArchivedGranteeExportRow = {
   name: string | null;
-  status: GranteeStatus;
   school: string;
   yearLevel: string;
   dateEnrolled: Date;
@@ -27,13 +25,6 @@ const COLUMNS = [
   { header: "End Date", key: "endDate", width: 18 },
   { header: "Remarks", key: "remarks", width: 48 },
 ] as const;
-
-function getFilename(status: ExportStatus) {
-  const year = new Date().getFullYear();
-  if (status === "graduated") return `SKEAP-Graduated-Alumni-${year}.xlsx`;
-  if (status === "removed") return `SKEAP-Removed-Scholars-${year}.xlsx`;
-  return `SKEAP-All-Archives-${year}.xlsx`;
-}
 
 function styleWorksheet(worksheet: ExcelJS.Worksheet) {
   const header = worksheet.getRow(1);
@@ -79,44 +70,34 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const requestedStatus = request.nextUrl.searchParams.get("status") ?? "all";
-  if (!["all", "graduated", "removed"].includes(requestedStatus)) {
+  const requestedStatus = request.nextUrl.searchParams.get("status") ?? "graduated";
+  if (requestedStatus !== "graduated") {
     return NextResponse.json({ error: "Invalid grantee archive report status." }, { status: 400 });
   }
-  const status = requestedStatus as ExportStatus;
-  const statusFilter = status === "all"
-    ? "ALL"
-    : status === "graduated"
-      ? GranteeStatus.GRADUATED
-      : GranteeStatus.REMOVED;
 
   try {
     const records = await prisma.$queryRaw<ArchivedGranteeExportRow[]>(Prisma.sql`
       SELECT
         account."fullName" AS "name",
-        grantee."status",
         grantee."school",
         grantee."yearLevel",
         grantee."dateEnrolled",
-        COALESCE(grantee."graduatedAt", grantee."dateRemoved") AS "endDate",
+        grantee."graduatedAt" AS "endDate",
         grantee."remarks"
       FROM "public"."grantees" AS grantee
       INNER JOIN "public"."users" AS account ON account."id" = grantee."userId"
-      WHERE grantee."status" IN ('GRADUATED'::"GranteeStatus", 'REMOVED'::"GranteeStatus")
-        AND (${statusFilter} = 'ALL' OR grantee."status"::text = ${statusFilter})
-      ORDER BY grantee."graduatedAt" DESC NULLS LAST,
-        grantee."dateRemoved" DESC NULLS LAST,
-        grantee."updatedAt" DESC
+      WHERE grantee."status"::text = ${GranteeStatus.GRADUATED}
+      ORDER BY grantee."graduatedAt" DESC NULLS LAST, grantee."updatedAt" DESC
     `);
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "SKonnect";
     workbook.created = new Date();
-    const worksheet = workbook.addWorksheet("Grantee Archives");
+    const worksheet = workbook.addWorksheet("Graduated Scholars");
     worksheet.columns = [...COLUMNS];
     worksheet.addRows(records.map((record) => ({
       name: record.name ?? "Unknown scholar",
-      status: record.status === GranteeStatus.GRADUATED ? "Graduated" : "Removed",
+      status: "Graduated",
       school: record.school,
       yearLevel: record.yearLevel,
       dateEnrolled: record.dateEnrolled,
@@ -129,7 +110,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${getFilename(status)}"`,
+        "Content-Disposition": `attachment; filename="SKEAP-Graduated-Grantees-${new Date().getFullYear()}.xlsx"`,
         "Cache-Control": "no-store",
       },
     });

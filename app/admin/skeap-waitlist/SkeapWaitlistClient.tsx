@@ -1,17 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { AlertTriangle, CheckCircle2, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { DEFAULT_SKEAP_MAX_SLOTS } from "@/lib/skeap-capacity-constants";
+import { ADMIN_TABLE_PAGE_SIZES, DEFAULT_ADMIN_TABLE_PAGE_SIZE } from "@/lib/admin-pagination";
 
 type CapacityState = {
   activeCount: number;
   maxSlots: number;
 };
-
-const PAGE_SIZES = [10, 20, 50] as const;
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString("en-US", {
@@ -57,8 +58,18 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const [slotLimitDraft, setSlotLimitDraft] = useState(String(initialData.maxSlots));
   const [savingCapacity, setSavingCapacity] = useState(false);
   const isCapacityExceeded = capacityWarning || capacity.activeCount >= capacity.maxSlots;
+  const isOverConfiguredCapacity = capacity.activeCount > capacity.maxSlots;
+  const isOverHardCapacity = capacity.activeCount > DEFAULT_SKEAP_MAX_SLOTS;
+  const canIncreaseConfiguredCapacity =
+    capacity.maxSlots < DEFAULT_SKEAP_MAX_SLOTS &&
+    capacity.activeCount <= DEFAULT_SKEAP_MAX_SLOTS;
+  const capacityTooltip = isOverHardCapacity
+    ? "The hard 55-slot limit is exceeded. Review active records before promoting."
+    : canIncreaseConfiguredCapacity
+      ? "All configured slots are filled. The limit can be raised up to 55."
+      : "All 55 slots are filled. A slot must be freed before promotion.";
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_ADMIN_TABLE_PAGE_SIZE);
   const [searchQuery, setSearchQuery] = useState("");
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredApplications = applications.filter((application) =>
@@ -259,48 +270,78 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
           </p>
         </div>
         <div className="flex shrink-0">
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-sm">
+          <div className={`flex flex-wrap items-center justify-between gap-4 rounded-2xl border px-4 py-2.5 shadow-sm ${isOverConfiguredCapacity ? "border-rose-200 bg-rose-50" : "border-slate-200/80 bg-white"}`}>
             <div
               className="whitespace-nowrap"
-              title={`${Math.max(0, capacity.maxSlots - capacity.activeCount)} slots remaining`}
-              aria-label={`${capacity.activeCount} of ${capacity.maxSlots} active slots; ${Math.max(0, capacity.maxSlots - capacity.activeCount)} slots remaining`}
+              title={isOverConfiguredCapacity
+                ? `${capacity.activeCount - capacity.maxSlots} above the configured limit`
+                : `${Math.max(0, capacity.maxSlots - capacity.activeCount)} slots remaining`}
+              aria-label={isOverConfiguredCapacity
+                ? `${capacity.activeCount} active records, ${capacity.maxSlots} slot limit, ${capacity.activeCount - capacity.maxSlots} over capacity`
+                : `${capacity.activeCount} of ${capacity.maxSlots} active slots; ${Math.max(0, capacity.maxSlots - capacity.activeCount)} slots remaining`}
             >
-              <span className="text-xl font-bold align-baseline leading-none text-[#086b7d]">{capacity.activeCount}</span>
+              <span className={`text-xl font-bold align-baseline leading-none ${isOverConfiguredCapacity ? "text-rose-700" : "text-[#086b7d]"}`}>{capacity.activeCount}</span>
               <span className="mx-1 text-xl font-bold align-baseline leading-none text-slate-800">/</span>
               <span className="mr-2 text-xl font-bold align-baseline leading-none text-slate-900">{capacity.maxSlots}</span>
               <span className="text-[10px] font-semibold uppercase align-baseline leading-none tracking-wider text-slate-400 sm:text-xs">
                 Active Slots
               </span>
             </div>
-            <div className="mx-1 h-6 border-l border-slate-200" />
-            {!editingCapacity ? (
-              <button type="button" onClick={() => setEditingCapacity(true)} className="whitespace-nowrap text-xs font-semibold text-slate-600 transition-colors hover:text-slate-900">
-                Edit Slot Limit
-              </button>
+            {canIncreaseConfiguredCapacity ? (
+              <>
+                <div className="mx-1 h-6 border-l border-slate-200" />
+                {!editingCapacity ? (
+                  <button type="button" onClick={() => setEditingCapacity(true)} className="whitespace-nowrap text-xs font-semibold text-slate-600 transition-colors hover:text-slate-900">
+                    Edit Slot Limit
+                  </button>
+                ) : (
+                  <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={DEFAULT_SKEAP_MAX_SLOTS}
+                      value={slotLimitDraft}
+                      onChange={(event) => setSlotLimitDraft(event.target.value)}
+                      className="h-9 w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-900 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                      aria-label={`Maximum SKEAP slots, hard limit ${DEFAULT_SKEAP_MAX_SLOTS}`}
+                    />
+                    <button type="button" onClick={() => void saveCapacity()} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
+                      {savingCapacity ? "Saving..." : "Save Changes"}
+                    </button>
+                    <button type="button" onClick={() => { setEditingCapacity(false); setSlotLimitDraft(String(capacity.maxSlots)); }} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={100000}
-                  value={slotLimitDraft}
-                  onChange={(event) => setSlotLimitDraft(event.target.value)}
-                  className="h-9 w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-900 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-                  aria-label="Maximum SKEAP slots"
-                />
-                <button type="button" onClick={() => void saveCapacity()} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
-                  {savingCapacity ? "Saving..." : "Save Changes"}
-                </button>
-                <button type="button" onClick={() => { setEditingCapacity(false); setSlotLimitDraft(String(capacity.maxSlots)); }} disabled={savingCapacity} className="h-9 whitespace-nowrap rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
-                  Cancel
-                </button>
-              </div>
+              <span className="whitespace-nowrap text-xs font-semibold text-slate-500">
+                Hard limit: {DEFAULT_SKEAP_MAX_SLOTS}
+              </span>
             )}
           </div>
         </div>
       </header>
 
       {error ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-semibold text-rose-800">{error}</div> : null}
+      {isOverConfiguredCapacity ? (
+        <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-bold text-rose-900">
+                {isOverHardCapacity ? "SKEAP is over its hard capacity" : "SKEAP is over its configured capacity"}
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-rose-800">
+                {capacity.activeCount} active records exceed the {capacity.maxSlots}-slot limit by {capacity.activeCount - capacity.maxSlots}. New promotions are blocked. Existing grants will not be changed automatically; review the active records to reconcile the count.
+              </p>
+            </div>
+          </div>
+          <Link href="/admin/skeap/active" className="shrink-0 rounded-lg border border-rose-300 bg-white px-3 py-2 text-center text-xs font-semibold text-rose-800 transition hover:bg-rose-100">
+            Review active grantees
+          </Link>
+        </div>
+      ) : null}
       {actionError ? (
         <FloatingFeedback message={actionError} type="error" onDismiss={() => setActionError(null)} />
       ) : toastMessage ? (
@@ -375,7 +416,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                       type="button"
                       onClick={() => openPromotionModal(application)}
                       disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
-                      title={isCapacityExceeded ? "Capacity full. Increase slot limit to promote." : "Promote to active Grantee"}
+                      title={isCapacityExceeded ? capacityTooltip : "Promote to active Grantee"}
                       className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <UserCheck className="h-4 w-4" aria-hidden="true" />
@@ -441,7 +482,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                           onClick={() => openPromotionModal(application)}
                           disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
                           aria-label="Promote to Grantee"
-                          title={isCapacityExceeded ? "Capacity full. Increase slot limit to promote." : "Promote to active Grantee"}
+                          title={isCapacityExceeded ? capacityTooltip : "Promote to active Grantee"}
                           className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <UserCheck className="h-4 w-4" aria-hidden="true" />
@@ -487,7 +528,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-cyan-600"
               >
-                {PAGE_SIZES.map((size) => <option key={size} value={size}>{size} rows</option>)}
+                {ADMIN_TABLE_PAGE_SIZES.map((size) => <option key={size} value={size}>{size} rows</option>)}
               </select>
             </label>
           </div>
@@ -541,7 +582,27 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     Capacity limit reached
                   </h3>
                   <p className="px-2 text-[13px] leading-snug text-slate-500">
-                    You currently have <span className="font-bold text-slate-900">{capacity.activeCount} / {capacity.maxSlots} active slots</span> filled. Increase the slot limit before promoting new grantees.
+                    {isOverHardCapacity ? (
+                      <>
+                        There are <span className="font-bold text-slate-900">{capacity.activeCount} active records</span>, which is {capacity.activeCount - DEFAULT_SKEAP_MAX_SLOTS} over the hard limit of {DEFAULT_SKEAP_MAX_SLOTS}. Promotions are blocked; existing grants need review and will not be changed automatically.
+                      </>
+                    ) : capacity.maxSlots < DEFAULT_SKEAP_MAX_SLOTS ? (
+                      <>
+                        {capacity.activeCount > capacity.maxSlots ? (
+                          <>
+                            There are <span className="font-bold text-slate-900">{capacity.activeCount} active records against a {capacity.maxSlots}-slot configured limit</span>. You may raise it, but never above the hard maximum of {DEFAULT_SKEAP_MAX_SLOTS}.
+                          </>
+                        ) : (
+                          <>
+                            All <span className="font-bold text-slate-900">{capacity.activeCount} / {capacity.maxSlots} configured slots</span> are occupied. You may raise the configured limit, but never above the hard maximum of {DEFAULT_SKEAP_MAX_SLOTS}.
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        All <span className="font-bold text-slate-900">{capacity.activeCount} / {DEFAULT_SKEAP_MAX_SLOTS} scholarship slots</span> are occupied. A slot must be formally freed before promoting another grantee.
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="grid w-full grid-cols-2 gap-2.5">
@@ -555,18 +616,27 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                   >
                     Cancel
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPromoteModalOpen(false);
-                      setSelectedApplicant(null);
-                      setSlotLimitDraft(String(capacity.maxSlots));
-                      setEditingCapacity(true);
-                    }}
-                    className="w-full rounded-xl border border-slate-900 bg-slate-900 py-2 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-1"
-                  >
-                    Edit Slots
-                  </button>
+                  {canIncreaseConfiguredCapacity ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPromoteModalOpen(false);
+                        setSelectedApplicant(null);
+                        setSlotLimitDraft(String(capacity.maxSlots));
+                        setEditingCapacity(true);
+                      }}
+                      className="w-full rounded-xl border border-slate-900 bg-slate-900 py-2 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-1"
+                    >
+                      Edit Slots
+                    </button>
+                  ) : (
+                    <Link
+                      href="/admin/skeap/active"
+                      className="w-full rounded-xl border border-slate-900 bg-slate-900 py-2 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-1"
+                    >
+                      Review Grantees
+                    </Link>
+                  )}
                 </div>
               </>
             ) : (

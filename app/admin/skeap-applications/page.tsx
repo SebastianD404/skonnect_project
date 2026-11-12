@@ -1,6 +1,6 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
-import { Prisma, Role } from "@prisma/client";
+import { Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { getUploadGroups } from "@/lib/skeap-upload";
 import { skeapStatusWhere, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -303,9 +303,18 @@ function mapInquiryToApplication(inquiry: {
 
 export const dynamic = "force-dynamic";
 
-export default async function SkeapApplicationsPage() {
+export default async function SkeapApplicationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ focus?: string | string[] }>;
+}) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
+  const resolvedSearchParams = await searchParams;
+  const rawFocus = Array.isArray(resolvedSearchParams.focus)
+    ? resolvedSearchParams.focus[0]
+    : resolvedSearchParams.focus;
+  const focusId = typeof rawFocus === "string" ? rawFocus : "";
   const now = new Date();
   const initialAcademicYear = getCurrentAcademicYear(now);
   const academicYearRange = getAcademicYearDateRange(initialAcademicYear);
@@ -371,27 +380,49 @@ export default async function SkeapApplicationsPage() {
 
   // Fetch rows for queue using the same base filter but matching any visible statuses
   const visibleStatusPatterns = ["pending", "return", "resubm", "respond", "approve"];
-  const inquiries = await prisma.inquiry.findMany({
-    where: {
-      ...baseWhere,
-      AND: [
-        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        skeapStatusWhere(visibleStatusPatterns),
-      ],
-    },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: 16,
-    select: SKEAP_APPLICATION_SELECT,
-  });
+  const [inquiries, focusedInquiry] = await Promise.all([
+    prisma.inquiry.findMany({
+      where: {
+        ...baseWhere,
+        AND: [
+          { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
+          skeapStatusWhere(visibleStatusPatterns),
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 16,
+      select: SKEAP_APPLICATION_SELECT,
+    }),
+    focusId
+      ? prisma.inquiry.findFirst({
+          where: {
+            id: focusId,
+            ...queueBaseWhere,
+            application: { is: { status: SubmissionStatus.PENDING } },
+            AND: [skeapStatusWhere(["pending"])],
+          },
+          select: SKEAP_APPLICATION_SELECT,
+        })
+      : Promise.resolve(null),
+  ]);
 
-  const applications = inquiries.slice(0, 15).map(mapInquiryToApplication);
+  const queueApplications = inquiries.slice(0, 15).map(mapInquiryToApplication);
+  const focusedApplication = focusedInquiry ? mapInquiryToApplication(focusedInquiry) : null;
+  const applications = focusedApplication
+    ? [
+        focusedApplication,
+        ...queueApplications
+          .filter((application) => application.id !== focusedApplication.id)
+      ]
+    : queueApplications;
   const hasNextPage = inquiries.length > 15;
-  const lastApplication = applications[applications.length - 1];
+  const lastApplication = queueApplications[queueApplications.length - 1];
 
   return (
     <div className="w-full max-w-[1200px] mx-auto flex flex-col gap-6 sm:gap-8">
       <SkeapApplicationsClient
         applications={applications}
+        initialSelectedApplicationId={focusedApplication?.id}
         hasNextPage={hasNextPage}
         initialAcademicYear={initialAcademicYear}
         academicYears={academicYears}

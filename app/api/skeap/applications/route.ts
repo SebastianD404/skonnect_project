@@ -4,9 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeUploadedFiles, SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
-import { ACTIVE_SKEAP_APPLICATION_WHERE, getSkeapMaxSlots } from "@/lib/skeap-capacity";
-import { isSkeapTestAccount } from "@/lib/skeap-test-access";
-import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
+import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { isEligibleSkeapApplicantYearLevel, isSkeapEducationLevel } from "@/lib/skeap-education";
@@ -238,7 +236,6 @@ export async function POST(request: NextRequest) {
     const gender = String(body.gender ?? "").trim();
     const contactNumber = String(body.contactNumber ?? "").trim();
     const emailAddress = String(body.emailAddress ?? "").trim();
-    const photoFileUrl = String(body.photoFileUrl ?? "").trim();
     const fathersName = String(body.fathersName ?? "").trim();
     const fathersOccupation = String(body.fathersOccupation ?? "").trim();
     const fathersContact = String(body.fathersContact ?? "").trim();
@@ -276,8 +273,7 @@ export async function POST(request: NextRequest) {
       !civilStatus ||
       !gender ||
       !contactNumber ||
-      !emailAddress ||
-      !photoFileUrl
+      !emailAddress
     ) {
       return NextResponse.json(
         { error: "All personal information fields are required, including the applicant photo." },
@@ -309,6 +305,7 @@ export async function POST(request: NextRequest) {
             {
               url: upload.url,
               ...(upload.name !== undefined ? { name: upload.name } : {}),
+              ...(upload.verified !== undefined ? { verified: upload.verified } : {}),
               ...(upload.manualReview !== undefined ? { manualReview: upload.manualReview } : {}),
               ...(upload.verificationStatus !== undefined ? { verificationStatus: upload.verificationStatus } : {}),
             },
@@ -361,40 +358,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Applicants must be between 15 and 30 years old." }, { status: 400 });
     }
 
-    if (!isSkeapTestAccount(user.email)) {
-      const kkProfile = await prisma.user.findUnique({
-        where: { id: appUser.id },
-        select: {
-          kkProfileId: true,
-          kkProfile: { select: { isVerified: true } },
-        },
-      });
-
-      if (!kkProfile?.kkProfileId) {
-        return NextResponse.json({ error: "You must complete KK profiling first." }, { status: 403 });
-      }
-
-      const latestRegistration = await prisma.profilingRegistration.findFirst({
-        where: { userId: appUser.id },
-        orderBy: { submittedAt: "desc" },
-        select: { reviewStatus: true },
-      });
-
-      const reviewStatus = getKKProfilingReviewStatus(
-        latestRegistration?.reviewStatus,
-        kkProfile.kkProfile?.isVerified ?? false,
+    if (appUser.kkStatus !== "APPROVED") {
+      return NextResponse.json(
+        { error: "Your KK Profiling must be approved before you can apply for SKEAP." },
+        { status: 403 },
       );
-      if (reviewStatus !== "Approved") {
-        return NextResponse.json(
-          { error: "Your KK profiling registration must be approved before you can apply for SKEAP." },
-          { status: 403 }
-        );
-      }
     }
 
+    const approvedKkRegistration = await prisma.profilingRegistration.findFirst({
+      where: {
+        userId: appUser.id,
+        reviewStatus: { equals: "Approved", mode: "insensitive" },
+      },
+      orderBy: { submittedAt: "desc" },
+      select: {
+        photoFileUrl: true,
+        birthCertificateFileUrl: true,
+        idFrontFileUrl: true,
+        idBackFileUrl: true,
+        idSingleFileUrl: true,
+      },
+    });
+    if (
+      !approvedKkRegistration?.photoFileUrl ||
+      !approvedKkRegistration.birthCertificateFileUrl ||
+      !approvedKkRegistration.idFrontFileUrl ||
+      !approvedKkRegistration.idBackFileUrl ||
+      !approvedKkRegistration.idSingleFileUrl
+    ) {
+      return NextResponse.json(
+        { error: "Your approved KK Profile is missing identity documents. Contact SK support before applying." },
+        { status: 409 },
+      );
+    }
+    const photoFileUrl = approvedKkRegistration.photoFileUrl;
+
     const requiredUploadKeys = [
-      SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE,
-      SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY,
       SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
       SKEAP_UPLOAD_KEY.GRADE_REPORT,
       SKEAP_UPLOAD_KEY.FAMILY_INCOME,
@@ -415,6 +414,23 @@ export async function POST(request: NextRequest) {
     uploadedFiles[SKEAP_UPLOAD_KEY.PHOTO] = {
       ...uploadedPhoto,
       url: photoFileUrl,
+      verified: true,
+    };
+    uploadedFiles[SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE] = {
+      url: approvedKkRegistration.birthCertificateFileUrl,
+      verified: true,
+    };
+    uploadedFiles[SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY] = {
+      url: approvedKkRegistration.idSingleFileUrl,
+      verified: true,
+    };
+    uploadedFiles[SKEAP_UPLOAD_KEY.KK_ID_FRONT] = {
+      url: approvedKkRegistration.idFrontFileUrl,
+      verified: true,
+    };
+    uploadedFiles[SKEAP_UPLOAD_KEY.KK_ID_BACK] = {
+      url: approvedKkRegistration.idBackFileUrl,
+      verified: true,
     };
 
     const missingUploadKeys = requiredUploadKeys.filter(
@@ -463,11 +479,10 @@ export async function POST(request: NextRequest) {
       // keep uploaded files as normalized JSON
     };
 
-    const maxSlots = await getSkeapMaxSlots();
     const created = await prisma.$transaction(async (tx) => {
-      const activeCount = await tx.skeapApplication.count({
-        where: ACTIVE_SKEAP_APPLICATION_WHERE,
-      });
+      await lockSkeapCapacity(tx);
+      const maxSlots = await getSkeapMaxSlots(tx);
+      const activeCount = await getSkeapCapacityCount(tx, appUser.id);
       const isWaitlisted = activeCount >= maxSlots;
       const waitlistPosition = isWaitlisted
         ? (await tx.skeapApplication.count({ where: { status: "WAITLISTED" } })) + 1
@@ -509,7 +524,7 @@ export async function POST(request: NextRequest) {
         },
         select: { id: true },
       });
-      return { applicationId: application.id, inquiryId: inquiry.id, isWaitlisted, waitlistPosition };
+      return { applicationId: application.id, inquiryId: inquiry.id, isWaitlisted, waitlistPosition, maxSlots };
     });
 
     return NextResponse.json({
@@ -519,7 +534,7 @@ export async function POST(request: NextRequest) {
       status: created.isWaitlisted ? "WAITLISTED" : "PENDING",
       waitlistPosition: created.waitlistPosition,
       message: created.isWaitlisted
-        ? `Your application was successfully placed on the waitlist at position ${created.waitlistPosition} because all ${maxSlots} scholarship slots are currently filled.`
+        ? `Your application was successfully placed on the waitlist at position ${created.waitlistPosition} because all ${created.maxSlots} scholarship slots are currently filled.`
         : "Your SKEAP application was submitted successfully.",
     });
   } catch (error) {

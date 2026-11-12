@@ -93,6 +93,7 @@ describe('admin review route', () => {
     expect(callArg.where).toEqual({ id: 's1' });
     expect(callArg.data.status).toBe('APPROVED');
     expect(callArg.data).not.toHaveProperty('generalAverage');
+    expect(callArg.data.requiresStrictManualReview).toBe(false);
   });
 
   it.each([

@@ -2,10 +2,9 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
+import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import AdminTablePaginationFooter from "../../AdminTablePaginationFooter";
 import { ArchivedMembersTable } from "./ArchivedMembersTable";
-
-const PAGE_SIZES = [10, 20, 50] as const;
 
 export default async function MemberRecordsPage({ searchParams }: {
   searchParams: Promise<{
@@ -22,13 +21,11 @@ export default async function MemberRecordsPage({ searchParams }: {
   const requestedPage = Number(getParam(resolved.page) || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(getParam(resolved.pageSize));
-  const pageSize = PAGE_SIZES.includes(requestedPageSize as (typeof PAGE_SIZES)[number])
-    ? requestedPageSize
-    : 10;
+  const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const query = String(getParam(resolved.q) || "").trim();
 
   const where = {
-    reviewStatus: { in: ["Archived", "Rejected"] },
+    reviewStatus: "Archived",
     ...(query
       ? {
           OR: [
@@ -36,6 +33,7 @@ export default async function MemberRecordsPage({ searchParams }: {
             { email: { contains: query, mode: "insensitive" as const } },
             { youthClassification: { contains: query, mode: "insensitive" as const } },
             { youthAgeGroup: { contains: query, mode: "insensitive" as const } },
+            { archivedReason: { contains: query, mode: "insensitive" as const } },
           ],
         }
       : {}),
@@ -64,10 +62,10 @@ export default async function MemberRecordsPage({ searchParams }: {
     <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 pb-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Member records</span>
-          <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Member Archives</h1>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">KK Youth Registry</span>
+          <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Archived KK Youth</h1>
           <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
-            Review and export archived Katipunan ng Kabataan (KK) member profiles retained for historical reference.
+            Review and export archived Katipunan ng Kabataan (KK) youth profiles retained for historical reference.
           </p>
         </div>
       </header>

@@ -31,6 +31,8 @@ export interface KKProfilingRegistration {
   consent?: boolean;
   residencyStatementAcknowledgement?: boolean;
   idDocumentType?: string | null;
+  photoFileUrl?: string | null;
+  birthCertificateFileUrl?: string | null;
   idFrontFileUrl?: string | null;
   idBackFileUrl?: string | null;
   idSingleFileUrl?: string | null;

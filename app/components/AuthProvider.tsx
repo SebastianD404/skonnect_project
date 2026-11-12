@@ -10,6 +10,7 @@ export type AuthUser = {
   email?: string;
   avatarUrl?: string;
   role?: "YOUTH" | "GRANTEE" | "SK_OFFICIAL" | "SUPER_ADMIN";
+  kkStatus?: string;
   skeapStatus?: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED" | null;
 };
 

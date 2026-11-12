@@ -1,0 +1,2 @@
+export const SKEAP_MAX_SLOTS_KEY = "SKEAP_MAX_SLOTS";
+export const DEFAULT_SKEAP_MAX_SLOTS = 55;

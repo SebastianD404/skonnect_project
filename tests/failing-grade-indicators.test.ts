@@ -3,14 +3,14 @@ import { hasFailingGradeIndicators } from "@/lib/ocr/failing-grade-indicators";
 import { parseVerifiedGwa } from "@/lib/grade-report-review";
 
 describe("failing grade indicator detection", () => {
-  it.each(["Final Grade: 5.0", "5.00", "INC", "DRP", "DROP", "FAILED", "NFE", "74.5"])(
+  it.each(["Final Grade: 4.0", "Final Grade: 5.0", "5.00", "INC", "DRP", "DROP", "FAILED", "NFE", "74.5"])(
     "detects %s",
     (text) => {
       expect(hasFailingGradeIndicators(text)).toBe(true);
     }
   );
 
-  it.each(["3 units, grade 1.25", "3.0 units", "75", "PASSED", "INCOMPLETE"])(
+  it.each(["3 units, grade 1.25", "3.0 units", "Final Grade: 3.0", "75", "PASSED", "INCOMPLETE"])(
     "does not flag %s",
     (text) => {
       expect(hasFailingGradeIndicators(text)).toBe(false);

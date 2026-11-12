@@ -8,6 +8,7 @@ import {
   getAccountingSubmissionState,
   isAccountingSubmissionSubmitted,
 } from "@/lib/accounting-submission";
+import { matchesAccountingNameQuery } from "@/lib/accounting-name-search";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 // If you have shadcn/ui components installed, replace the native select below
 // with shadcn's `Select` imports, e.g.:
@@ -21,15 +22,30 @@ import FloatingFeedback from "@/app/components/FloatingFeedback";
   type Grantee = {
   id: string;
   name: string;
+  accountName: string | null;
   semester: string;
-  status: "Pending Payout" | "Claimed";
+  status: "Pending Payout" | "Awaiting Confirmation" | "Confirmed";
     submitted: boolean;
     submissionStatus?: string | null;
     submissionState: string;
     claimedAt?: string | null;
+    disbursedAt?: string | null;
+    disbursementEmailSentAt?: string | null;
 };
 
 const GRANT_AMOUNT = 5000; // PHP per student
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getAlternateAccountName(grantee: Pick<Grantee, "name" | "accountName">) {
+  if (!grantee.accountName?.trim()) return null;
+  const displayedName = grantee.name.trim().toLowerCase();
+  return grantee.accountName.trim().toLowerCase() !== displayedName
+    ? grantee.accountName.trim()
+    : null;
+}
 
 export default function AdminAccountingPage() {
   const [grantees, setGrantees] = useState<Grantee[]>([]);
@@ -38,7 +54,10 @@ export default function AdminAccountingPage() {
   const recentSemesters = getRecentSemesters();
   const [selectedSemester, setSelectedSemester] = useState<string>(recentSemesters[0].name);
 
-  const claimedCount = useMemo(() => grantees.filter((g) => g.status === "Claimed").length, [grantees]);
+  const claimedCount = useMemo(
+    () => grantees.filter((g) => g.status !== "Pending Payout").length,
+    [grantees],
+  );
 
   const remainingBudget = useMemo(() => (totalBudget ?? 0) - claimedCount * GRANT_AMOUNT, [totalBudget, claimedCount]);
 
@@ -88,9 +107,9 @@ export default function AdminAccountingPage() {
   }, [isExportMenuOpen]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return grantees;
-    return grantees.filter((g) => g.name.toLowerCase().includes(q));
+    return grantees.filter((grantee) =>
+      matchesAccountingNameQuery(query, [grantee.name, grantee.accountName ?? ""]),
+    );
   }, [grantees, query]);
 
   const [submissionFilter, setSubmissionFilter] = useState<'all'|'submitted'|'not_submitted'>('all');
@@ -100,8 +119,8 @@ export default function AdminAccountingPage() {
     let list = filtered;
     if (submissionFilter === 'submitted') list = list.filter((g) => Boolean(g.submitted));
     if (submissionFilter === 'not_submitted') list = list.filter((g) => !g.submitted);
-    if (claimedFilter === 'received') list = list.filter((g) => g.status === 'Claimed');
-    if (claimedFilter === 'pending') list = list.filter((g) => g.status !== 'Claimed');
+    if (claimedFilter === 'received') list = list.filter((g) => g.status !== "Pending Payout");
+    if (claimedFilter === 'pending') list = list.filter((g) => g.status === "Pending Payout");
     return list;
   }, [filtered, submissionFilter, claimedFilter]);
   const hasActiveFilters =
@@ -123,27 +142,6 @@ export default function AdminAccountingPage() {
     return encodeURIComponent(cleanedSemester);
   }, [selectedSemester]);
 
-  async function markClaimed(id: string) {
-    if (processingIds[id]) return;
-    setProcessingIds((p) => ({ ...p, [id]: true }));
-    const prev = grantees;
-    setGrantees((cur) => cur.map((g) => (g.id === id ? { ...g, status: "Claimed" } : g)));
-
-    try {
-      const res = await fetch(`/api/grantees/${id}/claim`, { method: "PATCH" });
-      if (!res.ok) throw new Error("Failed to mark claimed");
-    } catch (err) {
-      setGrantees(prev);
-      setErrorMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setProcessingIds((p) => {
-        const next = { ...p };
-        delete next[id];
-        return next;
-      });
-    }
-  }
-
   // fetch data on mount and whenever the selected semester or payout filter changes
   useEffect(() => {
     let mounted = true;
@@ -164,50 +162,46 @@ export default function AdminAccountingPage() {
         if (!gRes.ok) throw new Error("Failed to load grantees");
         if (!sRes.ok) throw new Error("Failed to load settings");
 
-        const gData = await gRes.json();
+        const gData: unknown = await gRes.json();
         const sData = await sRes.json();
 
         if (!mounted) return;
 
-        const raw = gData;
-        const list = Array.isArray(raw)
-          ? raw
-          : Array.isArray(raw.grantees)
-            ? raw.grantees
-            : Array.isArray(raw.data)
-              ? raw.data
-              : [];
+        const list = isRecord(gData) && Array.isArray(gData.grantees) ? gData.grantees : [];
+        const mappedGrantees = list.flatMap((value): Grantee[] => {
+          if (!isRecord(value) || typeof value.id !== "string") return [];
 
-        setGrantees(
-          list.map((r: any) => {
-            const name =
-              r.student_name ?? r.studentName ?? r.fullName ??
-              (r.user ? `${r.user.firstName ?? ""} ${r.user.lastName ?? ""}`.trim() : undefined) ??
-              "Unknown";
+          const payoutStatus = typeof value.payoutStatus === "string" ? value.payoutStatus : "";
+          const isConfirmed = payoutStatus === "CONFIRMED";
+          const isDisbursed =
+            isConfirmed ||
+            payoutStatus === "DISBURSED_UNCONFIRMED" ||
+            value.claimed === true;
+          const submissionStatus =
+            typeof value.submissionStatus === "string" ? value.submissionStatus : null;
 
-            const effectiveSemester = String(r.semester ?? r.submission?.semester ?? r.latestSemester ?? selectedSemester ?? "");
-            const apiClaimed = typeof r.claimed === "boolean" ? r.claimed : undefined;
-            const payoutStr = String(r.payout_status ?? r.payoutStatus ?? r.status ?? "");
-            const isClaimed = typeof apiClaimed === "boolean"
-              ? apiClaimed
-              : payoutStr.toLowerCase().includes("received") || payoutStr.toLowerCase().includes("claimed");
-
-            const submissionStatus = r.submissionStatus ?? r.submission?.status ?? null;
-            const submitted = isAccountingSubmissionSubmitted(submissionStatus);
-
-            return {
-              id: String(r.id),
-              name: String(name),
-              semester: effectiveSemester,
-              status: isClaimed ? "Claimed" : "Pending Payout",
-              claimed: Boolean(isClaimed),
-              submitted,
-              submissionStatus,
-              submissionState: getAccountingSubmissionState(submissionStatus),
-              claimedAt: r.claimedAt ?? r.claimed_at ?? null,
-            };
-          })
-        );
+          return [{
+            id: value.id,
+            name: typeof value.student_name === "string" ? value.student_name : "Unknown",
+            accountName: typeof value.accountName === "string" ? value.accountName : null,
+            semester: typeof value.semester === "string" ? value.semester : selectedSemester,
+            status: isConfirmed
+              ? "Confirmed"
+              : isDisbursed
+                ? "Awaiting Confirmation"
+                : "Pending Payout",
+            submitted: isAccountingSubmissionSubmitted(submissionStatus),
+            submissionStatus,
+            submissionState: getAccountingSubmissionState(submissionStatus),
+            claimedAt: typeof value.claimedAt === "string" ? value.claimedAt : null,
+            disbursedAt: typeof value.disbursedAt === "string" ? value.disbursedAt : null,
+            disbursementEmailSentAt:
+              typeof value.disbursementEmailSentAt === "string"
+                ? value.disbursementEmailSentAt
+                : null,
+          }];
+        });
+        setGrantees(mappedGrantees);
 
         if (sData && typeof sData.totalBudget !== "undefined") {
           setTotalBudget(typeof sData.totalBudget === "number" ? sData.totalBudget : Number(sData.totalBudget ?? 0));
@@ -320,18 +314,27 @@ export default function AdminAccountingPage() {
     }
   }
 
-  async function toggleClaimed(id: string) {
+  async function dispatchPayoutToGrantee(id: string, retryEmail = false) {
     if (processingIds[id]) return;
+    const current = grantees.find((grantee) => grantee.id === id);
+    if (
+      !current ||
+      (current.status !== "Pending Payout" &&
+        !(retryEmail && current.status === "Awaiting Confirmation" && !current.disbursementEmailSentAt))
+    ) return;
+
     setProcessingIds((p) => ({ ...p, [id]: true }));
 
     const prev = grantees;
     const prevBudget = totalBudget;
-    const current = grantees.find((g) => g.id === id);
-    const isClaimed = current?.status === "Claimed";
-
-    // optimistic update: toggle status and claimedAt so UI updates immediately
-    const optimisticClaimedAt = !isClaimed ? new Date().toISOString() : null;
-    setGrantees((cur) => cur.map((g) => (g.id === id ? { ...g, status: isClaimed ? "Pending Payout" : "Claimed", claimed: !isClaimed, claimedAt: optimisticClaimedAt } : g)));
+    const optimisticDisbursedAt = new Date().toISOString();
+    if (current.status === "Pending Payout") {
+      setGrantees((cur) => cur.map((grantee) => (
+        grantee.id === id
+          ? { ...grantee, status: "Awaiting Confirmation", disbursedAt: optimisticDisbursedAt }
+          : grantee
+      )));
+    }
 
     try {
       const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
@@ -339,27 +342,18 @@ export default function AdminAccountingPage() {
         method: "PATCH",
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ semester: cleanedSemester, claimed: !isClaimed }),
+        body: JSON.stringify({ semester: cleanedSemester, claimed: true }),
       });
-
-      // If the server rejects due to auth, and we're trying to mark as claimed,
-      // fall back to the lightweight (no-auth) /claim endpoint so the UI remains usable.
-      if (!res.ok) {
-        const status = res.status;
-        const body = await res.text().catch(() => null);
-        if ((status === 401 || status === 403) && !isClaimed) {
-          // trying to claim (was not claimed) — use the simpler claim endpoint
-          const fallback = await fetch(`/api/grantees/${encodeURIComponent(id)}/claim`, {
-            method: 'PATCH',
-            credentials: 'same-origin',
-          });
-          if (!fallback.ok) {
-            const fbBody = await fallback.text().catch(() => null);
-            throw new Error(fbBody || body || 'Failed to toggle payout (fallback)');
-          }
-        } else {
-          throw new Error(body || 'Failed to toggle payout');
-        }
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || "Failed to disburse payout.");
+      if (body?.emailStatus === "failed") {
+        setErrorMessage(`Payout disbursed, but the notification email failed: ${body.emailError}`);
+      } else if (body?.emailStatus === "sent") {
+        setGrantees((cur) => cur.map((grantee) => (
+          grantee.id === id
+            ? { ...grantee, disbursementEmailSentAt: new Date().toISOString() }
+            : grantee
+        )));
       }
     } catch (err) {
       setGrantees(prev);
@@ -438,11 +432,11 @@ export default function AdminAccountingPage() {
                 disabled={isExporting}
                 onClick={() => {
                   setIsExportMenuOpen(false);
-                  void handleExportReport("received payouts report", "received_payouts");
+                  void handleExportReport("disbursed payouts report", "received_payouts");
                 }}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
               >
-                Received Payouts
+                Disbursed Payouts
               </button>
             </div> : null}
           </div>
@@ -576,7 +570,7 @@ export default function AdminAccountingPage() {
               </div>
                 <div className="text-right text-sm text-slate-500">
                 <div>Budget: {formatter.format(totalBudget ?? 0)}</div>
-                <div className="mt-1">Claimed: {claimedCount} • {formatter.format(claimedCount * GRANT_AMOUNT)}</div>
+                <div className="mt-1">Disbursed: {claimedCount} • {formatter.format(claimedCount * GRANT_AMOUNT)}</div>
               </div>
             </div>
           </div>
@@ -597,7 +591,7 @@ export default function AdminAccountingPage() {
                   setQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                placeholder="Search student or name"
+                placeholder="Search profile or account name"
                 className="w-full rounded-2xl border border-transparent bg-white px-4 py-3 pl-11 text-sm text-slate-900 outline-none shadow-md focus:border-sky-300 focus:ring-2 focus:ring-sky-50"
                 aria-label="Search grantee by name"
               />
@@ -633,7 +627,7 @@ export default function AdminAccountingPage() {
                 >
                   <option value="all">Payout status: All</option>
                   <option value="pending">Pending</option>
-                  <option value="received">Received</option>
+                  <option value="received">Disbursed</option>
                 </select>
               </label>
             </div>
@@ -656,14 +650,14 @@ export default function AdminAccountingPage() {
             </div>
 
             <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border border-slate-100 bg-white p-1 shadow-sm">
-              {['All','Pending','Received'].map((tab) => (
+              {['All','Pending','Disbursed'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => {
-                    setClaimedFilter(tab === 'All' ? 'all' : tab === 'Received' ? 'received' : 'pending');
+                    setClaimedFilter(tab === 'All' ? 'all' : tab === 'Disbursed' ? 'received' : 'pending');
                     setCurrentPage(1);
                   }}
-                  className={`px-3 py-2 text-xs rounded-2xl font-medium transition ${claimedFilter === (tab === 'All' ? 'all' : tab === 'Received' ? 'received' : 'pending') ? 'bg-sky-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+                  className={`px-3 py-2 text-xs rounded-2xl font-medium transition ${claimedFilter === (tab === 'All' ? 'all' : tab === 'Disbursed' ? 'received' : 'pending') ? 'bg-sky-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
                   style={{lineHeight: '1'}}
                 >
                   {tab}
@@ -694,9 +688,10 @@ export default function AdminAccountingPage() {
                           <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center">
                             <input
                               type="checkbox"
-                              checked={g.status === "Claimed"}
-                              onChange={() => toggleClaimed(g.id)}
-                              aria-label={`Mark ${g.name} as ${g.status === "Claimed" ? "pending" : "claimed"}`}
+                              checked={g.status !== "Pending Payout"}
+                              disabled={g.status !== "Pending Payout" || Boolean(processingIds[g.id])}
+                              onChange={() => void dispatchPayoutToGrantee(g.id)}
+                              aria-label={g.status === "Pending Payout" ? `Disburse payout to ${g.name}` : `Payout for ${g.name} has been disbursed`}
                               aria-busy={processingIds[g.id] ? true : undefined}
                               className="h-4 w-4 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                             />
@@ -704,7 +699,14 @@ export default function AdminAccountingPage() {
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
                             {g.name.split(" ").map((namePart) => namePart[0]).slice(0, 2).join("").toUpperCase()}
                           </div>
-                          <h3 className="min-w-0 truncate text-sm font-bold text-slate-900">{g.name}</h3>
+                          <div className="min-w-0">
+                            <h3 className="truncate text-sm font-bold text-slate-900">{g.name}</h3>
+                            {getAlternateAccountName(g) ? (
+                              <p className="truncate text-[11px] text-slate-500">
+                                Account: {getAlternateAccountName(g)}
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
@@ -716,9 +718,9 @@ export default function AdminAccountingPage() {
                             </span>
                           </div>
                           <div className="min-w-0">
-                            <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Claimed at</span>
-                            <span className={`block break-words font-medium ${g.claimedAt ? "text-slate-700" : "text-slate-400"}`}>
-                              {g.claimedAt ? formatDate(g.claimedAt) : "—"}
+                            <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Disbursed / Confirmed</span>
+                            <span className={`block break-words font-medium ${g.claimedAt || g.disbursedAt ? "text-slate-700" : "text-slate-400"}`}>
+                              {g.claimedAt || g.disbursedAt ? formatDate(g.claimedAt ?? g.disbursedAt) : "—"}
                             </span>
                           </div>
                           <div>
@@ -733,8 +735,22 @@ export default function AdminAccountingPage() {
                           </div>
                           <div>
                             <span className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Payout</span>
-                            {g.status === "Claimed" ? (
-                              <span className="inline-flex rounded-full bg-cyan-50 px-2.5 py-1 text-[10px] font-semibold text-cyan-700">Received</span>
+                            {g.status === "Confirmed" ? (
+                              <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">Confirmed</span>
+                            ) : g.status === "Awaiting Confirmation" ? (
+                              <div className="flex flex-col items-start gap-1">
+                                <span className="inline-flex rounded-full bg-cyan-50 px-2.5 py-1 text-[10px] font-semibold text-cyan-700">Awaiting Confirmation</span>
+                                {!g.disbursementEmailSentAt ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void dispatchPayoutToGrantee(g.id, true)}
+                                    disabled={Boolean(processingIds[g.id])}
+                                    className="text-[10px] font-semibold text-cyan-800 underline underline-offset-2 disabled:opacity-50"
+                                  >
+                                    Retry email
+                                  </button>
+                                ) : null}
+                              </div>
                             ) : (
                               <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700">Pending</span>
                             )}
@@ -777,7 +793,7 @@ export default function AdminAccountingPage() {
                         <th scope="col" className="px-6 py-3 text-left">Semester</th>
                         <th scope="col" className="px-6 py-3 text-left">Submission status</th>
                         <th scope="col" className="px-6 py-3 text-left">Payout status</th>
-                        <th scope="col" className="px-6 py-3 text-left">Claimed at</th>
+                        <th scope="col" className="px-6 py-3 text-left">Disbursed / confirmed at</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -790,16 +806,24 @@ export default function AdminAccountingPage() {
                             <div className="flex w-full min-w-0 items-center gap-3 overflow-hidden pr-2">
                               <input
                                 type="checkbox"
-                                checked={g.status === "Claimed"}
-                                onChange={() => toggleClaimed(g.id)}
-                                aria-label={`Mark ${g.name} as ${g.status === "Claimed" ? "pending" : "claimed"}`}
+                                checked={g.status !== "Pending Payout"}
+                                disabled={g.status !== "Pending Payout" || Boolean(processingIds[g.id])}
+                                onChange={() => void dispatchPayoutToGrantee(g.id)}
+                                aria-label={g.status === "Pending Payout" ? `Disburse payout to ${g.name}` : `Payout for ${g.name} has been disbursed`}
                                 aria-busy={processingIds[g.id] ? true : undefined}
                                 className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                               />
                               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
                                 {g.name.split(" ").map((namePart) => namePart[0]).slice(0, 2).join("").toUpperCase()}
                               </div>
-                              <span className="truncate font-bold text-slate-900">{g.name}</span>
+                              <div className="min-w-0">
+                                <span className="block truncate font-bold text-slate-900">{g.name}</span>
+                                {getAlternateAccountName(g) ? (
+                                  <span className="block truncate text-[11px] text-slate-500">
+                                    Account: {getAlternateAccountName(g)}
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                           </td>
                           <td className="truncate px-6 py-4 pr-2 text-slate-600">{g.semester}</td>
@@ -813,14 +837,28 @@ export default function AdminAccountingPage() {
                             )}
                           </td>
                           <td className="px-6 py-4">
-                            {g.status === "Claimed" ? (
-                              <span className="inline-flex items-center rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700">Received</span>
+                            {g.status === "Confirmed" ? (
+                              <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Confirmed</span>
+                            ) : g.status === "Awaiting Confirmation" ? (
+                              <div className="flex flex-col items-start gap-1">
+                                <span className="inline-flex items-center rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700">Awaiting Confirmation</span>
+                                {!g.disbursementEmailSentAt ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void dispatchPayoutToGrantee(g.id, true)}
+                                    disabled={Boolean(processingIds[g.id])}
+                                    className="text-[10px] font-semibold text-cyan-800 underline underline-offset-2 disabled:opacity-50"
+                                  >
+                                    Retry email
+                                  </button>
+                                ) : null}
+                              </div>
                             ) : (
                               <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending</span>
                             )}
                           </td>
                           <td className="whitespace-nowrap px-6 py-4 font-medium text-slate-500">
-                            {formatDate(g.claimedAt)}
+                            {formatDate(g.claimedAt ?? g.disbursedAt)}
                           </td>
                         </tr>
                       )) : (

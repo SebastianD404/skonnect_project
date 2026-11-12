@@ -9,12 +9,16 @@ export async function GET(req: Request) {
     const semester = url.searchParams.get("semester");
 
     // Build query: pick latest submission semester per grantee when available
-    let rows: Array<Record<string, any>> = [];
+    let rows: Array<Record<string, unknown>> = [];
 
     if (semester) {
-      rows = await db.$queryRawUnsafe(
+      rows = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
         `SELECT DISTINCT ON (g.id) g.id::text AS id, u."fullName" AS student_name, COALESCE(s.semester, '') AS semester,
-          CASE WHEN p.claimed_at IS NOT NULL THEN 'Received' ELSE 'Pending' END AS payout_status
+          CASE
+            WHEN p.status = 'CONFIRMED' THEN 'Confirmed'
+            WHEN p.status = 'DISBURSED_UNCONFIRMED' THEN 'Awaiting Confirmation'
+            ELSE 'Pending'
+          END AS payout_status
          FROM grantees g
          JOIN users u ON u.id = g."userId"
          LEFT JOIN submissions s ON s."granteeId" = g.id
@@ -24,9 +28,13 @@ export async function GET(req: Request) {
         semester
       );
     } else {
-      rows = await db.$queryRawUnsafe(
+      rows = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
         `SELECT DISTINCT ON (g.id) g.id::text AS id, u."fullName" AS student_name, COALESCE(s.semester, '') AS semester,
-          CASE WHEN p.claimed_at IS NOT NULL THEN 'Received' ELSE 'Pending' END AS payout_status
+          CASE
+            WHEN p.status = 'CONFIRMED' THEN 'Confirmed'
+            WHEN p.status = 'DISBURSED_UNCONFIRMED' THEN 'Awaiting Confirmation'
+            ELSE 'Pending'
+          END AS payout_status
          FROM grantees g
          JOIN users u ON u.id = g."userId"
          LEFT JOIN submissions s ON s."granteeId" = g.id
@@ -37,6 +45,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ grantees: rows });
   } catch (error) {
-    return NextResponse.json({ grantees: [] });
+    console.error("Could not load disbursement records:", error);
+    return NextResponse.json({ error: "Unable to load disbursement records." }, { status: 500 });
   }
 }

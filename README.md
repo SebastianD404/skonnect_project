@@ -63,6 +63,10 @@ Keep schema changes in committed Prisma migrations; do not use `prisma db push` 
 
 `db:deploy` applies committed, unapplied migrations; it does not create migrations or repair schema drift. If migration status reports failed migrations or drift, stop and investigate before deploying rather than using `db push` or manually changing migration history.
 
+### Payout confirmation email links
+
+Set `NEXT_PUBLIC_APP_URL` to the canonical public origin of the deployed app (for example, `https://skonnect.example`). Vercel deployments can use the platform-provided `VERCEL_URL`. Local development falls back to `http://localhost:3000`; that link is only reachable from the developer's own machine. After correcting the URL, retry the payout email from Admin Accounting without disbursing the payout again.
+
 ### Private application documents
 
 KK profiling identity/residency documents and SKEAP application uploads use the private `private-documents` Supabase Storage bucket. Before deploying these upload changes, configure the target environment's Supabase URL and server-only `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`, then create the bucket:

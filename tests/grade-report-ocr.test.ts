@@ -14,8 +14,8 @@ describe("grade report OCR", () => {
   it("requires review for no rows, unrecognized rows, or low OCR confidence", () => {
     expect(decideGradeReportOcrStatus(0, 0, 99)).toBe("OCR_NEEDS_REVIEW");
     expect(decideGradeReportOcrStatus(2, 1, 99)).toBe("OCR_NEEDS_REVIEW");
-    expect(decideGradeReportOcrStatus(2, 0, 64)).toBe("OCR_NEEDS_REVIEW");
-    expect(decideGradeReportOcrStatus(2, 0, 65)).toBe("OCR_DONE");
+    expect(decideGradeReportOcrStatus(2, 0, 84)).toBe("OCR_NEEDS_REVIEW");
+    expect(decideGradeReportOcrStatus(2, 0, 85)).toBe("OCR_DONE");
     expect(decideGradeReportOcrStatus(2, 0, 99, false)).toBe("OCR_NEEDS_REVIEW");
     expect(decideGradeReportOcrStatus(2, 0, 99, true, true)).toBe("OCR_NEEDS_REVIEW");
   });

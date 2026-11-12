@@ -8,6 +8,7 @@ import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
 } from "@/lib/grantee-profile";
+import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 
 const db = prisma;
 
@@ -105,6 +106,21 @@ export async function updateProfileName(
     }
   }
 
+  if (profile.role === "GRANTEE") {
+    const existingGrantee = await db.grantee.findUnique({
+      where: { userId: profile.id },
+      select: { id: true },
+    });
+    if (
+      !existingGrantee &&
+      (await getSkeapCapacityCount(db, profile.id)) >= (await getSkeapMaxSlots())
+    ) {
+      return {
+        error: "All SKEAP slots are occupied and this account has no grant record. Contact an SK official to reconcile the account.",
+      };
+    }
+  }
+
   if (newPassword) {
     const { error: verifyPasswordError } = await supabase.auth.signInWithPassword({
       email: profile.email,
@@ -149,6 +165,21 @@ export async function updateProfileName(
   try {
     const savedEmail = emailChangeRequested ? profile.email : email;
     await db.$transaction(async (tx) => {
+      if (profile.role === "GRANTEE") {
+        await lockSkeapCapacity(tx);
+        const granteeSlotLimit = await getSkeapMaxSlots(tx);
+        const existingGrantee = await tx.grantee.findUnique({
+          where: { userId: profile.id },
+          select: { id: true },
+        });
+        if (
+          !existingGrantee &&
+          (await getSkeapCapacityCount(tx, profile.id)) >= granteeSlotLimit
+        ) {
+          throw new Error("SKEAP_CAPACITY_FULL");
+        }
+      }
+
       await tx.user.update({
         where: { id: profile.id },
         data: {
@@ -190,6 +221,11 @@ export async function updateProfileName(
       }
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "SKEAP_CAPACITY_FULL") {
+      return {
+        error: "All SKEAP slots are occupied and this account has no grant record. Contact an SK official to reconcile the account.",
+      };
+    }
     if (error instanceof Error && "code" in error && error.code === "P2002") {
       return { error: "That email address is already linked to another account." };
     }

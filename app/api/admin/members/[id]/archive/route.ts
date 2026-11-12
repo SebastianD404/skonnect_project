@@ -5,16 +5,31 @@ import { requireRole } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { isKKMemberArchiveReason } from "@/lib/kk-member-archive";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 
 export async function PATCH(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const admin = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
   const { id } = await params;
 
   try {
+    let payload: unknown;
+    try {
+      payload = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Choose a valid archive reason." }, { status: 400 });
+    }
+    const archiveReason =
+      typeof payload === "object" && payload !== null && "archiveReason" in payload
+        ? payload.archiveReason
+        : undefined;
+    if (!isKKMemberArchiveReason(archiveReason)) {
+      return NextResponse.json({ error: "Choose a valid archive reason." }, { status: 400 });
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const registration = await tx.profilingRegistration.findUnique({
         where: { id },
@@ -36,7 +51,6 @@ export async function PATCH(
         return { error: "Only approved profiles can be archived", status: 409 as const };
       }
 
-      const archiveReason = "Archived by administrator";
       const archived = await tx.profilingRegistration.update({
         where: { id },
         data: {
@@ -132,7 +146,7 @@ export async function PATCH(
             dateRemoved: dateRemoved.toISOString(),
             remarks: "Member profile archived by administrator",
           },
-          metadata: { reason: "Archived by administrator", profileId: registration.id },
+          metadata: { reason: archiveReason, profileId: registration.id },
         });
         granteeStatusChanged = true;
       }

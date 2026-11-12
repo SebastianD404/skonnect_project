@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { getKKMemberArchiveReasonLabel } from "@/lib/kk-member-archive";
 import AdminExportButton from "../../AdminExportButton";
 import type { KKProfilingRegistration } from "../../kk-profiling/types";
 import { ArchivedMemberRowActions } from "./ArchivedMemberRowActions";
@@ -41,14 +42,14 @@ export function ArchivedMembersTable({
     <>
       <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
         <label className="relative block w-full sm:w-80">
-          <span className="sr-only">Filter archived members by name, email, or classification</span>
+          <span className="sr-only">Filter archived KK youth by name, email, classification, or archive reason</span>
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter by name, email, or classification..."
-            title="Filters archived member profiles"
+            placeholder="Filter by name, email, classification, or reason..."
+            title="Filters archived KK youth profiles"
             className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
           />
         </label>
@@ -96,8 +97,13 @@ export function ArchivedMembersTable({
                   <dd className="mt-0.5 text-xs font-medium text-slate-700">{formatDate(record.submittedAt)}</dd>
                 </div>
               </dl>
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-medium text-slate-500">Archived member</span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Archive reason</p>
+                  <p className="mt-0.5 truncate text-xs font-medium text-slate-700">
+                    {getKKMemberArchiveReasonLabel(record.archivedReason)}
+                  </p>
+                </div>
                 <ArchivedMemberRowActions registration={record} />
               </div>
             </article>
@@ -105,7 +111,7 @@ export function ArchivedMembersTable({
         })}
         {records.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
-            No archived or rejected member profiles match your search.
+            No archived KK youth profiles match your search.
           </div>
         ) : null}
       </div>
@@ -113,7 +119,7 @@ export function ArchivedMembersTable({
         className="hidden w-full overflow-x-auto whitespace-nowrap scrollbar-thin md:block"
         style={{ touchAction: "pan-x", WebkitOverflowScrolling: "touch" }}
       >
-        <table className="w-full min-w-[900px] table-auto border-collapse text-left text-sm">
+        <table className="w-full min-w-[1020px] table-auto border-collapse text-left text-sm">
           <thead className="bg-[#0f172a] text-white">
             <tr className="text-xs font-semibold tracking-wider">
               <th className="whitespace-nowrap px-4 py-3">NAME</th>
@@ -121,6 +127,7 @@ export function ArchivedMembersTable({
               <th className="whitespace-nowrap px-4 py-3">CLASSIFICATION</th>
               <th className="whitespace-nowrap px-4 py-3 text-center">SK VOTER</th>
               <th className="whitespace-nowrap px-4 py-3 text-center">STATUS</th>
+              <th className="whitespace-nowrap px-4 py-3">ARCHIVE REASON</th>
               <th className="whitespace-nowrap px-4 py-3">SUBMITTED</th>
               <th className="min-w-[112px] whitespace-nowrap px-4 py-3 text-right">ACTIONS</th>
             </tr>
@@ -148,12 +155,10 @@ export function ArchivedMembersTable({
                       }`}>
                         {record.reviewStatus}
                       </span>
-                      {record.archivedReason === "Aged Out (Turned 31)" ? (
-                        <span className="inline-flex max-w-full items-center rounded-full bg-yellow-50 px-2.5 py-0.5 text-[10px] font-medium text-yellow-800">
-                          Aged Out (&gt;30 yrs)
-                        </span>
-                      ) : null}
                     </div>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    {getKKMemberArchiveReasonLabel(record.archivedReason)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-500">{formatDate(record.submittedAt)}</td>
                   <td className="sticky right-0 whitespace-nowrap bg-white px-4 py-3 text-right shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.35)]">
@@ -164,8 +169,8 @@ export function ArchivedMembersTable({
             })}
             {records.length === 0 ? (
               <tr>
-                <td colSpan={7} className="whitespace-nowrap px-6 py-12 text-center text-sm text-slate-500">
-                  No archived or rejected member profiles match your search.
+                <td colSpan={8} className="whitespace-nowrap px-6 py-12 text-center text-sm text-slate-500">
+                  No archived KK youth profiles match your search.
                 </td>
               </tr>
             ) : null}

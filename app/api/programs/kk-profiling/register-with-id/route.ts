@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { uploadPrivateDocument } from "@/lib/private-documents";
@@ -11,18 +10,10 @@ import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
   OFFICIAL_SITIOS,
-  isOfficialSitio,
-  buildTemporaryPassword,
-  isOfficialPurok,
   normalizeSitio,
   normalizePurok,
   splitFullName,
 } from "@/lib/kk";
-
-function isBarangayPico(value: string) {
-  const normalized = value.trim().toLowerCase().replace(/\./g, "").replace(/\s+/g, " ");
-  return normalized === "pico" || normalized === "barangay pico" || normalized === "brgy pico";
-}
 
 function computeAge(birthDate: Date) {
   const now = new Date();
@@ -44,24 +35,6 @@ function computeAge(birthDate: Date) {
   return age;
 }
 
-function getSupabaseAdminClient() {
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error(
-      "Missing Supabase admin configuration. Set SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY on the server."
-    );
-  }
-
-  return createSupabaseClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-}
-
 function isEmailUniqueConstraintError(error: unknown) {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
     return false;
@@ -74,78 +47,6 @@ function isEmailUniqueConstraintError(error: unknown) {
 
 async function uploadFile(userId: string, file: File, suffix: string) {
   return uploadPrivateDocument(userId, file, "kk-verification", suffix);
-}
-
-async function findExistingAuthIdByEmail(email: string) {
-  const existingUser = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
-    select: { authId: true },
-  });
-
-  if (existingUser?.authId) {
-    try {
-      const admin = getSupabaseAdminClient();
-      const { data, error } = await admin.auth.admin.getUserById(existingUser.authId);
-      if (!error && data?.user && String(data.user.email || "").toLowerCase() === email.toLowerCase()) {
-        return existingUser.authId;
-      }
-    } catch {
-      // If the Auth user no longer exists or cannot be verified, continue to the full search.
-    }
-  }
-
-  if (!process.env.SUPABASE_SECRET_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return null;
-  }
-
-  try {
-    const admin = getSupabaseAdminClient();
-    let page: number | undefined = 1;
-    const perPage = 100;
-
-    while (true) {
-      const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-      if (error || !data?.users || data.users.length === 0) {
-        return null;
-      }
-
-      type SupabaseUserRecord = { id?: string; email?: string | null };
-      const match = (data.users as SupabaseUserRecord[]).find(
-        (user) => String(user.email || "").toLowerCase() === email.toLowerCase()
-      );
-      if (match?.id) {
-        // Double-check the matched auth user still exists and has the same email.
-        try {
-          const adminVerify = getSupabaseAdminClient();
-          const { data: vdata, error: verror } = await adminVerify.auth.admin.getUserById(match.id);
-          if (!verror && vdata?.user && String(vdata.user.email || "").toLowerCase() === email.toLowerCase()) {
-            return match.id;
-          }
-        } catch {
-          continue;
-        }
-      }
-      page += 1;
-    }
-  } catch {
-    return null;
-  }
-}
-
-async function signInAndSetSession(email: string, password: string): Promise<string | null> {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    console.warn("KK profiling temporary sign-in did not establish a session", {
-      code: error.code,
-      status: error.status,
-    });
-    return null;
-  }
-  if (!data?.user?.id) {
-    return null;
-  }
-  return data.user.id;
 }
 
 function parseAddress(address: string) {
@@ -203,9 +104,40 @@ function parseAddress(address: string) {
 }
 
 export async function POST(req: NextRequest) {
-  let createdAuthUserId: string | null = null;
-
   try {
+    const supabase = await createSupabaseServerClient();
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.user) {
+      return NextResponse.json({ error: "Sign in before submitting KK Profiling." }, { status: 401 });
+    }
+
+    const { data: { user: verifiedUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !verifiedUser || verifiedUser.id !== session.user.id) {
+      return NextResponse.json({ error: "Your session is invalid. Please sign in again." }, { status: 401 });
+    }
+
+    const authId = session.user.id;
+    const appUser = await prisma.user.findUnique({
+      where: { authId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+        kkProfileId: true,
+        kkStatus: true,
+      },
+    });
+    if (!appUser) {
+      return NextResponse.json({ error: "Account profile not found. Please contact support." }, { status: 404 });
+    }
+    if (!appUser.isActive || appUser.role !== "YOUTH") {
+      return NextResponse.json({ error: "Only active youth accounts can submit KK Profiling." }, { status: 403 });
+    }
+    if (appUser.kkStatus === "APPROVED") {
+      return NextResponse.json({ error: "Your KK Profiling is already approved." }, { status: 409 });
+    }
+
     const formData = await req.formData();
     
     // Extract form fields
@@ -249,7 +181,7 @@ export async function POST(req: NextRequest) {
     const firstNameInput = String(body.firstName || "").trim();
     const middleNameInput = String(body.middleInitial || "").trim();
     const lastNameInput = String(body.lastName || "").trim();
-    const email = String(body.email || "").trim().toLowerCase();
+    const email = appUser.email.trim().toLowerCase();
     const contactNumber = String(body.contactNumber || "").trim();
 
     if (!firstNameInput || !middleNameInput || !lastNameInput) {
@@ -268,45 +200,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Contact number can contain numbers only." }, { status: 400 });
     }
 
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
-    }
-
-    const [existingMember, existingKKProfile] = await Promise.all([
-      prisma.user.findFirst({
-        where: { email: { equals: email, mode: "insensitive" } },
-        select: { authId: true },
-      }),
-      prisma.kKProfile.findFirst({
-        where: { email: { equals: email, mode: "insensitive" } },
-        select: { user: { select: { authId: true } } },
-      }),
-    ]);
-
-    if (existingMember || existingKKProfile) {
-      const supabase = await createSupabaseServerClient();
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser();
-      const currentAuthId = currentUser?.id;
-      const belongsToCurrentUser =
-        Boolean(currentAuthId) &&
-        (!existingMember || existingMember.authId === currentAuthId) &&
-        (!existingKKProfile || existingKKProfile.user?.authId === currentAuthId);
-
-      if (!belongsToCurrentUser) {
-        return NextResponse.json(
-          {
-            error: "This email is already registered. Please log in instead.",
-            emailAlreadyRegistered: true,
-          },
-          { status: 409 }
-        );
-      }
-    }
-
     const latestRegistration = await prisma.profilingRegistration.findFirst({
-      where: { email: { equals: email, mode: "insensitive" } },
+      where: { userId: appUser.id },
       orderBy: { submittedAt: "desc" },
       select: { reviewStatus: true },
     });
@@ -331,8 +226,6 @@ export async function POST(req: NextRequest) {
     }
 
     const age = computeAge(birthDate);
-    const ageInput = String(body.age || "").trim();
-
     if (age < 15 || age > 30) {
       return NextResponse.json(
         { error: "Age must be between 15 and 30 years old" },
@@ -340,54 +233,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { purok, addressLine, barangay } = parseAddress(String(body.address || ""));
+    const { purok, addressLine } = parseAddress(String(body.address || ""));
     const submittedSitio = normalizeSitio(String(body.sitio || "").trim());
     const resolvedSite = submittedSitio || purok;
     const municipality = String(body.municipality || "").trim();
     const province = String(body.province || "").trim();
-    const username = email;
-    const temporaryPassword = buildTemporaryPassword();
-
-    let authId = await findExistingAuthIdByEmail(email);
-    if (!authId) {
-      const admin = getSupabaseAdminClient();
-      const { data: signupData, error: signupError } = await admin.auth.admin.createUser({
-        email,
-        password: temporaryPassword,
-        email_confirm: true,
-        user_metadata: {
-          role: "YOUTH",
-        },
-      });
-
-      if (signupError || !signupData?.user?.id) {
-        console.error("KK profiling auth signup failed", signupError);
-        throw new Error("Unable to create auth account. Please contact support.");
-      }
-
-      authId = signupData.user.id;
-      createdAuthUserId = authId;
-    }
-
-    let signedInUserId: string | null = null;
-    if (createdAuthUserId) {
-      try {
-        signedInUserId = await signInAndSetSession(email, temporaryPassword);
-      } catch (loginError) {
-        console.error("KK profiling auto-login failed", loginError);
-      }
-    }
-
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user: currentUser },
-    } = await supabase.auth.getUser();
-
     // Upload ID and residency files
     const uploads: Array<{ label: string; file: File }> = [];
     const frontFile = formData.get("frontFile") as File | null;
     const backFile = formData.get("backFile") as File | null;
     const residencyFile = formData.get("residencyFile") as File | null;
+    const photoFile = formData.get("photoFile") as File | null;
+    const birthCertificateFile = formData.get("birthCertificateFile") as File | null;
 
     if (!frontFile || !backFile) {
       return NextResponse.json(
@@ -399,6 +256,23 @@ export async function POST(req: NextRequest) {
     if (!residencyFile) {
       return NextResponse.json(
         { error: "Please upload your Certificate of Residency." },
+        { status: 400 }
+      );
+    }
+
+    if (!photoFile || !["image/jpeg", "image/png", "image/webp"].includes(photoFile.type)) {
+      return NextResponse.json(
+        { error: "Please upload a 2x2 ID picture as a JPG, PNG, or WebP image." },
+        { status: 400 }
+      );
+    }
+
+    if (
+      !birthCertificateFile ||
+      !["application/pdf", "image/jpeg", "image/png", "image/webp"].includes(birthCertificateFile.type)
+    ) {
+      return NextResponse.json(
+        { error: "Please upload your Birth Certificate as a PDF, JPG, PNG, or WebP file." },
         { status: 400 }
       );
     }
@@ -416,14 +290,18 @@ export async function POST(req: NextRequest) {
     uploads.push({ label: "front", file: frontFile });
     uploads.push({ label: "back", file: backFile });
     uploads.push({ label: "residency", file: residencyFile });
+    uploads.push({ label: "photo", file: photoFile });
+    uploads.push({ label: "birth-certificate", file: birthCertificateFile });
 
     // Create a temporary Supabase client to upload files with the authenticated user
     const idDocumentType = "Valid ID + Certificate of Residency";
     let idFrontFileUrl: string | null = null;
     let idBackFileUrl: string | null = null;
     let idSingleFileUrl: string | null = null;
+    let photoFileUrl: string | null = null;
+    let birthCertificateFileUrl: string | null = null;
 
-    const storageUserId = currentUser?.id ?? authId;
+    const storageUserId = authId;
     for (const upload of uploads) {
       if (upload.file.size > 10 * 1024 * 1024) {
         return NextResponse.json(
@@ -439,85 +317,74 @@ export async function POST(req: NextRequest) {
         idBackFileUrl = result.url;
       } else if (upload.label === "residency") {
         idSingleFileUrl = result.url;
+      } else if (upload.label === "photo") {
+        photoFileUrl = result.url;
+      } else if (upload.label === "birth-certificate") {
+        birthCertificateFileUrl = result.url;
       }
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      const kkProfile = await (tx as any).kKProfile.upsert({
-        where: { email },
-        update: {
-          firstName: names.firstName,
-          middleName: names.middleName,
-          lastName: names.lastName,
-          fullName: names.fullName,
-          purok: resolvedSite,
-          addressLine,
-          barangay: BARANGAY_PICO,
-          birthDate,
-          contactNumber,
-          isVerified: false,
-        },
-        create: {
-          firstName: names.firstName,
-          middleName: names.middleName,
-          lastName: names.lastName,
-          fullName: names.fullName,
-          purok: resolvedSite,
-          addressLine,
-          barangay: BARANGAY_PICO,
-          birthDate,
-          contactNumber,
-          email,
-          isVerified: false,
-        },
-      });
-
-      const existingByEmail = await (tx as any).user.findFirst({
-        where: { email: { equals: email, mode: "insensitive" } },
-        select: { id: true },
-      });
-
-      let appUser;
-      if (existingByEmail) {
-        appUser = await (tx as any).user.update({
-          where: { id: existingByEmail.id },
+      let kkProfile = await tx.kKProfile.findUnique({ where: { email } });
+      if (kkProfile) {
+        const linkedUser = await tx.user.findFirst({
+          where: { kkProfileId: kkProfile.id },
+          select: { id: true },
+        });
+        if (linkedUser && linkedUser.id !== appUser.id) {
+          throw new Error("KK_PROFILE_ALREADY_LINKED");
+        }
+        kkProfile = await tx.kKProfile.update({
+          where: { id: kkProfile.id },
           data: {
-            authId,
-            email,
-            username,
+            firstName: names.firstName,
+            middleName: names.middleName ?? "",
+            lastName: names.lastName,
             fullName: names.fullName,
-            phoneNumber: contactNumber,
+            purok: resolvedSite,
+            addressLine,
             barangay: BARANGAY_PICO,
-            kkProfileId: kkProfile.id,
-            ...(createdAuthUserId
-              ? { mustSecureAccount: true, usesTemporaryPassword: true }
-              : {}),
+            birthDate,
+            contactNumber,
+            isVerified: false,
           },
         });
       } else {
-        appUser = await (tx as any).user.create({
+        kkProfile = await tx.kKProfile.create({
           data: {
-            authId,
-            email,
-            username,
+            firstName: names.firstName,
+            middleName: names.middleName,
+            lastName: names.lastName,
             fullName: names.fullName,
-            phoneNumber: contactNumber,
-            role: "YOUTH",
+            purok: resolvedSite,
+            addressLine,
             barangay: BARANGAY_PICO,
-            kkProfileId: kkProfile.id,
-            mustSecureAccount: Boolean(createdAuthUserId),
-            usesTemporaryPassword: Boolean(createdAuthUserId),
+            birthDate,
+            contactNumber,
+            email,
+            isVerified: false,
           },
         });
       }
 
+      const updatedUser = await tx.user.update({
+        where: { id: appUser.id },
+        data: {
+          fullName: names.fullName,
+          phoneNumber: contactNumber,
+          barangay: BARANGAY_PICO,
+          kkProfileId: kkProfile.id,
+          kkStatus: "PENDING",
+        },
+      });
+
       const address = `${resolvedSite}, ${BARANGAY_PICO}, ${municipality}, ${province}`;
 
-      await (tx as any).profilingRegistration.create({
+      await tx.profilingRegistration.create({
         data: {
-          userId: appUser.id,
+          userId: updatedUser.id,
           fullName: names.fullName,
-          middleName: names.middleName,
+          middleName: names.middleName ?? "",
           address,
           sex: String(body.sex || "").trim() || "Not specified",
           age,
@@ -543,48 +410,43 @@ export async function POST(req: NextRequest) {
           idFrontFileUrl,
           idBackFileUrl,
           idSingleFileUrl,
+          photoFileUrl,
+          birthCertificateFileUrl,
           reviewStatus: "Pending",
           reviewNotes: body.requiresManualReview ? KK_PROFILING_MANUAL_REVIEW_NOTE : null,
           requiresManualReview: body.requiresManualReview,
         },
       });
 
-      return { kkProfileId: kkProfile.id, userId: appUser.id };
+      return { kkProfileId: kkProfile.id, userId: updatedUser.id };
     });
 
     return NextResponse.json({
       success: true,
       kkProfileId: created.kkProfileId,
       userId: created.userId,
-      signedIn: Boolean(signedInUserId || currentUser?.id === authId),
-      existingAccount: !createdAuthUserId,
+      signedIn: true,
+      existingAccount: true,
       redirectTo: "/programs/kk-profiling/status",
-      credentials: createdAuthUserId ? { username, temporaryPassword } : null,
-      message:
-        !createdAuthUserId
-          ? "Your KK Profiling request and documents were submitted. An account already exists for this email, so sign in with your current password to access your status and secure your account."
-          : body.requiresManualReview
-          ? "Your KK Profiling request and documents were submitted for manual SK Admin review. You can monitor your status from your SKonnect account."
-          : "Your KK Profiling request has been received with your ID documents and is now pending verification. An SKonnect account was created automatically so you can monitor your status and receive updates.",
+      credentials: null,
+      message: body.requiresManualReview
+        ? "Your KK Profiling request and documents were submitted for manual SK Admin review. You can monitor your status from your account."
+        : "Your KK Profiling request has been received with your ID documents and is now pending verification. You can monitor your status from your account.",
     });
-  } catch (err: any) {
-    if (createdAuthUserId) {
-      try {
-        if (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY) {
-          const supabaseAdmin = getSupabaseAdminClient();
-          await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
-        }
-      } catch {
-        // best-effort cleanup if app database write fails after auth user creation
-      }
-    }
-
+  } catch (err: unknown) {
     if (isEmailUniqueConstraintError(err)) {
       return NextResponse.json(
         {
-          error: "This email is already registered. Please log in instead.",
+          error: "This email is already associated with another KK profile.",
           emailAlreadyRegistered: true,
         },
+        { status: 409 }
+      );
+    }
+
+    if (err instanceof Error && err.message === "KK_PROFILE_ALREADY_LINKED") {
+      return NextResponse.json(
+        { error: "This KK profile is already linked to another account." },
         { status: 409 }
       );
     }
@@ -600,28 +462,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: 503 });
     }
 
-    if (err instanceof Error && err.message.includes("Missing Supabase")) {
-      return NextResponse.json(
-        {
-          error:
-            "Server is missing Supabase admin configuration. Add SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY to the server environment and restart the app.",
-        },
-        { status: 503 }
-      );
-    }
-
-    if (err instanceof Error && /unregistered api key|invalid api key/i.test(err.message)) {
-      return NextResponse.json(
-        { error: "Supabase server credentials are invalid or belong to a different project." },
-        { status: 503 }
-      );
-    }
-
     console.error(err);
     if (process.env.NODE_ENV !== "production") {
-      // In development include the error message to help debugging.
       return NextResponse.json(
-        { error: "Unable to submit KK Profiling application.", detail: String(err?.message || err) },
+        {
+          error: "Unable to submit KK Profiling application.",
+          detail: err instanceof Error ? err.message : String(err),
+        },
         { status: 500 }
       );
     }

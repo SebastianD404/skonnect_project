@@ -4,9 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
-
-const PAGE_SIZE_DEFAULT = 10;
-const PAGE_SIZE_MAX = 50;
+import { DEFAULT_ADMIN_TABLE_PAGE_SIZE, normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 
 const STATUS_FILTERS = ["pending", "returned", "cleared"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -63,10 +61,8 @@ export async function GET(request: NextRequest) {
 
   const statusFilter = statusValue as StatusFilter;
   const requestedPage = Number.parseInt(params.get("page") ?? "1", 10);
-  const requestedLimit = Number.parseInt(params.get("limit") ?? String(PAGE_SIZE_DEFAULT), 10);
-  const pageSize = Number.isFinite(requestedLimit)
-    ? Math.min(PAGE_SIZE_MAX, Math.max(1, requestedLimit))
-    : PAGE_SIZE_DEFAULT;
+  const requestedLimit = Number.parseInt(params.get("limit") ?? String(DEFAULT_ADMIN_TABLE_PAGE_SIZE), 10);
+  const pageSize = normalizeAdminTablePageSize(requestedLimit);
   const pageNumber = Number.isFinite(requestedPage) ? Math.max(1, requestedPage) : 1;
   const semester = params.get("semester")?.trim() ?? "";
   const search = params.get("search")?.trim() ?? "";

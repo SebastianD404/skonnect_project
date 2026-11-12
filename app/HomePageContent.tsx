@@ -9,6 +9,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Mail } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { SkLogo } from "@/app/components/SkLogo";
+import AccountRequiredModal from "@/app/components/AccountRequiredModal";
+import { createBrowserClient } from "@/lib/supabase/browser";
 
 export default function HomePageContent() {
   const pathname = usePathname();
@@ -21,6 +23,7 @@ export default function HomePageContent() {
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [accessError, setAccessError] = useState<string | null>(null);
+  const [showKkAccountRequiredModal, setShowKkAccountRequiredModal] = useState(false);
   const [skeapApplicationState, setSkeapApplicationState] = useState<{
     userId: string;
     hasApplication: boolean;
@@ -185,6 +188,32 @@ export default function HomePageContent() {
     user.id === kkProfilingApplicationState?.userId &&
     kkProfilingApplicationState?.hasPendingApplication === true;
 
+  const handleStartKkProfiling = async () => {
+    if (authLoading) return;
+
+    try {
+      const supabase = createBrowserClient();
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+
+      if (error) {
+        throw error;
+      }
+
+      if (!session) {
+        setShowKkAccountRequiredModal(true);
+        return;
+      }
+
+      router.push(user?.kkStatus === "APPROVED" ? "/youth-dashboard" : "/programs/kk-profiling");
+    } catch (error) {
+      console.error("Unable to verify authentication before KK Profiling:", error);
+      setAccessError("We couldn't verify your account. Please try again.");
+    }
+  };
+
   const handleFooterHomeClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (pathname !== "/" || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
@@ -235,6 +264,7 @@ export default function HomePageContent() {
                     user?.id === skeapApplicationState?.userId &&
                     skeapApplicationState?.hasApplication === true
                   }
+                  locked={user?.role === "YOUTH" && user.kkStatus !== "APPROVED"}
                 />
                 <Link
                   href={hasPendingKkProfilingApplication
@@ -335,13 +365,13 @@ export default function HomePageContent() {
         {/* Top Section: Timeline Process */}
         <div className="mx-auto mb-20 max-w-6xl">
           <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#245b7a]">
-            SKEAP GRANT · APPLICATION PROCESS
+            OFFICIAL YOUTH REGISTRY & SCHOLARSHIP PORTAL
           </div>
           <h2 className="mb-3 text-3xl font-extrabold tracking-tight text-slate-900 lg:text-4xl">
-            Your path to the SKEAP Grant
+            Your Gateway to Barangay Pico Youth Services
           </h2>
           <p className="mb-16 max-w-xl text-sm text-slate-600 lg:text-base">
-            A streamlined, transparent application process. Submit your requirements online and track your approval status in real-time.
+            Join the official Katipunan ng Kabataan registry to secure your local residency, access community support, and apply for the SKEAP scholarship grant.
           </p>
 
           {/* Timeline Grid with Dotted Line */}
@@ -357,8 +387,8 @@ export default function HomePageContent() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                 </div>
-                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 1: Account Setup</h3>
-                <p className="text-sm leading-relaxed text-slate-600">Create your secure profile via KK Profiling.</p>
+                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 1: Create Account</h3>
+                <p className="text-sm leading-relaxed text-slate-600">Register your secure SKonnect login credentials.</p>
               </div>
 
               {/* Step 2 */}
@@ -368,8 +398,8 @@ export default function HomePageContent() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
-                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 2: Submit Documents</h3>
-                <p className="text-sm leading-relaxed text-slate-600">Upload the required documents.</p>
+                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 2: KK Profiling</h3>
+                <p className="text-sm leading-relaxed text-slate-600">Submit your residency details to join the official youth registry.</p>
               </div>
 
               {/* Step 3 */}
@@ -379,8 +409,8 @@ export default function HomePageContent() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 3: Track Status</h3>
-                <p className="text-sm leading-relaxed text-slate-600">Monitor your application progress directly from your dashboard.</p>
+                <h3 className="mb-2 text-lg font-bold text-slate-900">Step 3: Access Services</h3>
+                <p className="text-sm leading-relaxed text-slate-600">Unlock the AI Helpdesk and submit your SKEAP scholarship application directly from your dashboard.</p>
               </div>
             </div>
           </div>
@@ -397,7 +427,7 @@ export default function HomePageContent() {
               Katipunan ng Kabataan (KK) Profiling
             </h2>
             <p className="text-sm leading-relaxed text-slate-300 lg:text-base">
-              Join the official youth registry of Barangay Pico. Completing your Katipunan ng Kabataan profile helps verify your local residency and serves as your secure gateway to apply for the SKEAP grant.
+              Join the official youth registry of Barangay Pico. Completing your profile verifies your local residency, grants you access to barangay youth services, and unlocks eligibility for the optional SKEAP scholarship.
             </p>
           </div>
 
@@ -460,15 +490,17 @@ export default function HomePageContent() {
                 </ul>
               </div>
             </div>
-            <Link
-              href="/programs/kk-profiling"
+            <button
+              type="button"
+              onClick={() => void handleStartKkProfiling()}
+              disabled={authLoading}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0b1d3a] px-6 py-3 text-sm font-medium text-white shadow-md transition-colors duration-200 hover:bg-[#132d56]"
             >
-              Start KK Profiling
+              {user?.kkStatus === "APPROVED" ? "View Youth Profile →" : "Start KK Profiling"}
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
               </svg>
-            </Link>
+            </button>
           </div>
         </div>
       </section>
@@ -557,6 +589,13 @@ export default function HomePageContent() {
           </div>
         </div>
       </footer>
+      <AccountRequiredModal
+        open={showKkAccountRequiredModal}
+        title="Account Required"
+        description="Register a secure SKonnect account to submit your Katipunan ng Kabataan profile and join the official youth registry."
+        nextPath="/programs/kk-profiling"
+        onClose={() => setShowKkAccountRequiredModal(false)}
+      />
     </div>
   );
 }

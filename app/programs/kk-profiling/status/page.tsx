@@ -39,6 +39,8 @@ type KkProfileRegistration = {
   assemblyTimes?: string | null;
   noAssemblyReason?: string | null;
   idDocumentType?: string | null;
+  photoFileUrl?: string | null;
+  birthCertificateFileUrl?: string | null;
   idFrontFileUrl?: string | null;
   idBackFileUrl?: string | null;
   idSingleFileUrl?: string | null;
@@ -60,6 +62,8 @@ type KkProfileStatus = {
   reviewNotes: string | null;
   registrationSubmittedAt: string | null;
   idDocumentType?: string | null;
+  photoFileUrl?: string | null;
+  birthCertificateFileUrl?: string | null;
   idFrontFileUrl?: string | null;
   idBackFileUrl?: string | null;
   idSingleFileUrl?: string | null;
@@ -525,11 +529,13 @@ export default function KKProfilingStatusPage() {
                       </div>
                       <div className="flex shrink-0 items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700">
                         <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-                        {[profile.idFrontFileUrl, profile.idBackFileUrl, profile.idSingleFileUrl].filter(Boolean).length} files
+                        {[profile.photoFileUrl, profile.birthCertificateFileUrl, profile.idFrontFileUrl, profile.idBackFileUrl, profile.idSingleFileUrl].filter(Boolean).length} files
                       </div>
                     </div>
                     <div className="mt-5 w-full divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200">
                       {[
+                        ["2x2 ID Picture", profile.photoFileUrl, "Profile photo", "Image document"],
+                        ["Birth Certificate", profile.birthCertificateFileUrl, "Foundational identity", "PDF or image"],
                         ["Front of ID", profile.idFrontFileUrl, "Primary Credential", "JPG document"],
                         ["Back of ID", profile.idBackFileUrl, "Secondary Credential", "JPG document"],
                         ["Certificate of Residency", profile.idSingleFileUrl, "Proof of Address", "PDF document"],
@@ -565,7 +571,7 @@ export default function KKProfilingStatusPage() {
                           </div>
                         </div>
                       ) : null)}
-                      {!profile.idFrontFileUrl && !profile.idBackFileUrl && !profile.idSingleFileUrl ? (
+                      {!profile.photoFileUrl && !profile.birthCertificateFileUrl && !profile.idFrontFileUrl && !profile.idBackFileUrl && !profile.idSingleFileUrl ? (
                         <p className="w-full bg-slate-50 p-4 text-sm text-slate-600">
                           No uploaded ID documents are stored for this registration.
                         </p>
