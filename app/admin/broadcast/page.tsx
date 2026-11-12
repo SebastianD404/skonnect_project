@@ -1,64 +1,64 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, FileText, Loader2, Send, X } from "lucide-react";
+import { AlertCircle, Check, Loader2, Send, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 
 type Grantee = { id: string; fullName: string; email: string };
 type AudienceType = "ALL" | "CUSTOM";
+type MessageType = "PAYOUT_ASSEMBLY" | "CUSTOM";
+type BroadcastProgressEvent =
+  | { type: "progress"; completed: number; total: number }
+  | { type: "complete"; sent: number; emailed: number; emailFailed: number; emailSkipped: number }
+  | { type: "error"; error: string };
 type BroadcastDraft = {
   subject: string;
-  message: string;
+  messageType: MessageType;
+  assemblyDate: string;
+  assemblyTime: string;
+  location: string;
+  customMessage: string;
   audienceType: AudienceType;
   granteeIds: string[];
 };
 
-const BROADCAST_DRAFT_KEY = "skonnect.admin.broadcast.draft";
+const BROADCAST_DRAFT_KEY = "skonnect.admin.broadcast.payout-assembly.draft.v2";
+const DEFAULT_BROADCAST_SUBJECT = "SK Educational Assistance Payout Notice";
+const DEFAULT_ASSEMBLY_LOCATION = "Barangay Pico Hall";
+
+const PAYOUT_ASSEMBLY_COPY = {
+  greeting: "Greetings, SKEAP Scholars!",
+  announcement:
+    "We are pleased to announce the upcoming Katipunan ng Kabataan Assembly. Your educational assistance payout will be distributed during this event.",
+  reminder:
+    "To claim your payout, please bring a photocopy of your Student ID bearing three (3) signatures. Please ensure you have this ready, as we cannot release payouts without valid identification.",
+  closing: "We look forward to seeing you there!",
+  signature: "SK Council of Barangay Pico",
+} as const;
 
 function formatRecipientCount(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-const QUICK_TEMPLATES = [
-  {
-    label: "Load Deadline Notice",
-    subject: "SKEAP Requirement Submission Deadline",
-    body: `Greetings, SKEAP Scholars!
+function formatAssemblyDate(value: string) {
+  if (!value) return "Select a date";
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "long",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
 
-Please submit your requirements:
-• LAST SEMESTER grades ([LAST SEMESTER NAME])
-• Certificate of Enrollment THIS SEMESTER ([CURRENT SEMESTER NAME])
-
-From [START DATE] - [END DATE] ([START TIME] - [END TIME])
-
-Failure to do so will result in removal from the list.
-These documents are required to facilitate your scholarship benefits.
-
-If you have any questions or concerns, feel free to reach out.
-
-Best regards,
-SK Pico`,
-  },
-  {
-    label: "Load Payout Assembly",
-    subject: "SK Educational Assistance Payout Notice",
-    body: `Greetings, SKEAP Scholars!
-
-Event: [1ST/2ND/3RD] Katipunan ng Kabataan Assembly
-Date & Time: [ASSEMBLY DATE] @ [ASSEMBLY TIME]
-Location: [LOCATION]
-
-Your payout will be distributed during this event.
-
-Reminder: Please don't forget to photocopy your student ID with 3 signatures.
-NO ID, NO PAY OUT
-
-We look forward to seeing you at the assembly.
-
-Best Regards,
-SK Pico`,
-  },
-] as const;
+function formatAssemblyTime(value: string) {
+  if (!value) return "Select a time";
+  const [hours, minutes] = value.split(":").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(2000, 0, 1, hours, minutes)));
+}
 
 async function readJsonResponse(response: Response) {
   const text = await response.text();
@@ -74,9 +74,12 @@ async function readJsonResponse(response: Response) {
 }
 
 export default function BroadcastPage() {
-  const [subject, setSubject] = useState("");
-  const [message, setMessage] = useState("");
-  const [activeTemplate, setActiveTemplate] = useState<"deadline" | "payout" | null>(null);
+  const [subject, setSubject] = useState(DEFAULT_BROADCAST_SUBJECT);
+  const [messageType, setMessageType] = useState<MessageType>("PAYOUT_ASSEMBLY");
+  const [assemblyDate, setAssemblyDate] = useState("");
+  const [assemblyTime, setAssemblyTime] = useState("");
+  const [location, setLocation] = useState(DEFAULT_ASSEMBLY_LOCATION);
+  const [customMessage, setCustomMessage] = useState("");
   const [audienceType, setAudienceType] = useState<AudienceType>("ALL");
   const [grantees, setGrantees] = useState<Grantee[]>([]);
   const [selectedGranteeIds, setSelectedGranteeIds] = useState<string[]>([]);
@@ -84,6 +87,7 @@ export default function BroadcastPage() {
   const [granteeMenuOpen, setGranteeMenuOpen] = useState(false);
   const [loadingGrantees, setLoadingGrantees] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [sendProgress, setSendProgress] = useState({ completed: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -99,7 +103,13 @@ export default function BroadcastPage() {
       try {
         const draft = JSON.parse(savedDraft) as Partial<BroadcastDraft>;
         if (typeof draft.subject === "string") setSubject(draft.subject);
-        if (typeof draft.message === "string") setMessage(draft.message);
+        if (draft.messageType === "PAYOUT_ASSEMBLY" || draft.messageType === "CUSTOM") {
+          setMessageType(draft.messageType);
+        }
+        if (typeof draft.assemblyDate === "string") setAssemblyDate(draft.assemblyDate);
+        if (typeof draft.assemblyTime === "string") setAssemblyTime(draft.assemblyTime);
+        if (typeof draft.location === "string") setLocation(draft.location);
+        if (typeof draft.customMessage === "string") setCustomMessage(draft.customMessage);
         if (draft.audienceType === "ALL" || draft.audienceType === "CUSTOM") {
           setAudienceType(draft.audienceType);
         }
@@ -158,66 +168,131 @@ export default function BroadcastPage() {
   }, [granteeSearch, grantees]);
 
   const selectedGrantees = grantees.filter((grantee) => selectedGranteeIds.includes(grantee.id));
-  const hasMessageContent = Boolean(subject.trim() || message.trim());
-
-  function loadTemplate(type: "deadline" | "payout") {
-    const template = QUICK_TEMPLATES[type === "deadline" ? 0 : 1];
-    setActiveTemplate(type);
-    setSubject(template.subject);
-    setMessage(template.body);
-  }
+  const formattedAssemblyDate = formatAssemblyDate(assemblyDate);
+  const formattedAssemblyTime = formatAssemblyTime(assemblyTime);
+  const payoutAssemblyMessage = [
+    PAYOUT_ASSEMBLY_COPY.greeting,
+    "",
+    PAYOUT_ASSEMBLY_COPY.announcement,
+    "",
+    `When: ${formattedAssemblyDate} at ${formattedAssemblyTime}`,
+    `Where: ${location.trim() || "Enter a location"}`,
+    "",
+    `Important Reminder: ${PAYOUT_ASSEMBLY_COPY.reminder}`,
+    "",
+    PAYOUT_ASSEMBLY_COPY.closing,
+    "",
+    "Warm regards,",
+    PAYOUT_ASSEMBLY_COPY.signature,
+  ].join("\n");
+  const finalMessage = messageType === "PAYOUT_ASSEMBLY" ? payoutAssemblyMessage : customMessage;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting) return;
     setError(null);
     setSuccess(null);
     setValidationError(null);
 
-    if (!subject.trim() || !message.trim()) {
-      setValidationError("Subject and message content are required.");
+    if (!subject.trim() || !finalMessage.trim()) {
+      setValidationError("Subject and message body are required.");
+      return;
+    }
+    if (
+      messageType === "PAYOUT_ASSEMBLY" &&
+      (!assemblyDate || !assemblyTime || !location.trim())
+    ) {
+      setValidationError("Assembly date, assembly time, and location are required.");
       return;
     }
 
     setSubmitting(true);
+    setSendProgress({
+      completed: 0,
+      total: audienceType === "ALL" ? grantees.length : selectedGranteeIds.length,
+    });
 
     try {
       const response = await fetch("/api/admin/broadcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, body: message, audienceType, granteeIds: selectedGranteeIds }),
+        body: JSON.stringify({ subject, body: finalMessage, audienceType, granteeIds: selectedGranteeIds }),
       });
-      const data = await readJsonResponse(response) as {
-        error?: string;
-        sent?: number;
-        emailed?: number;
-        emailFailed?: number;
-        emailSkipped?: number;
-      };
-
       if (!response.ok) {
+        const data = await readJsonResponse(response) as { error?: string };
         throw new Error(data.error || "Failed to send broadcast.");
       }
 
-      setSubject("");
-      setMessage("");
+      if (!response.body) {
+        throw new Error("The server did not return broadcast progress.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const completion: {
+        value: Extract<BroadcastProgressEvent, { type: "complete" }> | null;
+      } = { value: null };
+      const processEvent = (line: string) => {
+        if (!line.trim()) return;
+        const update = JSON.parse(line) as BroadcastProgressEvent;
+        if (update.type === "progress") {
+          setSendProgress({ completed: update.completed, total: update.total });
+        } else if (update.type === "complete") {
+          completion.value = update;
+          setSendProgress({ completed: update.sent, total: update.sent });
+        } else {
+          throw new Error(update.error || "Broadcast sending failed.");
+        }
+      };
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (value) buffer += decoder.decode(value, { stream: !done });
+          if (done) buffer += decoder.decode();
+
+          let newlineIndex = buffer.indexOf("\n");
+          while (newlineIndex >= 0) {
+            processEvent(buffer.slice(0, newlineIndex));
+            buffer = buffer.slice(newlineIndex + 1);
+            newlineIndex = buffer.indexOf("\n");
+          }
+
+          if (done) break;
+        }
+        if (buffer.trim()) processEvent(buffer);
+      } finally {
+        reader.releaseLock();
+      }
+
+      if (!completion.value) {
+        throw new Error("The server closed the progress stream before completing the broadcast.");
+      }
+
+      const data = completion.value;
+
+      setSubject(DEFAULT_BROADCAST_SUBJECT);
+      setMessageType("PAYOUT_ASSEMBLY");
+      setAssemblyDate("");
+      setAssemblyTime("");
+      setLocation(DEFAULT_ASSEMBLY_LOCATION);
+      setCustomMessage("");
       setAudienceType("ALL");
       setSelectedGranteeIds([]);
       window.localStorage.removeItem(BROADCAST_DRAFT_KEY);
-      const sent = data.sent ?? 0;
-      const emailed = data.emailed ?? 0;
-      const failed = data.emailFailed ?? 0;
-      const skipped = data.emailSkipped ?? 0;
+      const sent = data.sent;
 
       if (sent === 0) {
         setSuccess("No active grantees were found. Nothing was sent.");
       } else {
         const emailDetails = [
-          emailed > 0 ? `Email sent to ${formatRecipientCount(emailed, "grantee", "grantees")}.` : "",
-          skipped > 0
-            ? `Email not sent to ${formatRecipientCount(skipped, "grantee", "grantees")} because email notifications are off.`
+          data.emailed > 0 ? `Email sent to ${formatRecipientCount(data.emailed, "grantee", "grantees")}.` : "",
+          data.emailSkipped > 0
+            ? `Email not sent to ${formatRecipientCount(data.emailSkipped, "grantee", "grantees")} because email notifications are off.`
             : "",
-          failed > 0
-            ? `Email could not be sent to ${formatRecipientCount(failed, "grantee", "grantees")}. Check your Gmail settings and try again.`
+          data.emailFailed > 0
+            ? `Email could not be sent to ${formatRecipientCount(data.emailFailed, "grantee", "grantees")}. Check your Gmail settings and try again.`
             : "",
         ].filter(Boolean);
 
@@ -226,7 +301,7 @@ export default function BroadcastPage() {
         }
 
         setSuccess(
-          `Broadcast sent to ${formatRecipientCount(sent, "active grantee", "active grantees")}. ${
+          `Broadcast successfully sent to ${formatRecipientCount(sent, "grantee", "grantees")}! ${
             sent === 1 ? "In-app message sent." : `In-app messages sent to ${formatRecipientCount(sent, "grantee", "grantees")}.`
           } ${emailDetails.join(" ")}`
         );
@@ -243,7 +318,11 @@ export default function BroadcastPage() {
     try {
       window.localStorage.setItem(BROADCAST_DRAFT_KEY, JSON.stringify({
         subject,
-        message,
+        messageType,
+        assemblyDate,
+        assemblyTime,
+        location,
+        customMessage,
         audienceType,
         granteeIds: selectedGranteeIds,
       } satisfies BroadcastDraft));
@@ -347,6 +426,7 @@ export default function BroadcastPage() {
                             event.stopPropagation();
                             removeGrantee(grantee.id);
                           }}
+                          disabled={submitting}
                           className="rounded-md p-0.5 text-cyan-600 transition-colors hover:bg-cyan-100 hover:text-cyan-900"
                         >
                           <X className="h-3 w-3" aria-hidden="true" />
@@ -385,6 +465,7 @@ export default function BroadcastPage() {
                             role="option"
                             aria-selected={isSelected}
                             onClick={() => toggleGrantee(grantee)}
+                            disabled={submitting}
                             className="flex w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left transition-colors last:border-0 hover:bg-slate-50"
                           >
                             <span className="flex min-w-0 flex-col">
@@ -403,6 +484,39 @@ export default function BroadcastPage() {
               ) : null}
             </div>
 
+            <section aria-labelledby="message-type-title">
+              <fieldset>
+                <legend id="message-type-title" className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                  Message Type
+                </legend>
+                <div className="inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                  {(["PAYOUT_ASSEMBLY", "CUSTOM"] as const).map((option) => {
+                    const isSelected = messageType === option;
+                    return (
+                      <label key={option} className="cursor-pointer">
+                        <input
+                          type="radio"
+                          name="messageType"
+                          value={option}
+                          checked={isSelected}
+                          onChange={() => setMessageType(option)}
+                          className="peer sr-only"
+                          disabled={submitting}
+                        />
+                        <span className={`inline-flex min-h-9 items-center rounded-lg px-3 text-sm font-medium transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-cyan-500 peer-focus-visible:ring-offset-1 ${
+                          isSelected
+                            ? "bg-white text-cyan-800 shadow-sm"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}>
+                            {option === "PAYOUT_ASSEMBLY" ? "Payout Assembly Notice" : "Custom Message"}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            </section>
+
             <hr className="border-slate-100" />
 
             <div className="space-y-6">
@@ -414,103 +528,157 @@ export default function BroadcastPage() {
                   id="broadcast-subject"
                   type="text"
                   value={subject}
-                  onChange={(event) => {
-                    setSubject(event.target.value);
-                    setActiveTemplate(null);
-                  }}
-                  placeholder="e.g., Important: Semester 2 Requirements"
+                  onChange={(event) => setSubject(event.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 transition-all placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                   disabled={submitting}
                 />
               </div>
 
-              <div className="space-y-2">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                  <label htmlFor="broadcast-message" className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+              {messageType === "PAYOUT_ASSEMBLY" ? (
+                <>
+                  <section aria-labelledby="payout-template-builder-title" className="space-y-4">
+                    <div>
+                      <h2 id="payout-template-builder-title" className="text-sm font-semibold text-slate-800">
+                        Payout Assembly Template Builder
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Set the event details to update the message preview.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      <label className="space-y-1.5 text-xs font-semibold text-slate-600">
+                        <span>Assembly Date</span>
+                        <input
+                          type="date"
+                          value={assemblyDate}
+                          onChange={(event) => setAssemblyDate(event.target.value)}
+                          disabled={submitting}
+                          required
+                          className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-900 outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/10 disabled:bg-slate-50"
+                        />
+                      </label>
+                      <label className="space-y-1.5 text-xs font-semibold text-slate-600">
+                        <span>Assembly Time</span>
+                        <input
+                          type="time"
+                          value={assemblyTime}
+                          onChange={(event) => setAssemblyTime(event.target.value)}
+                          disabled={submitting}
+                          required
+                          className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-900 outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/10 disabled:bg-slate-50"
+                        />
+                      </label>
+                      <label className="space-y-1.5 text-xs font-semibold text-slate-600">
+                        <span>Location</span>
+                        <input
+                          type="text"
+                          value={location}
+                          onChange={(event) => setLocation(event.target.value)}
+                          disabled={submitting}
+                          required
+                          className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-900 outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/10 disabled:bg-slate-50"
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section aria-labelledby="message-preview-title" className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                    <div className="border-b border-slate-200 bg-white px-4 py-3">
+                      <h2 id="message-preview-title" className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                        Message Preview
+                      </h2>
+                      <p className="mt-1 truncate text-xs text-slate-400">Subject: {subject || "—"}</p>
+                    </div>
+                    <div className="space-y-4 px-4 py-5 text-sm leading-6 text-slate-700 sm:px-6">
+                      <p>{PAYOUT_ASSEMBLY_COPY.greeting}</p>
+                      <p>{PAYOUT_ASSEMBLY_COPY.announcement}</p>
+                      <p>
+                        <strong className="font-semibold text-slate-900">When:</strong>{" "}
+                        {formattedAssemblyDate} at {formattedAssemblyTime}
+                        <br />
+                        <strong className="font-semibold text-slate-900">Where:</strong>{" "}
+                        {location.trim() || "Enter a location"}
+                      </p>
+                      <p>
+                        <strong className="font-semibold text-slate-900">Important Reminder:</strong>{" "}
+                        {PAYOUT_ASSEMBLY_COPY.reminder}
+                      </p>
+                      <p>{PAYOUT_ASSEMBLY_COPY.closing}</p>
+                      <p>
+                        Warm regards,
+                        <br />
+                        {PAYOUT_ASSEMBLY_COPY.signature}
+                      </p>
+                    </div>
+                  </section>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <label htmlFor="custom-broadcast-message" className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Message Body
                   </label>
-                  <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Insert Template:
-                    </span>
-                    <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-3">
-                      <button
-                        type="button"
-                        onClick={() => loadTemplate("deadline")}
-                        disabled={submitting}
-                        aria-pressed={activeTemplate === "deadline"}
-                        className={`inline-flex min-w-0 w-full cursor-pointer items-center justify-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${
-                          activeTemplate === "deadline"
-                            ? "border-sky-700 bg-sky-700 text-white"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
-                        }`}
-                      >
-                        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
-                        <span className="truncate">Deadline Notice</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => loadTemplate("payout")}
-                        disabled={submitting}
-                        aria-pressed={activeTemplate === "payout"}
-                        className={`inline-flex min-w-0 w-full cursor-pointer items-center justify-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${
-                          activeTemplate === "payout"
-                            ? "border-emerald-700 bg-emerald-700 text-white"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
-                        }`}
-                      >
-                        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
-                        <span className="truncate">Payout Assembly</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSubject("");
-                          setMessage("");
-                          setActiveTemplate(null);
-                        }}
-                        disabled={submitting || !hasMessageContent}
-                        className="col-span-2 inline-flex min-w-0 w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-1 sm:w-auto sm:justify-center sm:py-2"
-                      >
-                        <X className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        <span>Clear message</span>
-                      </button>
-                    </div>
-                  </div>
+                  <textarea
+                    id="custom-broadcast-message"
+                    value={customMessage}
+                    onChange={(event) => setCustomMessage(event.target.value)}
+                    placeholder="Write your message here..."
+                    rows={12}
+                    required
+                    disabled={submitting}
+                    className="min-h-[320px] w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-900 transition-all placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-50"
+                  />
                 </div>
-                <textarea
-                  id="broadcast-message"
-                  value={message}
-                  onChange={(event) => {
-                    setMessage(event.target.value);
-                    setActiveTemplate(null);
-                  }}
-                  placeholder="Write your announcement here..."
-                  rows={12}
-                  className="min-h-[320px] w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 transition-all placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-                  disabled={submitting}
-                />
-              </div>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3 rounded-b-3xl border-t border-slate-100 bg-slate-50/80 px-6 py-4">
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={submitting}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Save as Draft
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
-              <span>{submitting ? "Sending..." : "Send Broadcast"}</span>
-            </button>
+          <div className="flex flex-col gap-3 rounded-b-3xl border-t border-slate-100 bg-slate-50/80 px-6 py-4">
+            {submitting ? (
+              <div aria-live="polite" className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3 text-xs font-medium text-slate-600">
+                  <span>Sending broadcast emails</span>
+                  <span>{sendProgress.completed} / {sendProgress.total}</span>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label="Broadcast email progress"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.max(sendProgress.total, 1)}
+                  aria-valuenow={Math.min(sendProgress.completed, sendProgress.total)}
+                  aria-valuetext={`${sendProgress.completed} of ${sendProgress.total} recipients processed`}
+                  className="h-2 overflow-hidden rounded-full bg-slate-200"
+                >
+                  <div
+                    className="h-full rounded-full bg-cyan-600 transition-[width] duration-300 ease-out"
+                    style={{
+                      width: `${sendProgress.total > 0
+                        ? Math.min(100, (sendProgress.completed / sendProgress.total) * 100)
+                        : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={submitting}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Save as Draft
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+                <span>{submitting
+                  ? `Sending... (${sendProgress.completed} / ${sendProgress.total})`
+                  : "Send Broadcast"}</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

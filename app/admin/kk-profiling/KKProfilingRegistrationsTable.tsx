@@ -75,6 +75,7 @@ export function KKProfilingRegistrationsTable({
   showMemberRoleColumn = false,
   exportHref,
   exportMenu,
+  controlBar,
   pageNumber,
   pageSize,
 }: {
@@ -86,6 +87,7 @@ export function KKProfilingRegistrationsTable({
   showMemberRoleColumn?: boolean;
   exportHref?: string;
   exportMenu?: ReactNode;
+  controlBar?: ReactNode;
   pageNumber?: number;
   pageSize?: number;
 }) {
@@ -203,29 +205,31 @@ export function KKProfilingRegistrationsTable({
       {error ? <FloatingFeedback message={error} type="error" onDismiss={() => setError(null)} /> : null}
       <div className={flat ? "relative" : "relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"}>
         {!pageSearch && (
-          <div className={`relative flex flex-col items-stretch justify-between gap-3 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row sm:items-center ${fitContainer ? "z-40" : ""}`}>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-              <label className="relative block w-full sm:w-80">
-                <span className="sr-only">Filter the current profiling table</span>
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="search"
-                  value={activeTableQuery}
-                  onChange={(event) => setActiveTableQuery(event.target.value)}
-                  placeholder="Filter by name, email, or classification..."
-                  title="Filters rows in the current table view"
-                  className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 placeholder:text-slate-400"
+          controlBar ?? (
+            <div className={`relative flex flex-col items-stretch justify-between gap-3 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row sm:items-center ${fitContainer ? "z-40" : ""}`}>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <label className="relative block w-full sm:w-80">
+                  <span className="sr-only">Filter the current profiling table</span>
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="search"
+                    value={activeTableQuery}
+                    onChange={(event) => setActiveTableQuery(event.target.value)}
+                    placeholder="Filter by name, email, or classification..."
+                    title="Filters rows in the current table view"
+                    className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 placeholder:text-slate-400"
+                  />
+                </label>
+              </div>
+              {exportMenu ?? (exportHref ? (
+                <AdminExportButton
+                  href={exportHref}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl bg-[#0F3D5C] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] sm:self-auto"
+                  iconClassName="h-3.5 w-3.5"
                 />
-              </label>
+              ) : null)}
             </div>
-            {exportMenu ?? (exportHref ? (
-              <AdminExportButton
-                href={exportHref}
-                className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl bg-[#0F3D5C] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] sm:self-auto"
-                iconClassName="h-3.5 w-3.5"
-              />
-            ) : null)}
-          </div>
+          )
         )}
         {!fitContainer ? (
           <div className="p-3 md:hidden">

@@ -1,5 +1,5 @@
 import { GranteeStatus, Prisma, Role, SubmissionStatus } from "@prisma/client";
-import { BookOpen, BriefcaseBusiness, GraduationCap, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { hasProfilingRegistrationColumn, listProfilingRegistrations, prisma } from "@/lib/prisma";
 import { formatDisplayName } from "@/lib/display-name";
@@ -8,12 +8,28 @@ import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import { KKProfilingRegistrationsTable } from "../kk-profiling/KKProfilingRegistrationsTable";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 import { MembersExportMenu } from "../members/MembersExportMenu";
+import { RegistryMembersFilterBar } from "./RegistryMembersFilterBar";
+
+const classificationFilters = [
+  "In school Youth",
+  "Out of School Youth",
+  "Working Youth",
+  "Person w/ Disability",
+  "Indigenous People",
+] as const;
+const skVoterFilters = ["Yes", "No"] as const;
 
 export default async function RegistryMembersPage({
   searchParams,
   cohort,
 }: {
-  searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[] }>;
+  searchParams: Promise<{
+    page?: string | string[];
+    pageSize?: string | string[];
+    search?: string | string[];
+    classification?: string | string[];
+    skVoter?: string | string[];
+  }>;
   cohort: "all" | "regular";
 }) {
   const admin = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
@@ -22,20 +38,59 @@ export default async function RegistryMembersPage({
   const resolved = await searchParams;
   const rawPage = Array.isArray(resolved.page) ? resolved.page[0] : resolved.page;
   const rawPageSize = Array.isArray(resolved.pageSize) ? resolved.pageSize[0] : resolved.pageSize;
+  const rawSearch = Array.isArray(resolved.search) ? resolved.search[0] : resolved.search;
+  const rawClassification = Array.isArray(resolved.classification) ? resolved.classification[0] : resolved.classification;
+  const rawSkVoter = Array.isArray(resolved.skVoter) ? resolved.skVoter[0] : resolved.skVoter;
+  const profileSearch = cohort === "all" ? String(rawSearch ?? "").trim() : "";
+  const classificationFilter = cohort === "all" && classificationFilters.includes(rawClassification as typeof classificationFilters[number])
+    ? rawClassification as typeof classificationFilters[number]
+    : "";
+  const skVoterFilter = cohort === "all" && skVoterFilters.includes(rawSkVoter as typeof skVoterFilters[number])
+    ? rawSkVoter as typeof skVoterFilters[number]
+    : "";
   const requestedPage = Number(rawPage || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(rawPageSize);
   const pageSize = normalizeAdminTablePageSize(requestedPageSize);
-  const requiredProfileColumns = ["reviewStatus", "submittedAt", "userId", "email", "youthClassification"];
+  const requiredProfileColumns = [
+    "reviewStatus",
+    "submittedAt",
+    "userId",
+    "email",
+    "youthClassification",
+    "fullName",
+    "address",
+    "registeredSKVoter",
+  ];
   const hasRequiredProfileColumns = (
     await Promise.all(requiredProfileColumns.map((column) => hasProfilingRegistrationColumn(column)))
   ).every(Boolean);
-  const createUniqueProfileCte = (regularOnly: boolean) => Prisma.sql`
+  const filterConditions: Prisma.Sql[] = [];
+  if (profileSearch) {
+    const escapedSearch = profileSearch.replace(/[\\%_]/g, "\\$&");
+    const searchPattern = `%${escapedSearch}%`;
+    filterConditions.push(Prisma.sql`(
+      profile."fullName" ILIKE ${searchPattern} ESCAPE E'\\\\'
+      OR profile."email" ILIKE ${searchPattern} ESCAPE E'\\\\'
+      OR profile."address" ILIKE ${searchPattern} ESCAPE E'\\\\'
+    )`);
+  }
+  if (classificationFilter) {
+    filterConditions.push(Prisma.sql`profile."youthClassification" = ${classificationFilter}`);
+  }
+  if (skVoterFilter) {
+    filterConditions.push(Prisma.sql`profile."registeredSKVoter" = ${skVoterFilter}`);
+  }
+  const createUniqueProfileCte = (regularOnly: boolean, applyFilters = false) => Prisma.sql`
     WITH ranked_profiles AS (
       SELECT
         registration."id",
         registration."youthClassification",
         registration."submittedAt",
+        registration."fullName",
+        registration."email",
+        registration."address",
+        registration."registeredSKVoter",
         ROW_NUMBER() OVER (
           PARTITION BY COALESCE(
             NULLIF(LOWER(BTRIM(user_record."email")), ''),
@@ -58,40 +113,61 @@ export default async function RegistryMembersPage({
         )
     ),
     unique_profiles AS (
-      SELECT "id", "youthClassification", "submittedAt"
+      SELECT
+        "id",
+        "youthClassification",
+        "submittedAt",
+        "fullName",
+        "email",
+        "address",
+        "registeredSKVoter"
       FROM ranked_profiles
       WHERE identity_rank = 1
+    ),
+    filtered_profiles AS (
+      SELECT profile.*
+      FROM unique_profiles AS profile
+      ${applyFilters && filterConditions.length > 0
+        ? Prisma.sql`WHERE ${Prisma.join(filterConditions, " AND ")}`
+        : Prisma.empty}
     )
   `;
   const defaultProfileCounts = {
     inSchoolYouthCount: 0,
     outOfSchoolYouthCount: 0,
     workingYouthCount: 0,
+    personWithDisabilityCount: 0,
+    indigenousPeopleCount: 0,
   };
   let totalCount = 0;
   let approvedClassificationCounts = defaultProfileCounts;
 
   if (hasRequiredProfileColumns) {
-    const [filteredCountRows, classificationCountRows] = await Promise.all([
+    const [filteredCountRows, classificationRows] = await Promise.all([
       prisma.$queryRaw<Array<{ count: number }>>(
-        Prisma.sql`${createUniqueProfileCte(cohort === "regular")}
-          SELECT COUNT(*)::int AS count FROM unique_profiles`
+        Prisma.sql`${createUniqueProfileCte(cohort === "regular", true)}
+          SELECT COUNT(*)::int AS count FROM filtered_profiles`
       ),
-      prisma.$queryRaw<Array<{
-        inSchoolYouthCount: number;
-        outOfSchoolYouthCount: number;
-        workingYouthCount: number;
-      }>>(
-        Prisma.sql`${createUniqueProfileCte(false)}
-          SELECT
-            COUNT(*) FILTER (WHERE "youthClassification" = 'In school Youth')::int AS "inSchoolYouthCount",
-            COUNT(*) FILTER (WHERE "youthClassification" = 'Out of School Youth')::int AS "outOfSchoolYouthCount",
-            COUNT(*) FILTER (WHERE "youthClassification" = 'Working Youth')::int AS "workingYouthCount"
-          FROM unique_profiles`
+      prisma.$queryRaw<Array<{ classification: string | null; count: number }>>(
+        Prisma.sql`${createUniqueProfileCte(cohort === "regular", true)}
+          SELECT "youthClassification" AS classification, COUNT(*)::int AS count
+          FROM filtered_profiles
+          GROUP BY "youthClassification"`
       ),
     ]);
+    const countsByClassification = new Map<string, number>();
+    for (const { classification, count } of classificationRows) {
+      const key = classification?.trim().toLowerCase() ?? "";
+      countsByClassification.set(key, (countsByClassification.get(key) ?? 0) + count);
+    }
     totalCount = filteredCountRows[0]?.count ?? 0;
-    approvedClassificationCounts = classificationCountRows[0] ?? defaultProfileCounts;
+    approvedClassificationCounts = {
+      inSchoolYouthCount: countsByClassification.get("in school youth") ?? 0,
+      outOfSchoolYouthCount: countsByClassification.get("out of school youth") ?? 0,
+      workingYouthCount: countsByClassification.get("working youth") ?? 0,
+      personWithDisabilityCount: countsByClassification.get("person w/ disability") ?? 0,
+      indigenousPeopleCount: countsByClassification.get("indigenous people") ?? 0,
+    };
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -99,9 +175,9 @@ export default async function RegistryMembersPage({
   const skip = (currentPage - 1) * pageSize;
   const pageKeys = hasRequiredProfileColumns && totalCount > 0
     ? await prisma.$queryRaw<Array<{ id: string }>>(
-        Prisma.sql`${createUniqueProfileCte(cohort === "regular")}
+        Prisma.sql`${createUniqueProfileCte(cohort === "regular", true)}
           SELECT "id"
-          FROM unique_profiles
+          FROM filtered_profiles
           ORDER BY "submittedAt" DESC, "id" DESC
           LIMIT ${pageSize} OFFSET ${skip}`
       )
@@ -177,18 +253,14 @@ export default async function RegistryMembersPage({
   const inSchoolYouthCount = approvedClassificationCounts.inSchoolYouthCount;
   const outOfSchoolYouthCount = approvedClassificationCounts.outOfSchoolYouthCount;
   const workingYouthCount = approvedClassificationCounts.workingYouthCount;
-
-  const memberCategoryStats = [
-    { label: "In-School", value: inSchoolYouthCount, icon: BookOpen, description: "Enrolled youths", isHero: false },
-    { label: "Out-of-School", value: outOfSchoolYouthCount, icon: GraduationCap, description: "Unenrolled youths", isHero: false },
-    { label: "Working", value: workingYouthCount, icon: BriefcaseBusiness, description: "Employed youths", isHero: false },
-    {
-      label: cohort === "all" ? "Total Youth" : "KK Profiled Youth",
-      value: totalCount,
-      icon: Users,
-      description: cohort === "all" ? "All approved profiles" : "Without an active SKEAP grant",
-      isHero: true,
-    },
+  const personWithDisabilityCount = approvedClassificationCounts.personWithDisabilityCount;
+  const indigenousPeopleCount = approvedClassificationCounts.indigenousPeopleCount;
+  const classificationBreakdown = [
+    { label: "In-School Youth", value: inSchoolYouthCount, color: "bg-cyan-500" },
+    { label: "Out-of-School Youth", value: outOfSchoolYouthCount, color: "bg-indigo-500" },
+    { label: "Working Youth", value: workingYouthCount, color: "bg-amber-500" },
+    { label: "Person w/ Disability", value: personWithDisabilityCount, color: "bg-rose-500" },
+    { label: "Indigenous People", value: indigenousPeopleCount, color: "bg-emerald-500" },
   ];
 
   return (
@@ -204,28 +276,54 @@ export default async function RegistryMembersPage({
           </p>
         </header>
 
-        <div className="grid grid-cols-2 gap-3 sm:gap-6 xl:grid-cols-4">
-          {memberCategoryStats.map(({ label, value, icon: Icon, description, isHero }) => (
-            <div
-              key={label}
-              className={`relative bg-white rounded-2xl border border-slate-200/80 p-3.5 shadow-sm flex flex-col gap-3 overflow-hidden group transition-all duration-300 sm:gap-4 sm:p-5 ${isHero ? "hover:shadow-md hover:border-cyan-300" : "hover:shadow-md hover:border-cyan-200"}`}
-            >
-              <div
-                aria-hidden="true"
-                className={`absolute rounded-full blur-2xl transition-colors duration-500 ${isHero ? "-top-12 -right-12 w-40 h-40 bg-cyan-100/40 group-hover:bg-cyan-200/50" : "-top-10 -right-10 w-32 h-32 bg-cyan-50/50 group-hover:bg-cyan-100/50"}`}
-              />
-              <div className="relative z-10 flex items-center justify-between">
-                <span className={`text-[10px] font-bold uppercase tracking-widest ${isHero ? "text-cyan-600" : "text-slate-400"}`}>{label}</span>
-                <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-300 ${isHero ? "bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-md" : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"}`}>
-                  <Icon className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
-                </div>
-              </div>
-              <div className="relative z-10">
-                <h2 className="text-xl font-black tracking-tight text-slate-900 leading-none sm:text-3xl">{value}</h2>
-                <p className="mt-1 text-[10px] font-medium text-slate-400 sm:mt-1.5 sm:text-[11px]">{description}</p>
-              </div>
+        <div className="grid gap-3 sm:gap-5 md:grid-cols-[minmax(220px,0.8fr)_minmax(0,2fr)]">
+          <div className="relative overflow-hidden rounded-2xl bg-slate-900 p-5 text-white shadow-sm sm:p-6">
+            <div aria-hidden="true" className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-cyan-500/20 blur-2xl" />
+            <div className="relative flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-200">
+                {cohort === "all" ? "Total Youth" : "KK Profiled Youth"}
+              </span>
+              <Users aria-hidden="true" className="h-5 w-5 text-cyan-200" />
             </div>
-          ))}
+            <p className="relative mt-3 text-3xl font-black tracking-tight sm:text-4xl">
+              {totalCount.toLocaleString()}
+            </p>
+            <p className="relative mt-1 text-xs text-slate-300">
+              {cohort === "all" ? "All approved profiles" : "Without an active SKEAP grant"}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-bold text-slate-900">Classification Breakdown</h2>
+              <p className="text-xs text-slate-500">
+                {classificationBreakdown.reduce((sum, item) => sum + item.value, 0).toLocaleString()} of {totalCount.toLocaleString()} youth
+              </p>
+            </div>
+            <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              {classificationBreakdown.map(({ label, value, color }) => (
+                <div key={label} className="flex min-w-0 items-center gap-2">
+                  <span className="w-32 shrink-0 truncate text-[11px] font-medium text-slate-600">{label}</span>
+                  <div
+                    className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100"
+                    role="progressbar"
+                    aria-label={`${label} share of youth`}
+                    aria-valuemin={0}
+                    aria-valuemax={totalCount}
+                    aria-valuenow={value}
+                  >
+                    <div
+                      className={`h-full rounded-full ${color}`}
+                      style={{ width: totalCount > 0 ? `${(value / totalCount) * 100}%` : "0%" }}
+                    />
+                  </div>
+                  <span className="w-10 shrink-0 text-right text-xs font-bold tabular-nums text-slate-900">
+                    {value.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <section className="relative z-10 mt-4 flex w-full flex-col overflow-visible rounded-2xl border border-slate-200/80 bg-white shadow-sm">
@@ -237,7 +335,15 @@ export default async function RegistryMembersPage({
               fitContainer
               archiveAction
               showMemberRoleColumn
-              exportMenu={cohort === "all" ? <MembersExportMenu key="members-export-menu" /> : undefined}
+              controlBar={cohort === "all" ? (
+                <RegistryMembersFilterBar
+                  key="registry-members-filter-bar"
+                  search={profileSearch}
+                  classification={classificationFilter}
+                  skVoter={skVoterFilter}
+                  exportMenu={<MembersExportMenu key="members-export-menu" />}
+                />
+              ) : undefined}
             />
           </div>
 

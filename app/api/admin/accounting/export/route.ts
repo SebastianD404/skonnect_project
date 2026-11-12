@@ -1,12 +1,13 @@
 import ExcelJS from "exceljs";
 import { NextResponse } from "next/server";
 import path from "node:path";
-import { GranteeStatus, Prisma, Role, SubmissionStatus } from "@prisma/client";
+import { AccountingPayoutStatus, GranteeStatus, Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { ensureProfile } from "@/lib/auth";
 import { formatPayrollGranteeName } from "@/lib/accounting-payroll";
 import { logAuditEvent } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { createCsvResponse, parseReportDateRange, parseReportFormat } from "@/lib/report-export";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,12 @@ export async function GET(request: Request) {
   const payoutStatus = searchParams.get("payoutStatus");
   const submissionStatus = searchParams.get("submissionStatus");
   const search = searchParams.get("search")?.trim() ?? "";
-  if (!["current_view", "master_payroll", "pending_payouts", "received_payouts"].includes(reportType)) {
+  const format = parseReportFormat(searchParams.get("format"));
+  const dateRange = parseReportDateRange(searchParams);
+  if (!format) return NextResponse.json({ error: "Format must be xlsx or csv." }, { status: 400 });
+  if (dateRange.error) return NextResponse.json({ error: dateRange.error }, { status: 400 });
+
+  if (!["current_view", "master_payroll", "pending_payouts", "received_payouts", "unclaimed_payouts"].includes(reportType)) {
     return NextResponse.json({ error: "Invalid payroll report type." }, { status: 400 });
   }
   if (!semesterId && !semesterName) {
@@ -83,6 +89,14 @@ export async function GET(request: Request) {
             ? { NOT: { submissions: { some: submittedSemesterFilter } } }
             : {}
         : {}),
+      ...(reportType !== "received_payouts" && (dateRange.startDate || dateRange.endDateExclusive)
+        ? {
+            dateEnrolled: {
+              ...(dateRange.startDate ? { gte: dateRange.startDate } : {}),
+              ...(dateRange.endDateExclusive ? { lt: dateRange.endDateExclusive } : {}),
+            },
+          }
+        : {}),
       ...(search
         ? {
             user: {
@@ -101,9 +115,28 @@ export async function GET(request: Request) {
           ? "pending"
           : reportType === "received_payouts"
             ? "received"
+            : reportType === "unclaimed_payouts"
+              ? "unclaimed"
             : undefined;
-    if (effectivePayoutStatus === "received") {
-      where.payout = { is: { disbursedAt: { not: null } } };
+    if (effectivePayoutStatus === "unclaimed") {
+      where.payout = {
+        is: {
+          status: AccountingPayoutStatus.DISBURSED_UNCONFIRMED,
+          semester: selectedSemester,
+          disbursedAt: { not: null },
+          claimedAt: null,
+        },
+      };
+    } else if (effectivePayoutStatus === "received") {
+      where.payout = {
+        is: {
+          disbursedAt: {
+            not: null,
+            ...(dateRange.startDate ? { gte: dateRange.startDate } : {}),
+            ...(dateRange.endDateExclusive ? { lt: dateRange.endDateExclusive } : {}),
+          },
+        },
+      };
     } else if (effectivePayoutStatus === "pending") {
       where.OR = [
         { payout: { is: null } },
@@ -152,10 +185,56 @@ export async function GET(request: Request) {
           ? "Awaiting Confirmation"
           : "Pending",
       semester: grantee.submissions[0]?.semester ?? selectedSemester,
+      grantAmount: 5000,
+      disbursedAt: grantee.payout?.disbursedAt ?? null,
+      claimedAt: grantee.payout?.claimedAt ?? null,
     }));
 
     const semesterSlug =
       selectedSemester.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "") || "semester";
+
+    const filename = currentView
+      ? `SKEAP-PAYROLL-${semesterSlug}-Current-View.xlsx`
+      : reportType === "pending_payouts"
+        ? `SKEAP-Pending-Payouts-${semesterSlug}.xlsx`
+        : reportType === "received_payouts"
+          ? `SKEAP-Disbursed-Payouts-${semesterSlug}.xlsx`
+            : reportType === "unclaimed_payouts"
+              ? `SKEAP-Unclaimed-Allowances-${semesterSlug}.xlsx`
+          : `SKEAP-PAYROLL-${semesterSlug}.xlsx`;
+    logAuditEvent({
+      actorId: admin.id,
+      actorEmail: admin.email,
+      action: "RECORDS_EXPORTED",
+      resource: "accounting-payroll",
+      metadata: {
+        recordCount: reportRows.length,
+        filters: {
+          semester: selectedSemester,
+          reportType,
+          payoutStatus: effectivePayoutStatus,
+          submissionStatus: currentView ? submissionStatus ?? "all" : undefined,
+          search: search || undefined,
+          startDate: dateRange.startDate?.toISOString() ?? null,
+          endDate: dateRange.endDateExclusive?.toISOString() ?? null,
+        },
+      },
+    });
+
+    if (format === "csv") {
+      return createCsvResponse(
+        reportRows,
+        [
+          { header: "Name", key: "name" },
+          { header: "Status", key: "status" },
+          { header: "Semester", key: "semester" },
+          { header: "Grant Amount", key: "grantAmount" },
+          { header: "Disbursed At", key: "disbursedAt" },
+          { header: "Claimed At", key: "claimedAt" },
+        ],
+        filename,
+      );
+    }
 
     const workbook = new ExcelJS.Workbook();
 
@@ -219,31 +298,6 @@ export async function GET(request: Request) {
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const filename = currentView
-      ? `SKEAP-PAYROLL-${semesterSlug}-Current-View.xlsx`
-      : reportType === "pending_payouts"
-        ? `SKEAP-Pending-Payouts-${semesterSlug}.xlsx`
-        : reportType === "received_payouts"
-          ? `SKEAP-Disbursed-Payouts-${semesterSlug}.xlsx`
-        : `SKEAP-PAYROLL-${semesterSlug}.xlsx`;
-
-    logAuditEvent({
-      actorId: admin.id,
-      actorEmail: admin.email,
-      action: "RECORDS_EXPORTED",
-      resource: "accounting-payroll",
-      metadata: {
-        recordCount: reportRows.length,
-        filters: {
-          semester: selectedSemester,
-          reportType,
-          payoutStatus: effectivePayoutStatus,
-          submissionStatus: currentView ? submissionStatus ?? "all" : undefined,
-          search: search || undefined,
-        },
-      },
-    });
-
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

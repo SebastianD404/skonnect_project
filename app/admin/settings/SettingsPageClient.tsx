@@ -80,6 +80,19 @@ function toManilaDateTimeLocal(value: string | null | undefined) {
   return `${manilaDate.getUTCFullYear()}-${pad(manilaDate.getUTCMonth() + 1)}-${pad(manilaDate.getUTCDate())}T${pad(manilaDate.getUTCHours())}:${pad(manilaDate.getUTCMinutes())}`;
 }
 
+function updateDateTimeYear(value: string, yearValue: string) {
+  const year = Number(yearValue);
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+  if (!match || !Number.isInteger(year) || year < 2000 || year >= 9999) return value;
+
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return value;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const adjustedDay = String(Math.min(day, daysInMonth)).padStart(2, "0");
+  return `${yearValue}-${match[2]}-${adjustedDay}${match[4]}`;
+}
+
 function getScheduleStatus(schedule: AcademicTermScheduleInput) {
   const now = Date.now();
   const opensAt = new Date(`${schedule.opensAt}:00+08:00`).getTime();
@@ -158,6 +171,12 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
     JSON.stringify(academicTermSchedules) !== JSON.stringify(savedAcademicTermSchedules) ||
     deletedAcademicTermScheduleIds.length > 0;
   const isAtCapacity = academicTermSchedules.length >= MAX_SCHEDULED_TERMS;
+  const selectedStartYear = Number(newSchedule.startYear);
+  const newScheduleDateMin = Number.isInteger(selectedStartYear)
+    && selectedStartYear >= 2000
+    && selectedStartYear < 9999
+    ? `${newSchedule.startYear}-01-01T00:00`
+    : undefined;
 
   async function handleSaveTerm() {
     if (isAtCapacity) {
@@ -177,6 +196,11 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
     }
     if (!newSchedule.opensAt || !newSchedule.closesAt || newSchedule.opensAt >= newSchedule.closesAt) {
       setErrorMessage("Set an opening date and a later submission deadline.");
+      return;
+    }
+    const academicYearStart = `${startYear}-01-01T00:00`;
+    if (newSchedule.opensAt < academicYearStart || newSchedule.closesAt < academicYearStart) {
+      setErrorMessage(`Opening and deadline dates must be in or after ${startYear}.`);
       return;
     }
     const existingDeadlines = academicTermSchedules.map((schedule) =>
@@ -425,6 +449,9 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
                                 className={INPUT_CLASSES}
                               />
                             </label>
+                            <p className="text-[11px] font-medium text-slate-500 sm:col-span-2">
+                              Dates must be in or after academic year {newSchedule.startYear}.
+                            </p>
                           </div>
                         </article>
                       );
@@ -466,7 +493,15 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
                         min="2000"
                         max="9998"
                         value={newSchedule.startYear}
-                        onChange={(event) => setNewSchedule((current) => ({ ...current, startYear: event.target.value }))}
+                        onChange={(event) => {
+                          const startYear = event.target.value;
+                          setNewSchedule((current) => ({
+                            ...current,
+                            startYear,
+                            opensAt: updateDateTimeYear(current.opensAt, startYear),
+                            closesAt: updateDateTimeYear(current.closesAt, startYear),
+                          }));
+                        }}
                         placeholder="2026"
                         disabled={loading || saving || isSaving}
                         className={INPUT_CLASSES}
@@ -492,6 +527,7 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
                       <input
                         type="datetime-local"
                         value={newSchedule.opensAt}
+                        min={newScheduleDateMin}
                         onChange={(event) => setNewSchedule((current) => ({ ...current, opensAt: event.target.value }))}
                         disabled={loading || saving || isSaving}
                         className={INPUT_CLASSES}
@@ -502,6 +538,7 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
                       <input
                         type="datetime-local"
                         value={newSchedule.closesAt}
+                        min={newScheduleDateMin}
                         onChange={(event) => setNewSchedule((current) => ({ ...current, closesAt: event.target.value }))}
                         disabled={loading || saving || isSaving}
                         className={INPUT_CLASSES}

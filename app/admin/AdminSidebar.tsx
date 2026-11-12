@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { Role } from "@prisma/client";
-import { Archive, BadgeCheck, Banknote, ClipboardList, Clock, Database, FileCheck, FileText, GraduationCap, History, Inbox, LayoutDashboard, Menu, Radio, Settings, UserX, UsersRound, X } from "lucide-react";
+import { AlertTriangle, Archive, BadgeCheck, Banknote, ClipboardList, Clock, Database, Download, FileCheck, FileText, GraduationCap, History, Inbox, LayoutDashboard, Menu, Radio, Settings, UserX, UsersRound, X } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { Avatar } from "@/components/ui/Avatar";
@@ -262,6 +262,7 @@ export default function AdminSidebar({
         { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: liveCounts.skeapApplicationCount },
         { label: "Waitlist", href: "/admin/skeap-waitlist", icon: Clock },
         { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: liveCounts.pendingDocumentCount },
+        { label: "Non-Compliant", href: "/admin/skeap/non-compliant", icon: AlertTriangle },
         { label: "Revoked Grantees", href: "/admin/skeap/revoked", icon: UserX },
         { label: "Graduated Scholars", href: "/admin/grantees/records", icon: History },
       ],
@@ -270,6 +271,12 @@ export default function AdminSidebar({
       title: "Finance",
       items: [
         { label: "Accounting", href: "/admin/accounting", icon: Banknote },
+      ],
+    },
+    {
+      title: "Reports & Exports",
+      items: [
+        { label: "Generate Reports", href: "/admin/reports", icon: Download },
       ],
     },
     {

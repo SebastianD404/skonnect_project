@@ -15,6 +15,12 @@ function getViewedAt(request: NextRequest, cookieName: string) {
   return viewedAt;
 }
 
+function isTransientConnectionError(error: unknown) {
+  return error instanceof Error &&
+    /server has closed the connection|connection terminated unexpectedly|connection reset by peer|socket hang up/i
+      .test(error.message);
+}
+
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const {
@@ -72,15 +78,7 @@ export async function GET(request: NextRequest) {
   };
 
   try {
-    const [
-      openInquiryCount,
-      skeapApplicationCount,
-      pendingDocumentCount,
-      pendingProfilingRegistrationCount,
-      resubmittedProfilingRegistrationCount,
-      newGranteeCount,
-      approvedMemberCount,
-    ] = await Promise.all([
+    const loadCounts = () => Promise.all([
       prisma.inquiry.count({
         where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: inquiryLastViewed ?? startOfToday } },
       }),
@@ -113,6 +111,24 @@ export async function GET(request: NextRequest) {
       }),
       getProfilingRegistrationCountByStatusSince("Approved", membersLastViewed ?? startOfToday),
     ]);
+
+    let countResults: Awaited<ReturnType<typeof loadCounts>>;
+    try {
+      countResults = await loadCounts();
+    } catch (error) {
+      if (!isTransientConnectionError(error)) throw error;
+      countResults = await loadCounts();
+    }
+
+    const [
+      openInquiryCount,
+      skeapApplicationCount,
+      pendingDocumentCount,
+      pendingProfilingRegistrationCount,
+      resubmittedProfilingRegistrationCount,
+      newGranteeCount,
+      approvedMemberCount,
+    ] = countResults;
 
     return NextResponse.json(
       {

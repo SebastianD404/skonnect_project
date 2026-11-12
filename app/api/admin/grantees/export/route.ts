@@ -6,6 +6,20 @@ import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { exportToExcel } from "@/lib/utils/export";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { logAuditEvent } from "@/lib/audit/logger";
+import { createCsvResponse, parseReportDateRange, parseReportFormat } from "@/lib/report-export";
+
+const CSV_COLUMNS = [
+  { header: "Name", key: "fullName" },
+  { header: "Email", key: "email" },
+  { header: "Contact No", key: "contactNumber" },
+  { header: "School", key: "school" },
+  { header: "Year Level", key: "yearLevel" },
+  { header: "Status", key: "status" },
+  { header: "General Average", key: "generalAverage" },
+  { header: "Enrolled At", key: "dateEnrolled" },
+  { header: "Graduated At", key: "graduatedAt" },
+  { header: "Retention Expires At", key: "retentionExpiresAt" },
+] as const;
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -23,6 +37,11 @@ export async function GET(request: NextRequest) {
   }
 
   const query = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+  const format = parseReportFormat(request.nextUrl.searchParams.get("format"));
+  const dateRange = parseReportDateRange(request.nextUrl.searchParams);
+  if (!format) return NextResponse.json({ error: "Format must be xlsx or csv." }, { status: 400 });
+  if (dateRange.error) return NextResponse.json({ error: dateRange.error }, { status: 400 });
+
   const restoredAfterRemovalSql = `EXISTS (
     SELECT 1
     FROM "audit_logs" role_change
@@ -54,15 +73,21 @@ export async function GET(request: NextRequest) {
      FROM "grantees" g
      JOIN "users" profile_user ON profile_user."id" = g."userId"
      WHERE TRUE ${profileStatusSql}
+       AND ($2::timestamp IS NULL OR g."dateEnrolled" >= $2::timestamp)
+       AND ($3::timestamp IS NULL OR g."dateEnrolled" < $3::timestamp)
        AND ($1 = '' OR concat_ws(' ', profile_user."fullName", profile_user."email", g."school", g."yearLevel") ILIKE '%' || $1 || '%')
      UNION ALL
      SELECT 'fallback'::text AS "source", ('user-' || u."id")::text AS "recordId", u."id"::text AS "userId", u."updatedAt" AS "updatedAt"
      FROM "users" u
      WHERE u."role"::text = 'GRANTEE'
        AND NOT EXISTS (SELECT 1 FROM "grantees" g WHERE g."userId" = u."id")
+       AND ($2::timestamp IS NULL OR u."createdAt" >= $2::timestamp)
+       AND ($3::timestamp IS NULL OR u."createdAt" < $3::timestamp)
        AND ($1 = '' OR concat_ws(' ', u."fullName", u."email") ILIKE '%' || $1 || '%')
      ORDER BY "updatedAt" DESC, "recordId" ASC`,
-    query
+    query,
+    dateRange.startDate,
+    dateRange.endDateExclusive
   );
   const [grantees, fallbackUsers] = await Promise.all([
     prisma.grantee.findMany({
@@ -120,7 +145,6 @@ export async function GET(request: NextRequest) {
     const row = item.source === "profile" ? profilesById.get(item.recordId) : fallbacksById.get(item.recordId);
     return row ? [row] : [];
   });
-  const file = exportToExcel(exportRows, "grantee-records", "grantees");
   logAuditEvent({
     actorId: appUser.id,
     actorEmail: appUser.email,
@@ -128,10 +152,18 @@ export async function GET(request: NextRequest) {
     resource: "grantees",
     metadata: {
       recordCount: exportRows.length,
-      filters: { status: "ACTIVE", query: query || null },
+      filters: {
+        status: "ACTIVE",
+        query: query || null,
+        startDate: dateRange.startDate?.toISOString() ?? null,
+        endDate: dateRange.endDateExclusive?.toISOString() ?? null,
+      },
     },
   });
 
+  if (format === "csv") return createCsvResponse(exportRows, CSV_COLUMNS, "SKEAP-Active-Scholars.xlsx");
+
+  const file = exportToExcel(exportRows, "grantee-records", "grantees");
   return new NextResponse(file.body, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -13,6 +13,11 @@ type BroadcastPayload = {
   granteeIds?: string[];
 };
 
+type BroadcastProgressEvent =
+  | { type: "progress"; completed: number; total: number }
+  | { type: "complete"; sent: number; emailed: number; emailFailed: number; emailSkipped: number }
+  | { type: "error"; error: string };
+
 function wasAcceptedByMailServer(
   acceptedRecipients: Array<string | { address: string }>,
   recipientEmail: string
@@ -107,40 +112,73 @@ export async function POST(request: Request) {
       });
     }));
 
-    let emailed = 0;
-    let emailFailed = 0;
-    let emailSkipped = 0;
-
-    try {
-      const transporter = createGmailTransporter();
-      await Promise.all(
-        recipients.map(async (grantee) => {
-          try {
-            const result = await sendBroadcastEmail(transporter, grantee.id, grantee.email, subject, body);
-            if (!result) {
-              emailSkipped += 1;
-            } else if (wasAcceptedByMailServer(result.accepted, grantee.email)) {
-              emailed += 1;
-            } else {
-              emailFailed += 1;
-              console.error("Mail server did not accept the broadcast recipient.");
-            }
-          } catch (error) {
-            emailFailed += 1;
-            console.error("Nodemailer error:", error);
+    let streamCancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        const emit = (event: BroadcastProgressEvent) => {
+          if (!streamCancelled) {
+            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
           }
-        })
-      );
-    } catch (error) {
-      emailFailed = recipients.length - emailed - emailSkipped;
-      console.error("Nodemailer error:", error);
-    }
+        };
+        let completed = 0;
+        let emailed = 0;
+        let emailFailed = 0;
+        let emailSkipped = 0;
 
-    return NextResponse.json({
-      sent: recipients.length,
-      emailed,
-      emailFailed,
-      emailSkipped,
+        try {
+          emit({ type: "progress", completed, total: recipients.length });
+          const transporter = createGmailTransporter();
+          await Promise.all(
+            recipients.map(async (grantee) => {
+              try {
+                const result = await sendBroadcastEmail(transporter, grantee.id, grantee.email, subject, body);
+                if (!result) {
+                  emailSkipped += 1;
+                } else if (wasAcceptedByMailServer(result.accepted, grantee.email)) {
+                  emailed += 1;
+                } else {
+                  emailFailed += 1;
+                  console.error("Mail server did not accept the broadcast recipient.");
+                }
+              } catch (error) {
+                emailFailed += 1;
+                console.error("Nodemailer error:", error);
+              }
+
+              completed += 1;
+              emit({ type: "progress", completed, total: recipients.length });
+            })
+          );
+        } catch (error) {
+          console.error("Nodemailer error:", error);
+          while (completed < recipients.length) {
+            completed += 1;
+            emailFailed += 1;
+            emit({ type: "progress", completed, total: recipients.length });
+          }
+        }
+
+        emit({
+          type: "complete",
+          sent: recipients.length,
+          emailed,
+          emailFailed,
+          emailSkipped,
+        });
+        if (!streamCancelled) controller.close();
+      },
+      cancel() {
+        streamCancelled = true;
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal Server Error";

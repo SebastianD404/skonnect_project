@@ -184,42 +184,6 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
         // Notify other tabs/components that profile changed
         window.dispatchEvent(new Event('skonnect-profile-updated'));
 
-        if (serverUser.role === 'GRANTEE') {
-          try {
-            const remindersRes = await fetch('/api/my/reminders', { cache: 'no-store' });
-            if (remindersRes.ok) {
-              const data: unknown = await remindersRes.json();
-              const reminderPayload = asRecord(data);
-              const reminderRows: unknown[] =
-                reminderPayload && Array.isArray(reminderPayload.reminders)
-                  ? reminderPayload.reminders
-                  : [];
-              const reminders = reminderRows.flatMap((value): NotificationItem[] => {
-                const item = asRecord(value);
-                if (!item || (typeof item.id !== "string" && typeof item.id !== "number")) return [];
-                const metadata = asRecord(item.metadata);
-                const subject =
-                  getString(metadata?.subject) ||
-                  getString(item.targetType, "Reminder");
-                const body =
-                  getString(metadata?.body) ||
-                  getString(metadata?.message) ||
-                  getString(item.channel, "You have a reminder.");
-                return [{
-                  id: `reminder:${item.id}`,
-                  text: `${subject}: ${body}`,
-                  createdAt: getString(item.createdAt) || getString(item.sentAt),
-                }];
-              });
-              setInAppNotifications((current) => [
-                ...current.filter((item) => !item.id.startsWith("reminder:")),
-                ...reminders,
-              ]);
-            }
-          } catch {
-            // ignore reminder fetch errors
-          }
-        }
       } catch (err) {
         // ignore
       }
@@ -321,21 +285,23 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
 
     async function refreshGranteeMessages() {
       try {
-        const [inquiriesResponse, messagesResponse, announcementsResponse, notificationsResponse] = await Promise.all([
+        const [inquiriesResponse, messagesResponse, announcementsResponse, notificationsResponse, remindersResponse] = await Promise.all([
           fetch("/api/my/inquiries", { cache: "no-store" }),
           fetch("/api/my/messages", { cache: "no-store" }),
           fetch("/api/announcements", { cache: "no-store" }),
           fetch("/api/my/notifications", { cache: "no-store" }),
+          fetch("/api/my/reminders", { cache: "no-store" }),
         ]);
         if (!active) return;
 
-        const [inquiriesData, messagesData, announcementsData, notificationsData]: unknown[] = await Promise.all([
+        const [inquiriesData, messagesData, announcementsData, notificationsData, remindersData]: unknown[] = await Promise.all([
           inquiriesResponse.ok ? inquiriesResponse.json() : { inquiries: [] },
           messagesResponse.ok ? messagesResponse.json() : { messages: [] },
           announcementsResponse.ok ? announcementsResponse.json() : [],
           notificationsResponse.ok
             ? notificationsResponse.json()
             : { notifications: [] },
+          remindersResponse.ok ? remindersResponse.json() : { reminders: [] },
         ]);
         const inquiryPayload = asRecord(inquiriesData);
         const messagePayload = asRecord(messagesData);
@@ -396,12 +362,41 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
             createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
           }];
         });
+        const reminderPayload = asRecord(remindersData);
+        const reminderRows: unknown[] =
+          reminderPayload && Array.isArray(reminderPayload.reminders)
+            ? reminderPayload.reminders
+            : [];
+        const reminderNotifications = reminderRows.flatMap((value): NotificationItem[] => {
+          const item = asRecord(value);
+          if (!item || (typeof item.id !== "string" && typeof item.id !== "number")) return [];
+          const metadata = asRecord(item.metadata);
+          const subject =
+            getString(metadata?.subject) ||
+            getString(item.targetType, "Reminder");
+          const body =
+            getString(metadata?.body) ||
+            getString(metadata?.message) ||
+            getString(item.channel, "You have a reminder.");
+          return [{
+            id: `reminder:${item.id}`,
+            text: `${subject}: ${body}`,
+            createdAt: getString(item.createdAt) || getString(item.sentAt),
+          }];
+        });
+        const refreshedItems = new Map(
+          [...payoutNotifications, ...reminderNotifications].map((item) => [item.id, item])
+        );
+        const refreshedNotificationIds = new Set(refreshedItems.keys());
         setInAppNotifications((current) => [
           ...current.filter((item) =>
-            !item.text.startsWith("Announcement: ") && !item.id.startsWith("payout-disbursed:")
+            !item.text.startsWith("Announcement: ") &&
+            !item.id.startsWith("payout-disbursed:") &&
+            !item.id.startsWith("reminder:") &&
+            !refreshedNotificationIds.has(item.id)
           ),
           ...announcementNotifications,
-          ...payoutNotifications,
+          ...refreshedItems.values(),
         ]);
       } catch {
         // Keep the last successful message state when a refresh is unavailable.

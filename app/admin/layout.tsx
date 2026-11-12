@@ -29,7 +29,7 @@ export default async function AdminLayout({
           {/* Top Search Area (with the separating line) */}
           <div className="sticky top-0 z-30 flex shrink-0 items-center gap-x-4 border-b border-slate-200 bg-slate-50/90 backdrop-blur-sm px-4 py-2.5 sm:px-6 xl:px-8">
             <form
-              className="relative flex flex-1 max-w-2xl items-center bg-white border border-slate-200 rounded-full h-9 px-4 shadow-sm hover:border-slate-300 transition-colors"
+              className="relative flex flex-1 max-w-2xl items-center bg-white border border-slate-200 rounded-full h-9 px-4 shadow-sm transition hover:border-slate-300 focus-within:border-cyan-500 focus-within:ring-2 focus-within:ring-cyan-500/10"
               action="#"
               method="GET"
             >
@@ -42,7 +42,7 @@ export default async function AdminLayout({
               />
               <input
                 id="search-field"
-                className="block w-full h-full bg-transparent border-0 py-0 pl-3 pr-0 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-0"
+                className="block w-full h-full bg-transparent border-0 py-0 pl-3 pr-0 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:outline-none focus:ring-0"
                 placeholder="Search workspace..."
                 type="search"
                 name="search"

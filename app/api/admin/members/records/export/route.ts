@@ -1,11 +1,12 @@
 import ExcelJS from "exceljs";
 import { Role } from "@prisma/client";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/audit/logger";
 import { getKKMemberArchiveReasonLabel } from "@/lib/kk-member-archive";
+import { createCsvResponse, parseReportDateRange, parseReportFormat } from "@/lib/report-export";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,7 @@ const COLUMNS = [
   { header: "ID Back File URL", key: "idBackFileUrl", width: 48 },
   { header: "Single ID File URL", key: "idSingleFileUrl", width: 48 },
   { header: "Submitted Date", key: "submittedAt", width: 20 },
+  { header: "Archived Date", key: "archivedAt", width: 20 },
   { header: "Review Status", key: "reviewStatus", width: 16 },
   { header: "Archive Reason", key: "archivedReason", width: 26 },
   { header: "Review Notes", key: "reviewNotes", width: 36 },
@@ -72,6 +74,7 @@ function styleWorksheet(worksheet: ExcelJS.Worksheet) {
 
   worksheet.getColumn("birthDate").numFmt = "mmm d, yyyy";
   worksheet.getColumn("submittedAt").numFmt = "mmm d, yyyy";
+  worksheet.getColumn("archivedAt").numFmt = "mmm d, yyyy";
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
   worksheet.autoFilter = {
     from: { row: 1, column: 1 },
@@ -79,7 +82,7 @@ function styleWorksheet(worksheet: ExcelJS.Worksheet) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -89,9 +92,25 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const format = parseReportFormat(request.nextUrl.searchParams.get("format"));
+  const dateRange = parseReportDateRange(request.nextUrl.searchParams);
+  if (!format) return NextResponse.json({ error: "Format must be xlsx or csv." }, { status: 400 });
+  if (dateRange.error) return NextResponse.json({ error: dateRange.error }, { status: 400 });
+
   try {
     const records = await prisma.profilingRegistration.findMany({
-      where: { reviewStatus: "Archived" },
+      where: {
+        reviewStatus: "Archived",
+        ...(dateRange.startDate || dateRange.endDateExclusive
+          ? {
+              archivedAt: {
+                not: null,
+                ...(dateRange.startDate ? { gte: dateRange.startDate } : {}),
+                ...(dateRange.endDateExclusive ? { lt: dateRange.endDateExclusive } : {}),
+              },
+            }
+          : {}),
+      },
       orderBy: { submittedAt: "desc" },
       select: {
         id: true,
@@ -124,22 +143,17 @@ export async function GET() {
         idBackFileUrl: true,
         idSingleFileUrl: true,
         submittedAt: true,
+        archivedAt: true,
         reviewStatus: true,
         archivedReason: true,
         reviewNotes: true,
       },
     });
 
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "SKonnect";
-    workbook.created = new Date();
-    const worksheet = workbook.addWorksheet("Archived KK Youth");
-    worksheet.columns = [...COLUMNS];
-    worksheet.addRows(records.map((record) => ({
+    const exportRows = records.map((record) => ({
       ...record,
       archivedReason: getKKMemberArchiveReasonLabel(record.archivedReason),
-    })));
-    styleWorksheet(worksheet);
+    }));
 
     logAuditEvent({
       actorId: admin.id,
@@ -148,9 +162,23 @@ export async function GET() {
       resource: "kk_profiling_registrations",
       metadata: {
         recordCount: records.length,
-        filters: { reviewStatus: "Archived" },
+        filters: {
+          reviewStatus: "Archived",
+          startDate: dateRange.startDate?.toISOString() ?? null,
+          endDate: dateRange.endDateExclusive?.toISOString() ?? null,
+        },
       },
     });
+
+    if (format === "csv") return createCsvResponse(exportRows, COLUMNS, "Archived-KK-Youth.xlsx");
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "SKonnect";
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet("Archived KK Youth");
+    worksheet.columns = [...COLUMNS];
+    worksheet.addRows(exportRows);
+    styleWorksheet(worksheet);
 
     const buffer = await workbook.xlsx.writeBuffer();
     return new NextResponse(buffer, {

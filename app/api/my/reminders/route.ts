@@ -19,7 +19,7 @@ export async function GET() {
   }
 
   const reminders = await prisma.reminderLog.findMany({
-    where: { userId: appUser.id },
+    where: { userId: appUser.id, channel: "in-app" },
     orderBy: { sentAt: "desc" },
     take: 10,
     select: {

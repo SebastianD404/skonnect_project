@@ -6,16 +6,23 @@ import { logAuditEvent } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
+import { getNonCompliantGrantees } from "@/lib/non-compliant-grantees";
 
 export const runtime = "nodejs";
 
 const REPORT_TYPES = [
   "current",
   "missing_incomplete",
+  "non_compliant",
   "pending_review",
   "fully_cleared",
 ] as const;
 type ReportType = (typeof REPORT_TYPES)[number];
+type MissingDocumentFilter = "all" | "grades" | "coe";
+
+function isMissingDocumentFilter(value: string): value is MissingDocumentFilter {
+  return value === "all" || value === "grades" || value === "coe";
+}
 
 const SUBMISSION_EXPORT_COLUMNS = [
   { header: "Name", key: "name", width: 35 },
@@ -111,7 +118,17 @@ export async function GET(request: NextRequest) {
   const reportType = reportTypeValue as ReportType;
   const search = params.get("search")?.trim() ?? "";
   const requestedSemester = params.get("semester")?.trim() ?? "";
+  const requestedMissingDocument = params.get("missingDocument") ?? "all";
   const requestedStatus = params.get("status");
+  if (
+    (reportType === "missing_incomplete" || reportType === "non_compliant") &&
+    !isMissingDocumentFilter(requestedMissingDocument)
+  ) {
+    return NextResponse.json({ error: "Invalid missing document type filter." }, { status: 400 });
+  }
+  const selectedMissingDocumentType = isMissingDocumentFilter(requestedMissingDocument)
+    ? requestedMissingDocument
+    : "all";
   if (requestedStatus && !["pending", "returned", "cleared"].includes(requestedStatus)) {
     return NextResponse.json({ error: "Invalid submissions status filter." }, { status: 400 });
   }
@@ -129,7 +146,35 @@ export async function GET(request: NextRequest) {
       status: string;
     }[] = [];
 
-    if (reportType === "missing_incomplete") {
+    if (reportType === "non_compliant") {
+      const schedule = await getAcademicTermScheduleState();
+      const semester = requestedSemester && requestedSemester !== "all"
+        ? requestedSemester
+        : schedule.window.semester;
+      if (!semester) {
+        return NextResponse.json({ error: "No active semester is configured for this report." }, { status: 400 });
+      }
+
+      const { records: grantees } = await getNonCompliantGrantees(semester, { search });
+      reportRows = grantees
+        .filter((grantee) => {
+          if (selectedMissingDocumentType === "all") return true;
+          return grantee.missingDocuments.includes(selectedMissingDocumentType)
+            || grantee.rejectedDocuments.includes(selectedMissingDocumentType);
+        })
+        .map((grantee) => ({
+          name: grantee.fullName,
+          email: grantee.email || "N/A",
+          school: grantee.school,
+          yearLevel: grantee.yearLevel,
+          semester,
+          status: `${grantee.statusLabel}: ${grantee.issues.join(", ")}`,
+        }));
+
+      if (reportRows.length === 0) {
+        return NextResponse.json({ error: "No non-compliant grantees match this report." }, { status: 404 });
+      }
+    } else if (reportType === "missing_incomplete") {
       const schedule = await getAcademicTermScheduleState();
       const semester = requestedSemester && requestedSemester !== "all"
         ? requestedSemester
@@ -137,11 +182,15 @@ export async function GET(request: NextRequest) {
       const semesterFilter = semester
         ? { semester: { equals: semester, mode: "insensitive" as const } }
         : undefined;
+      const missingDocumentConditions: Prisma.SubmissionWhereInput[] = [];
+      if (selectedMissingDocumentType === "all" || selectedMissingDocumentType === "coe") {
+        missingDocumentConditions.push({ coeFileUrl: "" });
+      }
+      if (selectedMissingDocumentType === "all" || selectedMissingDocumentType === "grades") {
+        missingDocumentConditions.push({ gradeFileUrl: "" });
+      }
       const missingDocumentFilter: Prisma.SubmissionWhereInput = {
-        OR: [
-          { coeFileUrl: "" },
-          { gradeFileUrl: "" },
-        ],
+        OR: missingDocumentConditions,
       };
       const missingSubmissionFilter: Prisma.GranteeWhereInput = semesterFilter
         ? {
@@ -188,8 +237,10 @@ export async function GET(request: NextRequest) {
       reportRows = grantees.map((grantee) => {
         const submission = grantee.submissions[0];
         const missingDocuments = [
-          !submission?.coeFileUrl ? "Certificate of Enrollment" : null,
-          !submission?.gradeFileUrl ? "Grade Report" : null,
+          (selectedMissingDocumentType === "all" || selectedMissingDocumentType === "coe")
+            && !submission?.coeFileUrl ? "Certificate of Enrollment" : null,
+          (selectedMissingDocumentType === "all" || selectedMissingDocumentType === "grades")
+            && !submission?.gradeFileUrl ? "Grade Report" : null,
         ].filter((document): document is string => document !== null);
         return {
           name: grantee.user.fullName,
@@ -256,6 +307,7 @@ export async function GET(request: NextRequest) {
     const fileNames: Record<ReportType, string> = {
       current: "SKEAP-Submissions.xlsx",
       missing_incomplete: "SKEAP-Missing-Submissions.xlsx",
+      non_compliant: "SKEAP-Non-Compliant-Grantees.xlsx",
       pending_review: "SKEAP-Pending-Review.xlsx",
       fully_cleared: "SKEAP-Fully-Cleared.xlsx",
     };
@@ -266,10 +318,26 @@ export async function GET(request: NextRequest) {
       actorEmail: admin.email,
       action: "RECORDS_EXPORTED",
       resource: "submissions",
-      metadata: { reportType, filters: { status: params.get("status"), search, semester: requestedSemester } },
+      metadata: {
+        reportType,
+        filters: {
+          status: params.get("status"),
+          search,
+          semester: requestedSemester,
+          missingDocument: reportType === "missing_incomplete" || reportType === "non_compliant"
+            ? selectedMissingDocumentType
+            : null,
+        },
+      },
     });
 
-    const worksheet = workbook.addWorksheet(reportType === "missing_incomplete" ? "Missing Submissions" : "Submissions");
+    const worksheet = workbook.addWorksheet(
+      reportType === "non_compliant"
+        ? "Non-Compliant Grantees"
+        : reportType === "missing_incomplete"
+          ? "Missing Submissions"
+          : "Submissions",
+    );
     worksheet.columns = [...SUBMISSION_EXPORT_COLUMNS];
     worksheet.addRows(reportRows);
     styleWorksheet(worksheet);

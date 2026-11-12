@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { createCsvResponse, parseReportDateRange, parseReportFormat } from "@/lib/report-export";
 
 export const runtime = "nodejs";
 
@@ -74,6 +75,10 @@ export async function GET(request: NextRequest) {
   if (requestedStatus !== "graduated") {
     return NextResponse.json({ error: "Invalid grantee archive report status." }, { status: 400 });
   }
+  const format = parseReportFormat(request.nextUrl.searchParams.get("format"));
+  const dateRange = parseReportDateRange(request.nextUrl.searchParams);
+  if (!format) return NextResponse.json({ error: "Format must be xlsx or csv." }, { status: 400 });
+  if (dateRange.error) return NextResponse.json({ error: dateRange.error }, { status: 400 });
 
   try {
     const records = await prisma.$queryRaw<ArchivedGranteeExportRow[]>(Prisma.sql`
@@ -87,15 +92,12 @@ export async function GET(request: NextRequest) {
       FROM "public"."grantees" AS grantee
       INNER JOIN "public"."users" AS account ON account."id" = grantee."userId"
       WHERE grantee."status"::text = ${GranteeStatus.GRADUATED}
+      ${dateRange.startDate ? Prisma.sql`AND grantee."graduatedAt" >= ${dateRange.startDate}` : Prisma.empty}
+      ${dateRange.endDateExclusive ? Prisma.sql`AND grantee."graduatedAt" < ${dateRange.endDateExclusive}` : Prisma.empty}
       ORDER BY grantee."graduatedAt" DESC NULLS LAST, grantee."updatedAt" DESC
     `);
 
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "SKonnect";
-    workbook.created = new Date();
-    const worksheet = workbook.addWorksheet("Graduated Scholars");
-    worksheet.columns = [...COLUMNS];
-    worksheet.addRows(records.map((record) => ({
+    const exportRows = records.map((record) => ({
       name: record.name ?? "Unknown scholar",
       status: "Graduated",
       school: record.school,
@@ -103,7 +105,17 @@ export async function GET(request: NextRequest) {
       dateEnrolled: record.dateEnrolled,
       endDate: record.endDate,
       remarks: record.remarks ?? "",
-    })));
+    }));
+    if (format === "csv") {
+      return createCsvResponse(exportRows, COLUMNS, `SKEAP-Graduated-Grantees-${new Date().getFullYear()}.xlsx`);
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "SKonnect";
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet("Graduated Scholars");
+    worksheet.columns = [...COLUMNS];
+    worksheet.addRows(exportRows);
     styleWorksheet(worksheet);
 
     const buffer = await workbook.xlsx.writeBuffer();

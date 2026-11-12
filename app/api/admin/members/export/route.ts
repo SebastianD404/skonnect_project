@@ -5,10 +5,17 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/audit/logger";
+import { createCsvResponse, parseReportDateRange, parseReportFormat } from "@/lib/report-export";
 
 export const runtime = "nodejs";
 
 type ExportFilter = "all_approved" | "grantees_only" | "kk_only";
+type ExportClassification =
+  | "In school Youth"
+  | "Out of School Youth"
+  | "Working Youth"
+  | "Person w/ Disability"
+  | "Indigenous People";
 type MemberExportRow = {
   fullName: string;
   email: string;
@@ -34,9 +41,17 @@ const COLUMNS = [
   { header: "Status", key: "reviewStatus", width: 14 },
   { header: "Submitted Date", key: "submittedAt", width: 20 },
 ] as const;
+const CLASSIFICATIONS: ExportClassification[] = [
+  "In school Youth",
+  "Out of School Youth",
+  "Working Youth",
+  "Person w/ Disability",
+  "Indigenous People",
+];
 
-function getFilename(filter: ExportFilter) {
+function getFilename(filter: ExportFilter, classification?: ExportClassification) {
   const year = new Date().getFullYear();
+  if (classification === "Out of School Youth") return `Out-of-School-Youth-Registry-${year}.xlsx`;
   if (filter === "grantees_only") return `SKEAP-Grantee-Profiles-${year}.xlsx`;
   if (filter === "kk_only") return `KK-Youth-Profiles-${year}.xlsx`;
   return `KK-Approved-Profiles-${year}.xlsx`;
@@ -84,11 +99,40 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid member export filter." }, { status: 400 });
   }
   const filter = requestedFilter as ExportFilter;
+  const format = parseReportFormat(request.nextUrl.searchParams.get("format"));
+  const dateRange = parseReportDateRange(request.nextUrl.searchParams);
+  if (!format) return NextResponse.json({ error: "Format must be xlsx or csv." }, { status: 400 });
+  if (dateRange.error) return NextResponse.json({ error: dateRange.error }, { status: 400 });
+
+  const requestedClassification = request.nextUrl.searchParams.get("classification");
+  const requestedSkVoter = request.nextUrl.searchParams.get("skVoter");
+  if (requestedSkVoter !== null && !["true", "false"].includes(requestedSkVoter)) {
+    return NextResponse.json({ error: "Invalid SK voter export filter." }, { status: 400 });
+  }
+  if (
+    requestedClassification &&
+    !CLASSIFICATIONS.includes(requestedClassification as ExportClassification)
+  ) {
+    return NextResponse.json({ error: "Invalid member export classification." }, { status: 400 });
+  }
+  const classification = requestedClassification as ExportClassification | null;
   const granteeCondition = filter === "grantees_only"
     ? Prisma.sql`AND grantee."status" IN ('ACTIVE', 'PROBATIONARY')`
     : filter === "kk_only"
       ? Prisma.sql`AND (grantee."id" IS NULL OR grantee."status" NOT IN ('ACTIVE', 'PROBATIONARY'))`
       : Prisma.empty;
+  const classificationCondition = classification
+    ? Prisma.sql`AND LOWER(BTRIM(registration."youthClassification")) = LOWER(BTRIM(${classification}))`
+    : Prisma.empty;
+  const skVoterCondition = requestedSkVoter === "true"
+    ? Prisma.sql`AND LOWER(BTRIM(registration."registeredSKVoter")) IN ('yes', 'true')`
+    : requestedSkVoter === "false"
+      ? Prisma.sql`AND LOWER(BTRIM(registration."registeredSKVoter")) NOT IN ('yes', 'true')`
+      : Prisma.empty;
+  const dateCondition = Prisma.sql`
+    ${dateRange.startDate ? Prisma.sql`AND registration."submittedAt" >= ${dateRange.startDate}` : Prisma.empty}
+    ${dateRange.endDateExclusive ? Prisma.sql`AND registration."submittedAt" < ${dateRange.endDateExclusive}` : Prisma.empty}
+  `;
 
   try {
     const records = await prisma.$queryRaw<MemberExportRow[]>(Prisma.sql`
@@ -108,6 +152,9 @@ export async function GET(request: NextRequest) {
       LEFT JOIN "public"."grantees" AS grantee ON grantee."userId" = account."id"
       WHERE registration."reviewStatus" = 'Approved'
       ${granteeCondition}
+      ${classificationCondition}
+      ${skVoterCondition}
+      ${dateCondition}
       ORDER BY registration."submittedAt" DESC
     `);
 
@@ -124,14 +171,27 @@ export async function GET(request: NextRequest) {
       actorEmail: admin.email,
       action: "RECORDS_EXPORTED",
       resource: "kk_profiling_registrations",
-      metadata: { recordCount: records.length, filters: { reviewStatus: "Approved", profileType: filter } },
+      metadata: {
+        recordCount: records.length,
+        filters: {
+          reviewStatus: "Approved",
+          profileType: filter,
+          classification: classification ?? null,
+          skVoter: requestedSkVoter,
+          startDate: dateRange.startDate?.toISOString() ?? null,
+          endDate: dateRange.endDateExclusive?.toISOString() ?? null,
+        },
+      },
     });
+
+    const filename = getFilename(filter, classification ?? undefined);
+    if (format === "csv") return createCsvResponse(records, COLUMNS, filename);
 
     const buffer = await workbook.xlsx.writeBuffer();
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${getFilename(filter)}"`,
+        "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "no-store",
       },
     });
