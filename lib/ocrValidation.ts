@@ -68,7 +68,7 @@ const CERTIFICATE_DOCUMENT_TERMS = [
   "Certificate of Residency", "certificate", "residency", "resident", "residing",
 ];
 const NON_RESIDENCY_CERTIFICATE_TERMS =
-  /\b(?:low[\s-]*income|indigency|indigence)\b/i;
+  /\b(?:low[\s-]*income|indigency|indigence|(?:certificate|certification)\s+of\s+(?:enrollment|enrolment|registration|live\s+birth|birth|good\s+moral|employment)|coe|cli)\b/i;
 const RESIDENCY_CERTIFICATE_TITLE =
   /\b(?:certificate\s+of\s+(?:residency|residence)|(?:residency|residence)\s+certificate|proof\s+of\s+(?:residency|residence))\b/i;
 const BARANGAY_RESIDENCY_STATEMENT =

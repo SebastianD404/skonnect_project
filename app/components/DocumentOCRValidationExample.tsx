@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
-import { Clock3, FileText, LoaderCircle, UploadCloud, X } from "lucide-react";
+import { AlertCircle, Clock3, FileText, LoaderCircle, UploadCloud, X } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
@@ -41,15 +41,18 @@ type DocumentUploadCardProps = {
 export function evaluateDocumentOcr(
   strategy: OcrStrategy,
   text: string,
-  scannerIsValid = true,
+  scannerIsValid = false,
 ) {
   const normalizedText = text.toLowerCase();
 
   switch (strategy) {
     case "residency":
-      return /\b(pico|residency)\b/i.test(normalizedText)
+      return scannerIsValid
         ? { isValid: true, error: null }
-        : { isValid: false, error: "This doesn't look like a valid certificate. Please check your file and try uploading again." };
+        : {
+            isValid: false,
+            error: "This doesn't appear to be a Certificate of Residency issued by Barangay Pico. Please upload the correct document.",
+          };
     case "birth-certificate":
       return /\b(birth|registry)\b/i.test(normalizedText)
         ? { isValid: true, error: null }
@@ -61,6 +64,30 @@ export function evaluateDocumentOcr(
         : { isValid: false, error: "We couldn't check this file automatically. Our team will review it." };
     case "none":
       return { isValid: true, error: null };
+  }
+}
+
+export function getCompactIdErrorMessage(
+  strategy: Extract<OcrStrategy, "front-id" | "back-id">,
+  errorCode?: string,
+) {
+  const side = strategy === "front-id" ? "front" : "back";
+
+  switch (errorCode) {
+    case "NAME_MISMATCH":
+      return "Please upload your own ID.";
+    case "WRONG_DOCUMENT_SIDE":
+      return `Please upload the ${side} of your ID.`;
+    case "BIRTHDATE_MISMATCH":
+      return "Please check the birth date on your ID.";
+    case "SCANNER_UNAVAILABLE":
+      return "This ID could not be checked. It will be reviewed manually.";
+    case "LOW_CONFIDENCE":
+      return `Please upload a clearer copy of the ${side} of your ID.`;
+    case "UNRECOGNIZED_DOCUMENT":
+      return `Please upload the ${side} of a valid ID.`;
+    default:
+      return "Please upload a valid ID.";
   }
 }
 
@@ -308,11 +335,21 @@ export function DocumentUploadCard({
   const isPdf = selectedFile?.type === "application/pdf";
   const displayFileName = selectedFile?.name.replace(/\.[^.]+$/, "") || selectedFile?.name;
   const hasImageBackground = Boolean(selectedFile && !isPdf && previewUrl);
-  const ocrErrorMessage = ocrFailed
+  const detailedOcrErrorMessage = ocrFailed
     ? ocrStatus.errorCode === "NAME_MISMATCH"
       ? "Name on ID does not match your account. Please replace with your own ID."
       : ocrStatus.message || "We couldn't check this file automatically. Our team will review it."
     : null;
+  const compactIdErrorMessage =
+    compact && (ocrStrategy === "front-id" || ocrStrategy === "back-id") && ocrFailed
+      ? getCompactIdErrorMessage(ocrStrategy, ocrStatus.errorCode)
+      : null;
+  const ocrErrorMessage = compactIdErrorMessage ?? detailedOcrErrorMessage;
+  const ocrErrorTitle =
+    compactIdErrorMessage && detailedOcrErrorMessage
+      ? detailedOcrErrorMessage
+      : ocrErrorMessage;
+  const cardHeightClass = compact ? "min-h-32" : "min-h-52";
   const dropzoneStateClasses = selectedFile
     ? `border-2 border-dashed border-amber-400 ${hasImageBackground ? "bg-cover bg-center bg-no-repeat" : "bg-slate-700"}`
     : isDragging
@@ -342,7 +379,7 @@ export function DocumentUploadCard({
           const file = event.dataTransfer.files?.[0];
           if (file) void processFile(file);
         }}
-        className={`group relative flex ${compact ? "h-32" : "h-52"} flex-col items-center justify-center overflow-hidden rounded-xl text-center transition-colors duration-200 ${dropzoneStateClasses}`}
+        className={`group relative flex ${cardHeightClass} flex-col items-center justify-center overflow-hidden rounded-xl text-center transition-colors duration-200 ${dropzoneStateClasses}`}
         style={hasImageBackground && previewUrl ? { backgroundImage: `url("${previewUrl}")` } : undefined}
       >
         <input
@@ -359,48 +396,60 @@ export function DocumentUploadCard({
           }}
         />
         {selectedFile ? (
-          <div className="relative z-10 flex min-h-0 w-full flex-1 flex-col items-center justify-center">
+          <div className="relative z-10 flex w-full flex-1 flex-col items-center justify-center">
             <button
               type="button"
               onClick={() => setIsPreviewOpen(true)}
               aria-label={`Preview ${title}: ${selectedFile.name}`}
-              className={`flex min-h-0 w-full flex-1 cursor-zoom-in flex-col items-center justify-center overflow-hidden text-center outline-none transition-all duration-150 ease-out active:scale-[0.99] focus:outline-none focus:ring-0 ${
+              className={`flex w-full flex-1 cursor-zoom-in flex-col items-center justify-center text-center outline-none transition-all duration-150 ease-out active:scale-[0.99] focus:outline-none focus:ring-0 ${
                 compact ? "px-2 py-1" : "px-4 py-2"
               } text-white`}
             >
               {isPdf ? <FileText className={`mb-1 text-white ${compact ? "h-4 w-4" : "h-6 w-6"}`} aria-hidden="true" /> : null}
-              <p className={`font-semibold leading-tight text-white ${compact ? "text-[11px]" : "text-sm"}`}>
+              <p className={`font-semibold leading-tight text-white ${compact ? "text-xs" : "text-sm"}`}>
                 {title}
               </p>
-              <p
-                className={`max-w-full truncate text-white ${compact ? "text-[9px] leading-none" : "mt-1 text-xs"}`}
-                title={selectedFile.name}
-              >
-                {displayFileName} · {formatFileSize(selectedFile.size)}
-              </p>
+              {compact ? (
+                <div className="mt-1 w-full min-w-0 text-white">
+                  <p className="truncate text-[10px] leading-tight" title={selectedFile.name}>
+                    {displayFileName}
+                  </p>
+                  <p className="text-[9px] leading-tight">{formatFileSize(selectedFile.size)}</p>
+                </div>
+              ) : (
+                <p
+                  className="mt-1 max-w-full whitespace-normal break-all text-xs text-white"
+                  title={selectedFile.name}
+                >
+                  {displayFileName} · {formatFileSize(selectedFile.size)}
+                </p>
+              )}
               <span
                 role={ocrStatus.status === "scanning" ? "status" : undefined}
                 aria-live="polite"
-                className={`inline-flex items-center gap-1 rounded-full border border-white/40 bg-white/15 font-semibold text-white ${compact ? "mt-0.5 px-1 py-0 text-[8px] leading-none" : "mt-1 px-2 py-0.5 text-[10px]"}`}
+                className={`inline-flex items-center gap-1 rounded-full border border-white/40 bg-white/15 font-semibold text-white ${compact ? "mt-1 px-2 py-0.5 text-[9px]" : "mt-1 px-2 py-0.5 text-[10px]"}`}
               >
                 {ocrStatus.status === "scanning"
-                  ? <LoaderCircle className={`${compact ? "h-2.5 w-2.5" : "h-3 w-3"} animate-spin text-white`} aria-hidden="true" />
-                  : <Clock3 className={`${compact ? "h-2.5 w-2.5" : "h-3 w-3"} text-white`} aria-hidden="true" />}
+                  ? <LoaderCircle className="h-3 w-3 animate-spin text-white" aria-hidden="true" />
+                  : <Clock3 className="h-3 w-3 text-white" aria-hidden="true" />}
                 {ocrStatus.status === "scanning" ? "Checking file..." : "For Verification"}
               </span>
-              <p
-                className={`leading-tight text-white/90 ${compact ? "mt-0.5 line-clamp-1 text-[9px]" : "mt-1 text-xs"}`}
-                title="Original must be presented at the barangay."
-              >
-                Original must be presented at the barangay.
-              </p>
+              {!compact ? (
+                <p className="mt-1 text-xs leading-tight text-white/90">
+                  Original must be presented at the barangay.
+                </p>
+              ) : null}
               {ocrErrorMessage ? (
                 <p
                   role="alert"
-                  className={`max-w-full line-clamp-1 font-medium leading-tight text-white ${compact ? "mt-0.5 text-[8px]" : "mt-1 text-[10px]"}`}
-                  title={ocrErrorMessage}
+                  className={`mt-1 flex w-full max-w-full items-start gap-1.5 rounded-md border border-amber-300/60 bg-[#0F3D5C]/90 px-2 text-left font-medium leading-snug text-white shadow-sm ${compact ? "py-1 text-[10px]" : "py-1.5 text-xs"}`}
+                  title={ocrErrorTitle ?? undefined}
                 >
-                  {ocrErrorMessage}
+                  <AlertCircle
+                    className={`mt-0.5 shrink-0 text-amber-300 ${compact ? "h-3 w-3" : "h-3.5 w-3.5"}`}
+                    aria-hidden="true"
+                  />
+                  <span className="whitespace-normal break-words">{ocrErrorMessage}</span>
                 </p>
               ) : null}
             </button>

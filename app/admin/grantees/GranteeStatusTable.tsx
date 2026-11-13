@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Archive, Eye, Loader2, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -39,11 +39,67 @@ const STATUS_CLASSES: Record<GranteeTableRow["status"], string> = {
   REMOVED: "bg-rose-100 text-rose-700",
 };
 
+function SkeletonBlock({ className }: { className: string }) {
+  return <div className={`animate-pulse rounded bg-slate-200 ${className}`} aria-hidden="true" />;
+}
+
+function GranteeTableSkeletonRows() {
+  return (
+    <>
+      {Array.from({ length: 5 }, (_, rowIndex) => (
+        <tr key={rowIndex} className="h-[72px] border-b border-slate-100" aria-hidden="true">
+          <td className="px-3 py-4 sm:px-4">
+            <SkeletonBlock className="h-4 w-36 max-w-full" />
+            <SkeletonBlock className="mt-2 h-3 w-28 max-w-full" />
+          </td>
+          <td className="px-3 py-4 sm:px-4">
+            <SkeletonBlock className="h-4 w-32 max-w-full" />
+            <SkeletonBlock className="mt-2 h-3 w-20" />
+          </td>
+          <td className="px-3 py-4 sm:px-4"><SkeletonBlock className="h-6 w-20 rounded-full" /></td>
+          <td className="px-3 py-4 sm:px-4"><SkeletonBlock className="h-4 w-24" /></td>
+          <td className="px-3 py-4 sm:px-4"><SkeletonBlock className="h-4 w-20" /></td>
+          <td className="px-3 py-4 text-center sm:px-4"><SkeletonBlock className="mx-auto h-9 w-20 rounded-lg" /></td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function GranteeMobileSkeletonCards() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 5 }, (_, rowIndex) => (
+        <article
+          key={rowIndex}
+          className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4"
+          aria-hidden="true"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <SkeletonBlock className="h-4 w-40 max-w-full" />
+              <SkeletonBlock className="mt-2 h-3 w-32 max-w-full" />
+            </div>
+            <SkeletonBlock className="h-6 w-20 rounded-full" />
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3">
+            <SkeletonBlock className="h-12 w-full" />
+            <SkeletonBlock className="h-12 w-full" />
+          </div>
+          <SkeletonBlock className="mt-4 h-9 w-24 rounded-lg" />
+        </article>
+      ))}
+    </div>
+  );
+}
+
 export function GranteeStatusTable({
   grantees,
   page,
   pageSize,
   totalCount,
+  query,
+  onQueryChange,
   isLoading,
   startNavigation,
   onEndScholarship,
@@ -52,17 +108,15 @@ export function GranteeStatusTable({
   page: number;
   pageSize: number;
   totalCount: number;
+  query: string;
+  onQueryChange: (query: string) => void;
   isLoading: boolean;
   startNavigation: (callback: () => void) => void;
   onEndScholarship?: (grantee: GranteeTableRow) => void;
 }) {
-  const [query, setQuery] = useState("");
   const [pendingGranteeId, setPendingGranteeId] = useState<string | null>(null);
   const [isViewingGrantee, startViewTransition] = useTransition();
   const router = useRouter();
-  const handleQueryChange = (value: string) => {
-    setQuery(value);
-  };
 
   const handleViewGrantee = (grantee: GranteeTableRow) => {
     const href = grantee.detailsHref;
@@ -72,17 +126,9 @@ export function GranteeStatusTable({
     startViewTransition(() => router.push(href));
   };
 
-  const filteredGrantees = useMemo(() => {
-    return grantees.filter((grantee) => {
-      const lowerQuery = query.trim().toLowerCase();
-      const matchesQuery =
-        grantee.fullName.toLowerCase().includes(lowerQuery) ||
-        grantee.email.toLowerCase().includes(lowerQuery) ||
-        grantee.school.toLowerCase().includes(lowerQuery) ||
-        grantee.yearLevel.toLowerCase().includes(lowerQuery);
-      return matchesQuery;
-    });
-  }, [grantees, query]);
+  const emptyMessage = query.trim()
+    ? `No active grantees match “${query.trim()}”.`
+    : "No active grantees found.";
 
   return (
     <div className="mt-4 flex h-fit flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
@@ -91,31 +137,24 @@ export function GranteeStatusTable({
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="search"
-            aria-label="Filter the current grantee table"
-            title="Filters rows in the current Grantees view"
-            placeholder="Filter by name, email, or school..."
+            aria-label="Search all active grantees"
+            title="Search all active grantees by name, email, contact number, school, or year"
+            placeholder="Search name, email, contact, school..."
             value={query}
-            onChange={(event) => handleQueryChange(event.target.value)}
+            onChange={(event) => onQueryChange(event.target.value)}
             className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm text-slate-700 shadow-sm outline-none placeholder:text-slate-400 transition-colors focus:border-cyan-500"
           />
         </label>
       </div>
 
-      <div className={`relative w-full ${isLoading ? "min-h-[200px]" : ""}`}>
+      <div className="relative w-full" aria-busy={isLoading}>
         {isLoading ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1.5px] transition-all duration-300"
-          >
-            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 shadow-sm">
-              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-cyan-600" />
-              <span className="text-xs font-semibold text-slate-600">Loading records...</span>
-            </div>
-          </div>
+          <span role="status" aria-live="polite" className="sr-only">
+            Searching active grantees
+          </span>
         ) : null}
-        <div className={`flex flex-col gap-3 p-3 md:hidden ${isLoading ? "pointer-events-none opacity-40" : ""}`}>
-          {filteredGrantees.map((grantee) => (
+        <div className="flex flex-col gap-3 p-3 md:hidden">
+          {isLoading ? <GranteeMobileSkeletonCards /> : grantees.map((grantee) => (
             <article key={grantee.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
@@ -209,9 +248,9 @@ export function GranteeStatusTable({
               </div>
             </article>
           ))}
-          {filteredGrantees.length === 0 ? (
+          {!isLoading && grantees.length === 0 ? (
             <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
-              No grantees match that search or filter.
+              {emptyMessage}
             </div>
           ) : null}
         </div>
@@ -231,8 +270,8 @@ export function GranteeStatusTable({
               <th className="w-[10%] px-3 py-4 text-center sm:px-4">Action</th>
             </tr>
           </thead>
-          <tbody className={`divide-y divide-slate-100 bg-white text-sm transition-opacity duration-300 ${isLoading ? "pointer-events-none opacity-40" : "opacity-100"}`}>
-            {filteredGrantees.map((grantee) => (
+          <tbody className="divide-y divide-slate-100 bg-white text-sm" aria-busy={isLoading}>
+            {isLoading ? <GranteeTableSkeletonRows /> : grantees.map((grantee) => (
                   <tr key={grantee.id} className="transition-colors hover:bg-slate-50/50">
                     <td className="min-w-0 px-3 py-4 sm:px-4">
                       <div className="group/journey relative flex items-center gap-3">
@@ -330,9 +369,9 @@ export function GranteeStatusTable({
             ))}
           </tbody>
         </table>
-        {filteredGrantees.length === 0 ? (
+        {!isLoading && grantees.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-slate-500">
-            No grantees match that search or filter.
+            {emptyMessage}
           </div>
         ) : null}
         </div>

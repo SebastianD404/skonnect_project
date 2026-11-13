@@ -3,11 +3,17 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import {
+  KK_MEMBER_AGE_OUT_NOTICE_MESSAGE,
+  KK_MEMBER_AGE_OUT_REASON,
+} from "@/lib/kk-member-archive";
 
-const AGED_OUT_REASON = "Aged Out (31+)";
 const AGED_OUT_GRANTEE_REMARK = "Disqualified: Exceeded KK age limit (Turned 31)";
 
-export async function checkAndArchiveAgedOutMembers(actorId: string) {
+export async function checkAndArchiveAgedOutMembers(
+  actorId: string,
+  trigger: "admin-page" | "scheduled" = "admin-page",
+) {
   const cutoffDate = new Date();
   cutoffDate.setFullYear(cutoffDate.getFullYear() - 31);
 
@@ -47,7 +53,7 @@ export async function checkAndArchiveAgedOutMembers(actorId: string) {
         },
         data: {
           reviewStatus: "Archived",
-          archivedReason: AGED_OUT_REASON,
+          archivedReason: KK_MEMBER_AGE_OUT_REASON,
           archivedAt,
         },
       });
@@ -55,13 +61,28 @@ export async function checkAndArchiveAgedOutMembers(actorId: string) {
 
       if (profile.userId) {
         await syncKkProfileFromLatestRegistration(tx, profile.userId);
+        const sourceKey = "kk-age-out:age-limit-reached";
+        await tx.notification.upsert({
+          where: { userId_sourceKey: { userId: profile.userId, sourceKey } },
+          create: {
+            userId: profile.userId,
+            sourceKey,
+            message: `KK age-limit update: ${KK_MEMBER_AGE_OUT_NOTICE_MESSAGE}`,
+          },
+          update: {
+            message: `KK age-limit update: ${KK_MEMBER_AGE_OUT_NOTICE_MESSAGE}`,
+          },
+        });
       }
 
       const grantee = profile.user?.grantee;
       let granteeRemoved = false;
-      if (grantee?.status === GranteeStatus.ACTIVE) {
+      if (grantee?.status === GranteeStatus.ACTIVE || grantee?.status === GranteeStatus.PROBATIONARY) {
         const removed = await tx.grantee.updateMany({
-          where: { id: grantee.id, status: GranteeStatus.ACTIVE },
+          where: {
+            id: grantee.id,
+            status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+          },
           data: {
             status: GranteeStatus.REMOVED,
             dateRemoved: archivedAt,
@@ -81,7 +102,7 @@ export async function checkAndArchiveAgedOutMembers(actorId: string) {
               dateRemoved: archivedAt.toISOString(),
               remarks: AGED_OUT_GRANTEE_REMARK,
             },
-            metadata: { reason: AGED_OUT_REASON, profileId: profile.id },
+            metadata: { reason: KK_MEMBER_AGE_OUT_REASON, profileId: profile.id, trigger },
           });
         }
       }
@@ -98,10 +119,14 @@ export async function checkAndArchiveAgedOutMembers(actorId: string) {
         },
         afterData: {
           reviewStatus: "Archived",
-          archivedReason: AGED_OUT_REASON,
+          archivedReason: KK_MEMBER_AGE_OUT_REASON,
           archivedAt: archivedAt.toISOString(),
         },
-        metadata: { fullName: profile.fullName, birthDate: profile.birthDate.toISOString() },
+        metadata: {
+          fullName: profile.fullName,
+          birthDate: profile.birthDate.toISOString(),
+          trigger,
+        },
       });
 
       return { archived: true, granteeRemoved };

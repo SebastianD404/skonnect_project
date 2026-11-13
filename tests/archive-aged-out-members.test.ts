@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   updateGrantee: vi.fn(),
   writeAuditLog: vi.fn(),
   refreshView: vi.fn(),
+  syncKkProfile: vi.fn(),
+  upsertNotification: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -24,37 +26,47 @@ vi.mock("@/lib/grantee-archive-view", () => ({
   refreshInactiveGranteesView: mocks.refreshView,
 }));
 
+vi.mock("@/lib/kk-profile-sync", () => ({
+  syncKkProfileFromLatestRegistration: mocks.syncKkProfile,
+}));
+
 import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
+import { KK_MEMBER_AGE_OUT_NOTICE_MESSAGE } from "@/lib/kk-member-archive";
+
+function createProfile(granteeStatus: "ACTIVE" | "PROBATIONARY" = "ACTIVE") {
+  return {
+    id: "profile-id",
+    fullName: "Aldrin Jay Acosta",
+    birthDate: new Date("1990-01-01T00:00:00.000Z"),
+    reviewStatus: "Approved",
+    archivedReason: null,
+    archivedAt: null,
+    userId: "user-id",
+    user: {
+      grantee: {
+        id: "grantee-id",
+        status: granteeStatus,
+        remarks: null,
+      },
+    },
+  };
+}
 
 describe("checkAndArchiveAgedOutMembers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.findMany.mockResolvedValue([
-      {
-        id: "profile-id",
-        fullName: "Aldrin Jay Acosta",
-        birthDate: new Date("1990-01-01T00:00:00.000Z"),
-        reviewStatus: "Approved",
-        archivedReason: null,
-        archivedAt: null,
-        userId: "user-id",
-        user: {
-          grantee: {
-            id: "grantee-id",
-            status: "ACTIVE",
-            remarks: null,
-          },
-        },
-      },
-    ]);
+    mocks.findMany.mockResolvedValue([createProfile()]);
     mocks.updateProfile.mockResolvedValue({ count: 1 });
     mocks.updateGrantee.mockResolvedValue({ count: 1 });
     mocks.transaction.mockImplementation(async (callback) => callback({
       profilingRegistration: { updateMany: mocks.updateProfile },
       grantee: { updateMany: mocks.updateGrantee },
+      notification: { upsert: mocks.upsertNotification },
     }));
     mocks.writeAuditLog.mockResolvedValue(undefined);
     mocks.refreshView.mockResolvedValue(undefined);
+    mocks.syncKkProfile.mockResolvedValue(undefined);
+    mocks.upsertNotification.mockResolvedValue({});
   });
 
   it("archives approved profiles past the 31-year cutoff and removes active grantees", async () => {
@@ -83,13 +95,29 @@ describe("checkAndArchiveAgedOutMembers", () => {
       },
     }));
     expect(mocks.updateGrantee).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "grantee-id", status: "ACTIVE" },
+      where: { id: "grantee-id", status: { in: ["ACTIVE", "PROBATIONARY"] } },
       data: {
         status: "REMOVED",
         dateRemoved: expect.any(Date),
         remarks: "Disqualified: Exceeded KK age limit (Turned 31)",
       },
     }));
+    expect(mocks.upsertNotification).toHaveBeenCalledWith({
+      where: {
+        userId_sourceKey: {
+          userId: "user-id",
+          sourceKey: "kk-age-out:age-limit-reached",
+        },
+      },
+      create: {
+        userId: "user-id",
+        sourceKey: "kk-age-out:age-limit-reached",
+        message: `KK age-limit update: ${KK_MEMBER_AGE_OUT_NOTICE_MESSAGE}`,
+      },
+      update: {
+        message: `KK age-limit update: ${KK_MEMBER_AGE_OUT_NOTICE_MESSAGE}`,
+      },
+    });
     expect(mocks.writeAuditLog).toHaveBeenCalledTimes(2);
     expect(mocks.refreshView).toHaveBeenCalledOnce();
     expect(result).toEqual({ archivedCount: 1, removedGranteeCount: 1 });
@@ -104,6 +132,23 @@ describe("checkAndArchiveAgedOutMembers", () => {
     });
     expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.refreshView).not.toHaveBeenCalled();
+  });
+
+  it("removes probationary grantees and records the scheduled trigger", async () => {
+    mocks.findMany.mockResolvedValue([createProfile("PROBATIONARY")]);
+
+    await checkAndArchiveAgedOutMembers("admin-id", "scheduled");
+
+    expect(mocks.updateGrantee).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "grantee-id", status: { in: ["ACTIVE", "PROBATIONARY"] } },
+    }));
+    expect(mocks.writeAuditLog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "PROFILE_ARCHIVED",
+        metadata: expect.objectContaining({ trigger: "scheduled" }),
+      }),
+    );
   });
 
   it("does not archive the same profile twice", async () => {

@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
 import { databaseUnavailableResponse } from "@/lib/database-errors";
+import { KK_MEMBER_AGE_OUT_REASON } from "@/lib/kk-member-archive";
 
 function computeAge(birthDate: Date) {
   const now = new Date();
@@ -78,41 +79,52 @@ async function getKKProfile() {
     return NextResponse.json({ error: "KK profile not found" }, { status: 404 });
   }
 
-  const latestRegistration = await prisma.profilingRegistration.findFirst({
-    where: { userId: appUser.id },
-    orderBy: { submittedAt: "desc" },
-    select: {
-      id: true,
-      fullName: true,
-      address: true,
-      sex: true,
-      age: true,
-      birthDate: true,
-      email: true,
-      facebook: true,
-      contactNumber: true,
-      civilStatus: true,
-      youthClassification: true,
-      youthAgeGroup: true,
-      workStatus: true,
-      educationalBackground: true,
-      registeredSKVoter: true,
-      votedLastSK: true,
-      registeredNationalVoter: true,
-      attendedKKAssembly: true,
-      assemblyTimes: true,
-      noAssemblyReason: true,
-      reviewStatus: true,
-      reviewNotes: true,
-      submittedAt: true,
-      idDocumentType: true,
-      idFrontFileUrl: true,
-      idBackFileUrl: true,
-      idSingleFileUrl: true,
-      photoFileUrl: true,
-      birthCertificateFileUrl: true,
-    },
-  });
+  const [latestRegistration, ageOutRegistration] = await Promise.all([
+    prisma.profilingRegistration.findFirst({
+      where: { userId: appUser.id },
+      orderBy: { submittedAt: "desc" },
+      select: {
+        id: true,
+        fullName: true,
+        address: true,
+        sex: true,
+        age: true,
+        birthDate: true,
+        email: true,
+        facebook: true,
+        contactNumber: true,
+        civilStatus: true,
+        youthClassification: true,
+        youthAgeGroup: true,
+        workStatus: true,
+        educationalBackground: true,
+        registeredSKVoter: true,
+        votedLastSK: true,
+        registeredNationalVoter: true,
+        attendedKKAssembly: true,
+        assemblyTimes: true,
+        noAssemblyReason: true,
+        reviewStatus: true,
+        reviewNotes: true,
+        submittedAt: true,
+        idDocumentType: true,
+        idFrontFileUrl: true,
+        idBackFileUrl: true,
+        idSingleFileUrl: true,
+        photoFileUrl: true,
+        birthCertificateFileUrl: true,
+      },
+    }),
+    prisma.profilingRegistration.findFirst({
+      where: {
+        userId: appUser.id,
+        archivedReason: { in: [KK_MEMBER_AGE_OUT_REASON, "Aged Out (Turned 31)"] },
+        archivedAt: { not: null },
+      },
+      orderBy: { archivedAt: "desc" },
+      select: { archivedAt: true },
+    }),
+  ]);
 
   const status = getKKProfilingReviewStatus(
     latestRegistration?.reviewStatus,
@@ -133,6 +145,9 @@ async function getKKProfile() {
       age: computeAge(profile.kkProfile.birthDate),
       isVerified: profile.kkProfile.isVerified,
       status,
+      ageOutNotice: ageOutRegistration
+        ? { archivedAt: ageOutRegistration.archivedAt }
+        : null,
       reviewNotes: latestRegistration?.reviewNotes ?? null,
       registrationSubmittedAt: latestRegistration?.submittedAt ?? null,
       idDocumentType: latestRegistration?.idDocumentType ?? null,

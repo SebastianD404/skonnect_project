@@ -1,5 +1,10 @@
+export const KK_MEMBER_AGE_OUT_REASON = "Aged Out (31+)" as const;
+
+export const KK_MEMBER_AGE_OUT_NOTICE_MESSAGE =
+  "Your KK youth profile has been archived because you turned 31, above the KK age limit of 30. Any active or probationary SKEAP grantee status has also been removed. Your SKonnect login remains active. If your recorded birth date is wrong or you believe this is a mistake, contact Barangay Pico SK officials to request a profile review.";
+
 export const KK_MEMBER_ARCHIVE_REASONS = [
-  "Aged Out (31+)",
+  KK_MEMBER_AGE_OUT_REASON,
   "Transferred Residence",
   "Deceased",
   "Duplicate Record",

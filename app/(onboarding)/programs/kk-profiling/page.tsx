@@ -43,24 +43,27 @@ export default async function KkProfilingOnboardingPage() {
     <main className="mx-auto max-w-7xl px-4 pb-10 sm:px-6 lg:px-8">
       <ol
         aria-label="Onboarding progress"
-        className="mx-auto mb-6 grid max-w-4xl grid-cols-3 items-start gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:mb-8 sm:p-5"
+        className="mx-auto mb-6 grid max-w-4xl grid-cols-3 items-start gap-2 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-lg shadow-slate-900/5 ring-1 ring-white/80 backdrop-blur-md sm:mb-8 sm:px-8 sm:py-5"
       >
-        <li className="flex flex-col items-center gap-2 text-center">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+        <li className="relative flex flex-col items-center gap-2 text-center after:absolute after:left-1/2 after:top-4 after:z-0 after:h-px after:w-[calc(100%_+_0.5rem)] after:content-[''] after:bg-gradient-to-r after:from-emerald-300 after:to-[#0F3D5C]">
+          <span className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-4 ring-white">
             <Check className="h-4 w-4" aria-hidden="true" />
           </span>
           <span className="text-xs font-semibold text-slate-700 sm:text-sm">Account Details</span>
           <span className="sr-only">Complete</span>
         </li>
-        <li aria-current="step" className="flex flex-col items-center gap-2 text-center">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0F3D5C] text-sm font-bold text-white">
+        <li
+          aria-current="step"
+          className="relative flex flex-col items-center gap-2 text-center after:absolute after:left-1/2 after:top-4 after:z-0 after:h-px after:w-[calc(100%_+_0.5rem)] after:content-[''] after:bg-slate-200"
+        >
+          <span className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#0F3D5C] text-sm font-bold text-white ring-4 ring-[#0F3D5C]/10 shadow-md shadow-[#0F3D5C]/20">
             2
           </span>
-          <span className="text-xs font-semibold text-[#0F3D5C] sm:text-sm">KK Profiling</span>
+          <span className="text-xs font-bold text-[#0F3D5C] sm:text-sm">KK Profiling</span>
           <span className="sr-only">Current step</span>
         </li>
         <li className="flex flex-col items-center gap-2 text-center">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-slate-50 text-sm font-semibold text-slate-400">
+          <span className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-sm font-semibold text-slate-400 ring-4 ring-white">
             3
           </span>
           <span className="text-xs font-semibold text-slate-500 sm:text-sm">

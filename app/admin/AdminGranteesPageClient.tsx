@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAdminSearch } from "./AdminSearchContext";
 import AdminExportButton from "./AdminExportButton";
@@ -11,6 +11,7 @@ interface AdminGranteesPageClientProps {
   page: number;
   pageSize: number;
   totalCount: number;
+  query: string;
 }
 
 export default function AdminGranteesPageClient({
@@ -18,13 +19,26 @@ export default function AdminGranteesPageClient({
   page,
   pageSize,
   totalCount,
+  query,
 }: AdminGranteesPageClientProps) {
-  const { searchQuery } = useAdminSearch();
+  const { searchQuery, setSearchQuery } = useAdminSearch();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, startTransition] = useTransition();
+  const initializedRouteQuery = useRef(false);
+  const lastRouteQuery = useRef(query);
+
   useEffect(() => {
+    if (!initializedRouteQuery.current || lastRouteQuery.current !== query) {
+      initializedRouteQuery.current = true;
+      lastRouteQuery.current = query;
+      if (searchQuery.trim() !== query) {
+        setSearchQuery(query);
+        return;
+      }
+    }
+
     const nextQuery = searchQuery.trim();
     if ((searchParams.get("q") ?? "") === nextQuery) return;
 
@@ -40,10 +54,11 @@ export default function AdminGranteesPageClient({
     }, 250);
 
     return () => window.clearTimeout(timeout);
-  }, [pathname, router, searchParams, searchQuery, startTransition]);
+  }, [pathname, query, router, searchParams, searchQuery, setSearchQuery, startTransition]);
   const exportParams = new URLSearchParams();
   if (searchQuery.trim()) exportParams.set("q", searchQuery.trim());
   const exportHref = `/api/admin/grantees/export${exportParams.size ? `?${exportParams.toString()}` : ""}`;
+  const isSearchLoading = searchQuery.trim() !== query;
   const [scholarshipCandidate, setScholarshipCandidate] = useState<GranteeTableRow | null>(null);
   const [isEndingScholarship, setIsEndingScholarship] = useState(false);
   const [scholarshipError, setScholarshipError] = useState<string | null>(null);
@@ -108,7 +123,9 @@ export default function AdminGranteesPageClient({
           page={page}
           pageSize={pageSize}
           totalCount={totalCount}
-          isLoading={isLoading}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          isLoading={isLoading || isSearchLoading}
           startNavigation={(callback) => startTransition(callback)}
           onEndScholarship={handleEndScholarshipRequest}
         />

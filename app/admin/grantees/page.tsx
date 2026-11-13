@@ -39,8 +39,30 @@ export default async function AdminGranteesPage({ searchParams }: {
     `SELECT g."id"::text AS "recordId", g."updatedAt" AS "updatedAt"
      FROM "grantees" g
      JOIN "users" profile_user ON profile_user."id" = g."userId"
+     LEFT JOIN "kk_profiles" kk_profile ON kk_profile."id" = profile_user."kkProfileId"
      WHERE TRUE ${profileStatusSql}
-       AND ($3 = '' OR concat_ws(' ', profile_user."fullName", profile_user."email", g."school", g."yearLevel") ILIKE '%' || $3 || '%')
+       AND (
+         $3 = ''
+         OR concat_ws(
+           ' ',
+           profile_user."fullName",
+           profile_user."email",
+           profile_user."phoneNumber",
+           kk_profile."fullName",
+           kk_profile."firstName",
+           kk_profile."middleName",
+           kk_profile."lastName",
+           kk_profile."contactNumber",
+           g."school",
+           g."yearLevel"
+         ) ILIKE '%' || $3 || '%'
+         OR EXISTS (
+           SELECT 1
+           FROM "skeap_applications" search_application
+           WHERE search_application."userId" = profile_user."id"
+             AND search_application."contactNumber" ILIKE '%' || $3 || '%'
+         )
+       )
      ORDER BY "updatedAt" DESC, "recordId" ASC
      LIMIT $1 OFFSET $2`,
     pageSize,
@@ -52,8 +74,30 @@ export default async function AdminGranteesPage({ searchParams }: {
        SELECT g."id"
        FROM "grantees" g
        JOIN "users" profile_user ON profile_user."id" = g."userId"
+       LEFT JOIN "kk_profiles" kk_profile ON kk_profile."id" = profile_user."kkProfileId"
        WHERE TRUE ${profileStatusSql}
-         AND ($1 = '' OR concat_ws(' ', profile_user."fullName", profile_user."email", g."school", g."yearLevel") ILIKE '%' || $1 || '%')
+         AND (
+           $1 = ''
+           OR concat_ws(
+             ' ',
+             profile_user."fullName",
+             profile_user."email",
+             profile_user."phoneNumber",
+             kk_profile."fullName",
+             kk_profile."firstName",
+             kk_profile."middleName",
+             kk_profile."lastName",
+             kk_profile."contactNumber",
+             g."school",
+             g."yearLevel"
+           ) ILIKE '%' || $1 || '%'
+           OR EXISTS (
+             SELECT 1
+             FROM "skeap_applications" search_application
+             WHERE search_application."userId" = profile_user."id"
+               AND search_application."contactNumber" ILIKE '%' || $1 || '%'
+           )
+         )
      ) matching_grantees`,
     query
   );
@@ -151,6 +195,7 @@ export default async function AdminGranteesPage({ searchParams }: {
         page={page}
         pageSize={pageSize}
         totalCount={totalCount}
+        query={query}
       />
     </div>
   );

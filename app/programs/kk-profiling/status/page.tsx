@@ -7,6 +7,7 @@ import Link from "next/link";
 import { AlertCircle, ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle2, ClipboardList, Clock3, FileText, History, ShieldCheck, X } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { KK_MEMBER_AGE_OUT_NOTICE_MESSAGE } from "@/lib/kk-member-archive";
 
 // NUCLEAR OPTION 1: Enforce SSR Disabled for Success Modal
 // This ensures Next.js leaves a completely empty hole in HTML during pre-rendering
@@ -59,6 +60,7 @@ type KkProfileStatus = {
   age: number;
   isVerified: boolean;
   status: string;
+  ageOutNotice: { archivedAt: string | null } | null;
   reviewNotes: string | null;
   registrationSubmittedAt: string | null;
   idDocumentType?: string | null;
@@ -72,6 +74,9 @@ type KkProfileStatus = {
 
 function getStatusBadge(status: string) {
   const normalized = status.toLowerCase();
+  if (normalized.includes("aged out")) {
+    return { label: "Age limit reached", tone: "amber" };
+  }
   if (normalized.includes("rejected")) {
     return { label: "Not approved", tone: "rose" };
   }
@@ -225,12 +230,17 @@ export default function KKProfilingStatusPage() {
     };
   }, []);
 
-  const statusBadge = profile ? getStatusBadge(profile.status || "Pending verification") : null;
+  const statusBadge = profile
+    ? getStatusBadge(profile.ageOutNotice ? "Aged out" : profile.status || "Pending verification")
+    : null;
   // NUCLEAR OPTION 2: Strict Type Booleans - Eliminate Falsy Traps
   // Never use loose checks like !user.hasSeenModal or && !hasSeen
   // Require explicit boolean evaluation against true/false only
-  const isApprovedStatus = profile?.status.toLowerCase().includes("approved") === true;
+  const isApprovedStatus =
+    profile?.status.toLowerCase().includes("approved") === true &&
+    !profile.ageOutNotice;
   const normalizedProfileStatus = profile?.status.toLowerCase() ?? "";
+  const isAgeOutStatus = Boolean(profile?.ageOutNotice);
   const isReturnedStatus = normalizedProfileStatus.includes("returned");
   const isRejectedStatus = normalizedProfileStatus.includes("rejected");
   const isHistoricalReviewerNotes = /resubmitted|pending/.test(normalizedProfileStatus);
@@ -459,13 +469,48 @@ export default function KKProfilingStatusPage() {
             )
           ) : profile ? (
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+            {profile.ageOutNotice ? (
+              <section
+                role="status"
+                aria-live="polite"
+                aria-labelledby="kk-age-out-title"
+                className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm sm:p-6"
+              >
+                <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                  <AlertCircle className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <h2 id="kk-age-out-title" className="text-base font-bold">
+                    Your KK profile has been archived
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-amber-900">
+                    {KK_MEMBER_AGE_OUT_NOTICE_MESSAGE}
+                  </p>
+                  {profile.ageOutNotice.archivedAt ? (
+                    <p className="mt-3 text-xs font-medium text-amber-800">
+                      Archived on {new Date(profile.ageOutNotice.archivedAt).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
               <section className="w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
                 <div className="bg-[linear-gradient(120deg,#0f3d5c_0%,#145b72_58%,#e7f4f1_160%)] px-6 py-8 text-white sm:px-10">
                   <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-teal-100">Application overview</p>
-                      <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{profile.status}</h2>
-                      <p className="mt-2 text-sm text-slate-100">Your KK Profiling application is being tracked here.</p>
+                      <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+                        {isAgeOutStatus ? "Age limit reached" : profile.status}
+                      </h2>
+                      <p className="mt-2 text-sm text-slate-100">
+                        {isAgeOutStatus
+                          ? "Your KK youth profile is archived. See the notice below for details."
+                          : "Your KK Profiling application is being tracked here."}
+                      </p>
                     </div>
                     <span className={`inline-flex w-fit items-center rounded-full px-4 py-2 text-sm font-semibold ${
                       statusBadge?.tone === "emerald" ? "bg-emerald-100 text-emerald-900" :
@@ -480,12 +525,12 @@ export default function KKProfilingStatusPage() {
                 <div className="grid gap-5 border-b border-slate-200 px-6 py-6 sm:grid-cols-3 sm:px-10">
                   <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Applicant</p><p className="mt-2 font-semibold text-slate-950">{profile.fullName}</p></div>
                   <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Submitted</p><p className="mt-2 font-semibold text-slate-950">{formattedDate ?? "Unknown"}</p></div>
-                  <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Next step</p><p className="mt-2 font-semibold text-slate-950">{isApprovedStatus ? "Access your benefits" : isRejectedStatus ? "Review the decision" : "Await staff review"}</p></div>
+                  <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Next step</p><p className="mt-2 font-semibold text-slate-950">{isAgeOutStatus ? "Read the age-limit update" : isApprovedStatus ? "Access your benefits" : isRejectedStatus ? "Review the decision" : "Await staff review"}</p></div>
                 </div>
                 <div className="grid gap-4 px-6 py-5 sm:grid-cols-3 sm:px-10">
                   {["Application submitted", "Staff verification", "Decision and update"].map((step, index) => {
-                    const complete = isApprovedStatus || isRejectedStatus || index === 0;
-                    const active = !isApprovedStatus && !isRejectedStatus && index === 1;
+                    const complete = isApprovedStatus || isRejectedStatus || isAgeOutStatus || index === 0;
+                    const active = !isApprovedStatus && !isRejectedStatus && !isAgeOutStatus && index === 1;
                     return <div key={step} className="flex items-center gap-3" aria-current={active ? "step" : undefined}><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${complete ? "bg-teal-700 text-white" : active ? "bg-teal-50 text-teal-700 ring-2 ring-teal-200" : "bg-slate-100 text-slate-400"}`}>{complete ? "✓" : active ? <span className="flex items-center gap-0.5" aria-label="In progress"><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse" /><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse [animation-delay:150ms]" /><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse [animation-delay:300ms]" /></span> : index + 1}</span><span className={`text-sm font-medium ${complete ? "text-slate-900" : active ? "text-teal-800" : "text-slate-400"}`}>{step}{active ? <span className="ml-2 text-xs font-normal text-slate-500">In progress</span> : null}</span></div>;
                   })}
                 </div>
@@ -493,7 +538,7 @@ export default function KKProfilingStatusPage() {
 
               <div className="flex w-full flex-col gap-6">
                 <section className="w-full rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-                  {profile?.registration && !isApprovedStatus && !isRejectedStatus ? (
+                  {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isAgeOutStatus ? (
                     <div className="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-4">
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
@@ -666,7 +711,7 @@ export default function KKProfilingStatusPage() {
         </main>
       )}
 
-      {profile?.registration && !isApprovedStatus && !isRejectedStatus ? (
+      {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isAgeOutStatus ? (
         <KKProfilingFormModal
           isOpen={showFormModal}
           registration={profile.registration}

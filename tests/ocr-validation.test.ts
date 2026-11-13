@@ -51,6 +51,17 @@ describe("browser OCR document validation", () => {
     expect(result.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
   });
 
+  it.each([
+    "CERTIFICATE OF ENROLLMENT (COE). Maria Santos is a resident of Barangay Pico, La Trinidad and has lived here for 1 year.",
+    "CLI. Maria Santos is a resident of Barangay Pico, La Trinidad and has lived here for 1 year.",
+    "CERTIFICATE OF LOW INCOME. Maria Santos is a resident of Barangay Pico, La Trinidad and has lived here for 1 year.",
+  ])("rejects a non-residency certificate that includes residency details: %s", (text) => {
+    const result = validateRecognizedText("certificate", text);
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
+  });
+
   it("requires residency-specific wording and the six-month requirement", () => {
     const genericCertificate = validateRecognizedText(
       "certificate",

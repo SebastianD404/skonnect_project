@@ -72,18 +72,60 @@ export async function GET(request: NextRequest) {
     `SELECT 'profile'::text AS "source", g."id"::text AS "recordId", g."userId"::text AS "userId", g."updatedAt" AS "updatedAt"
      FROM "grantees" g
      JOIN "users" profile_user ON profile_user."id" = g."userId"
+     LEFT JOIN "kk_profiles" kk_profile ON kk_profile."id" = profile_user."kkProfileId"
      WHERE TRUE ${profileStatusSql}
        AND ($2::timestamp IS NULL OR g."dateEnrolled" >= $2::timestamp)
        AND ($3::timestamp IS NULL OR g."dateEnrolled" < $3::timestamp)
-       AND ($1 = '' OR concat_ws(' ', profile_user."fullName", profile_user."email", g."school", g."yearLevel") ILIKE '%' || $1 || '%')
+       AND (
+         $1 = ''
+         OR concat_ws(
+           ' ',
+           profile_user."fullName",
+           profile_user."email",
+           profile_user."phoneNumber",
+           kk_profile."fullName",
+           kk_profile."firstName",
+           kk_profile."middleName",
+           kk_profile."lastName",
+           kk_profile."contactNumber",
+           g."school",
+           g."yearLevel"
+         ) ILIKE '%' || $1 || '%'
+         OR EXISTS (
+           SELECT 1
+           FROM "skeap_applications" search_application
+           WHERE search_application."userId" = profile_user."id"
+             AND search_application."contactNumber" ILIKE '%' || $1 || '%'
+         )
+       )
      UNION ALL
      SELECT 'fallback'::text AS "source", ('user-' || u."id")::text AS "recordId", u."id"::text AS "userId", u."updatedAt" AS "updatedAt"
      FROM "users" u
+     LEFT JOIN "kk_profiles" kk_profile ON kk_profile."id" = u."kkProfileId"
      WHERE u."role"::text = 'GRANTEE'
        AND NOT EXISTS (SELECT 1 FROM "grantees" g WHERE g."userId" = u."id")
        AND ($2::timestamp IS NULL OR u."createdAt" >= $2::timestamp)
        AND ($3::timestamp IS NULL OR u."createdAt" < $3::timestamp)
-       AND ($1 = '' OR concat_ws(' ', u."fullName", u."email") ILIKE '%' || $1 || '%')
+       AND (
+         $1 = ''
+         OR concat_ws(
+           ' ',
+           u."fullName",
+           u."email",
+           u."phoneNumber",
+           kk_profile."fullName",
+           kk_profile."firstName",
+           kk_profile."middleName",
+           kk_profile."lastName",
+           kk_profile."contactNumber"
+         ) ILIKE '%' || $1 || '%'
+         OR EXISTS (
+           SELECT 1
+           FROM "skeap_applications" search_application
+           WHERE search_application."userId" = u."id"
+             AND search_application."contactNumber" ILIKE '%' || $1 || '%'
+         )
+       )
      ORDER BY "updatedAt" DESC, "recordId" ASC`,
     query,
     dateRange.startDate,
