@@ -63,6 +63,18 @@ Keep schema changes in committed Prisma migrations; do not use `prisma db push` 
 
 `db:deploy` applies committed, unapplied migrations; it does not create migrations or repair schema drift. If migration status reports failed migrations or drift, stop and investigate before deploying rather than using `db push` or manually changing migration history.
 
+### Synthetic demo data
+
+The demo seed rebuilds only synthetic users ending in `@demo.skonnect.invalid`. It creates 40 pending KK profiling applications, 50 waitlisted SKEAP applications, and 30 pending SKEAP applications, along with approved profiles and any available active scholar slots. Faker is already included as a development dependency.
+
+Run this only against a local development database. The seed requires `SEED_DEMO_DATA=true`, refuses production, and blocks remote database hosts by default.
+
+```powershell
+$env:SEED_DEMO_DATA = "true"
+npm run db:seed:demo
+Remove-Item Env:SEED_DEMO_DATA
+```
+
 ### Payout confirmation email links
 
 Set `NEXT_PUBLIC_APP_URL` to the canonical public origin of the deployed app (for example, `https://skonnect.example`). Vercel deployments can use the platform-provided `VERCEL_URL`. Local development falls back to `http://localhost:3000`; that link is only reachable from the developer's own machine. After correcting the URL, retry the payout email from Admin Accounting without disbursing the payout again.

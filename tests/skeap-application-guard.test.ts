@@ -17,6 +17,17 @@ describe("handleSkeapApply", () => {
     expect(dispatchEvent).not.toHaveBeenCalled();
   });
 
+  it("starts an approved application in place when an application callback is provided", () => {
+    const router = { push: vi.fn() };
+    const onApproved = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+
+    handleSkeapApply("APPROVED", null, router, vi.fn(), onApproved);
+
+    expect(onApproved).toHaveBeenCalledOnce();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
   it("allows rejected applicants to reapply without a revoked-grantee toast", () => {
     const router = { push: vi.fn() };
     const dispatchEvent = vi.fn();
@@ -51,8 +62,9 @@ describe("handleSkeapApply", () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     const router = { push: vi.fn() };
+    const onApproved = vi.fn();
 
-    handleSkeapApply("APPROVED", "ACTIVE", router, vi.fn());
+    handleSkeapApply("APPROVED", "ACTIVE", router, vi.fn(), onApproved);
 
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -62,6 +74,7 @@ describe("handleSkeapApply", () => {
         }),
       }),
     );
+    expect(onApproved).not.toHaveBeenCalled();
     expect(router.push).not.toHaveBeenCalled();
   });
 

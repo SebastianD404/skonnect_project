@@ -84,6 +84,7 @@ export async function GET() {
         address: true,
         email: true,
         contactNumber: true,
+        photoFileUrl: true,
       },
     });
   } catch (e) {
@@ -92,6 +93,7 @@ export async function GET() {
 
   const metadataAvatar = (user.user_metadata as any)?.avatar_url || (user.user_metadata as any)?.avatarUrl || null;
   const avatarPath = profile.avatarUrl || metadataAvatar;
+  const profilePhotoFallbackUrl = metadataAvatar || latestKkRegistration?.photoFileUrl || null;
   const kkProfileAddress = formatAddressParts([kkProfile?.purok, kkProfile?.barangay, kkProfile?.addressLine]);
   const registrationAddress = formatKkAddress(latestKkRegistration?.address || "");
   const autofillAddress =
@@ -109,6 +111,7 @@ export async function GET() {
     role: isApprovedGrantee ? "GRANTEE" as const : profile.role,
     skeapStatus: latestGrantee?.status ?? null,
     address: autofillAddress,
+    profilePhotoFallbackUrl,
     skeapApplication,
     kkProfile,
     latestKkRegistration,

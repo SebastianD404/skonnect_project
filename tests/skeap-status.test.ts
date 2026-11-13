@@ -3,10 +3,43 @@ import {
   isSkeapApplicationRejected,
   isSkeapApplicationReturned,
   isSkeapUploadMarkedForCorrection,
+  skeapPendingApplicationsWhere,
   skeapStatusWhere,
 } from "@/lib/skeap-applications";
 
 describe("SKEAP status filters", () => {
+  it("counts pending applications from the selected academic year queue", () => {
+    const academicYearRange = {
+      start: new Date("2026-08-01T00:00:00.000Z"),
+      end: new Date("2027-08-01T00:00:00.000Z"),
+    };
+
+    expect(skeapPendingApplicationsWhere(academicYearRange)).toEqual({
+      subject: {
+        contains: "SKEAP application",
+        mode: "insensitive",
+      },
+      NOT: [
+        { reviewStatus: { contains: "cancel", mode: "insensitive" } },
+        { reviewStatus: { contains: "approve", mode: "insensitive" } },
+      ],
+      AND: [
+        {
+          createdAt: {
+            gte: academicYearRange.start,
+            lt: academicYearRange.end,
+          },
+        },
+        {
+          OR: [
+            { reviewStatus: { contains: "pending", mode: "insensitive" } },
+            { reviewStatus: { contains: "pre_qualified", mode: "insensitive" } },
+          ],
+        },
+      ],
+    });
+  });
+
   it("matches only the structured review status, not free-text reviewer responses", () => {
     expect(skeapStatusWhere(["resubm", "resubmit"])).toEqual({
       OR: [

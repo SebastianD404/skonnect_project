@@ -1,7 +1,9 @@
-import { GranteeStatus, Prisma, Role, SubmissionStatus } from "@prisma/client";
+import { GranteeStatus, Prisma } from "@prisma/client";
 import { PICO_SITIOS } from "@/lib/barangay-sitios";
 import { getProfilingRegistrationCountByStatus, prisma } from "@/lib/prisma";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
+import { skeapPendingApplicationsWhere } from "@/lib/skeap-applications";
 
 export type ScholarDistributionAnalytics = {
   totalRegisteredYouth: number;
@@ -31,6 +33,11 @@ export type ScholarDistributionAnalytics = {
 };
 
 export async function getScholarDistributionAnalytics(): Promise<ScholarDistributionAnalytics> {
+  const currentAcademicYearRange = getAcademicYearDateRange(getCurrentAcademicYear());
+  if (!currentAcademicYearRange) {
+    throw new Error("Unable to determine the current SKEAP academic year.");
+  }
+
   const registrationSitioCases = Prisma.join(
     PICO_SITIOS.map(
       (sitio) => Prisma.sql`
@@ -42,7 +49,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     " ",
   );
   const [
-    totalRegisteredYouth,
+    totalRegisteredYouthRows,
     granteeStatusRows,
     capacityUsed,
     maxSlots,
@@ -55,17 +62,36 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     yearLevelRows,
   ] =
     await Promise.all([
-      prisma.user.count({
-        where: { role: { in: [Role.YOUTH, Role.GRANTEE] } },
-      }),
+      prisma.$queryRaw<Array<{ count: number }>>`
+        WITH ranked_profiles AS (
+          SELECT
+            registration."id",
+            ROW_NUMBER() OVER (
+              PARTITION BY COALESCE(
+                NULLIF(LOWER(BTRIM(user_record."email")), ''),
+                NULLIF(LOWER(BTRIM(registration."email")), ''),
+                NULLIF(registration."userId", ''),
+                registration."id"
+              )
+              ORDER BY registration."submittedAt" DESC, registration."id" DESC
+            ) AS identity_rank
+          FROM public."kk_profiling_registrations" AS registration
+          LEFT JOIN public."users" AS user_record
+            ON user_record."id" = registration."userId"
+          WHERE registration."reviewStatus" = 'Approved'
+        )
+        SELECT COUNT(*)::int AS count
+        FROM ranked_profiles
+        WHERE identity_rank = 1
+      `,
       prisma.grantee.groupBy({
         by: ["status"],
         _count: { _all: true },
       }),
       getSkeapCapacityCount(),
       getSkeapMaxSlots(),
-      prisma.skeapApplication.count({
-        where: { status: SubmissionStatus.PENDING },
+      prisma.inquiry.count({
+        where: skeapPendingApplicationsWhere(currentAcademicYearRange),
       }),
       prisma.$queryRaw<Array<{ sitio: string | null; scholars: number }>>`
         WITH skeap_users AS (
@@ -152,6 +178,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
         _count: { _all: true },
       }),
     ]);
+  const totalRegisteredYouth = totalRegisteredYouthRows[0]?.count ?? 0;
 
   const scholarCountsBySitio = new Map(
     scholarRows.map((row) => [row.sitio?.trim().toLowerCase() ?? "", row.scholars]),

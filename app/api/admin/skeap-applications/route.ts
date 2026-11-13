@@ -3,7 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { mapInquiryToApplication, skeapStatusWhere, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
+import {
+  mapInquiryToApplication,
+  skeapPendingApplicationsWhere,
+  skeapStatusWhere,
+  SKEAP_APPLICATION_SELECT,
+} from "@/lib/skeap-applications";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 
 const PAGE_SIZE = 15;
@@ -79,10 +84,7 @@ export async function GET(request: NextRequest) {
         select: SKEAP_APPLICATION_SELECT,
       }),
       prisma.inquiry.count({
-        where: {
-          ...queueBaseWhere,
-          AND: [academicYearWhere, skeapStatusWhere(["pending", "pre_qualified"])],
-        },
+        where: skeapPendingApplicationsWhere(academicYearRange),
       }),
       prisma.inquiry.count({
         where: {

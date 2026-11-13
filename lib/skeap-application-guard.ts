@@ -21,6 +21,7 @@ export function handleSkeapApply(
   skeapStatus: string | null | undefined,
   router: SkeapApplyRouter,
   setShowVerificationModal: (show: boolean) => void,
+  onApproved?: () => void,
 ) {
   switch (kkProfileStatus?.toUpperCase()) {
     case "APPROVED": {
@@ -41,6 +42,11 @@ export function handleSkeapApply(
           description: "Your current SKEAP status does not allow a new application.",
           variant: "warning",
         });
+        return;
+      }
+
+      if (onApproved) {
+        onApproved();
         return;
       }
 

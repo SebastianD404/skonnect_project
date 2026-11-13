@@ -81,6 +81,8 @@ export default function ProgramApplyClient({ slug }: Props) {
   const [showKkRequiredModal, setShowKkRequiredModal] = useState(false);
   const [showAuthRequiredModal, setShowAuthRequiredModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [status, setStatus] = useState<ProgramStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [footerActionsTarget, setFooterActionsTarget] = useState<HTMLDivElement | null>(null);
@@ -148,13 +150,33 @@ export default function ProgramApplyClient({ slug }: Props) {
       }
 
       const data = await fetchKKProfile();
-      const isApproved =
-        data.registration?.reviewStatus === "Approved" ||
-        data.profile.registration?.reviewStatus === "Approved" ||
-        data.profile.status === "Approved";
+      const profile = data?.profile;
+      if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+        throw new Error("KK profile response is missing profile data.");
+      }
 
-      if (skipKkCheck || isApproved) {
-        openApplicationModal(data.profile);
+      const kkProfileStatus = (
+        data?.registration?.reviewStatus ??
+        profile.registration?.reviewStatus ??
+        profile.status ??
+        ""
+      ).trim().toUpperCase();
+
+      if (skipKkCheck || kkProfileStatus === "APPROVED") {
+        handleSkeapApply(
+          "APPROVED",
+          user?.skeapStatus,
+          router,
+          setShowVerificationModal,
+          () => openApplicationModal(profile),
+        );
+      } else if (
+        kkProfileStatus === "PENDING" ||
+        kkProfileStatus === "PENDING VERIFICATION"
+      ) {
+        handleSkeapApply("PENDING", user?.skeapStatus, router, setShowVerificationModal);
+      } else if (kkProfileStatus === "REJECTED") {
+        handleSkeapApply("REJECTED", user?.skeapStatus, router, setShowVerificationModal);
       } else {
         setKkCheckError("Your KK profiling registration must be approved before you can apply for SKEAP.");
         setShowKkRequiredModal(true);
@@ -167,6 +189,26 @@ export default function ProgramApplyClient({ slug }: Props) {
       setShowKkRequiredModal(true);
     } finally {
       setCheckingKkProfile(false);
+    }
+  }
+
+  async function handleApplyClick() {
+    if (isApplying) return;
+
+    setIsApplying(true);
+    setApplyError(null);
+    try {
+      if (!user) {
+        setShowAuthRequiredModal(true);
+        return;
+      }
+
+      await openApplyFlow();
+    } catch (error) {
+      console.error("Unable to start the SKEAP application:", error);
+      setApplyError("Failed to verify eligibility. Please try again.");
+    } finally {
+      setIsApplying(false);
     }
   }
 
@@ -237,23 +279,28 @@ export default function ProgramApplyClient({ slug }: Props) {
   const isWaitlisted = status?.remainingSlots === 0;
   return (
     <>
-      <button
-        onMouseEnter={() => {
-          prefetchProgramStatus(slug);
-          if (!authLoading && !isSkeapTestAccount(user?.email)) prefetchKKProfile();
-        }}
-        onClick={() => {
-          if (!user) {
-            setShowAuthRequiredModal(true);
-            return;
-          }
-          handleSkeapApply(user.kkStatus, user.skeapStatus, router, setShowVerificationModal);
-        }}
-        disabled={checkingKkProfile || authLoading}
-        className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
-      >
-        {checkingKkProfile ? "Checking KK profile..." : "Apply for SKEAP →"}
-      </button>
+      <div className="flex flex-col items-start gap-2">
+        <button
+          onMouseEnter={() => {
+            prefetchProgramStatus(slug);
+            if (!authLoading && !isSkeapTestAccount(user?.email)) prefetchKKProfile();
+          }}
+          onClick={() => void handleApplyClick()}
+          disabled={checkingKkProfile || isApplying || authLoading}
+          className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
+        >
+          {checkingKkProfile
+            ? "Checking KK profile..."
+            : isApplying
+              ? "Opening application..."
+              : "Apply for SKEAP →"}
+        </button>
+        {applyError ? (
+          <p role="alert" className="max-w-[220px] text-sm text-rose-700">
+            {applyError}
+          </p>
+        ) : null}
+      </div>
 
       <VerificationModal
         open={showVerificationModal}
@@ -505,7 +552,7 @@ export default function ProgramApplyClient({ slug }: Props) {
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-700">
                     SKEAP applications are currently closed for this cycle.
                   </div>
-                ) : (
+                ) : userProfile ? (
                   <SkeapApplicationWizard
                     educationLevel={educationLevel}
                     onEducationLevelChange={setEducationLevel}
@@ -514,10 +561,17 @@ export default function ProgramApplyClient({ slug }: Props) {
                     requiredDocuments={requiredDocuments}
                     footerActionsTarget={footerActionsTarget}
                     scrollContainerRef={scrollContainerRef}
-                    userProfile={userProfile!}
+                    userProfile={userProfile}
                     allowManualProfileDetails={isSkeapTestAccount(user?.email)}
                     onSubmitted={setSubmittedReference}
                   />
+                ) : (
+                  <div
+                    role="alert"
+                    className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm leading-6 text-rose-800"
+                  >
+                    Your profile details could not be loaded. Close this form and try again.
+                  </div>
                 )}
               </section>
             </div>

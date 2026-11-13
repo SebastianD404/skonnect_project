@@ -69,9 +69,9 @@ export async function getSkeapWaitlistSnapshot(): Promise<SkeapWaitlistSnapshot>
   return {
     activeCount,
     maxSlots,
-    applications: applications.map((application) => ({
+    applications: applications.map((application, index) => ({
       id: application.id,
-      waitlistPosition: application.waitlistPosition,
+      waitlistPosition: index + 1,
       physicalDocumentsConfirmed: application.physicalDocumentsConfirmed,
       submittedAt: application.submittedAt.toISOString(),
       applicantName: application.applicantName || application.user.fullName || application.user.email,

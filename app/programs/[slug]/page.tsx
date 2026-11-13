@@ -200,10 +200,7 @@ export default async function ProgramPage({ params }: Props) {
     data: { user: supabaseUser },
   } = await supabase.auth.getUser();
 
-  let appUser: any | null = null;
-  if (supabaseUser) {
-    appUser = await ensureProfile(supabaseUser);
-  }
+  const appUser = supabaseUser ? await ensureProfile(supabaseUser) : null;
 
   if (slug === "kk-profiling" && !supabaseUser) {
     redirect("/signup?next=%2Fprograms%2Fkk-profiling");

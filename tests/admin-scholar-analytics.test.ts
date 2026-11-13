@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  userCount: vi.fn(),
   granteeGroupBy: vi.fn(),
-  applicationCount: vi.fn(),
+  inquiryCount: vi.fn(),
   queryRaw: vi.fn(),
   profilingCount: vi.fn(),
   capacityCount: vi.fn(),
@@ -12,9 +11,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    user: { count: mocks.userCount },
     grantee: { groupBy: mocks.granteeGroupBy },
-    skeapApplication: { count: mocks.applicationCount },
+    inquiry: { count: mocks.inquiryCount },
     $queryRaw: mocks.queryRaw,
   },
   getProfilingRegistrationCountByStatus: mocks.profilingCount,
@@ -30,7 +28,6 @@ import { getScholarDistributionAnalytics } from "@/lib/admin-scholar-analytics";
 describe("admin scholar demographics", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.userCount.mockResolvedValue(120);
     mocks.granteeGroupBy
       .mockResolvedValueOnce([
         { status: "ACTIVE", _count: { _all: 2 } },
@@ -47,9 +44,10 @@ describe("admin scholar demographics", () => {
       ]);
     mocks.capacityCount.mockResolvedValue(3);
     mocks.maxSlots.mockResolvedValue(20);
-    mocks.applicationCount.mockResolvedValue(6);
+    mocks.inquiryCount.mockResolvedValue(1);
     mocks.profilingCount.mockResolvedValue(7);
     mocks.queryRaw
+      .mockResolvedValueOnce([{ count: 101 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -67,6 +65,22 @@ describe("admin scholar demographics", () => {
   it("counts youth and scholar demographics and groups active outcomes consistently", async () => {
     const analytics = await getScholarDistributionAnalytics();
 
+    expect(analytics.totalRegisteredYouth).toBe(101);
+    expect(analytics.pendingApplications).toBe(1);
+    expect(mocks.inquiryCount).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        subject: { contains: "SKEAP application", mode: "insensitive" },
+        AND: expect.arrayContaining([
+          expect.objectContaining({ createdAt: expect.any(Object) }),
+          expect.objectContaining({
+            OR: expect.arrayContaining([
+              { reviewStatus: { contains: "pending", mode: "insensitive" } },
+              { reviewStatus: { contains: "pre_qualified", mode: "insensitive" } },
+            ]),
+          }),
+        ]),
+      }),
+    });
     expect(analytics.genderDistribution).toEqual({
       male: 8,
       female: 9,
@@ -77,9 +91,12 @@ describe("admin scholar demographics", () => {
       female: 51,
       notSpecified: 7,
     });
-    const youthSexQuery = (mocks.queryRaw.mock.calls[3][0] as TemplateStringsArray).join("");
+    const youthSexQuery = (mocks.queryRaw.mock.calls[4][0] as TemplateStringsArray).join("");
     expect(youthSexQuery).toContain('profile."sex"');
     expect(youthSexQuery).not.toContain('user_record."sex"');
+    const totalYouthQuery = (mocks.queryRaw.mock.calls[0][0] as TemplateStringsArray).join("");
+    expect(totalYouthQuery).toContain('registration."reviewStatus" = \'Approved\'');
+    expect(totalYouthQuery).toContain("identity_rank = 1");
     expect(analytics.yearLevelDistribution).toEqual([
       { yearLevel: "1st Year", count: 2 },
       { yearLevel: "2nd Year", count: 3 },

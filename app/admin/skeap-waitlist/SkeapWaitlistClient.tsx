@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileCheck, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -39,6 +39,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<SkeapWaitlistApplication | null>(null);
+  const [physicalVerificationConfirmed, setPhysicalVerificationConfirmed] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [candidateQuery, setCandidateQuery] = useState("");
   const [candidateApplications, setCandidateApplications] = useState<SkeapWaitlistApplication[]>([]);
@@ -58,10 +59,13 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const [slotLimitDraft, setSlotLimitDraft] = useState(String(initialData.maxSlots));
   const [savingCapacity, setSavingCapacity] = useState(false);
   const isCapacityExceeded = capacityWarning || capacity.activeCount >= capacity.maxSlots;
-  const isPromotionBlockedByCapacity =
-    selectedApplicant?.physicalDocumentsConfirmed === true && isCapacityExceeded;
+  const isPromotionBlockedByCapacity = selectedApplicant !== null && isCapacityExceeded;
   const isOverConfiguredCapacity = capacity.activeCount > capacity.maxSlots;
   const isOverHardCapacity = capacity.activeCount > DEFAULT_SKEAP_MAX_SLOTS;
+  const remainingSlots = Math.max(0, capacity.maxSlots - capacity.activeCount);
+  const remainingSlotsLabel = isOverConfiguredCapacity
+    ? `${capacity.activeCount - capacity.maxSlots} over capacity`
+    : `${remainingSlots} remaining ${remainingSlots === 1 ? "slot" : "slots"}`;
   const canIncreaseConfiguredCapacity =
     capacity.maxSlots < DEFAULT_SKEAP_MAX_SLOTS &&
     capacity.activeCount <= DEFAULT_SKEAP_MAX_SLOTS;
@@ -176,12 +180,22 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
     }
   }
 
-  async function promoteApplication(application: SkeapWaitlistApplication) {
+  function closePromotionModal() {
+    setIsPromoteModalOpen(false);
+    setSelectedApplicant(null);
+    setPhysicalVerificationConfirmed(false);
+  }
+
+  async function promoteApplication(application: SkeapWaitlistApplication, confirmPhysicalVerification: boolean) {
     setPromotingId(application.id);
     setToastMessage(null);
     setActionError(null);
     try {
-      const response = await fetch(`/api/admin/applications/${application.id}/promote`, { method: "POST" });
+      const response = await fetch(`/api/admin/applications/${application.id}/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmPhysicalVerification }),
+      });
       const body = await readJsonResponse(response);
       if (!response.ok) {
         const message = String(body.error || "Unable to promote applicant.");
@@ -192,17 +206,11 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
         }
         throw new Error(message);
       }
-      setIsPromoteModalOpen(false);
-      setSelectedApplicant(null);
-      setToastMessage(
-        body.awaitingReview === true
-          ? `${application.applicantName} was returned to the SKEAP review queue for pre-screening and physical verification.`
-          : `${application.applicantName} was promoted to an active grantee.`
-      );
+      closePromotionModal();
+      setToastMessage(`${application.applicantName} was promoted to an active grantee.`);
       await loadWaitlist();
     } catch (promoteError) {
-      setIsPromoteModalOpen(false);
-      setSelectedApplicant(null);
+      closePromotionModal();
       setActionError(promoteError instanceof Error ? promoteError.message : "Unable to promote applicant.");
     } finally {
       setPromotingId(null);
@@ -211,19 +219,19 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
 
   function openPromotionModal(application: SkeapWaitlistApplication) {
     setSelectedApplicant(application);
+    setPhysicalVerificationConfirmed(false);
     setIsPromoteModalOpen(true);
   }
 
   async function handleConfirmPromotion() {
     if (!selectedApplicant) return;
-    if (
-      selectedApplicant.physicalDocumentsConfirmed &&
-      (capacity.activeCount >= capacity.maxSlots || capacityWarning)
-    ) {
+    if (isCapacityExceeded) {
       setCapacityWarning(true);
       return;
     }
-    await promoteApplication(selectedApplicant);
+    const confirmed = selectedApplicant.physicalDocumentsConfirmed || physicalVerificationConfirmed;
+    if (!confirmed) return;
+    await promoteApplication(selectedApplicant, confirmed);
   }
 
   async function addToWaitlist(application: SkeapWaitlistApplication) {
@@ -279,21 +287,24 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
           </p>
         </div>
         <div className="flex shrink-0">
-          <div className={`flex flex-wrap items-center justify-between gap-4 rounded-2xl border px-4 py-2.5 shadow-sm ${isOverConfiguredCapacity ? "border-rose-200 bg-rose-50" : "border-slate-200/80 bg-white"}`}>
+          <div
+            className={`group relative flex flex-wrap items-center justify-between gap-4 rounded-2xl border px-4 py-2.5 shadow-sm transition-colors hover:shadow-md ${isOverConfiguredCapacity ? "border-rose-200 bg-rose-50 hover:border-rose-300" : "border-slate-200/80 bg-white hover:border-cyan-300"}`}
+          >
             <div
-              className="whitespace-nowrap"
-              title={isOverConfiguredCapacity
-                ? `${capacity.activeCount - capacity.maxSlots} above the configured limit`
-                : `${Math.max(0, capacity.maxSlots - capacity.activeCount)} slots remaining`}
+              tabIndex={0}
+              className="min-w-0 whitespace-nowrap"
+              aria-describedby="remaining-slots-tooltip"
               aria-label={isOverConfiguredCapacity
                 ? `${capacity.activeCount} active records, ${capacity.maxSlots} slot limit, ${capacity.activeCount - capacity.maxSlots} over capacity`
-                : `${capacity.activeCount} of ${capacity.maxSlots} active slots; ${Math.max(0, capacity.maxSlots - capacity.activeCount)} slots remaining`}
+                : `${capacity.activeCount} of ${capacity.maxSlots} active slots; ${remainingSlots} slots remaining`}
             >
-              <span className={`text-xl font-bold align-baseline leading-none ${isOverConfiguredCapacity ? "text-rose-700" : "text-[#086b7d]"}`}>{capacity.activeCount}</span>
-              <span className="mx-1 text-xl font-bold align-baseline leading-none text-slate-800">/</span>
-              <span className="mr-2 text-xl font-bold align-baseline leading-none text-slate-900">{capacity.maxSlots}</span>
-              <span className="text-[10px] font-semibold uppercase align-baseline leading-none tracking-wider text-slate-400 sm:text-xs">
-                Active Slots
+              <span className="flex items-baseline">
+                <span className={`text-xl font-bold leading-none ${isOverConfiguredCapacity ? "text-rose-700" : "text-[#086b7d]"}`}>{capacity.activeCount}</span>
+                <span className="mx-1 text-xl font-bold leading-none text-slate-800">/</span>
+                <span className="mr-2 text-xl font-bold leading-none text-slate-900">{capacity.maxSlots}</span>
+                <span className="text-[10px] font-semibold uppercase leading-none tracking-wider text-slate-400 sm:text-xs">
+                  Active Slots
+                </span>
               </span>
             </div>
             {canIncreaseConfiguredCapacity ? (
@@ -323,11 +334,14 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                   </div>
                 )}
               </>
-            ) : (
-              <span className="whitespace-nowrap text-xs font-semibold text-slate-500">
-                Hard limit: {DEFAULT_SKEAP_MAX_SLOTS}
-              </span>
-            )}
+            ) : null}
+            <span
+              id="remaining-slots-tooltip"
+              role="tooltip"
+              className="pointer-events-none absolute right-3 top-full z-30 mt-2 translate-y-1 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-lg transition duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100"
+            >
+              {remainingSlotsLabel}
+            </span>
           </div>
         </div>
       </header>
@@ -424,12 +438,12 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     <button
                       type="button"
                       onClick={() => openPromotionModal(application)}
-                      disabled={(application.physicalDocumentsConfirmed && isCapacityExceeded) || promotingId !== null || waitlistActionId !== null}
-                      title={application.physicalDocumentsConfirmed && isCapacityExceeded ? capacityTooltip : application.physicalDocumentsConfirmed ? "Promote to active Grantee" : "Return to application review"}
+                      disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
+                      title={isCapacityExceeded ? capacityTooltip : application.physicalDocumentsConfirmed ? "Promote to active Grantee" : "Verify documents and promote to Grantee"}
                       className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <UserCheck className="h-4 w-4" aria-hidden="true" />
-                      {application.physicalDocumentsConfirmed ? "Promote" : "Return to Review"}
+                      {application.physicalDocumentsConfirmed ? "Promote" : "Verify & Promote"}
                     </button>
                     <button
                       type="button"
@@ -489,9 +503,9 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                         <button
                           type="button"
                           onClick={() => openPromotionModal(application)}
-                          disabled={(application.physicalDocumentsConfirmed && isCapacityExceeded) || promotingId !== null || waitlistActionId !== null}
-                          aria-label={application.physicalDocumentsConfirmed ? "Promote to Grantee" : "Return to application review"}
-                          title={application.physicalDocumentsConfirmed && isCapacityExceeded ? capacityTooltip : application.physicalDocumentsConfirmed ? "Promote to active Grantee" : "Return to application review"}
+                          disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
+                          aria-label={application.physicalDocumentsConfirmed ? "Promote to Grantee" : "Verify documents and promote to Grantee"}
+                          title={isCapacityExceeded ? capacityTooltip : application.physicalDocumentsConfirmed ? "Promote to active Grantee" : "Verify documents and promote to Grantee"}
                           className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <UserCheck className="h-4 w-4" aria-hidden="true" />
@@ -570,16 +584,13 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
           <div
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
             aria-hidden="true"
-            onClick={() => {
-              setIsPromoteModalOpen(false);
-              setSelectedApplicant(null);
-            }}
+            onClick={closePromotionModal}
           />
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="promote-modal-title"
-            className={`relative flex w-full max-w-sm flex-col items-center gap-3 overflow-hidden rounded-2xl border border-t-4 border-slate-200 bg-white p-5 text-center shadow-xl ring-1 ring-slate-900/5 animate-in zoom-in-95 fade-in duration-200 ${isPromotionBlockedByCapacity ? "border-t-amber-500" : "border-t-emerald-500"}`}
+            className={`relative flex w-full max-w-sm flex-col items-center gap-3 overflow-hidden rounded-2xl border border-t-4 border-slate-200 bg-white p-5 text-center shadow-xl ring-1 ring-slate-900/5 animate-in zoom-in-95 fade-in duration-200 ${isPromotionBlockedByCapacity || !selectedApplicant.physicalDocumentsConfirmed ? "border-t-amber-500" : "border-t-emerald-500"}`}
           >
             {isPromotionBlockedByCapacity ? (
               <>
@@ -617,10 +628,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                 <div className="grid w-full grid-cols-2 gap-2.5">
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsPromoteModalOpen(false);
-                      setSelectedApplicant(null);
-                    }}
+                    onClick={closePromotionModal}
                     className="w-full rounded-xl border border-slate-300 bg-white py-2 text-[13px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200"
                   >
                     Cancel
@@ -629,8 +637,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     <button
                       type="button"
                       onClick={() => {
-                        setIsPromoteModalOpen(false);
-                        setSelectedApplicant(null);
+                        closePromotionModal();
                         setSlotLimitDraft(String(capacity.maxSlots));
                         setEditingCapacity(true);
                       }}
@@ -648,6 +655,47 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                   )}
                 </div>
               </>
+            ) : !selectedApplicant.physicalDocumentsConfirmed ? (
+              <>
+                <div className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-amber-50 ring-4 ring-amber-50/50">
+                  <FileCheck className="h-6 w-6 text-amber-600" aria-hidden="true" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <h3 id="promote-modal-title" className="text-[17px] font-black leading-tight text-slate-900">
+                    Physical Verification Required
+                  </h3>
+                  <p className="px-2 text-[13px] leading-snug text-slate-500">
+                    <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span> was waitlisted online but has not completed physical document verification. Have they presented their Certified True Copies (CTC) at the barangay hall?
+                  </p>
+                </div>
+                <label className="flex w-full cursor-pointer items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-left text-xs leading-relaxed text-slate-700">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={physicalVerificationConfirmed}
+                    onChange={(event) => setPhysicalVerificationConfirmed(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>I confirm I have physically verified the original/CTC documents.</span>
+                </label>
+                <div className="flex w-full flex-col gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmPromotion()}
+                    disabled={!physicalVerificationConfirmed || promotingId !== null}
+                    className="w-full rounded-xl border border-indigo-600 bg-indigo-600 py-2.5 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {promotingId === selectedApplicant.id ? "Processing..." : "Verify & Promote to Grantee"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closePromotionModal}
+                    className="w-full rounded-xl border border-slate-300 bg-white py-2 text-[13px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
             ) : (
               <>
                 <div className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 ring-4 ring-emerald-50/50">
@@ -655,21 +703,16 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <h3 id="promote-modal-title" className="text-[17px] font-black leading-none text-slate-900">
-                    {selectedApplicant.physicalDocumentsConfirmed ? "Promote to grantee?" : "Return to application review?"}
+                    Promote to grantee?
                   </h3>
                   <p className="px-2 text-[13px] leading-snug text-slate-500">
-                    {selectedApplicant.physicalDocumentsConfirmed
-                      ? <>You&apos;re promoting <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span>. This uses <span className="font-bold text-slate-900">1 slot</span> and sends an automated email.</>
-                      : <> <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span> has not completed physical document verification. Return the application to the review queue for pre-screening and verification.</>}
+                    You&apos;re promoting <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span>. This uses <span className="font-bold text-slate-900">1 slot</span> and sends an automated email.
                   </p>
                 </div>
                 <div className="grid w-full grid-cols-2 gap-2.5">
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsPromoteModalOpen(false);
-                      setSelectedApplicant(null);
-                    }}
+                    onClick={closePromotionModal}
                     className="w-full rounded-xl border border-slate-300 bg-white py-2 text-[13px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200"
                   >
                     Cancel
@@ -682,9 +725,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                   >
                     {promotingId === selectedApplicant.id
                       ? "Processing..."
-                      : selectedApplicant.physicalDocumentsConfirmed
-                        ? "Confirm"
-                        : "Return to Review"}
+                      : "Confirm"}
                   </button>
                 </div>
               </>

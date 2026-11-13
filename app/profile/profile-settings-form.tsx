@@ -79,6 +79,7 @@ export function ProfileSettingsForm({
   );
   const [isPending, setIsPending] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [fallbackAvatarUrl, setFallbackAvatarUrl] = useState<string | null>(null);
   const [formData, setFormData] = useState(() => ({
     fullName: toDisplayName(fullName, email),
     email,
@@ -104,12 +105,10 @@ export function ProfileSettingsForm({
         if (res.ok) {
           const body = await res.json();
           const serverUser = body.user;
-          if (serverUser?.avatarUrl) {
-            setAvatarPreview(serverUser.avatarUrl);
-          } else {
-            const storedAvatar = localStorage.getItem("skonnect-avatar");
-            if (storedAvatar) setAvatarPreview(storedAvatar);
-          }
+          const fallback = serverUser?.profilePhotoFallbackUrl ?? null;
+          const storedAvatar = localStorage.getItem("skonnect-avatar");
+          setFallbackAvatarUrl(fallback);
+          setAvatarPreview(serverUser?.avatarUrl || storedAvatar || fallback);
         }
       } catch {}
     })();
@@ -163,18 +162,20 @@ export function ProfileSettingsForm({
       .catch(() => {});
   }
 
-  function clearAvatar() {
-    fetch("/api/avatar", { method: "DELETE" })
-      .then(() => {
-        localStorage.removeItem("skonnect-avatar");
-        setAvatarPreview(null);
-        dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
-      })
-      .catch(() => {
-        localStorage.removeItem("skonnect-avatar");
-        setAvatarPreview(null);
-        dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
-      });
+  async function clearAvatar() {
+    try {
+      const response = await fetch("/api/avatar", { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error("Unable to remove the saved profile picture.");
+      }
+
+      localStorage.removeItem("skonnect-avatar");
+      setAvatarPreview(fallbackAvatarUrl);
+      dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
+    } catch (error) {
+      console.error("Unable to remove profile picture:", error);
+      setState({ error: "We could not remove your profile picture. Please try again." });
+    }
   }
 
   function handleEmailChange(value: string) {

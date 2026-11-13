@@ -398,12 +398,13 @@ function SchoolCombobox({
   );
 }
 
-export default function SkeapApplicationWizard({ onSubmitted, educationLevel, onEducationLevelChange, yearLevel, onYearLevelChange, requiredDocuments, footerActionsTarget, scrollContainerRef, userProfile, allowManualProfileDetails = false }: { onSubmitted: (reference: string) => void; educationLevel: SkeapEducationLevel | ""; onEducationLevelChange: (educationLevel: SkeapEducationLevel | "") => void; yearLevel: string; onYearLevelChange: (yearLevel: string) => void; requiredDocuments: SkeapRequiredDocument[]; footerActionsTarget?: HTMLElement | null; scrollContainerRef: RefObject<HTMLDivElement | null>; userProfile: KKProfile; allowManualProfileDetails?: boolean }) {
+export default function SkeapApplicationWizard({ onSubmitted, educationLevel, onEducationLevelChange, yearLevel, onYearLevelChange, requiredDocuments, footerActionsTarget, scrollContainerRef, userProfile, allowManualProfileDetails = false }: { onSubmitted: (reference: string) => void; educationLevel: SkeapEducationLevel | ""; onEducationLevelChange: (educationLevel: SkeapEducationLevel | "") => void; yearLevel: string; onYearLevelChange: (yearLevel: string) => void; requiredDocuments: SkeapRequiredDocument[]; footerActionsTarget?: HTMLElement | null; scrollContainerRef: RefObject<HTMLDivElement | null>; userProfile: KKProfile | null; allowManualProfileDetails?: boolean }) {
   const [step, setStep] = useState(0);
-  const parsedProfileName = parseProfileName(userProfile.fullName || "");
-  const profileBirthDate = userProfile.birthDate ? String(userProfile.birthDate).slice(0, 10) : "";
+  const parsedProfileName = parseProfileName(userProfile?.fullName ?? "");
+  const profileBirthDate = userProfile?.birthDate ? String(userProfile.birthDate).slice(0, 10) : "";
   const profileAge = profileBirthDate ? computeAgeFromDateValue(profileBirthDate) : undefined;
-  const profileVoterStatus = userProfile.registration?.registeredNationalVoter || userProfile.registeredNationalVoter;
+  const profileVoterStatus =
+    userProfile?.registration?.registeredNationalVoter || userProfile?.registeredNationalVoter;
 
   const [course, setCourse] = useState("");
   const [gwa, setGwa] = useState("");
@@ -413,27 +414,35 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
   // Full SKEAP form fields (mirror DOCX)
   const [lastName, setLastName] = useState(parsedProfileName.lastName);
   const [firstName, setFirstName] = useState(parsedProfileName.firstName);
-  const [middleName, setMiddleName] = useState(userProfile.middleName?.trim() || parsedProfileName.middleName);
+  const [middleName, setMiddleName] = useState(
+    userProfile?.middleName?.trim() || parsedProfileName.middleName
+  );
   const [schoolName, setSchoolName] = useState("");
   const applicantName = `${lastName.trim()}${firstName.trim() ? `, ${firstName.trim()}` : ""}${middleName.trim() ? ` ${middleName.trim()}` : ""}`;
   const [permanentAddress, setPermanentAddress] = useState(
-    formatPermanentAddress([userProfile.purok, userProfile.barangay, userProfile.addressLine])
+    formatPermanentAddress([
+      userProfile?.purok,
+      userProfile?.barangay,
+      userProfile?.addressLine,
+    ])
   );
   const [placeOfBirth, setPlaceOfBirth] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState(profileBirthDate);
-  const [age, setAge] = useState(profileAge !== undefined ? String(profileAge) : String(userProfile.age ?? ""));
-  const [civilStatus, setCivilStatus] = useState(
-    userProfile.registration?.civilStatus || userProfile.civilStatus || ""
+  const [age, setAge] = useState(
+    profileAge !== undefined ? String(profileAge) : String(userProfile?.age ?? "")
   );
-  const [gender, setGender] = useState(userProfile.registration?.sex || userProfile.sex || "");
+  const [civilStatus, setCivilStatus] = useState(
+    userProfile?.registration?.civilStatus || userProfile?.civilStatus || ""
+  );
+  const [gender, setGender] = useState(userProfile?.registration?.sex || userProfile?.sex || "");
   const [fathersName, setFathersName] = useState("");
   const [fathersOccupation, setFathersOccupation] = useState("");
   const [fathersContact, setFathersContact] = useState("");
   const [mothersMaidenName, setMothersMaidenName] = useState("");
   const [mothersOccupation, setMothersOccupation] = useState("");
   const [mothersContact, setMothersContact] = useState("");
-  const [contactNumber, setContactNumber] = useState(userProfile.contactNumber || "");
-  const emailAddress = userProfile.email || "";
+  const [contactNumber, setContactNumber] = useState(userProfile?.contactNumber ?? "");
+  const emailAddress = userProfile?.email ?? "";
   const [registeredVoter, setRegisteredVoter] = useState<boolean | null>(
     typeof profileVoterStatus === "string"
       ? profileVoterStatus.toLowerCase() === "yes" || profileVoterStatus.toLowerCase() === "true"

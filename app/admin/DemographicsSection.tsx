@@ -39,6 +39,10 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
     selectedGenderDistribution.male +
     selectedGenderDistribution.female +
     selectedGenderDistribution.notSpecified;
+  const maxYearLevelCount = Math.max(
+    0,
+    ...data.yearLevelDistribution.map(({ count }) => count),
+  );
   const sexData = SEX_SERIES.map((series) => ({
     name: series.label,
     count: selectedGenderDistribution[series.key],
@@ -48,17 +52,17 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
     {
       label: "Active Grantees",
       count: data.programOutcomes.activeGrantees,
-      dotColor: "bg-emerald-500",
+      indicatorColor: "#10b981",
     },
     {
       label: "Graduated",
       count: data.programOutcomes.graduated,
-      dotColor: "bg-indigo-500",
+      indicatorColor: "#8b5cf6",
     },
     {
       label: "Removed / Revoked",
       count: data.programOutcomes.removedOrRevoked,
-      dotColor: "bg-rose-500",
+      indicatorColor: "#e11d48",
     },
   ];
   const totalOutcomes = outcomes.reduce((total, outcome) => total + outcome.count, 0);
@@ -127,7 +131,7 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
           aria-labelledby="youth-by-sex-title"
           className="min-h-[320px] rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
         >
-          <header className="flex items-start gap-2">
+          <header className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
               <h3 id="youth-by-sex-title" className="text-base font-bold text-slate-900">
                 {sexPopulation === "youth" ? "Youth Population by Sex" : "Grantee Population by Sex"}
@@ -137,10 +141,12 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
                   ? "Across the entire KK youth registry"
                   : "Across all SKEAP grantee statuses"}
               </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
               <div
                 role="group"
                 aria-label="Sex distribution population"
-                className="mt-3 inline-flex rounded-full bg-slate-100 p-1"
+                className="inline-flex whitespace-nowrap rounded-full bg-slate-100 p-1"
               >
                 <button
                   type="button"
@@ -167,12 +173,12 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
                   Grantees
                 </button>
               </div>
+              <AnalyticsExportMenu
+                label={sexPopulation === "youth" ? "youth population by sex" : "grantee population by sex"}
+                onExportImage={exportSexImage}
+                onExportTable={exportSexTable}
+              />
             </div>
-            <AnalyticsExportMenu
-              label={sexPopulation === "youth" ? "youth population by sex" : "grantee population by sex"}
-              onExportImage={exportSexImage}
-              onExportTable={exportSexTable}
-            />
           </header>
           <div className="mt-3 h-[190px] w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -284,7 +290,14 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
                   formatter={(value) => [Number(value).toLocaleString("en-PH"), "Scholars"]}
                   contentStyle={{ borderRadius: "0.75rem", borderColor: "#e2e8f0", fontSize: "0.75rem" }}
                 />
-                <Bar dataKey="count" name="Scholars" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={38} />
+                <Bar dataKey="count" name="Scholars" radius={[4, 4, 0, 0]} maxBarSize={38}>
+                  {data.yearLevelDistribution.map((entry) => (
+                    <Cell
+                      key={entry.yearLevel}
+                      fill={entry.count === maxYearLevelCount ? "#0f172a" : "#0ea5e9"}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -309,25 +322,37 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
             />
           </header>
           <div className="mt-4">
-            {outcomes.map(({ label, count, dotColor }) => (
-              <div
-                key={label}
-                className="flex items-center justify-between border-b border-slate-100 py-3 last:border-0"
-              >
-                <div className="flex items-center gap-2.5">
-                  <span aria-hidden="true" className={`h-2 w-2 rounded-full ${dotColor}`} />
-                  <span className="font-medium text-slate-700">{label}</span>
+            {outcomes.map(({ label, count, indicatorColor }) => {
+              const percentage = totalOutcomes > 0 ? Math.round((count / totalOutcomes) * 100) : 0;
+              return (
+                <div key={label} className="border-b border-slate-100 py-3 last:border-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        aria-hidden="true"
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: indicatorColor }}
+                      />
+                      <span className="font-medium text-slate-700">{label}</span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-lg font-bold tabular-nums text-slate-900">
+                        {count.toLocaleString("en-PH")}
+                      </span>
+                      <span className="ml-2 text-xs tabular-nums text-slate-400">
+                        {percentage}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${percentage}%`, backgroundColor: indicatorColor }}
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center">
-                  <span className="text-lg font-bold tabular-nums text-slate-900">
-                    {count.toLocaleString("en-PH")}
-                  </span>
-                  <span className="ml-2 text-xs tabular-nums text-slate-400">
-                    {totalOutcomes > 0 ? Math.round((count / totalOutcomes) * 100) : 0}%
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </div>

@@ -53,6 +53,12 @@ export const SKEAP_APPLICATION_SELECT = {
           barangay: true,
         },
       },
+      profilingRegistrations: {
+        where: { program: "KK" },
+        orderBy: { submittedAt: "desc" },
+        take: 1,
+        select: { registeredSKVoter: true },
+      },
       grantee: {
         select: {
           yearLevel: true,
@@ -83,6 +89,7 @@ export const SKEAP_APPLICATION_SELECT = {
       mothersContact: true,
       contactNumber: true,
       emailAddress: true,
+      totalFamilyMonthlyIncome: true,
       photoFileUrl: true,
       physicalDocumentsConfirmed: true,
       uploadedFiles: true,
@@ -95,6 +102,20 @@ export function skeapStatusWhere(patterns: readonly string[]): Prisma.InquiryWhe
     OR: patterns.map((pattern) => ({
       reviewStatus: { contains: pattern, mode: Prisma.QueryMode.insensitive },
     })),
+  };
+}
+
+export function skeapPendingApplicationsWhere(academicYearRange: { start: Date; end: Date }): Prisma.InquiryWhereInput {
+  return {
+    subject: { contains: "SKEAP application", mode: Prisma.QueryMode.insensitive },
+    NOT: [
+      { reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive } },
+      { reviewStatus: { contains: "approve", mode: Prisma.QueryMode.insensitive } },
+    ],
+    AND: [
+      { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
+      skeapStatusWhere(["pending", "pre_qualified"]),
+    ],
   };
 }
 
@@ -339,6 +360,8 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
             barangay: inquiry.user?.kkProfile?.barangay,
             addressLine: inquiry.user?.kkProfile?.addressLine,
           }, inquiry.application.permanentAddress),
+          registeredSKVoter: inquiry.user?.profilingRegistrations[0]?.registeredSKVoter || undefined,
+          totalFamilyMonthlyIncome: inquiry.application.totalFamilyMonthlyIncome || undefined,
           dateOfBirth: inquiry.application.dateOfBirth ? inquiry.application.dateOfBirth.toISOString() : undefined,
           placeOfBirth: inquiry.application.placeOfBirth || undefined,
           age: inquiry.application.age ?? undefined,

@@ -10,6 +10,10 @@ import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "../l
 const DEMO_EMAIL_SUFFIX = "@demo.skonnect.invalid";
 const DEMO_SEED = 20261112;
 const ACTIVE_SCHOLAR_COUNT = 55;
+const KK_ONLY_PROFILE_COUNT = 800;
+const PENDING_KK_APPLICATION_COUNT = 40;
+const WAITLISTED_SKEAP_APPLICATION_COUNT = 50;
+const PENDING_SKEAP_APPLICATION_COUNT = 30;
 
 const FIRST_NAMES = [
   "Maria", "Jose", "Juan", "Ana", "Rosa", "Angelo", "Gabriel", "Sofia",
@@ -77,25 +81,34 @@ function randomDateOfBirth(age: number) {
   );
 }
 
-export function generateDemoRecords(activeScholarSlots = ACTIVE_SCHOLAR_COUNT) {
+export function generateDemoRecords(
+  activeScholarSlots = ACTIVE_SCHOLAR_COUNT,
+  reservedEmails: ReadonlySet<string> = new Set(),
+) {
   fakerEN.seed(DEMO_SEED);
   const activeScholarCount = Number.isFinite(activeScholarSlots)
     ? Math.max(0, Math.min(ACTIVE_SCHOLAR_COUNT, Math.floor(activeScholarSlots)))
     : 0;
   const cohorts = fakerEN.helpers.shuffle([
-    ...Array.from({ length: 800 }, () => "KK_ONLY" as const),
+    ...Array.from({ length: KK_ONLY_PROFILE_COUNT }, () => "KK_ONLY" as const),
     ...Array.from({ length: activeScholarCount }, () => "ACTIVE_SCHOLAR" as const),
-    ...Array.from({ length: 100 - activeScholarCount }, () => "WAITLISTED" as const),
-    ...Array.from({ length: 100 }, () => "PENDING_APPLICATION" as const),
+    ...Array.from({ length: WAITLISTED_SKEAP_APPLICATION_COUNT }, () => "WAITLISTED" as const),
+    ...Array.from({ length: PENDING_SKEAP_APPLICATION_COUNT }, () => "PENDING_APPLICATION" as const),
+    ...Array.from({ length: PENDING_KK_APPLICATION_COUNT }, () => "KK_PENDING_APPLICATION" as const),
   ]);
   const now = new Date();
 
-  return cohorts.map((cohort, index) => {
+  let emailIndex = 0;
+  return cohorts.map((cohort) => {
     const firstName = fakerEN.helpers.arrayElement(FIRST_NAMES);
     const middleName = fakerEN.helpers.arrayElement(MIDDLE_NAMES);
     const lastName = fakerEN.helpers.arrayElement(LAST_NAMES);
     const fullName = `${firstName} ${middleName} ${lastName}`;
-    const email = `demo-youth-${String(index + 1).padStart(4, "0")}${DEMO_EMAIL_SUFFIX}`;
+    let email: string;
+    do {
+      emailIndex += 1;
+      email = `demo-youth-${String(emailIndex).padStart(4, "0")}${DEMO_EMAIL_SUFFIX}`;
+    } while (reservedEmails.has(email.toLowerCase()));
     const age = fakerEN.number.int({ min: 15, max: 30 });
     const birthDate = randomDateOfBirth(age);
     const sitio = fakerEN.helpers.arrayElement(PICO_SITIOS);
@@ -110,6 +123,7 @@ export function generateDemoRecords(activeScholarSlots = ACTIVE_SCHOLAR_COUNT) {
       id,
       authId,
       kkProfileId,
+      skeapApplicationId: randomUUID(),
       email,
       firstName,
       middleName,
@@ -140,17 +154,32 @@ async function seed() {
       const maxSlots = await getSkeapMaxSlots(tx);
       const existing = await tx.user.findMany({
         where: { email: { endsWith: DEMO_EMAIL_SUFFIX } },
-        select: { id: true, kkProfileId: true },
+        select: { id: true, kkProfileId: true, email: true },
       });
       const existingUserIds = existing.map(({ id }) => id);
+      const payoutLinkedGrantees = await tx.grantee.findMany({
+        where: {
+          user: { email: { endsWith: DEMO_EMAIL_SUFFIX } },
+          payout: { isNot: null },
+        },
+        select: { userId: true },
+      });
+      const payoutLinkedUserIds = new Set(payoutLinkedGrantees.map(({ userId }) => userId));
+      const usersToRebuild = existingUserIds.filter((id) => !payoutLinkedUserIds.has(id));
+      const payoutLinkedEmails = new Set(
+        existing
+          .filter(({ id }) => payoutLinkedUserIds.has(id))
+          .map(({ email }) => email.toLowerCase()),
+      );
       const existingProfileIds = existing
+        .filter(({ id }) => !payoutLinkedUserIds.has(id))
         .map(({ kkProfileId }) => kkProfileId)
         .filter((id): id is string => Boolean(id));
-      if (existingUserIds.length > 0) {
-        await tx.skeapApplication.deleteMany({ where: { userId: { in: existingUserIds } } });
-        await tx.profilingRegistration.deleteMany({ where: { userId: { in: existingUserIds } } });
-        await tx.grantee.deleteMany({ where: { userId: { in: existingUserIds } } });
-        await tx.user.deleteMany({ where: { id: { in: existingUserIds } } });
+      if (usersToRebuild.length > 0) {
+        await tx.skeapApplication.deleteMany({ where: { userId: { in: usersToRebuild } } });
+        await tx.profilingRegistration.deleteMany({ where: { userId: { in: usersToRebuild } } });
+        await tx.grantee.deleteMany({ where: { userId: { in: usersToRebuild } } });
+        await tx.user.deleteMany({ where: { id: { in: usersToRebuild } } });
       }
       if (existingProfileIds.length > 0) {
         await tx.kKProfile.deleteMany({ where: { id: { in: existingProfileIds } } });
@@ -158,7 +187,7 @@ async function seed() {
 
       const currentCapacity = await getSkeapCapacityCount(tx);
       const availableSlots = Math.max(0, maxSlots - currentCapacity);
-      const records = generateDemoRecords(availableSlots);
+      const records = generateDemoRecords(availableSlots, payoutLinkedEmails);
 
       await tx.kKProfile.createMany({
         data: records.map((record) => ({
@@ -173,7 +202,7 @@ async function seed() {
           birthDate: record.birthDate,
           contactNumber: record.contactNumber,
           email: record.email,
-          isVerified: true,
+          isVerified: record.cohort !== "KK_PENDING_APPLICATION",
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
         })),
@@ -188,7 +217,7 @@ async function seed() {
           fullName: record.fullName,
           phoneNumber: record.contactNumber,
           role: record.cohort === "ACTIVE_SCHOLAR" ? Role.GRANTEE : Role.YOUTH,
-          kkStatus: "APPROVED",
+          kkStatus: record.cohort === "KK_PENDING_APPLICATION" ? "PENDING" : "APPROVED",
           barangay: "Pico",
           isActive: true,
           createdAt: record.createdAt,
@@ -218,7 +247,7 @@ async function seed() {
           registeredNationalVoter: fakerEN.helpers.arrayElement(["Yes", "No"]),
           attendedKKAssembly: fakerEN.helpers.arrayElement(["Yes", "No"]),
           consent: true,
-          reviewStatus: "Approved",
+          reviewStatus: record.cohort === "KK_PENDING_APPLICATION" ? "Pending" : "Approved",
           submittedAt: record.createdAt,
           middleName: record.middleName,
         })),
@@ -241,10 +270,24 @@ async function seed() {
         });
       }
 
-      const applicationRecords = records.filter((record) => record.cohort !== "KK_ONLY");
+      const applicationRecords = records.filter((record) =>
+        record.cohort === "ACTIVE_SCHOLAR" ||
+        record.cohort === "WAITLISTED" ||
+        record.cohort === "PENDING_APPLICATION"
+      );
+      const waitlistedRecords = applicationRecords.filter((record) => record.cohort === "WAITLISTED");
+      const existingWaitlistedCount = await tx.skeapApplication.count({
+        where: { status: SubmissionStatus.WAITLISTED },
+      });
+      const waitlistPositionByApplicationId = new Map(
+        waitlistedRecords.map((record, index) => [
+          record.skeapApplicationId,
+          existingWaitlistedCount + index + 1,
+        ]),
+      );
       await tx.skeapApplication.createMany({
         data: applicationRecords.map((record) => ({
-          id: randomUUID(),
+          id: record.skeapApplicationId,
           userId: record.id,
           applicantName: record.fullName,
           currentCourse: fakerEN.helpers.arrayElement(COURSES),
@@ -260,12 +303,34 @@ async function seed() {
             : record.cohort === "WAITLISTED"
               ? SubmissionStatus.WAITLISTED
               : SubmissionStatus.PENDING,
+          waitlistPosition: record.cohort === "WAITLISTED"
+            ? waitlistPositionByApplicationId.get(record.skeapApplicationId) ?? null
+            : null,
           enrollmentFileUrl: `https://example.invalid/demo-documents/${record.id}/enrollment`,
           reportCardFileUrl: `https://example.invalid/demo-documents/${record.id}/grades`,
           uploadedFiles: [],
           submittedAt: record.createdAt,
           updatedAt: record.updatedAt,
         })),
+      });
+      await tx.inquiry.createMany({
+        data: applicationRecords.map((record) => {
+          const isWaitlisted = record.cohort === "WAITLISTED";
+          const isApproved = record.cohort === "ACTIVE_SCHOLAR";
+          const waitlistPosition = waitlistPositionByApplicationId.get(record.skeapApplicationId);
+
+          return {
+            userId: record.id,
+            applicationId: record.skeapApplicationId,
+            subject: "SKEAP application submitted",
+            message: isWaitlisted
+              ? `SKEAP application placed on the waitlist at position ${waitlistPosition}.`
+              : "Applicant submitted a SKEAP application.",
+            reviewStatus: isWaitlisted ? "Waitlisted" : isApproved ? "Approved" : "Pending review",
+            isResolved: isWaitlisted || isApproved,
+            createdAt: record.createdAt,
+          };
+        }),
       });
 
       const activeScholarUserIds = activeScholarRecords.map((record) => record.id);
@@ -292,17 +357,21 @@ async function seed() {
       return {
         records,
         activeScholarCount: createdActiveScholarCount,
-        waitlistedCount: records.filter((record) => record.cohort === "WAITLISTED").length,
+        waitlistedCount: waitlistedRecords.length,
+        pendingKkCount: records.filter((record) => record.cohort === "KK_PENDING_APPLICATION").length,
+        pendingSkeapCount: records.filter((record) => record.cohort === "PENDING_APPLICATION").length,
         currentCapacity,
         maxSlots,
-        removedDemoUsers: existingUserIds.length,
+        removedDemoUsers: usersToRebuild.length,
+        preservedPayoutGrantees: payoutLinkedUserIds.size,
       };
     }, { timeout: 60_000 });
 
     console.info(`Removed ${seedResult.removedDemoUsers} previous synthetic demo users before rebuilding.`);
+    console.info(`Preserved ${seedResult.preservedPayoutGrantees} synthetic grantees with linked payout records.`);
     console.info(`Existing SKEAP capacity before seeding: ${seedResult.currentCapacity}/${seedResult.maxSlots}.`);
     console.info(
-      `Created ${seedResult.records.length} synthetic demo youth records: 800 KK-only, ${seedResult.activeScholarCount} active scholars, ${seedResult.waitlistedCount} waitlisted, 100 pending applications.`,
+      `Created ${seedResult.records.length} synthetic demo youth records: ${KK_ONLY_PROFILE_COUNT} KK-only, ${seedResult.pendingKkCount} pending KK profiling applications, ${seedResult.activeScholarCount} active scholars, ${seedResult.waitlistedCount} waitlisted SKEAP applications, ${seedResult.pendingSkeapCount} pending SKEAP applications.`,
     );
     console.info(`All generated emails end in ${DEMO_EMAIL_SUFFIX}; these accounts cannot sign in.`);
   } finally {

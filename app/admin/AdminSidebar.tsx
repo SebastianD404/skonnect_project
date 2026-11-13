@@ -360,7 +360,7 @@ export default function AdminSidebar({
                   }}
                   tabIndex={mobileOpen ? 0 : -1}
                   aria-current={isActive ? "page" : undefined}
-                  className={`flex items-center gap-3 rounded-2xl border-l-4 px-3 py-2 text-sm transition ${
+                  className={`flex items-center gap-2.5 rounded-2xl border-l-4 px-3 py-2 text-sm transition ${
                     isActive
                       ? "border-cyan-500 bg-cyan-50/80 font-semibold text-cyan-700"
                       : "border-transparent text-slate-700 hover:bg-slate-100"
@@ -369,8 +369,12 @@ export default function AdminSidebar({
                   <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-cyan-600" : "text-slate-400"}`} />
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   {badgeCount > 0 ? (
-                    <span className="ml-auto inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-                      {badgeCount > 9 ? "9+" : badgeCount}
+                    <span
+                      className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums ${
+                        isActive ? "bg-cyan-100/80 text-cyan-800" : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {badgeCount > 99 ? "99+" : badgeCount}
                     </span>
                   ) : null}
                 </Link>
@@ -410,7 +414,7 @@ export default function AdminSidebar({
                       key={item.label}
                       href={targetHref}
                       onClick={() => markSectionViewed(item.href)}
-                      className={`group flex items-center gap-3 rounded-2xl border-l-4 px-3 py-2 text-sm transition ${
+                      className={`group flex items-center gap-2.5 rounded-2xl border-l-4 px-3 py-2 text-sm transition ${
                         isActive
                           ? "border-cyan-500 bg-cyan-50/80 font-semibold text-cyan-700"
                           : "border-transparent text-slate-700 hover:bg-slate-100"
@@ -425,13 +429,13 @@ export default function AdminSidebar({
                       !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees")) &&
                       !(item.href === "/admin/kk-profiling" && pathname.startsWith("/admin/kk-profiling")) ? (
                         <span
-                          className={`ml-auto flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold text-center transition-colors duration-150 ${
+                          className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-center text-[11px] font-medium leading-none tabular-nums transition-colors duration-150 ${
                             isActive
-                              ? "bg-white/20 text-white border-white/20 backdrop-blur-xs"
-                              : "border-slate-200/70 bg-slate-100 text-slate-600"
+                              ? "bg-cyan-100/80 text-cyan-800"
+                              : "bg-slate-100 text-slate-600"
                           }`}
                         >
-                          {item.badge > 9 ? "9+" : item.badge}
+                          {item.badge > 99 ? "99+" : item.badge}
                         </span>
                       ) : null}
                     </Link>

@@ -101,6 +101,8 @@ interface ApplicationRecord {
     mothersContact?: string;
     contactNumber?: string;
     emailAddress?: string;
+    registeredSKVoter?: string;
+    totalFamilyMonthlyIncome?: string;
     physicalDocumentsConfirmed?: boolean;
     photoFileUrl?: string;
   };
@@ -175,6 +177,46 @@ function normalizeApplicationStatus(status: string) {
   if (/ineligible/.test(normalized)) return "Ineligible";
   if (/responded/.test(normalized)) return "Responded";
   return "Pending Review";
+}
+
+function matchesApplicationFilter(
+  application: ApplicationRecord,
+  filter: "pending" | "resubmitted" | "returned" | "approved",
+) {
+  const status = normalizeApplicationStatus(application.status);
+  if (filter === "pending") return status === "Pending Review" || status === "Pre-qualified";
+  if (filter === "resubmitted") return status === "Resubmitted";
+  if (filter === "returned") return status === "Returned";
+  return status === "Approved";
+}
+
+function getApplicantInitials(name: string) {
+  const nameParts = name.trim().split(/\s+/).filter(Boolean);
+  if (nameParts.length === 0) return "NA";
+  if (nameParts.length === 1) return nameParts[0].slice(0, 2).toUpperCase();
+  return `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase();
+}
+
+function formatQueueDate(dateString: string) {
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return dateString;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function QueueItemSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex w-full animate-pulse items-center gap-3 rounded-lg p-3">
+      <div className="h-9 w-9 shrink-0 rounded-full border border-slate-200 bg-slate-100" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="h-4 w-3/5 rounded bg-slate-200" />
+        <div className="h-3 w-4/5 rounded bg-slate-100" />
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <div className="h-3 w-10 rounded bg-slate-100" />
+        <div className="h-3 w-8 rounded bg-slate-100" />
+      </div>
+    </div>
+  );
 }
 
 function formatDate(dateString: string) {
@@ -417,18 +459,12 @@ export default function SkeapApplicationsClient({
   } | null>(null);
 
   const displayedApplications = useMemo(
-    () => applications.filter((app) => {
-      const status = normalizeApplicationStatus(app.status);
-      if (viewFilter === "pending") return status === "Pending Review" || status === "Pre-qualified";
-      if (viewFilter === "resubmitted") return status === "Resubmitted";
-      if (viewFilter === "returned") return status === "Returned";
-      if (viewFilter === "approved") return status === "Approved";
-      return true;
-    }),
+    () => applications.filter((application) => matchesApplicationFilter(application, viewFilter)),
     [applications, viewFilter]
   );
 
-  const totalPages = Math.ceil(displayedApplications.length / itemsPerPage);
+  const totalApplicantCount = applicationCounts?.[viewFilter] ?? displayedApplications.length;
+  const totalPages = Math.ceil(totalApplicantCount / itemsPerPage);
   const visiblePage = Math.min(currentPage, Math.max(totalPages, 1));
   const paginatedApplications = useMemo(
     () => displayedApplications.slice(
@@ -521,7 +557,8 @@ export default function SkeapApplicationsClient({
       : viewFilter === "returned"
       ? "Returned Queue"
       : "Approved Archive";
-  const isQueueEmpty = displayedApplications.length === 0 && !hasNextPage && !isRefreshing;
+  const isQueueLoading = isRefreshing || isFetchingNextPage;
+  const isQueueEmpty = displayedApplications.length === 0 && !hasNextPage && !isQueueLoading;
 
   function changeViewFilter(filter: typeof viewFilter) {
     setViewFilter(filter);
@@ -850,39 +887,76 @@ export default function SkeapApplicationsClient({
     void handleRefresh(academicYear);
   }
 
-  const fetchNextPage = useCallback(async () => {
-    if (!hasNextPage || isFetchingNextPageRef.current || isRefreshingRef.current || !cursor) return;
+  const fetchNextPage = useCallback(async (minimumVisibleCount: number) => {
+    if (!hasNextPage || isFetchingNextPageRef.current || isRefreshingRef.current || !cursor) return false;
 
     isFetchingNextPageRef.current = true;
     setIsFetchingNextPage(true);
     try {
-      const params = new URLSearchParams({
-        academicYear: selectedAcademicYear,
-        cursorId: cursor.id,
-        cursorDate: cursor.createdAt,
-      });
-      const response = await fetch(`/api/admin/skeap-applications?${params}`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load more applications.");
+      let nextCursor: { id: string; createdAt: string } | null = cursor;
+      let morePages: boolean = hasNextPage;
+      let visibleCount = displayedApplications.length;
+      const loadedIds = new Set(applications.map((application) => application.id));
+      const newApplications: ApplicationRecord[] = [];
 
-      const page = await response.json() as {
-        applications: ApplicationRecord[];
-        hasNextPage: boolean;
-        nextCursor: { id: string; createdAt: string } | null;
-      };
+      while (morePages && nextCursor && visibleCount < minimumVisibleCount) {
+        const params = new URLSearchParams({
+          academicYear: selectedAcademicYear,
+          cursorId: nextCursor.id,
+          cursorDate: nextCursor.createdAt,
+        });
+        const response = await fetch(`/api/admin/skeap-applications?${params}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("Failed to load more applications.");
 
-      setApplications((current) => {
-        const existingIds = new Set(current.map((application) => application.id));
-        return [...current, ...page.applications.filter((application) => !existingIds.has(application.id))];
-      });
-      setCursor(page.nextCursor);
-      setHasNextPage(page.hasNextPage);
+        const page = await response.json() as {
+          applications: ApplicationRecord[];
+          hasNextPage: boolean;
+          nextCursor: { id: string; createdAt: string } | null;
+        };
+        const uniqueApplications = page.applications.filter((application) => {
+          if (loadedIds.has(application.id)) return false;
+          loadedIds.add(application.id);
+          return true;
+        });
+
+        newApplications.push(...uniqueApplications);
+        visibleCount += uniqueApplications.filter((application) =>
+          matchesApplicationFilter(application, viewFilter)
+        ).length;
+        nextCursor = page.nextCursor;
+        morePages = page.hasNextPage;
+      }
+
+      if (newApplications.length > 0) {
+        setApplications((current) => [...current, ...newApplications]);
+      }
+      setCursor(nextCursor);
+      setHasNextPage(morePages);
+      return true;
     } catch (error) {
       console.error(error);
+      return false;
     } finally {
       isFetchingNextPageRef.current = false;
       setIsFetchingNextPage(false);
     }
-  }, [cursor, hasNextPage, selectedAcademicYear]);
+  }, [applications, cursor, displayedApplications.length, hasNextPage, selectedAcademicYear, viewFilter]);
+
+  async function handleNextQueuePage() {
+    const nextPage = Math.min(totalPages, visiblePage + 1);
+    if (nextPage <= visiblePage) return;
+
+    const minimumVisibleCount = nextPage * itemsPerPage;
+    if (
+      displayedApplications.length < minimumVisibleCount &&
+      hasNextPage &&
+      !(await fetchNextPage(minimumVisibleCount))
+    ) {
+      return;
+    }
+
+    setCurrentPage(nextPage);
+  }
 
   function updateSelectedApplication(
     updater: (application: ApplicationRecord) => ApplicationRecord
@@ -1328,9 +1402,9 @@ export default function SkeapApplicationsClient({
             />
           </div>
 
-          <section className="flex w-full flex-col items-stretch overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm lg:flex-row">
-            <aside className={`${showMobileDetails ? "hidden lg:flex" : "flex"} h-full min-h-[500px] w-full shrink-0 flex-col justify-between border-b border-slate-200 bg-slate-50 lg:w-96 lg:border-b-0 lg:border-r`}>
-              <div className="sticky top-0 z-10 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-slate-50/90 p-5 backdrop-blur-sm">
+          <section className="flex w-full flex-col items-stretch overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm lg:h-[calc(100vh-200px)] lg:flex-row">
+            <aside className={`${showMobileDetails ? "hidden lg:flex" : "flex"} h-full max-h-[calc(100vh-200px)] min-h-[500px] w-full shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 lg:min-h-0 lg:w-96 lg:rounded-r-none lg:border-b-0 lg:border-r`}>
+              <div className="z-10 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-slate-50/90 p-5 backdrop-blur-sm">
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Applicant queue</p>
@@ -1364,24 +1438,15 @@ export default function SkeapApplicationsClient({
                 ) : null}
               </div>
 
-              <div className="custom-scroll flex-1">
-                <div className="flex flex-col gap-3 p-4">
-                  {paginatedApplications.length === 0 && (hasNextPage || isRefreshing) && (
-                    <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                      {isFetchingNextPage || isRefreshing ? (
-                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
-                      ) : null}
-                      <p className="text-sm font-semibold text-slate-500">
-                        {isRefreshing
-                          ? `Loading A.Y. ${selectedAcademicYear}...`
-                          : isFetchingNextPage
-                          ? `Loading ${activeFilterName.toLowerCase()}...`
-                          : "No matching applications in the loaded results."}
-                      </p>
-                    </div>
-                  )}
-
-                  {paginatedApplications.map((application) => (
+              <div
+                className="custom-scroll custom-scroll-visible flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto bg-white p-4"
+                aria-busy={isQueueLoading}
+              >
+                {isQueueLoading ? (
+                    Array.from({ length: 6 }, (_, index) => (
+                      <QueueItemSkeleton key={`queue-skeleton-${index}`} />
+                    ))
+                ) : paginatedApplications.map((application) => (
                     <button
                       key={application.id}
                       type="button"
@@ -1390,52 +1455,31 @@ export default function SkeapApplicationsClient({
                         setShowMobileDetails(true);
                       }}
                       aria-pressed={application.id === effectiveSelectedAppId}
-                      className={`group relative w-full overflow-hidden rounded-xl border px-5 py-4 text-left transition-all ${
+                      className={`flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors ${
                         application.id === effectiveSelectedAppId
-                          ? "border-slate-200 bg-white text-slate-900 shadow-md"
-                          : "border-transparent bg-transparent text-slate-900 hover:bg-slate-100"
+                          ? "bg-slate-100 text-slate-900 shadow-none ring-1 ring-slate-200"
+                          : "text-slate-600 hover:bg-slate-50"
                       }`}
                     >
-                    {application.id === effectiveSelectedAppId && (
-                        <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1.5 bg-cyan-700" />
-                      )}
-                      <div className="pl-2">
-                        <div className="mb-4 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-bold text-slate-900">{application.applicantName}</p>
-                            <p className="mt-1 truncate text-xs text-slate-500">
-                              {normalizeSkeapSchoolName(application.school) || "No school provided"}
-                              {application.school && application.yearLevel ? " • " : ""}
-                              {application.yearLevel || ""}
-                            </p>
-                          </div>
-                          <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${
-                            normalizeApplicationStatus(application.status) === "Approved"
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : normalizeApplicationStatus(application.status) === "Pre-qualified"
-                              ? "border-sky-200 bg-sky-50 text-sky-700"
-                              : normalizeApplicationStatus(application.status) === "Returned"
-                              ? "border-amber-200 bg-amber-50 text-amber-700"
-                              : normalizeApplicationStatus(application.status) === "Resubmitted"
-                              ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : "border-slate-200 bg-slate-100 text-slate-600"
-                          }`}>
-                            {normalizeApplicationStatus(application.status) === "Returned"
-                              ? "Returned"
-                              : normalizeApplicationStatus(application.status) === "Resubmitted"
-                              ? "Resubmitted"
-                              : application.status}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
-                          <span>{formatDate(application.submittedAt)}</span>
-                          <span>{application.documents.length} docs</span>
-                        </div>
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-600">
+                        {getApplicantInitials(application.applicantName)}
+                      </div>
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <p className="truncate text-sm font-semibold text-slate-900">{application.applicantName}</p>
+                        <p className="truncate text-xs text-slate-500">
+                          {normalizeSkeapSchoolName(application.school) || "No school provided"}
+                          {application.school && application.yearLevel ? " · " : ""}
+                          {application.yearLevel || ""}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1 text-[10px] text-slate-400">
+                        <span>{formatQueueDate(application.submittedAt)}</span>
+                        <span>{application.documents.length} docs</span>
                       </div>
                     </button>
                   ))}
 
-                  {isQueueEmpty && (
+                  {!isQueueLoading && isQueueEmpty && (
                     <div className="flex flex-col items-center px-3 py-10 text-center">
                       <FolderOpen className="mb-3 h-9 w-9 stroke-[1.5] text-slate-300" />
                       <p className="text-sm font-semibold text-slate-700">No applications in this queue</p>
@@ -1453,14 +1497,13 @@ export default function SkeapApplicationsClient({
                       </button>
                     </div>
                   )}
-                </div>
               </div>
-              <div className="border-t border-slate-200 bg-white px-4 py-3">
+              <div className="mt-auto shrink-0 border-t border-slate-200 bg-white p-3">
                 <div className="flex items-center justify-between">
                   <button
                     type="button"
                     onClick={() => setCurrentPage(Math.max(1, visiblePage - 1))}
-                    disabled={visiblePage === 1}
+                    disabled={visiblePage === 1 || isQueueLoading}
                     aria-label="Previous applicant page"
                     className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
                   >
@@ -1471,28 +1514,18 @@ export default function SkeapApplicationsClient({
                   </span>
                   <button
                     type="button"
-                    onClick={() => setCurrentPage(Math.min(totalPages, visiblePage + 1))}
-                    disabled={visiblePage >= totalPages}
+                    onClick={() => void handleNextQueuePage()}
+                    disabled={visiblePage >= totalPages || isQueueLoading}
                     aria-label="Next applicant page"
                     className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <ChevronRight className="h-5 w-5" />
                   </button>
                 </div>
-                {hasNextPage && (
-                  <button
-                    type="button"
-                    onClick={() => void fetchNextPage()}
-                    disabled={isFetchingNextPage || isRefreshing}
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {isFetchingNextPage ? "Loading more applicants..." : "Load more applicants"}
-                  </button>
-                )}
               </div>
             </aside>
 
-            <div className={`${showMobileDetails ? "flex" : "hidden lg:flex"} custom-scroll relative min-h-[500px] min-w-0 flex-1 self-start flex-col items-stretch justify-start overflow-y-auto bg-slate-50/50`}>
+            <div className={`${showMobileDetails ? "flex" : "hidden lg:flex"} custom-scroll relative min-h-[500px] min-w-0 flex-1 flex-col items-stretch justify-start overflow-y-auto bg-slate-50/50 lg:h-full lg:min-h-0`}>
               {selectedApplication ? (
                 <div className="flex flex-col">
                   <button
@@ -1573,72 +1606,102 @@ export default function SkeapApplicationsClient({
                     {activeTab === "overview" && (
                       <div id="application-panel-overview" role="tabpanel" aria-labelledby="application-tab-overview" className="flex flex-col space-y-6">
                     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                      <div className="border-b border-slate-100 px-5 py-4">
-                        <h3 className="text-sm font-semibold text-slate-900">Applicant profile</h3>
+                      <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
+                        <h3 className="text-base font-semibold text-slate-900">Applicant profile</h3>
+                        <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                          selectedStatus === "Returned"
+                            ? "border-amber-200 bg-amber-50 text-amber-700"
+                            : selectedStatus === "Resubmitted"
+                            ? "border-blue-200 bg-blue-50 text-blue-700"
+                            : selectedStatus === "Approved"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : selectedStatus === "Waitlisted"
+                            ? "border-amber-200 bg-amber-50 text-amber-700"
+                            : selectedStatus === "Rejected" || selectedStatus === "Ineligible"
+                            ? "border-rose-200 bg-rose-50 text-rose-700"
+                            : "border-slate-200 bg-slate-100 text-slate-700"
+                        }`}>
+                          {selectedStatus === "Returned" ? "Correction Required" : selectedStatus}
+                        </span>
                       </div>
-                      <div className="grid grid-cols-2 gap-px bg-slate-100 xl:grid-cols-4">
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Status</span>
-                          <span className={`w-fit max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                            selectedStatus === "Returned"
-                              ? "border-amber-200 bg-amber-50 text-amber-700"
-                              : selectedStatus === "Resubmitted"
-                              ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : selectedStatus === "Approved"
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : selectedStatus === "Waitlisted"
-                                ? "border-amber-200 bg-amber-50 text-amber-700"
-                                : selectedStatus === "Rejected" || selectedStatus === "Ineligible"
-                              ? "border-rose-200 bg-rose-50 text-rose-700"
-                              : "border-slate-200 bg-slate-100 text-slate-700"
-                          }`}>
-                            {selectedStatus === "Returned" ? "Correction Required" : selectedStatus}
-                          </span>
+                      <div className="flex flex-col gap-6 p-6">
+                        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Age</span>
+                            <span className="text-sm font-medium text-slate-900">
+                              {applicationDetails?.age != null ? `${applicationDetails.age} yrs` : "Not provided"}
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Phone</span>
+                            <span className="break-words text-sm font-medium text-slate-900">
+                              {selectedApplication.applicantPhoneNumber || "Not provided"}
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Email</span>
+                            <span className="break-all text-sm font-medium text-slate-900" title={selectedApplication.applicantEmail}>
+                              {selectedApplication.applicantEmail}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Submitted</span>
-                          <span className="text-sm font-semibold text-slate-900">{formatDate(selectedApplication.submittedAt)}</span>
+
+                        <hr className="border-slate-100" />
+
+                        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">School / Institution</span>
+                            <span className="break-words text-sm font-medium text-slate-900">
+                              {normalizeSkeapSchoolName(selectedApplication.school) || "Not provided"}
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Education / Course / Year</span>
+                            <span className="break-words text-sm font-medium text-slate-900">
+                              {[
+                                applicationDetails?.educationLevel,
+                                applicationDetails?.currentCourse === "N/A" ? undefined : applicationDetails?.currentCourse,
+                                selectedApplication.yearLevel || applicationDetails?.yearLevel,
+                              ]
+                                .filter(Boolean)
+                                .join(" • ") || "Not provided"}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pre-screened docs</span>
-                          <span className="text-sm font-semibold text-slate-900">{verifiedCount}/{verifyDocumentCount}</span>
-                        </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Education / Course / Year</span>
-                          <span className="break-words text-sm font-semibold text-slate-900">
-                            {[
-                              applicationDetails?.educationLevel,
-                              applicationDetails?.currentCourse === "N/A" ? undefined : applicationDetails?.currentCourse,
-                              selectedApplication.yearLevel || applicationDetails?.yearLevel,
-                            ]
-                              .filter(Boolean)
-                              .join(" • ") || "Not provided"}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-px border-t border-slate-100 bg-slate-100 xl:grid-cols-6">
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 xl:col-span-2 xl:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Age</span>
-                          <span className="text-sm font-semibold text-slate-900">
-                            {applicationDetails?.age != null ? `${applicationDetails.age} yrs` : "Not provided"}
-                          </span>
-                        </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 xl:col-span-4 xl:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">School / Institution</span>
-                          <span className="text-sm font-semibold leading-snug text-slate-900 break-words">{normalizeSkeapSchoolName(selectedApplication.school) || "Not provided"}</span>
-                        </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 xl:col-span-2 xl:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Phone</span>
-                          <span className="text-sm font-semibold text-slate-900 break-words">{selectedApplication.applicantPhoneNumber || "Not provided"}</span>
-                        </div>
-                        <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 xl:col-span-4 xl:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email</span>
-                          <span
-                            className="text-sm font-semibold text-slate-900 break-all"
-                            title={selectedApplication.applicantEmail}
-                          >
-                            {selectedApplication.applicantEmail}
-                          </span>
+
+                        <hr className="border-slate-100" />
+
+                        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                          <div className="flex flex-col gap-5">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sitio / Address</span>
+                              <span className="break-words text-sm font-medium text-slate-900">
+                                {applicationDetails?.permanentAddress || "Not provided"}
+                              </span>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">KK Voter Status</span>
+                              <span className="text-sm font-medium text-slate-900">
+                                {applicationDetails?.registeredSKVoter || "Not provided"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Estimated Household Income</span>
+                            <span className="text-sm font-medium text-slate-900">
+                              {applicationDetails?.totalFamilyMonthlyIncome || "Not provided"}
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-5">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Submitted Date</span>
+                              <span className="text-sm font-medium text-slate-900">{formatDate(selectedApplication.submittedAt)}</span>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Pre-screened Docs</span>
+                              <span className="text-sm font-medium text-slate-900">{verifiedCount}/{verifyDocumentCount}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </section>
@@ -1730,49 +1793,45 @@ export default function SkeapApplicationsClient({
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-6">
-                        <button
-                          type="button"
-                          onClick={isPreQualified ? handleConfirmPhysicalDocumentsClick : () => void handlePrequalify()}
-                          disabled={isPrequalifying || (isPreQualified && isApproving)}
-                          className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors disabled:cursor-wait disabled:opacity-70 ${
-                            isPreQualified ? "bg-sky-700 hover:bg-sky-800" : "bg-emerald-600 hover:bg-emerald-700"
-                          }`}
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                          {isPrequalifying
-                            ? "Pre-screening..."
-                            : isPreQualified
-                              ? "Confirm Physical Documents"
-                              : "Pre-qualify Application"}
-                        </button>
-                        {approvalError ? <p role="alert" className="text-sm text-rose-600">{approvalError}</p> : null}
-                        <div className={`grid w-full gap-3 ${canReturnForEdits ? "grid-cols-2" : "grid-cols-1"}`}>
-                          {canReturnForEdits ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                openReturnModal();
-                              }}
-                              className="flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-amber-200 bg-amber-50 px-2 py-2.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100 sm:px-3"
-                            >
-                              <CornerUpLeft className="h-4 w-4 shrink-0" />
-                              <span>Return<span className="hidden sm:inline"> for Edits</span></span>
-                            </button>
-                          ) : null}
+                      <>
+                        {approvalError ? <p role="alert" className="mb-3 text-right text-sm text-rose-600">{approvalError}</p> : null}
+                        <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-6">
                           <button
                             type="button"
                             onClick={() => {
                               setRejectError(null);
                               setShowRejectModal(true);
                             }}
-                            className="flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-rose-200 bg-rose-50 px-2 py-2.5 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-100 sm:px-3"
+                            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
                           >
-                            <X className="h-4 w-4 shrink-0" aria-hidden="true" />
-                            <span>Reject<span className="hidden sm:inline"> Application</span></span>
+                            <X className="h-4 w-4" aria-hidden="true" />
+                            Reject Application
+                          </button>
+                          {canReturnForEdits ? (
+                            <button
+                              type="button"
+                              onClick={openReturnModal}
+                              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                            >
+                              <CornerUpLeft className="h-4 w-4 shrink-0" />
+                              Return for Edits
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={isPreQualified ? handleConfirmPhysicalDocumentsClick : () => void handlePrequalify()}
+                            disabled={isPrequalifying || (isPreQualified && isApproving)}
+                            className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            {isPrequalifying
+                              ? "Pre-screening..."
+                              : isPreQualified
+                                ? "Confirm Physical Documents"
+                                : "Pre-qualify Application"}
                           </button>
                         </div>
-                      </div>
+                      </>
                     )}
                       </div>
                     )}

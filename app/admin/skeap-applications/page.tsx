@@ -2,7 +2,11 @@
 import { requireRole } from "@/lib/auth";
 import { Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { getUploadGroups } from "@/lib/skeap-upload";
-import { skeapStatusWhere, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
+import {
+  skeapPendingApplicationsWhere,
+  skeapStatusWhere,
+  SKEAP_APPLICATION_SELECT,
+} from "@/lib/skeap-applications";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { getAcademicYearDateRange, getAcademicYears, getCurrentAcademicYear } from "@/lib/semester";
@@ -128,6 +132,7 @@ function mapInquiryToApplication(inquiry: {
       addressLine: string;
       barangay: string;
     } | null;
+    profilingRegistrations: { registeredSKVoter: string }[];
     grantee: {
       yearLevel: string | null;
       school: string | null;
@@ -154,6 +159,7 @@ function mapInquiryToApplication(inquiry: {
     mothersContact?: string | null;
     contactNumber?: string | null;
     emailAddress?: string | null;
+    totalFamilyMonthlyIncome?: string | null;
     photoFileUrl?: string | null;
     physicalDocumentsConfirmed?: boolean;
     uploadedFiles?: Prisma.JsonValue | null;
@@ -284,6 +290,8 @@ function mapInquiryToApplication(inquiry: {
             barangay: inquiry.user?.kkProfile?.barangay,
             addressLine: inquiry.user?.kkProfile?.addressLine,
           }, inquiry.application.permanentAddress),
+          registeredSKVoter: inquiry.user?.profilingRegistrations[0]?.registeredSKVoter || undefined,
+          totalFamilyMonthlyIncome: inquiry.application.totalFamilyMonthlyIncome || undefined,
           dateOfBirth: inquiry.application.dateOfBirth ? inquiry.application.dateOfBirth.toISOString() : undefined,
           placeOfBirth: inquiry.application.placeOfBirth || undefined,
           age: inquiry.application.age ?? undefined,
@@ -347,13 +355,7 @@ export default async function SkeapApplicationsPage({
   };
 
   const pendingCount = await prisma.inquiry.count({
-    where: {
-      ...queueBaseWhere,
-      AND: [
-        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        skeapStatusWhere(["pending", "pre_qualified"]),
-      ],
-    },
+    where: skeapPendingApplicationsWhere(academicYearRange),
   });
   const returnedCount = await prisma.inquiry.count({
     where: {

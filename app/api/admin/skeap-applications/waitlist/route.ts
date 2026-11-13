@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/logger";
-import { getSkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
+import { getSkeapWaitlistSnapshot, reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 async function authorizeAdmin() {
@@ -99,6 +99,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      await reindexSkeapWaitlist(tx);
       const application = await tx.skeapApplication.findUnique({
         where: { id: applicationId },
         select: {
