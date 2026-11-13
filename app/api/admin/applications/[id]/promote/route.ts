@@ -145,7 +145,8 @@ export async function POST(
         applicantId: application.userId,
         applicantName: application.applicantName,
         applicantEmail: application.user.email,
-        granteeStatusChanged: existingGrantee?.status === "REMOVED",
+        granteeStatusChanged:
+          existingGrantee?.status === "REMOVED" || existingGrantee?.status === "REVOKED",
         awaitingReview: false,
       };
     });

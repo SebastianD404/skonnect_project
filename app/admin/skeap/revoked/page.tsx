@@ -25,9 +25,8 @@ export default async function RevokedGranteesPage({
   const containsQuery = { contains: query, mode: "insensitive" as const };
 
   const where: Prisma.GranteeWhereInput = {
-    status: GranteeStatus.REMOVED,
+    status: { in: [GranteeStatus.REMOVED, GranteeStatus.REVOKED] },
     dateRemoved: { not: null },
-    submissions: { some: { status: SubmissionStatus.REMOVED } },
     ...(query
       ? {
           OR: [
@@ -47,6 +46,8 @@ export default async function RevokedGranteesPage({
                 },
               },
             },
+            { revocationReason: containsQuery },
+            { revocationNotes: containsQuery },
             { remarks: containsQuery },
             {
               submissions: {
@@ -72,6 +73,8 @@ export default async function RevokedGranteesPage({
         select: {
           id: true,
           dateRemoved: true,
+          revocationReason: true,
+          revocationNotes: true,
           remarks: true,
           user: {
             select: {
@@ -103,7 +106,14 @@ export default async function RevokedGranteesPage({
         email: grantee.user.email,
         sitio: grantee.user.kkProfile?.purok ?? null,
         dateRevoked: grantee.dateRemoved,
-        reason: grantee.remarks?.trim() || grantee.submissions[0]?.reviewNotes?.trim() || null,
+        reason: grantee.revocationReason?.trim()
+          ? [
+              grantee.revocationReason.trim(),
+              grantee.revocationNotes?.trim()
+                ? `Additional Notes: ${grantee.revocationNotes.trim()}`
+                : null,
+            ].filter(Boolean).join("\n")
+          : grantee.remarks?.trim() || grantee.submissions[0]?.reviewNotes?.trim() || null,
       }]
     : []);
 
@@ -117,7 +127,7 @@ export default async function RevokedGranteesPage({
           Revoked Grantees
         </h1>
         <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
-          Review scholarships revoked after a grantee submission review. Graduated scholars are listed separately.
+          Review scholarships revoked from active grantees or during submission review. Graduated scholars are listed separately.
         </p>
       </header>
 

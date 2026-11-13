@@ -16,7 +16,7 @@ export interface GranteeTableRow {
   yearLevel: string;
   currentJourneySemesterIndex: number;
   validatedJourneySemesterIndexes: number[];
-  status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED";
+  status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED";
   contactNumber: string | null;
   dateEnrolled: string;
   graduatedAt?: string | null;
@@ -30,6 +30,7 @@ const STATUS_LABELS: Record<GranteeTableRow["status"], string> = {
   PROBATIONARY: "Active",
   GRADUATED: "Graduated",
   REMOVED: "Removed",
+  REVOKED: "Revoked",
 };
 
 const STATUS_CLASSES: Record<GranteeTableRow["status"], string> = {
@@ -37,6 +38,7 @@ const STATUS_CLASSES: Record<GranteeTableRow["status"], string> = {
   PROBATIONARY: "bg-emerald-100 text-emerald-700",
   GRADUATED: "bg-slate-100 text-slate-700",
   REMOVED: "bg-rose-100 text-rose-700",
+  REVOKED: "bg-rose-100 text-rose-700",
 };
 
 function SkeletonBlock({ className }: { className: string }) {
@@ -102,7 +104,7 @@ export function GranteeStatusTable({
   onQueryChange,
   isLoading,
   startNavigation,
-  onEndScholarship,
+  onRevokeGrantee,
 }: {
   grantees: GranteeTableRow[];
   page: number;
@@ -112,7 +114,7 @@ export function GranteeStatusTable({
   onQueryChange: (query: string) => void;
   isLoading: boolean;
   startNavigation: (callback: () => void) => void;
-  onEndScholarship?: (grantee: GranteeTableRow) => void;
+  onRevokeGrantee?: (grantee: GranteeTableRow) => void;
 }) {
   const [pendingGranteeId, setPendingGranteeId] = useState<string | null>(null);
   const [isViewingGrantee, startViewTransition] = useTransition();
@@ -234,12 +236,12 @@ export function GranteeStatusTable({
                       View Profile
                     </button>
                   ) : null}
-                  {grantee.status !== "GRADUATED" ? (
+                  {grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY" ? (
                     <button
                       type="button"
-                      onClick={() => onEndScholarship?.(grantee)}
-                      aria-label={`End scholarship for ${grantee.fullName}`}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                      onClick={() => onRevokeGrantee?.(grantee)}
+                      aria-label={`Revoke scholarship for ${grantee.fullName}`}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-rose-100 bg-rose-50 text-rose-700 transition hover:border-rose-200 hover:bg-rose-100 hover:text-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
                     >
                       <Archive className="h-4 w-4" aria-hidden="true" />
                     </button>
@@ -352,13 +354,13 @@ export function GranteeStatusTable({
                             <Eye className="h-4 w-4" aria-hidden="true" />
                           </button>
                         )}
-                        {grantee.status !== "GRADUATED" ? (
+                        {grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY" ? (
                           <button
                             type="button"
-                            onClick={() => onEndScholarship?.(grantee)}
-                            title="End scholarship"
-                            aria-label="End scholarship"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
+                            onClick={() => onRevokeGrantee?.(grantee)}
+                            title="Revoke scholarship"
+                            aria-label={`Revoke scholarship for ${grantee.fullName}`}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-100 bg-rose-50 text-rose-700 transition hover:border-rose-200 hover:bg-rose-100 hover:text-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
                           >
                             <Archive className="h-4 w-4" aria-hidden="true" />
                           </button>

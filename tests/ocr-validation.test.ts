@@ -86,6 +86,9 @@ describe("browser OCR document validation", () => {
 
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("RESIDENCY_TOO_SHORT");
+    expect(result.message).toBe(
+      "This certificate shows less than the required 6 months of residency in Barangay Pico. Please upload an updated certificate.",
+    );
   });
 
   it("does not accept a duration described as less than six months", () => {

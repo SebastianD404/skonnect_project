@@ -61,7 +61,7 @@
   height: 100%;
   min-height: 0;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   min-width: 0;
   padding: 16px;
   border: 1px solid rgb(226 232 240 / 80%);
@@ -73,7 +73,8 @@
 .review-card__header {
   display: flex;
   flex: none;
-  height: 32px;
+  height: 36px;
+  margin-bottom: 12px;
   min-width: 0;
   align-items: center;
   justify-content: space-between;
@@ -93,8 +94,8 @@
 
 .review-card__preview {
   display: flex;
-  height: 128px;
-  min-height: 128px;
+  height: 176px;
+  min-height: 0;
   flex: none;
   flex-direction: column;
   align-items: center;
@@ -104,16 +105,8 @@
   border: 1px solid rgb(226 232 240 / 80%);
   border-radius: 12px;
   background: #f8fafc;
-  padding: 8px;
+  padding: 12px;
   text-align: center;
-}
-
-.review-card__ocr-slot {
-  flex: none;
-}
-
-.review-card__ocr-slot:empty {
-  display: none;
 }
 
 .review-card__notes {
@@ -126,17 +119,17 @@
 .review-card__notes label {
   flex: none;
   display: block;
-  margin-bottom: 6px;
-  color: #475569;
-  font-size: 11px;
-  font-weight: 700;
+  margin: 16px 0 8px;
+  color: #1e293b;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
 }
 
 .review-card__notes textarea {
   width: 100%;
-  min-height: 60px;
+  min-height: 140px;
   flex: 1;
   resize: none;
   border: 1px solid #e2e8f0;
@@ -233,11 +226,6 @@
     min-height: 360px;
   }
 
-  .review-card__preview {
-    height: 128px;
-    min-height: 128px;
-  }
-
 }
 
 :root {
@@ -324,6 +312,14 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
   font-family: var(--font-sans);
+}
+
+select:not(.appearance-none) {
+  appearance: none;
+  padding-right: 2.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364758b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 0.875rem center;
+  background-repeat: no-repeat;
 }
 
 .kk-profiling-edit-form label > span {

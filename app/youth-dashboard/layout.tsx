@@ -7,7 +7,7 @@ import YouthDashboardHeader from "./YouthDashboardHeader";
 const INACTIVE_GRANTEE_STATUSES = new Set<string>([
   GranteeStatus.GRADUATED,
   GranteeStatus.REMOVED,
-  "REVOKED",
+  GranteeStatus.REVOKED,
 ]);
 
 export default async function YouthDashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {

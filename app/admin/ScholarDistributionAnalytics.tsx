@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import pet from "@/public/SKPet.png";
-import { toPng } from "html-to-image";
-import * as XLSX from "xlsx-js-style";
 import {
   Bar,
   BarChart,
@@ -18,12 +16,11 @@ import {
 } from "recharts";
 import {
   ArrowUpRight,
-  FileSpreadsheet,
-  Image as ImageIcon,
-  MoreVertical,
   type LucideIcon,
 } from "lucide-react";
 import type { ScholarDistributionAnalytics as Analytics } from "@/lib/admin-scholar-analytics";
+import AnalyticsExportMenu from "./AnalyticsExportMenu";
+import { exportAnalyticsCardAsPng, exportAnalyticsTable } from "./analytics-export";
 
 export type DashboardMetricKey = "totalYouth" | "skeapSlot" | "skeapPending" | "kkPending";
 
@@ -109,146 +106,41 @@ export default function ScholarDistributionAnalytics({
   metricCards: DashboardMetricCardData[];
 }) {
   const [chartView, setChartView] = useState<"population" | "scholars">("population");
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
   const chartCardRef = useRef<HTMLElement>(null);
   const capacity = analytics.maxSlots;
   const capacityOverage = analytics.capacityUsed - capacity;
   const isPopulationView = chartView === "population";
   const chartTitle = isPopulationView
     ? "Youth Population by Sitio"
-    : "Scholar Distribution by Sitio";
+    : "SKEAP Grantee Distribution by Sitio";
   const chartSubtitle = isPopulationView
     ? "Approved KK-profiled youth across Barangay Pico."
-    : "Active and approved SKEAP scholars across Barangay Pico.";
-  const chartLabel = isPopulationView ? "Approved KK youth" : "SKEAP scholars";
+    : "Active and approved SKEAP grantees across Barangay Pico.";
+  const chartLabel = isPopulationView ? "Approved KK youth" : "SKEAP grantees";
   const chartData = isPopulationView
     ? analytics.populationDistribution.map(({ sitio, population }) => ({ sitio, value: population }))
     : analytics.scholarDistribution.map(({ sitio, scholars }) => ({ sitio, value: scholars }));
 
-  useEffect(() => {
-    if (!isExportMenuOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !exportMenuRef.current?.contains(event.target)) {
-        setIsExportMenuOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsExportMenuOpen(false);
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isExportMenuOpen]);
-
-  const exportChartAsPng = async () => {
-    setExportError(null);
-    const chartCard = chartCardRef.current;
-    if (!chartCard) {
-      setExportError("The analytics card is not ready to export. Please try again.");
-      return;
-    }
-
-    try {
-      const image = await toPng(chartCard, {
-        backgroundColor: "#ffffff",
-        cacheBust: true,
-        pixelRatio: 3,
-        filter: (element) =>
-          !(element instanceof Element && element.getAttribute("data-export-ignore") === "true"),
-      });
-      const anchor = document.createElement("a");
-      anchor.href = image;
-      anchor.download = "sitio-analytics-chart.png";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setIsExportMenuOpen(false);
-    } catch (error) {
-      console.error("Failed to export the sitio analytics card image:", error);
-      setExportError("Unable to export the chart image. Please try again.");
-    }
-  };
-
+  const exportChartAsPng = () =>
+    exportAnalyticsCardAsPng(
+      chartCardRef.current,
+      isPopulationView
+        ? "youth-population-by-sitio.png"
+        : "skeap-grantee-distribution-by-sitio.png",
+    );
   const exportAnalyticsToExcel = () => {
-    setExportError(null);
-    try {
-      const reportTitle = isPopulationView
-        ? "Barangay Pico - Youth Population by Sitio"
-        : "Barangay Pico - SKEAP Scholar Distribution by Sitio";
-      const countHeader = isPopulationView ? "Total Profiled Youth" : "Total Active Scholars";
-      const generatedOn = new Date().toLocaleString("en-PH");
-      const worksheet = XLSX.utils.aoa_to_sheet([
-        [reportTitle],
-        [`Generated on: ${generatedOn}`],
-        [],
-        ["Sitio Name", countHeader],
-        ...chartData.map(({ sitio, value }) => [sitio, value]),
-      ]);
-      worksheet["!cols"] = [{ wch: 25 }, { wch: 20 }];
-      worksheet["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
-
-      const titleCell = worksheet["A1"];
-      const timestampCell = worksheet["A2"];
-      const sitioHeaderCell = worksheet["A4"];
-      const countHeaderCell = worksheet["B4"];
-      if (!titleCell || !timestampCell || !sitioHeaderCell || !countHeaderCell) {
-        throw new Error("Unable to create the sitio analytics report layout.");
-      }
-
-      titleCell.s = { font: { bold: true, sz: 14 } };
-      timestampCell.s = { font: { sz: 11, italic: true } };
-
-      const gridBorder = {
-        top: { style: "thin" as const, color: { rgb: "D3D3D3" } },
-        left: { style: "thin" as const, color: { rgb: "D3D3D3" } },
-        bottom: { style: "thin" as const, color: { rgb: "D3D3D3" } },
-        right: { style: "thin" as const, color: { rgb: "D3D3D3" } },
-      };
-      const headerStyle = {
-        fill: { patternType: "solid" as const, fgColor: { rgb: "1F2937" } },
-        font: { bold: true, color: { rgb: "FFFFFF" } },
-        alignment: { horizontal: "center" as const, vertical: "center" as const },
-        border: gridBorder,
-      };
-      sitioHeaderCell.s = headerStyle;
-      countHeaderCell.s = headerStyle;
-
-      const lastDataRow = 4 + chartData.length;
-      for (let rowNumber = 4; rowNumber <= lastDataRow; rowNumber += 1) {
-        const sitioCell = worksheet[`A${rowNumber}`];
-        const countCell = worksheet[`B${rowNumber}`];
-        if (!sitioCell || !countCell) {
-          throw new Error(`Unable to create sitio analytics table row ${rowNumber}.`);
-        }
-
-        sitioCell.s = {
-          ...sitioCell.s,
-          border: gridBorder,
-        };
-        countCell.s = {
-          ...countCell.s,
-          ...(rowNumber > 4
-            ? { alignment: { horizontal: "center", vertical: "center" } }
-            : {}),
-          border: gridBorder,
-        };
-      }
-
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Sitio Analytics");
-      XLSX.writeFile(workbook, "sitio-analytics-data.xlsx", { cellStyles: true });
-      setIsExportMenuOpen(false);
-    } catch (error) {
-      console.error("Failed to export sitio analytics data:", error);
-      setExportError("Unable to export the data table. Please try again.");
-    }
+    const reportTitle = isPopulationView
+      ? "Barangay Pico - Youth Population by Sitio"
+      : "Barangay Pico - SKEAP Grantee Distribution by Sitio";
+    exportAnalyticsTable({
+      fileName: isPopulationView
+        ? "youth-population-by-sitio.xlsx"
+        : "skeap-grantee-distribution-by-sitio.xlsx",
+      sheetName: "Sitio Analytics",
+      title: reportTitle,
+      headers: ["Sitio Name", isPopulationView ? "Total Profiled Youth" : "Total SKEAP Grantees"],
+      rows: chartData.map(({ sitio, value }) => [sitio, value]),
+    });
   };
 
   return (
@@ -283,6 +175,7 @@ export default function ScholarDistributionAnalytics({
 
       <section
         ref={chartCardRef}
+        aria-label="Youth registry analytics"
         className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       >
         <header className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
@@ -326,58 +219,11 @@ export default function ScholarDistributionAnalytics({
                 SKEAP Scholars
               </button>
             </div>
-            <div
-              ref={exportMenuRef}
-              data-export-ignore="true"
-              className="relative shrink-0"
-            >
-              <button
-                type="button"
-                aria-label="Export chart"
-                aria-haspopup="menu"
-                aria-expanded={isExportMenuOpen}
-                aria-controls="youth-analytics-export-menu"
-                onClick={() => {
-                  setExportError(null);
-                  setIsExportMenuOpen((open) => !open);
-                }}
-                className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
-              >
-                <MoreVertical className="h-5 w-5" aria-hidden="true" />
-              </button>
-              {isExportMenuOpen ? (
-                <div
-                  id="youth-analytics-export-menu"
-                  role="menu"
-                  aria-label="Export youth registry analytics"
-                  className="absolute right-0 top-full z-20 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => void exportChartAsPng()}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    <ImageIcon className="h-4 w-4 text-slate-500" aria-hidden="true" />
-                    Download as Image (.png)
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={exportAnalyticsToExcel}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    <FileSpreadsheet className="h-4 w-4 text-slate-500" aria-hidden="true" />
-                    Export Data Table (.xlsx)
-                  </button>
-                  {exportError ? (
-                    <p role="alert" className="px-3 py-2 text-xs text-rose-700">
-                      {exportError}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+            <AnalyticsExportMenu
+              label="youth registry analytics"
+              onExportImage={exportChartAsPng}
+              onExportTable={exportAnalyticsToExcel}
+            />
           </div>
         </header>
 

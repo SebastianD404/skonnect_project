@@ -5,6 +5,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAdminSearch } from "./AdminSearchContext";
 import AdminExportButton from "./AdminExportButton";
 import { GranteeStatusTable, type GranteeTableRow } from "./grantees/GranteeStatusTable";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
+import RevokeGranteeModal from "./submissions/RevokeGranteeModal";
+
+type RevocationNotificationStatus = "NOT_REQUIRED" | "PENDING" | "SENDING" | "FAILED" | "SENT";
+
+function isRevocationNotificationStatus(value: unknown): value is RevocationNotificationStatus {
+  return value === "NOT_REQUIRED" || value === "PENDING" || value === "SENDING" || value === "FAILED" || value === "SENT";
+}
 
 interface AdminGranteesPageClientProps {
   grantees: GranteeTableRow[];
@@ -60,41 +68,81 @@ export default function AdminGranteesPageClient({
   const exportHref = `/api/admin/grantees/export${exportParams.size ? `?${exportParams.toString()}` : ""}`;
   const isSearchLoading = searchQuery.trim() !== query;
   const [scholarshipCandidate, setScholarshipCandidate] = useState<GranteeTableRow | null>(null);
-  const [isEndingScholarship, setIsEndingScholarship] = useState(false);
-  const [scholarshipError, setScholarshipError] = useState<string | null>(null);
+  const [isRevokingGrantee, setIsRevokingGrantee] = useState(false);
+  const [revocationError, setRevocationError] = useState<string | null>(null);
+  const [revocationSaved, setRevocationSaved] = useState(false);
+  const [notificationStatus, setNotificationStatus] = useState<RevocationNotificationStatus | null>(null);
+  const [archiveRefreshFailed, setArchiveRefreshFailed] = useState(false);
+  const [revocationNotice, setRevocationNotice] = useState<string | null>(null);
+  const [revocationSuccess, setRevocationSuccess] = useState<string | null>(null);
 
-  const handleEndScholarshipRequest = (grantee: GranteeTableRow) => {
+  const handleRevokeGranteeRequest = (grantee: GranteeTableRow) => {
     setScholarshipCandidate(grantee);
-    setScholarshipError(null);
+    setRevocationSuccess(null);
+    setRevocationError(null);
+    setRevocationNotice(null);
+    setRevocationSaved(false);
+    setNotificationStatus(null);
+    setArchiveRefreshFailed(false);
   };
 
-  const closeScholarshipModal = () => {
+  const closeRevokeGranteeModal = () => {
     setScholarshipCandidate(null);
-    setScholarshipError(null);
+    setRevocationError(null);
+    setRevocationNotice(null);
+    setRevocationSaved(false);
+    setNotificationStatus(null);
+    setArchiveRefreshFailed(false);
   };
 
-  const confirmEndScholarship = async () => {
-    if (!scholarshipCandidate) return;
-    setIsEndingScholarship(true);
-    setScholarshipError(null);
+  const confirmRevokeGrantee = async (
+    granteeId: string,
+    reason: string,
+    additionalNotes: string,
+  ) => {
+    if (!scholarshipCandidate || scholarshipCandidate.id !== granteeId) return;
+    setIsRevokingGrantee(true);
+    setRevocationError(null);
+    setRevocationNotice(null);
 
     try {
-      const response = await fetch(`/api/admin/grantees/${scholarshipCandidate.id}`, {
+      const response = await fetch(`/api/admin/grantees/${granteeId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "REMOVED" }),
+        body: JSON.stringify({ status: "REVOKED", reason, additionalNotes }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
+      if (data?.revocationStatus === "REVOKED") {
+        const nextNotificationStatus = isRevocationNotificationStatus(data.notificationStatus)
+          ? data.notificationStatus
+          : "SENDING";
+        const nextArchiveRefreshFailed = data.archiveRefreshStatus === "FAILED";
+        const complete =
+          (nextNotificationStatus === "SENT" || nextNotificationStatus === "NOT_REQUIRED") &&
+          !nextArchiveRefreshFailed;
+
+        setRevocationSaved(true);
+        setNotificationStatus(nextNotificationStatus);
+        setArchiveRefreshFailed(nextArchiveRefreshFailed);
+        setRevocationNotice(typeof data.error === "string" ? data.error : null);
+        router.refresh();
+
+        if (complete) {
+          setRevocationSuccess(`${scholarshipCandidate.fullName} was revoked and moved to Revoked Grantees.`);
+          closeRevokeGranteeModal();
+        }
+        return;
+      }
       if (!response.ok) {
-        throw new Error(data?.error || "Failed to end scholarship status");
+        throw new Error(data?.error || "Failed to revoke scholarship");
       }
 
-      window.location.reload();
+      throw new Error("The server response did not confirm the revocation state.");
     } catch (error) {
-      setScholarshipError(error instanceof Error ? error.message : "Failed to end scholarship status");
+      setRevocationError(error instanceof Error ? error.message : "Failed to revoke scholarship");
     } finally {
-      setIsEndingScholarship(false);
+      setIsRevokingGrantee(false);
     }
   };
 
@@ -127,55 +175,32 @@ export default function AdminGranteesPageClient({
           onQueryChange={setSearchQuery}
           isLoading={isLoading || isSearchLoading}
           startNavigation={(callback) => startTransition(callback)}
-          onEndScholarship={handleEndScholarshipRequest}
+          onRevokeGrantee={handleRevokeGranteeRequest}
         />
       </div>
       {scholarshipCandidate ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
-          <div className="w-full max-w-lg rounded-[2rem] bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-950">End Scholarship Status</h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  This will remove {scholarshipCandidate.fullName} from active SKEAP reports, but their Katipunan ng Kabataan demographic profile will remain active.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeScholarshipModal}
-                className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                aria-label="Close end scholarship confirmation"
-              >
-                <span className="text-xl">×</span>
-              </button>
-            </div>
-
-            {scholarshipError ? (
-              <div className="mt-4 rounded-3xl bg-rose-50 p-4 text-sm text-rose-700">
-                {scholarshipError}
-              </div>
-            ) : null}
-
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={closeScholarshipModal}
-                disabled={isEndingScholarship}
-                className="inline-flex justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmEndScholarship}
-                disabled={isEndingScholarship}
-                className="inline-flex justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-              >
-                {isEndingScholarship ? "Updating..." : "End Scholarship"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <RevokeGranteeModal
+          granteeId={scholarshipCandidate.id}
+          granteeName={scholarshipCandidate.fullName}
+          open={Boolean(scholarshipCandidate)}
+          submitting={isRevokingGrantee}
+          error={revocationError}
+          notificationStatus={notificationStatus}
+          revocationSaved={revocationSaved}
+          archiveRefreshFailed={archiveRefreshFailed}
+          notice={revocationNotice}
+          onClose={closeRevokeGranteeModal}
+          onConfirm={(granteeId, reason, additionalNotes) => {
+            void confirmRevokeGrantee(granteeId, reason, additionalNotes);
+          }}
+        />
+      ) : null}
+      {revocationSuccess ? (
+        <FloatingFeedback
+          message={revocationSuccess}
+          type="success"
+          onDismiss={() => setRevocationSuccess(null)}
+        />
       ) : null}
     </>
   );

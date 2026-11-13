@@ -16,7 +16,7 @@ import {
   type DocumentOCRState,
 } from "@/app/components/DocumentOCRValidationExample";
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
-import { ChevronDown, Eye, EyeOff } from "lucide-react";
+import { ChevronDown, Eye, EyeOff, MapPin } from "lucide-react";
 import KkProfilingSuccessInterstitial from "@/app/programs/kk-profiling/KkProfilingSuccessInterstitial";
 
 const initialForm = {
@@ -1028,6 +1028,12 @@ export default function KKProfilingForm() {
             <p className="mt-2 text-sm text-slate-500">
               Upload all four required foundational documents. Each file must be no larger than 10 MB.
             </p>
+            <p className="mt-3 flex items-center gap-2 rounded-lg border border-sky-100 bg-sky-50/80 px-3 py-2 text-xs leading-snug text-slate-700">
+              <MapPin className="h-4 w-4 shrink-0 text-cyan-700" aria-hidden="true" />
+              <span>
+                Bring the original documents to the barangay for in-person verification.
+              </span>
+            </p>
           </div>
 
           <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
@@ -1053,7 +1059,7 @@ export default function KKProfilingForm() {
             <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-3">
               <div className="mb-2">
                 <h4 className="text-sm font-semibold text-slate-900">Valid ID (Front and Back) *</h4>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-[11px] leading-snug text-slate-500">
                   Upload both sides of one valid ID.
                 </p>
               </div>
@@ -1231,6 +1237,7 @@ export default function KKProfilingForm() {
         signedIn={signedIn}
         existingAccount={existingAccount}
         successCredentials={successCredentials}
+        kkProfileStatus="PENDING"
         onClose={() => setShowSuccessModal(false)}
       />
         </>

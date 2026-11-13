@@ -52,7 +52,12 @@ describe("dispatchPayout", () => {
     delete process.env.VERCEL_URL;
     mocks.granteeFindUnique.mockResolvedValue({
       id: "grantee-1",
-      user: { id: "user-1", email: "student@example.test", fullName: "Student User" },
+      user: {
+        id: "user-1",
+        email: "student@example.test",
+        fullName: "Student User",
+        kkProfile: { firstName: "Student", email: "profile@example.test" },
+      },
     });
     mocks.payoutFindUnique.mockResolvedValue(null);
     mocks.payoutUpsert.mockResolvedValue({
@@ -93,10 +98,10 @@ describe("dispatchPayout", () => {
       expect.anything(),
       "student@example.test",
       expect.objectContaining({
-        recipientName: "Student User",
+        recipientName: "Student",
         semester: "2026-2027 First Semester",
         amount: 5000,
-        confirmationUrl: "https://skonnect.example/login",
+        confirmationUrl: "https://skonnect.example/login?next=%2Fgrantee%2Fpayouts",
       }),
     );
     expect(mocks.writeAuditLog).toHaveBeenCalledWith(
@@ -176,7 +181,9 @@ describe("dispatchPayout", () => {
     expect(mocks.sendEmail).toHaveBeenCalledWith(
       expect.anything(),
       "student@example.test",
-      expect.objectContaining({ confirmationUrl: "http://localhost:3000/login" }),
+      expect.objectContaining({
+        confirmationUrl: "http://localhost:3000/login?next=%2Fgrantee%2Fpayouts",
+      }),
     );
   });
 });

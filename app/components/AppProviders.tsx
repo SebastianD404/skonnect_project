@@ -5,6 +5,7 @@ import { AuthProvider, type AuthUser } from "./AuthProvider";
 import { ChatWidget } from "./chatbot/ChatWidget";
 import { HeaderShell } from "./HeaderShell";
 import { NotificationProvider } from "./NotificationProvider";
+import SkeapApplyToastViewport from "./SkeapApplyToastViewport";
 
 const INACTIVE_GRANTEE_STATUSES = new Set(["REMOVED", "REVOKED", "GRADUATED"]);
 
@@ -30,6 +31,7 @@ export function AppProviders({
       <NotificationProvider>
         <HeaderShell />
         {children}
+        <SkeapApplyToastViewport />
         {isCaptiveOnboarding ? null : <ChatWidget />}
       </NotificationProvider>
     </AuthProvider>

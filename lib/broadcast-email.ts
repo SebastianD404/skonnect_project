@@ -12,6 +12,14 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
+function getPayoutPeriodDetails(value: string) {
+  const match = /^(\d{4}-\d{4})\s+(.+)$/.exec(value.trim());
+  return {
+    academicYear: match?.[1] ?? "Not specified",
+    semester: match?.[2] ?? value.trim(),
+  };
+}
+
 export function createGmailTransporter() {
   const user = process.env.GMAIL_USER;
   const appPassword = process.env.GMAIL_APP_PASSWORD;
@@ -98,6 +106,7 @@ export async function sendTransactionalEmail(
   subject: string,
   body: string,
   referenceId: string,
+  htmlBody?: string,
 ) {
   const from = `SKEAP Admin <${process.env.GMAIL_USER}>`;
   return transporter.sendMail({
@@ -105,7 +114,7 @@ export async function sendTransactionalEmail(
     to,
     subject,
     text: body,
-    html: buildBroadcastHtml(subject, body),
+    html: htmlBody ?? buildBroadcastHtml(subject, body),
     replyTo: process.env.EMAIL_REPLY_TO || process.env.GMAIL_USER,
     headers: {
       "X-Entity-Ref-ID": `skonnect-${referenceId}`,
@@ -128,7 +137,9 @@ export function buildPayoutDisbursementHtml({
   confirmationUrl,
 }: PayoutDisbursementEmail) {
   const safeName = escapeHtml(recipientName);
-  const safeSemester = escapeHtml(semester);
+  const { academicYear, semester: semesterName } = getPayoutPeriodDetails(semester);
+  const safeAcademicYear = escapeHtml(academicYear);
+  const safeSemester = escapeHtml(semesterName);
   const safeAmount = escapeHtml(
     new Intl.NumberFormat("en-PH", {
       style: "currency",
@@ -152,13 +163,16 @@ export function buildPayoutDisbursementHtml({
       </div>
       <div style="padding:30px 32px;">
         <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${safeName},</p>
-        <p style="margin:0;color:#475569;font-size:14px;line-height:1.7;">Your ${safeSemester} SKEAP scholarship payout is ready. Please sign in and confirm that you received the cash.</p>
+        <p style="margin:0;color:#475569;font-size:14px;line-height:1.7;">Your SKEAP scholarship payout is ready. Please sign in and confirm that you received the cash.</p>
         <div style="margin:24px 0;padding:18px;border:1px solid #e2e8f0;border-radius:14px;background:#f8fafc;">
-          <p style="margin:0;color:#64748b;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;">Stipend amount</p>
-          <p style="margin:8px 0 0;color:#0f172a;font-size:30px;font-weight:700;letter-spacing:-0.5px;">${safeAmount}</p>
-          <p style="margin:8px 0 0;color:#64748b;font-size:12px;">${safeSemester}</p>
+          <p style="margin:0;color:#64748b;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;">Academic year</p>
+          <p style="margin:5px 0 14px;color:#0f172a;font-size:15px;font-weight:700;">${safeAcademicYear}</p>
+          <p style="margin:0;color:#64748b;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;">Semester</p>
+          <p style="margin:5px 0 14px;color:#0f172a;font-size:15px;font-weight:700;">${safeSemester}</p>
+          <p style="margin:0;color:#64748b;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;">Disbursed amount</p>
+          <p style="margin:5px 0 0;color:#0f172a;font-size:30px;font-weight:700;letter-spacing:-0.5px;">${safeAmount}</p>
         </div>
-        <a href="${safeConfirmationUrl}" style="display:block;border-radius:12px;background:#0891b2;padding:15px 20px;color:#ffffff;text-align:center;text-decoration:none;font-size:14px;font-weight:700;">Log In to Confirm Payout</a>
+        <a href="${safeConfirmationUrl}" style="display:block;border-radius:12px;background:#0891b2;padding:15px 20px;color:#ffffff;text-align:center;text-decoration:none;font-size:14px;font-weight:700;">Sign In to Confirm Receipt</a>
         <p style="margin:18px 0 0;color:#64748b;font-size:12px;line-height:1.6;">Only confirm after you have received the cash. If you have not received it, leave the payout unconfirmed and contact the SKEAP administration.</p>
       </div>
       <div style="border-top:1px solid #e2e8f0;padding:18px 32px;color:#94a3b8;font-size:11px;line-height:1.6;">This is an official payout update from SKonnect. Please do not reply with passwords or account credentials.</div>
@@ -178,6 +192,7 @@ export async function sendPayoutDisbursementEmail(
     currency: "PHP",
     maximumFractionDigits: 0,
   }).format(details.amount);
+  const payoutPeriod = getPayoutPeriodDetails(details.semester);
 
   return transporter.sendMail({
     from: `SKEAP Admin <${process.env.GMAIL_USER}>`,
@@ -186,7 +201,10 @@ export async function sendPayoutDisbursementEmail(
     text: [
       `Hello ${details.recipientName},`,
       "",
-      `Your ${details.semester} SKEAP payout of ${amount} has been disbursed.`,
+      "Your SKEAP payout has been disbursed.",
+      `Academic Year: ${payoutPeriod.academicYear}`,
+      `Semester: ${payoutPeriod.semester}`,
+      `Amount: ${amount}`,
       "Please log in to confirm that you received the cash.",
       details.confirmationUrl,
     ].join("\n"),

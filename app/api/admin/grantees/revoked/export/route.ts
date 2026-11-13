@@ -55,16 +55,27 @@ export async function GET(request: NextRequest) {
   try {
     const grantees = await prisma.grantee.findMany({
       where: {
-        status: GranteeStatus.REMOVED,
+        status: { in: [GranteeStatus.REMOVED, GranteeStatus.REVOKED] },
         dateRemoved: {
           not: null,
           ...(dateRange.startDate ? { gte: dateRange.startDate } : {}),
           ...(dateRange.endDateExclusive ? { lt: dateRange.endDateExclusive } : {}),
         },
-        submissions: { some: { status: SubmissionStatus.REMOVED } },
         ...(reasonSearchTerm
           ? {
               OR: [
+                {
+                  revocationReason: {
+                    contains: reasonSearchTerm,
+                    mode: "insensitive" as const,
+                  },
+                },
+                {
+                  revocationNotes: {
+                    contains: reasonSearchTerm,
+                    mode: "insensitive" as const,
+                  },
+                },
                 {
                   remarks: {
                     contains: reasonSearchTerm,
@@ -90,6 +101,8 @@ export async function GET(request: NextRequest) {
       select: {
         id: true,
         dateRemoved: true,
+        revocationReason: true,
+        revocationNotes: true,
         remarks: true,
         user: {
           select: {
@@ -120,7 +133,14 @@ export async function GET(request: NextRequest) {
           email: grantee.user.email,
           sitio: grantee.user.kkProfile?.purok ?? "",
           dateRevoked: grantee.dateRemoved,
-          reason: grantee.remarks?.trim() || grantee.submissions[0]?.reviewNotes?.trim() || "No reason recorded",
+          reason: grantee.revocationReason?.trim()
+            ? [
+                grantee.revocationReason.trim(),
+                grantee.revocationNotes?.trim()
+                  ? `Additional Notes: ${grantee.revocationNotes.trim()}`
+                  : null,
+              ].filter(Boolean).join("\n")
+            : grantee.remarks?.trim() || grantee.submissions[0]?.reviewNotes?.trim() || "No reason recorded",
         }]
       : []);
 
@@ -140,7 +160,7 @@ export async function GET(request: NextRequest) {
       metadata: {
         recordCount: records.length,
         filters: {
-          status: GranteeStatus.REMOVED,
+          status: [GranteeStatus.REMOVED, GranteeStatus.REVOKED],
           reasonIncluded: true,
           reason: reasonFilter,
           startDate: dateRange.startDate?.toISOString() ?? null,

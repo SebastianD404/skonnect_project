@@ -15,6 +15,17 @@ export type ScholarDistributionAnalytics = {
     female: number;
     notSpecified: number;
   };
+  youthGenderDistribution: {
+    male: number;
+    female: number;
+    notSpecified: number;
+  };
+  yearLevelDistribution: Array<{ yearLevel: string; count: number }>;
+  programOutcomes: {
+    activeGrantees: number;
+    graduated: number;
+    removedOrRevoked: number;
+  };
   scholarDistribution: Array<{ sitio: string; scholars: number }>;
   populationDistribution: Array<{ sitio: string; population: number }>;
 };
@@ -32,7 +43,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
   );
   const [
     totalRegisteredYouth,
-    activeScholars,
+    granteeStatusRows,
     capacityUsed,
     maxSlots,
     pendingApplications,
@@ -40,13 +51,16 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     populationRows,
     pendingProfilingApplications,
     genderRows,
+    youthGenderRows,
+    yearLevelRows,
   ] =
     await Promise.all([
       prisma.user.count({
         where: { role: { in: [Role.YOUTH, Role.GRANTEE] } },
       }),
-      prisma.grantee.count({
-        where: { status: GranteeStatus.ACTIVE },
+      prisma.grantee.groupBy({
+        by: ["status"],
+        _count: { _all: true },
       }),
       getSkeapCapacityCount(),
       getSkeapMaxSlots(),
@@ -108,11 +122,35 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
       `,
       getProfilingRegistrationCountByStatus("Pending"),
       prisma.$queryRaw<Array<{ sex: string; count: number }>>`
-        SELECT profile."sex"::text AS "sex", COUNT(*)::int AS "count"
-        FROM public."kk_profiles" AS profile
-        WHERE profile."isVerified" = TRUE
+        SELECT COALESCE(profile."sex"::text, 'NOT_SPECIFIED') AS "sex", COUNT(*)::int AS "count"
+        FROM public."grantees" AS grantee
+        INNER JOIN public."users" AS user_record ON user_record."id" = grantee."userId"
+        LEFT JOIN public."kk_profiles" AS profile ON profile."id" = user_record."kkProfileId"
+        WHERE grantee."status" IN ('ACTIVE', 'PROBATIONARY', 'GRADUATED', 'REMOVED', 'REVOKED')
         GROUP BY profile."sex"
       `,
+      prisma.$queryRaw<Array<{ sex: string; count: number }>>`
+        SELECT COALESCE(profile."sex"::text, 'NOT_SPECIFIED') AS "sex", COUNT(*)::int AS "count"
+        FROM public."users" AS user_record
+        LEFT JOIN public."kk_profiles" AS profile ON profile."id" = user_record."kkProfileId"
+        WHERE user_record."role" IN ('YOUTH', 'GRANTEE')
+        GROUP BY profile."sex"
+      `,
+      prisma.grantee.groupBy({
+        by: ["yearLevel"],
+        where: {
+          status: {
+            in: [
+              GranteeStatus.ACTIVE,
+              GranteeStatus.PROBATIONARY,
+              GranteeStatus.GRADUATED,
+              GranteeStatus.REMOVED,
+              GranteeStatus.REVOKED,
+            ],
+          },
+        },
+        _count: { _all: true },
+      }),
     ]);
 
   const scholarCountsBySitio = new Map(
@@ -131,15 +169,51 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     if (row.sex === "FEMALE") genderDistribution.female = row.count;
     if (row.sex === "NOT_SPECIFIED") genderDistribution.notSpecified = row.count;
   }
+  const youthGenderDistribution = {
+    male: 0,
+    female: 0,
+    notSpecified: 0,
+  };
+  for (const row of youthGenderRows) {
+    if (row.sex === "MALE") youthGenderDistribution.male = row.count;
+    if (row.sex === "FEMALE") youthGenderDistribution.female = row.count;
+    if (row.sex === "NOT_SPECIFIED") youthGenderDistribution.notSpecified = row.count;
+  }
+  const granteeCountsByStatus = new Map(
+    granteeStatusRows.map((row) => [row.status, row._count._all]),
+  );
+  const yearLevelCounts = new Map<string, number>();
+  for (const row of yearLevelRows) {
+    const key = row.yearLevel.trim().toLocaleLowerCase();
+    yearLevelCounts.set(key, (yearLevelCounts.get(key) ?? 0) + row._count._all);
+  }
+  const yearLevelDistribution = ["1st Year", "2nd Year", "3rd Year", "4th Year"].map(
+    (yearLevel) => ({
+      yearLevel,
+      count: yearLevelCounts.get(yearLevel.toLocaleLowerCase()) ?? 0,
+    }),
+  );
+  const programOutcomes = {
+    activeGrantees:
+      (granteeCountsByStatus.get(GranteeStatus.ACTIVE) ?? 0) +
+      (granteeCountsByStatus.get(GranteeStatus.PROBATIONARY) ?? 0),
+    graduated: granteeCountsByStatus.get(GranteeStatus.GRADUATED) ?? 0,
+    removedOrRevoked:
+      (granteeCountsByStatus.get(GranteeStatus.REMOVED) ?? 0) +
+      (granteeCountsByStatus.get(GranteeStatus.REVOKED) ?? 0),
+  };
 
   return {
     totalRegisteredYouth,
-    activeScholars,
+    activeScholars: granteeCountsByStatus.get(GranteeStatus.ACTIVE) ?? 0,
     capacityUsed,
     maxSlots,
     pendingApplications,
     pendingProfilingApplications,
     genderDistribution,
+    youthGenderDistribution,
+    yearLevelDistribution,
+    programOutcomes,
     scholarDistribution: PICO_SITIOS.map((sitio) => ({
       sitio,
       scholars: scholarCountsBySitio.get(sitio.toLowerCase()) ?? 0,

@@ -7,10 +7,11 @@ import { AuthProvider, useAuth } from "@/app/components/AuthProvider";
 const mockedRouter = vi.hoisted(() => ({
   refresh: vi.fn(),
   replace: vi.fn(),
+  pathname: "/",
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/",
+  usePathname: () => mockedRouter.pathname,
   useRouter: () => mockedRouter,
 }));
 
@@ -38,6 +39,7 @@ describe("AuthProvider", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+    mockedRouter.pathname = "/";
   });
 
   it("loads the signed-in profile from the session endpoint", async () => {
@@ -110,5 +112,43 @@ describe("AuthProvider", () => {
 
     expect(screen.getByTestId("auth-state")).toHaveTextContent('"role":"GRANTEE"');
     expect(mockedRouter.replace).toHaveBeenCalledWith("/grantee-dashboard");
+  });
+
+  it("shows a revocation notice while redirecting a revoked grantee to the youth dashboard", async () => {
+    mockedRouter.pathname = "/grantee-dashboard";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        user: {
+          id: "user-4",
+          email: "grantee@example.com",
+          role: "YOUTH",
+          skeapStatus: "REVOKED",
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AuthProvider
+        initialUser={{
+          id: "user-4",
+          email: "grantee@example.com",
+          role: "GRANTEE",
+          skeapStatus: "ACTIVE",
+        }}
+      >
+        <AuthState />
+      </AuthProvider>,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(new Event("skonnect-profile-updated"));
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Your SKEAP scholarship has been discontinued.",
+    );
+    expect(mockedRouter.replace).toHaveBeenCalledWith("/youth-dashboard");
   });
 });

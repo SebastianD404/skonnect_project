@@ -100,7 +100,9 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
       notFound();
     }
 
-    const restorationRows = grantee.status === "REMOVED" && grantee.user.role === "GRANTEE"
+    const restorationRows =
+      (grantee.status === "REMOVED" || grantee.status === "REVOKED") &&
+      grantee.user.role === "GRANTEE"
       ? await prisma.$queryRaw<Array<{ restored: boolean }>>`
           SELECT EXISTS (
             SELECT 1
@@ -167,7 +169,8 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
   const localityParts = addressLineParts.filter((part) => !isSitio(part) && !isBarangay(part));
   const [municipality, ...provinceParts] = localityParts;
   const isGraduated = effectiveStatus === "GRADUATED";
-  const isRemoved = effectiveStatus === "REMOVED";
+  const isRevoked = effectiveStatus === "REVOKED";
+  const isRemoved = effectiveStatus === "REMOVED" || effectiveStatus === "REVOKED";
   const retentionExpiryDate = getRetentionExpiryDate({
     ...grantee,
     dateRemoved: grantee.dateRemoved,
@@ -224,7 +227,7 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
         {isRemoved ? (
           <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">
-              Archived record: this grantee was removed
+              Archived record: this grantee was {isRevoked ? "revoked" : "removed"}
               {grantee.dateRemoved
                 ? ` on ${grantee.dateRemoved.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
                 : " (removal date not recorded)"}.

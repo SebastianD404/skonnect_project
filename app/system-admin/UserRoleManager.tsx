@@ -32,7 +32,7 @@ type UserItem = {
   role: Role;
   skeapStatus: SubmissionStatus | null;
   isActive: boolean;
-  granteeStatus: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | null;
+  granteeStatus: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED" | null;
   username: string | null;
   phoneNumber: string | null;
   barangay: string;
@@ -87,6 +87,11 @@ const SCHOLAR_STATUS_BADGES = {
     className: "bg-red-50 text-red-700 border-red-200",
     Icon:     XCircle,
     Clock3,
+  },
+  REVOKED: {
+    label: "Revoked",
+    className: "bg-red-50 text-red-700 border-red-200",
+    Icon: XCircle,
   },
 } as const;
 

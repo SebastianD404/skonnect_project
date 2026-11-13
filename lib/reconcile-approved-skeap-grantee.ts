@@ -31,7 +31,11 @@ export async function reconcileApprovedSkeapGrantee(userId: string, role: Role) 
       where: { userId },
       select: { status: true },
     });
-    if (grantee?.status === "REMOVED" || grantee?.status === "GRADUATED") return false;
+    if (
+      grantee?.status === "REMOVED" ||
+      grantee?.status === "REVOKED" ||
+      grantee?.status === "GRADUATED"
+    ) return false;
     if (!grantee && await getSkeapCapacityCount(tx, userId) >= maxSlots) return false;
 
     if (user.role === Role.YOUTH) {

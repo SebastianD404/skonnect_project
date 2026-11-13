@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
-import { AlertCircle, Clock3, FileText, LoaderCircle, UploadCloud, X } from "lucide-react";
+import { Clock3, FileText, LoaderCircle, UploadCloud, X } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
@@ -285,22 +285,25 @@ export function DocumentUploadCard({
           });
       if (generation !== generationRef.current) return;
 
-      const evaluation = evaluateDocumentOcr(
-        ocrStrategy,
-        result.text,
-        result.status === "success" && result.isValid,
-      );
+      const evaluation = ocrStrategy === "residency"
+        ? null
+        : evaluateDocumentOcr(
+            ocrStrategy,
+            result.text,
+            result.status === "success" && result.isValid,
+          );
+      const isValid = evaluation?.isValid ?? (result.status === "success" && result.isValid);
       const state: DocumentOCRState = {
-        status: evaluation.isValid ? "success" : "error",
+        status: isValid ? "success" : "error",
         badgeText: result.badgeText,
-        message: evaluation.error ?? result.message,
-        errorCode: evaluation.error ? "DOCUMENT_STRATEGY_FAILED" : result.errorCode,
+        message: evaluation?.error ?? result.message,
+        errorCode: evaluation?.error ? "DOCUMENT_STRATEGY_FAILED" : result.errorCode,
         text: result.text,
         parsedDates: result.parsedDates,
         birthdateMatched: result.birthdateMatched,
         file,
       };
-      if (!evaluation.isValid) {
+      if (!isValid) {
         onFailedOcrAttempt?.();
       }
       publishOcrState(state);
@@ -424,32 +427,26 @@ export function DocumentUploadCard({
                   {displayFileName} · {formatFileSize(selectedFile.size)}
                 </p>
               )}
-              <span
-                role={ocrStatus.status === "scanning" ? "status" : undefined}
-                aria-live="polite"
-                className={`inline-flex items-center gap-1 rounded-full border border-white/40 bg-white/15 font-semibold text-white ${compact ? "mt-1 px-2 py-0.5 text-[9px]" : "mt-1 px-2 py-0.5 text-[10px]"}`}
-              >
-                {ocrStatus.status === "scanning"
-                  ? <LoaderCircle className="h-3 w-3 animate-spin text-white" aria-hidden="true" />
-                  : <Clock3 className="h-3 w-3 text-white" aria-hidden="true" />}
-                {ocrStatus.status === "scanning" ? "Checking file..." : "For Verification"}
-              </span>
-              {!compact ? (
-                <p className="mt-1 text-xs leading-tight text-white/90">
-                  Original must be presented at the barangay.
-                </p>
+              {ocrStatus.status !== "error" ? (
+                <span
+                  role={ocrStatus.status === "scanning" ? "status" : undefined}
+                  aria-live="polite"
+                  title="This file still requires in-person verification at the barangay."
+                  className={`inline-flex items-center gap-1 rounded-full border border-sky-200/90 bg-sky-100/95 font-semibold text-[#0F3D5C] shadow-sm ${compact ? "mt-1 px-2 py-0.5 text-[9px]" : "mt-1 px-2 py-0.5 text-[10px]"}`}
+                >
+                  {ocrStatus.status === "scanning"
+                    ? <LoaderCircle className="h-3 w-3 animate-spin text-cyan-800" aria-hidden="true" />
+                    : <Clock3 className="h-3 w-3 text-cyan-800" aria-hidden="true" />}
+                  {ocrStatus.status === "scanning" ? "Checking file..." : "For Verification"}
+                </span>
               ) : null}
               {ocrErrorMessage ? (
                 <p
                   role="alert"
-                  className={`mt-1 flex w-full max-w-full items-start gap-1.5 rounded-md border border-amber-300/60 bg-[#0F3D5C]/90 px-2 text-left font-medium leading-snug text-white shadow-sm ${compact ? "py-1 text-[10px]" : "py-1.5 text-xs"}`}
+                  className={`mt-3 w-full max-w-full text-center font-semibold leading-snug text-white drop-shadow-[0_1px_2px_rgba(15,23,42,0.95)] ${compact ? "text-[10px]" : "text-xs"}`}
                   title={ocrErrorTitle ?? undefined}
                 >
-                  <AlertCircle
-                    className={`mt-0.5 shrink-0 text-amber-300 ${compact ? "h-3 w-3" : "h-3.5 w-3.5"}`}
-                    aria-hidden="true"
-                  />
-                  <span className="whitespace-normal break-words">{ocrErrorMessage}</span>
+                  {ocrErrorMessage}
                 </p>
               ) : null}
             </button>

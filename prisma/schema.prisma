@@ -78,6 +78,12 @@ model Grantee {
   id                 String            @id @default(uuid())
   userId             String            @unique
   status             GranteeStatus     @default(ACTIVE)
+  revocationReason   String?
+  revocationNotes    String?
+  revocationNotificationStatus   GranteeRevocationNotificationStatus @default(NOT_REQUIRED)
+  revocationNotificationAttempts Int @default(0)
+  revocationNotificationError    String?
+  revocationNotificationSentAt    DateTime?
   yearLevel          String
   journeyStart       String?
   journeyEnd         String?
@@ -535,6 +541,15 @@ enum GranteeStatus {
   PROBATIONARY
   GRADUATED
   REMOVED
+  REVOKED
+}
+
+enum GranteeRevocationNotificationStatus {
+  NOT_REQUIRED
+  PENDING
+  SENDING
+  FAILED
+  SENT
 }
 
 enum EventStatus {

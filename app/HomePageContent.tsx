@@ -281,13 +281,7 @@ export default function HomePageContent() {
               </p>
               
               <div className="flex flex-wrap items-center gap-4 pt-4">
-                <HeroCtaButton
-                  hasApplication={
-                    user?.id === skeapApplicationState?.userId &&
-                    skeapApplicationState?.hasApplication === true
-                  }
-                  locked={user?.role === "YOUTH" && user.kkStatus !== "APPROVED"}
-                />
+                <HeroCtaButton />
                 <Link
                   href={hasPendingKkProfilingApplication
                     ? "/applications"

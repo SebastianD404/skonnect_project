@@ -150,7 +150,9 @@ export async function PATCH(
       });
 
       if (requestedRole === Role.GRANTEE) {
-        granteeStatusChanged = nextUser.grantee?.status === "REMOVED";
+        const shouldRestoreGrantee =
+          nextUser.grantee?.status === "REMOVED" || nextUser.grantee?.status === "REVOKED";
+        granteeStatusChanged = shouldRestoreGrantee;
         const grantee = await tx.grantee.upsert({
           where: { userId: target.id },
           create: {
@@ -159,7 +161,7 @@ export async function PATCH(
             yearLevel: GRANTEE_PLACEHOLDER_YEAR_LEVEL,
             status: "ACTIVE",
           },
-          update: nextUser.grantee?.status === "REMOVED"
+          update: shouldRestoreGrantee
             ? {
                 status: "ACTIVE",
                 dateRemoved: null,
@@ -167,13 +169,13 @@ export async function PATCH(
             : {},
           select: { status: true },
         });
-        if (nextUser.grantee?.status === "REMOVED") {
+        if (shouldRestoreGrantee && nextUser.grantee) {
           await writeAuditLog(tx, {
             action: "GRANTEE_STATUS_CHANGED",
             actorId: actor.id,
             targetTable: "grantees",
             targetId: nextUser.grantee.id,
-            beforeData: { status: "REMOVED" },
+            beforeData: { status: nextUser.grantee?.status },
             afterData: { status: grantee.status },
             metadata: {
               target: target.id,
@@ -183,7 +185,11 @@ export async function PATCH(
             },
           });
         }
-      } else if (nextUser.grantee && nextUser.grantee.status !== "GRADUATED") {
+      } else if (
+        nextUser.grantee &&
+        nextUser.grantee.status !== "GRADUATED" &&
+        nextUser.grantee.status !== "REVOKED"
+      ) {
         await tx.grantee.update({
           where: { userId: target.id },
           data: {

@@ -846,20 +846,26 @@ export default function GranteeDocumentsClient({
                 <label htmlFor="submission-semester" className="block text-xs font-medium text-slate-700">
                   Academic term
                 </label>
-                <select
-                  id="submission-semester"
-                  value={form.semester}
-                  onChange={(event) => setForm((current) => ({ ...current, semester: event.target.value }))}
-                  disabled={submitting}
-                  className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm font-medium text-slate-900 focus:border-[#0a1f33] focus:outline-none focus:ring-2 focus:ring-[#0a1f33]/10 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {!semesterOptions.some((option) => option.value === form.semester) ? (
-                    <option value="" disabled>Select academic term</option>
-                  ) : null}
-                  {semesterOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    id="submission-semester"
+                    value={form.semester}
+                    onChange={(event) => setForm((current) => ({ ...current, semester: event.target.value }))}
+                    disabled={submitting}
+                    className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 pr-10 text-sm font-medium text-slate-900 focus:border-[#0a1f33] focus:outline-none focus:ring-2 focus:ring-[#0a1f33]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {!semesterOptions.some((option) => option.value === form.semester) ? (
+                      <option value="" disabled>Select academic term</option>
+                    ) : null}
+                    {semesterOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                    aria-hidden="true"
+                  />
+                </div>
                 <p className="text-[11px] leading-relaxed text-slate-500">{termWindowMessage}</p>
               </div>
 

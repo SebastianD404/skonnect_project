@@ -257,7 +257,7 @@ export function validateRecognizedText(
   if (residencyDuration.months < MINIMUM_RESIDENCY_MONTHS) {
     return invalidResult(
       "Residency Duration Too Short",
-      `The certificate must show at least ${MINIMUM_RESIDENCY_MONTHS_TEXT} of residency in Barangay Pico.`,
+      `This certificate shows less than the required ${MINIMUM_RESIDENCY_MONTHS_TEXT} of residency in Barangay Pico. Please upload an updated certificate.`,
       normalizedText,
       "RESIDENCY_TOO_SHORT",
     );

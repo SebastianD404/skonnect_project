@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Filter, Loader2 } from "lucide-react";
-import { RegistryMembersCsvExportButton } from "./RegistryMembersCsvExportButton";
 import { useRegistryMembersSearchStatus } from "./RegistryMembersSearchStatus";
 
 const classificationOptions = [
@@ -258,7 +257,6 @@ export function RegistryMembersFilterBar({
           </span>
         ) : null}
       </div>
-      <RegistryMembersCsvExportButton />
     </div>
   );
 }

@@ -4,10 +4,13 @@ import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
-import { isSkeapRevocationReason } from "@/lib/skeap-revocation";
+import {
+  getSkeapRevocationReasonLabel,
+  isSkeapRevocationReason,
+} from "@/lib/skeap-revocation";
+import { sendSkeapRevocationEmail } from "@/lib/skeap-revocation-email";
 
 type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE" | "REVOKE";
 type DocumentType = "coe" | "grades";
@@ -50,8 +53,11 @@ export async function POST(
     const documentType = body.documentType || "coe";
     const action = body.action;
     const reviewNotes = String(body.reviewNotes ?? "").trim();
-    const revocationReasonOption = String(body.reason ?? "").trim();
+    const revocationReasonValue = String(body.reason ?? "").trim();
     const additionalNotes = String(body.additionalNotes ?? "").trim();
+    const revocationReasonOption = isSkeapRevocationReason(revocationReasonValue)
+      ? getSkeapRevocationReasonLabel(revocationReasonValue)
+      : "";
     const revocationReason = additionalNotes
       ? `${revocationReasonOption}\nAdditional Notes: ${additionalNotes}`
       : revocationReasonOption;
@@ -70,7 +76,7 @@ export async function POST(
         { status: 400 }
       );
     }
-    if (action === "REVOKE" && !isSkeapRevocationReason(revocationReasonOption)) {
+    if (action === "REVOKE" && !isSkeapRevocationReason(revocationReasonValue)) {
       return NextResponse.json({ error: "Select a valid reason for revocation." }, { status: 400 });
     }
     if (action === "REVOKE" && additionalNotes.length > 1000) {
@@ -127,14 +133,18 @@ export async function POST(
         });
         if (!current) throw new Error("Submission not found");
         if (current.grantee.status === "GRADUATED") throw new Error("GRADUATED_SUBMISSION_ARCHIVED");
-        if (current.grantee.status === "REMOVED") throw new Error("GRANTEE_ALREADY_REMOVED");
+        if (current.grantee.status === "REMOVED" || current.grantee.status === "REVOKED") {
+          throw new Error("GRANTEE_ALREADY_REVOKED");
+        }
 
         const updatedGrantee = await tx.grantee.update({
           where: { id: current.grantee.id },
           data: {
-            status: "REMOVED",
+            status: "REVOKED",
             dateRemoved: revokedAt,
             remarks: revocationReason,
+            revocationReason: revocationReasonOption,
+            revocationNotes: additionalNotes || null,
           },
         });
         await downgradeInactiveGranteeRole(tx, current.grantee.user.id);
@@ -157,6 +167,8 @@ export async function POST(
           afterData: {
             status: updatedGrantee.status,
             dateRemoved: updatedGrantee.dateRemoved,
+            revocationReason: updatedGrantee.revocationReason,
+            revocationNotes: updatedGrantee.revocationNotes,
             userRole: "YOUTH",
           },
           metadata: {
@@ -179,27 +191,13 @@ export async function POST(
         };
       });
 
-      const subject = "SKEAP scholarship status update";
-      const bodyText = [
-        `Hello ${revoked.recipient.fullName},`,
-        "",
-        "Your SKEAP scholarship has been revoked and your grantee status has been marked as Removed.",
-        "",
-        `Reason for revocation: ${revocationReason}`,
-        "",
-        "Your record has been transferred to the Past Grantees archive. Please contact the SKEAP administration if you have questions about this decision.",
-        "",
-        "SKEAP Administration",
-      ].join("\n");
       await refreshInactiveGranteesView();
-      const transporter = createGmailTransporter();
-      await sendTransactionalEmail(
-        transporter,
-        revoked.recipient.email,
-        subject,
-        bodyText,
-        `revocation-${id}`,
-      );
+      await sendSkeapRevocationEmail({
+        granteeId: revoked.recipient.id,
+        recipient: revoked.recipient,
+        reason: revocationReasonOption,
+        additionalNotes: additionalNotes || null,
+      });
 
       return NextResponse.json({ success: true, submission: revoked.submission });
     }
@@ -326,6 +324,9 @@ export async function POST(
     const message = error instanceof Error ? error.message : "Failed to review submission";
     if (message === "GRADUATED_SUBMISSION_ARCHIVED") {
       return NextResponse.json({ error: "Graduated scholar submissions are locked for statutory retention." }, { status: 409 });
+    }
+    if (message === "GRANTEE_ALREADY_REVOKED") {
+      return NextResponse.json({ error: "This grantee has already been removed or revoked." }, { status: 409 });
     }
     if (/flaggedFields|does not exist/i.test(message)) {
       return NextResponse.json(

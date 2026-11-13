@@ -5,7 +5,7 @@ import { writeAuditLog } from "@/lib/audit/logger";
 
 const GRANT_AMOUNT = 5000;
 
-function getPayoutLoginUrl() {
+function getPayoutConfirmationUrl() {
   const vercelUrl = process.env.VERCEL_URL?.trim();
   const configuredUrl =
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
@@ -21,7 +21,9 @@ function getPayoutLoginUrl() {
   if (appUrl.protocol !== "https:" && appUrl.protocol !== "http:") {
     throw new Error("The payout confirmation URL must use HTTP or HTTPS.");
   }
-  return new URL("/login", appUrl).toString();
+  const loginUrl = new URL("/login", appUrl);
+  loginUrl.searchParams.set("next", "/grantee/payouts");
+  return loginUrl.toString();
 }
 
 export async function dispatchPayout({
@@ -37,7 +39,14 @@ export async function dispatchPayout({
     where: { id: granteeId },
     select: {
       id: true,
-      user: { select: { id: true, email: true, fullName: true } },
+      user: {
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          kkProfile: { select: { firstName: true, email: true } },
+        },
+      },
     },
   });
   if (!grantee) throw new Error("Grantee not found.");
@@ -119,12 +128,18 @@ export async function dispatchPayout({
   }
 
   try {
+    const recipientEmail = grantee.user.email.trim() || grantee.user.kkProfile?.email.trim();
+    if (!recipientEmail) throw new Error("No registered email address is available for this grantee.");
+    const recipientName =
+      grantee.user.kkProfile?.firstName.trim() ||
+      grantee.user.fullName.trim().split(/\s+/)[0] ||
+      "Scholar";
     const transporter = createGmailTransporter();
-    await sendPayoutDisbursementEmail(transporter, grantee.user.email, {
-      recipientName: grantee.user.fullName,
+    await sendPayoutDisbursementEmail(transporter, recipientEmail, {
+      recipientName,
       semester: transition.payout.semester ?? semester,
       amount: transition.payout.amount,
-      confirmationUrl: getPayoutLoginUrl(),
+      confirmationUrl: getPayoutConfirmationUrl(),
     });
     await prisma.accountingPayout.updateMany({
       where: {

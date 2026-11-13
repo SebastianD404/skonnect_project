@@ -117,6 +117,7 @@ export async function GET(request: NextRequest) {
       submittedAt: true,
       grantee: {
         select: {
+          id: true,
           school: true,
           yearLevel: true,
           user: { select: { fullName: true, email: true } },

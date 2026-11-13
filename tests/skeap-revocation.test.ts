@@ -7,18 +7,20 @@ import {
 describe("SKEAP revocation reasons", () => {
   it("uses the ordinance-defined options", () => {
     expect(SKEAP_REVOCATION_REASONS).toEqual([
-      "Tampered or falsified required documents",
-      "Mentally unfit to continue studies",
-      "Committed acts unbecoming of a student",
-      "Failed to maintain the minimum grade of 80",
-      "Dropped, shifted, or transferred without informing the SK",
-      "Failed to register as a voter upon reaching voting age",
-      "Became a scholarship grantee to another agency",
+      { value: "TAMPERED_DOCUMENTS", label: "Tampered or falsified documents" },
+      { value: "MENTALLY_UNFIT", label: "Mentally unfit to continue studies" },
+      { value: "UNBECOMING_ACTS", label: "Committed acts unbecoming of a student" },
+      { value: "LOW_GWA", label: "Failed to maintain a minimum GWA of 80" },
+      { value: "FAILED_SUBJECT", label: "Failed a subject (Grade below 75 or 5.0)" },
+      { value: "DROPPED_SHIFTED", label: "Dropped, shifted, or transferred without SK notice" },
+      { value: "NOT_REGISTERED_VOTER", label: "Failed to register as a voter at voting age" },
+      { value: "OTHER_SCHOLARSHIP", label: "Became a grantee of another scholarship agency" },
     ]);
   });
 
-  it("rejects reasons outside the standardized list", () => {
-    expect(isSkeapRevocationReason(SKEAP_REVOCATION_REASONS[0])).toBe(true);
+  it("accepts enum keys and rejects labels and unknown values", () => {
+    expect(isSkeapRevocationReason(SKEAP_REVOCATION_REASONS[0].value)).toBe(true);
+    expect(isSkeapRevocationReason(SKEAP_REVOCATION_REASONS[0].label)).toBe(false);
     expect(isSkeapRevocationReason("Failed two subjects")).toBe(false);
   });
 });

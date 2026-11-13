@@ -37,6 +37,7 @@ interface SubmissionRow {
   flaggedFields?: string[];
   submittedAt: string;
   grantee: {
+    id: string;
     user: { fullName: string; email: string };
     school: string;
     yearLevel: string;
@@ -118,7 +119,6 @@ interface DocumentCardProps {
   storedFilePath: string | null | undefined;
   badgeContent?: ReactNode;
   reviewNotesValue: string;
-  ocrReviewContent?: ReactNode;
   onNotesChange: (value: string) => void;
   onApprove: () => void;
   onReturn: () => Promise<boolean>;
@@ -134,7 +134,6 @@ function DocumentCard({
   storedFilePath,
   badgeContent,
   reviewNotesValue,
-  ocrReviewContent,
   onNotesChange,
   onApprove,
   onReturn,
@@ -142,7 +141,6 @@ function DocumentCard({
   approved,
 }: DocumentCardProps) {
   const viewerUrl = `/api/submissions/${submissionId}/file?kind=${documentKind}`;
-  const hasOcrReviewContent = documentKind === "grade" && Boolean(ocrReviewContent);
   const [previewType, setPreviewType] = useState<"pdf" | "image" | "unsupported" | "missing" | null>(null);
   const [rawStorageUrl, setRawStorageUrl] = useState<string | null>(null);
 
@@ -188,8 +186,8 @@ function DocumentCard({
   }, [storedFilePath, viewerUrl]);
 
   return (
-    <article className="review-card">
-      <div className="review-card__header">
+    <article className="review-card flex h-full flex-col">
+      <div className="review-card__header flex h-9 items-center justify-between mb-3">
         <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
           {documentKind === "grade" ? (
             <GraduationCap className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
@@ -206,90 +204,89 @@ function DocumentCard({
         {badgeContent ? <div className="shrink-0">{badgeContent}</div> : null}
       </div>
 
-      <div className={hasOcrReviewContent ? "grid min-h-0 grid-cols-1 gap-2 sm:grid-cols-2" : ""}>
-        <div className={`review-card__preview group relative ${hasOcrReviewContent ? "!h-[220px] !min-h-[220px]" : ""} ${storedFilePath && previewType !== null && previewType !== "missing" ? "cursor-pointer" : ""}`}>
-          {previewType === "pdf" ? (
-            <iframe src={viewerUrl} title={`${title} preview`} className="h-full w-full border-0" />
-          ) : previewType === "image" ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={viewerUrl} alt={title} className="h-full w-full object-contain" />
-          ) : previewType === null && storedFilePath ? (
-            <span className="flex items-center gap-2 text-xs font-medium text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Checking preview...
-            </span>
-          ) : (
-            <div className="space-y-2 text-center">
-              <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/60 bg-white text-slate-700 shadow-2xs">
-                <FileText className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-700">
-                  {previewType === "missing"
-                    ? "Uploaded file not found"
-                    : storedFilePath
-                      ? "Preview not available"
-                      : "No document uploaded"}
-                </p>
-                <p className="mt-0.5 text-[11px] text-slate-400">
-                  {previewType === "missing"
-                    ? "The file is missing from storage. Re-upload the document before reviewing it."
-                    : storedFilePath
-                      ? "Open in a new tab to view or download."
-                      : "This submission does not include this document."}
-                </p>
-              </div>
+      <div className={`review-card__preview group relative h-44 w-full flex items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 p-3 ${storedFilePath && previewType !== null && previewType !== "missing" ? "cursor-pointer" : ""}`}>
+        {previewType === "pdf" ? (
+          <iframe
+            src={viewerUrl}
+            title={`${title} preview`}
+            className="h-full w-full max-h-full max-w-full border-0"
+          />
+        ) : previewType === "image" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={viewerUrl}
+            alt={title}
+            className="max-h-full max-w-full object-contain"
+          />
+        ) : previewType === null && storedFilePath ? (
+          <span className="flex items-center gap-2 text-xs font-medium text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Checking preview...
+          </span>
+        ) : (
+          <div className="space-y-2 text-center">
+            <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/60 bg-white text-slate-700 shadow-2xs">
+              <FileText className="h-4 w-4" />
             </div>
-          )}
-          {storedFilePath && rawStorageUrl && previewType === "image" ? (
-            <button
-              type="button"
-              onClick={() => window.open(rawStorageUrl, "_blank", "noopener,noreferrer")}
-              aria-label={`View ${title} in a new tab`}
-              className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/0 text-slate-900 transition-colors hover:bg-slate-900/10 focus-visible:bg-slate-900/10 focus-visible:outline focus-visible:outline-2 focus-visible:[outline-offset:-3px] focus-visible:outline-sky-500"
-            >
-              <span className="inline-flex translate-y-1 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-900 opacity-0 shadow-md transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                View
-              </span>
-            </button>
-          ) : null}
-        </div>
-        {hasOcrReviewContent ? (
-          <div className="max-h-[220px] min-h-0 min-w-0 overflow-y-auto">
-            {ocrReviewContent}
+            <div>
+              <p className="text-xs font-bold text-slate-700">
+                {previewType === "missing"
+                  ? "Uploaded file not found"
+                  : storedFilePath
+                    ? "Preview not available"
+                    : "No document uploaded"}
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                {previewType === "missing"
+                  ? "The file is missing from storage. Re-upload the document before reviewing it."
+                  : storedFilePath
+                    ? "Open in a new tab to view or download."
+                    : "This submission does not include this document."}
+              </p>
+            </div>
           </div>
+        )}
+        {storedFilePath && rawStorageUrl && previewType === "image" ? (
+          <button
+            type="button"
+            onClick={() => window.open(rawStorageUrl, "_blank", "noopener,noreferrer")}
+            aria-label={`View ${title} in a new tab`}
+            className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/0 text-slate-900 transition-colors hover:bg-slate-900/10 focus-visible:bg-slate-900/10 focus-visible:outline focus-visible:outline-2 focus-visible:[outline-offset:-3px] focus-visible:outline-sky-500"
+          >
+            <span className="inline-flex translate-y-1 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-900 opacity-0 shadow-md transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              View
+            </span>
+          </button>
         ) : null}
       </div>
 
-      {!hasOcrReviewContent ? (
-        <div className="review-card__ocr-slot">
-          {documentKind === "grade" ? ocrReviewContent : null}
-        </div>
-      ) : null}
-
-      {approved ? (
-        reviewNotesValue.trim() ? (
-          <div className="review-card__notes">
-            <label>{notesLabel}</label>
-            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-              {reviewNotesValue}
-            </p>
-          </div>
-        ) : null
-      ) : (
-        <div className="review-card__notes">
-          <label>{notesLabel}</label>
-          <textarea
-            rows={2}
-            placeholder="Add feedback for the grantee..."
-            value={reviewNotesValue}
-            disabled={disabled}
-            onChange={(event) => onNotesChange(event.target.value)}
-            className="flex-1 text-slate-900 placeholder:text-slate-400"
-          />
-        </div>
-      )}
+      <div className="review-card__notes flex min-h-0 flex-1 flex-col">
+        {approved ? (
+          reviewNotesValue.trim() ? (
+            <>
+              <label className="mt-4 mb-2 block text-sm font-semibold text-slate-800">{notesLabel}</label>
+              <p className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                {reviewNotesValue}
+              </p>
+            </>
+          ) : null
+        ) : (
+          <>
+            <label className="mt-4 mb-2 block text-sm font-semibold text-slate-800">{notesLabel}</label>
+            <div className="flex flex-1 flex-col">
+              <textarea
+                rows={5}
+                placeholder="Add feedback for the grantee..."
+                value={reviewNotesValue}
+                disabled={disabled}
+                onChange={(event) => onNotesChange(event.target.value)}
+                className="flex-1 w-full min-h-[140px] resize-none text-slate-900 placeholder:text-slate-400"
+              />
+            </div>
+          </>
+        )}
+      </div>
 
       {approved ? (
         <div className="review-card__actions review-card__actions--single">
@@ -346,195 +343,8 @@ function DocumentCard({
           </button>
         </div>
       )}
+
     </article>
-  );
-}
-
-type OcrGradeRow = {
-  subjectCode: string | null;
-  subjectName: string;
-  units: number;
-  grade: number | null;
-  flag: string | null;
-};
-
-function normalizeOcrGradeRows(value: unknown): OcrGradeRow[] {
-  if (!value || typeof value !== "object" || !("rows" in value) || !Array.isArray(value.rows)) {
-    return [];
-  }
-
-  return value.rows.flatMap((item): OcrGradeRow[] => {
-    if (!item || typeof item !== "object") return [];
-    const row = item as Record<string, unknown>;
-    const subjectName = typeof row.subjectName === "string" ? row.subjectName.trim() : "";
-    const units = Number(row.units);
-    const grade = row.grade === null || row.grade === undefined ? null : Number(row.grade);
-    if (!subjectName || !Number.isFinite(units) || (grade !== null && !Number.isFinite(grade))) {
-      return [];
-    }
-
-    return [{
-      subjectCode: typeof row.subjectCode === "string" ? row.subjectCode : null,
-      subjectName,
-      units,
-      grade,
-      flag: typeof row.flag === "string" ? row.flag : null,
-    }];
-  });
-}
-
-function OcrGradeReportDetails({
-  submissionId,
-}: {
-  submissionId: string;
-}) {
-  const [ocrStatus, setOcrStatus] = useState<string>("OCR_PENDING");
-  const [rows, setRows] = useState<OcrGradeRow[]>([]);
-  const [unrecognizedRows, setUnrecognizedRows] = useState<string[]>([]);
-  const [ambiguousRows, setAmbiguousRows] = useState<string[]>([]);
-  const [conflictingRows, setConflictingRows] = useState<string[]>([]);
-  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
-  const [requiresStrictManualReview, setRequiresStrictManualReview] = useState(false);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-    async function loadOcrStatus(): Promise<void> {
-      try {
-        const response = await fetch(`/api/admin/submissions/${submissionId}/ocr`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || "Could not load OCR status.");
-        const payload = body as {
-          ocrStatus: string;
-          ocrParsedRows: unknown;
-          ocrConfidence: number | null;
-          requiresStrictManualReview: boolean;
-        };
-        const parsedRows =
-          payload.ocrParsedRows && typeof payload.ocrParsedRows === "object"
-            ? payload.ocrParsedRows
-            : null;
-        setRows(normalizeOcrGradeRows(parsedRows));
-        setUnrecognizedRows(
-          parsedRows && "unrecognizedRows" in parsedRows && Array.isArray(parsedRows.unrecognizedRows)
-            ? parsedRows.unrecognizedRows.filter((row): row is string => typeof row === "string")
-            : [],
-        );
-        setAmbiguousRows(
-          parsedRows && "ambiguousRows" in parsedRows && Array.isArray(parsedRows.ambiguousRows)
-            ? parsedRows.ambiguousRows.filter((row): row is string => typeof row === "string")
-            : [],
-        );
-        setConflictingRows(
-          parsedRows && "conflictingRows" in parsedRows && Array.isArray(parsedRows.conflictingRows)
-            ? parsedRows.conflictingRows.filter((row): row is string => typeof row === "string")
-            : [],
-        );
-        setOcrConfidence(typeof payload.ocrConfidence === "number" ? payload.ocrConfidence : null);
-        setRequiresStrictManualReview(payload.requiresStrictManualReview === true);
-        setOcrStatus(payload.ocrStatus);
-        if (payload.ocrStatus === "OCR_PENDING") {
-          timeoutId = setTimeout(() => void loadOcrStatus(), 2500);
-        }
-      } catch (error: unknown) {
-        if (controller.signal.aborted) return;
-        console.error("Could not load submission OCR status:", error);
-        setOcrStatus("OCR_FAILED");
-      }
-    }
-
-    void loadOcrStatus();
-
-    return () => {
-      controller.abort();
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [submissionId]);
-
-  const needsManualReview =
-    requiresStrictManualReview ||
-    ocrStatus === "OCR_NEEDS_REVIEW" ||
-    ocrStatus === "OCR_FAILED" ||
-    (ocrConfidence !== null && ocrConfidence < 85);
-
-  return (
-    <div className="space-y-2">
-      {needsManualReview ? (
-        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[10px] leading-relaxed text-amber-950">
-          <p className="inline-flex items-center gap-1 font-bold text-amber-800">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            OCR Parse Warning: Manual Verification Required
-          </p>
-          <p className="mt-1">
-            {ocrConfidence !== null ? `OCR confidence: ${ocrConfidence}%. ` : ""}
-            Verify extracted grades against the uploaded report before approval.
-          </p>
-          {ambiguousRows.length > 0 || conflictingRows.length > 0 ? (
-            <p className="mt-1">
-              {ambiguousRows.length > 0 ? `${ambiguousRows.length} ambiguous row(s). ` : ""}
-              {conflictingRows.length > 0 ? `${conflictingRows.length} conflicting row(s).` : ""}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {rows.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">
-            Extracted grade rows
-          </div>
-          <div className="max-h-40 overflow-auto">
-            <table className="w-full text-left text-[11px]">
-              <thead className="sticky top-0 bg-white text-slate-500">
-                <tr>
-                  <th scope="col" className="px-3 py-1.5 font-medium">Subject</th>
-                  <th scope="col" className="px-2 py-1.5 text-right font-medium">Units</th>
-                  <th scope="col" className="px-3 py-1.5 text-right font-medium">Final grade</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {rows.map((row, index) => (
-                  <tr key={`${row.subjectCode ?? row.subjectName}-${index}`}>
-                    <td className="max-w-[200px] truncate px-3 py-1.5" title={`${row.subjectCode ? `${row.subjectCode} ` : ""}${row.subjectName}`}>
-                      {row.subjectCode ? `${row.subjectCode} ` : ""}{row.subjectName}
-                    </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{row.units}</td>
-                    <td className="px-3 py-1.5 text-right font-medium tabular-nums">
-                      {row.grade?.toFixed(2) ?? row.flag ?? "Review"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {unrecognizedRows.length > 0 || ambiguousRows.length > 0 || conflictingRows.length > 0 ? (
-            <div className="border-t border-slate-100 px-3 py-2 text-[10px] text-amber-800">
-              <p className="font-semibold">Text requiring verification</p>
-              <ul className="mt-1 max-h-14 space-y-1 overflow-y-auto">
-                {[...new Set([...ambiguousRows, ...conflictingRows, ...unrecognizedRows])]
-                  .slice(0, 5)
-                  .map((line, index) => <li key={`${line}-${index}`} className="break-words">{line}</li>)}
-              </ul>
-              {unrecognizedRows.length > 5 ? (
-                <p className="mt-1">{unrecognizedRows.length - 5} additional row(s) need review.</p>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
-          {ocrStatus === "OCR_PENDING"
-            ? "OCR extraction is still processing."
-            : ocrStatus === "OCR_FAILED"
-              ? "OCR could not read this report. Verify it manually."
-              : "No subject rows were extracted from this report."}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -580,12 +390,15 @@ function SubmissionsSkeleton({ isMobileReviewOpen }: { isMobileReviewOpen: boole
                 key={item}
                 className="flex h-full min-h-0 flex-col rounded-xl border border-slate-100 bg-slate-50/50 p-4"
               >
-                <div className="flex h-4 items-center justify-between">
+                <div className="mb-3 flex h-9 items-center justify-between">
                   <div className={`h-3.5 animate-pulse rounded bg-slate-200/80 ${item === 0 ? "w-36" : "w-28"}`} />
                   {item === 1 ? <div className="h-4 w-20 animate-pulse rounded-full bg-slate-200/60" /> : null}
                 </div>
-                <div className="mt-2 h-32 w-full shrink-0 animate-pulse rounded-lg bg-slate-200/50" />
-                <div className="my-3 min-h-[60px] flex-1 animate-pulse rounded-lg bg-slate-200/40" />
+                <div className="h-44 w-full shrink-0 animate-pulse rounded-lg bg-slate-200/50" />
+                <div className="mt-4 flex min-h-0 flex-1 flex-col">
+                  <div className="mb-2 h-4 w-36 shrink-0 animate-pulse rounded bg-slate-200/40" />
+                  <div className="min-h-[140px] flex-1 animate-pulse rounded-lg bg-slate-200/40" />
+                </div>
                 <div className="flex shrink-0 gap-2">
                   <div className="h-8 flex-1 animate-pulse rounded-lg bg-slate-200/60" />
                   <div className="h-8 flex-1 animate-pulse rounded-lg bg-slate-200/60" />
@@ -898,8 +711,12 @@ export default function SubmissionReviewTable() {
     }
   }
 
-  async function revokeSelectedGrantee(reason: string, additionalNotes: string) {
-    if (!selectedSubmission || isSaving || !reason) return;
+  async function revokeSelectedGrantee(
+    granteeId: string,
+    reason: string,
+    additionalNotes: string,
+  ) {
+    if (!selectedSubmission || selectedSubmission.grantee.id !== granteeId || isSaving || !reason) return;
 
     setSavingSubmissionId(selectedSubmission.id);
     setActionError(null);
@@ -1281,26 +1098,18 @@ export default function SubmissionReviewTable() {
                     notesLabel="Grade Report Review Notes"
                     storedFilePath={selectedSubmission.gradeFileUrl}
                     badgeContent={selectedSubmission.gradeFileUrl ? (
-                      <div className="flex items-center gap-2">
-                        {selectedSubmission.requiresStrictManualReview ? (
-                          <span className="inline-flex max-w-[220px] items-center gap-1 whitespace-normal rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[9px] font-bold leading-tight text-amber-800">
-                            <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
-                            OCR Parse Warning: Manual Verification Required
-                          </span>
-                        ) : gradeReportApproved ? (
-                          <span className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
-                            <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
-                            Approved
-                          </span>
-                        ) : null}
-                      </div>
+                      selectedSubmission.requiresStrictManualReview ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                          <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                          Manual Review
+                        </span>
+                      ) : gradeReportApproved ? (
+                        <span className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
+                          <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                          Approved
+                        </span>
+                      ) : undefined
                     ) : undefined}
-                    ocrReviewContent={
-                      (selectedSubmission.requiresStrictManualReview || !gradeReportApproved) &&
-                      selectedSubmission.gradeFileUrl
-                        ? <OcrGradeReportDetails submissionId={selectedSubmission.id} />
-                        : undefined
-                    }
                     reviewNotesValue={draft.grades.notes || selectedSubmission.reviewNotes || ""}
                     onNotesChange={(value) => updateDraft(selectedSubmission.id, {
                       grades: { ...draft.grades, notes: value },
@@ -1318,11 +1127,15 @@ export default function SubmissionReviewTable() {
         )}
       </div>
       <RevokeGranteeModal
+        granteeId={selectedSubmission?.grantee.id ?? ""}
         open={isRevokeModalOpen && selectedSubmission !== null}
         granteeName={selectedSubmission?.grantee.user.fullName ?? "this grantee"}
         submitting={isSaving}
+        error={actionError}
         onClose={() => setIsRevokeModalOpen(false)}
-        onConfirm={(reason, additionalNotes) => void revokeSelectedGrantee(reason, additionalNotes)}
+        onConfirm={(granteeId, reason, additionalNotes) => {
+          void revokeSelectedGrantee(granteeId, reason, additionalNotes);
+        }}
       />
     </section>
   );

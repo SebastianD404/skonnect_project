@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/browser";
+import FloatingFeedback from "./FloatingFeedback";
 
 export type AuthUser = {
   id?: string;
@@ -11,7 +12,7 @@ export type AuthUser = {
   avatarUrl?: string;
   role?: "YOUTH" | "GRANTEE" | "SK_OFFICIAL" | "SUPER_ADMIN";
   kkStatus?: string;
-  skeapStatus?: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED" | null;
+  skeapStatus?: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED" | "REJECTED" | null;
 };
 
 type AuthContextValue = {
@@ -31,6 +32,7 @@ export function AuthProvider({
 }) {
   const [user, setUser] = useState<AuthUser | null>(initialUser ?? null);
   const [loading, setLoading] = useState(initialUser === undefined);
+  const [revocationNotice, setRevocationNotice] = useState<string | null>(null);
   const [supabase] = useState(() => createBrowserClient());
   const router = useRouter();
   const pathname = usePathname();
@@ -64,13 +66,24 @@ export function AuthProvider({
         const previousUser = currentUserRef.current;
         currentUserRef.current = profile;
         setUser(profile);
+        const wasJustRevoked =
+          previousUser?.role === "GRANTEE" &&
+          profile.role === "YOUTH" &&
+          profile.skeapStatus === "REVOKED";
+
+        if (wasJustRevoked) {
+          setRevocationNotice(
+            "Your SKEAP scholarship has been discontinued. Your account is now on the Youth Dashboard. To request a review, visit the SK Office at Barangay Pico Hall."
+          );
+        }
+
         if (
           profile.skeapStatus === "REMOVED" ||
           profile.skeapStatus === "REVOKED" ||
           profile.skeapStatus === "GRADUATED"
         ) {
           if (currentPathnameRef.current.startsWith("/grantee-dashboard")) {
-            router.replace("/");
+            router.replace(profile.role === "YOUTH" ? "/youth-dashboard" : "/");
           }
         } else if (
           previousUser?.role === "YOUTH" &&
@@ -163,7 +176,18 @@ export function AuthProvider({
   }, [pathname, refresh, router]);
 
   const value = useMemo(() => ({ user, loading, refresh }), [user, loading, refresh]);
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {revocationNotice ? (
+        <FloatingFeedback
+          message={revocationNotice}
+          type="warning"
+          onDismiss={() => setRevocationNotice(null)}
+        />
+      ) : null}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

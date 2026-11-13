@@ -29,62 +29,16 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const [
-      openInquiries,
-      documentReviews,
-      scholarAnalytics,
-      recentInquiries,
-      pendingReviews,
-    ] = await Promise.all([
+    const [openInquiries, documentReviews, scholarAnalytics] = await Promise.all([
       prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false } }),
       prisma.submission.count({ where: { status: "PENDING" } }),
       getScholarDistributionAnalytics(),
-      prisma.inquiry.findMany({
-        take: 4,
-        orderBy: { createdAt: "desc" },
-        where: { ...supportInquiryFilter, isResolved: false },
-        select: {
-          id: true,
-          subject: true,
-          message: true,
-          createdAt: true,
-          language: true,
-          user: { select: { fullName: true, email: true } },
-        },
-      }),
-      prisma.submission.findMany({
-        where: { status: "PENDING" },
-        orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
-        take: 3,
-        select: {
-          id: true,
-          semester: true,
-          coeFileUrl: true,
-          gradeFileUrl: true,
-          submittedAt: true,
-          grantee: {
-            select: {
-              school: true,
-              yearLevel: true,
-              user: { select: { fullName: true } },
-            },
-          },
-        },
-      }),
     ]);
 
     return NextResponse.json(
       {
         stats: { openInquiries, documentReviews },
         scholarAnalytics,
-        recentInquiries: recentInquiries.map((inquiry) => ({
-          ...inquiry,
-          createdAt: inquiry.createdAt.toISOString(),
-        })),
-        pendingReviews: pendingReviews.map((review) => ({
-          ...review,
-          submittedAt: review.submittedAt.toISOString(),
-        })),
       },
       { headers: { "Cache-Control": "no-store, max-age=0" } }
     );

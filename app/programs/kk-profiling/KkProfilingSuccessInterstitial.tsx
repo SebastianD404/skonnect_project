@@ -4,12 +4,16 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
+import { handleSkeapApply } from "@/lib/skeap-application-guard";
+import VerificationModal from "@/app/components/VerificationModal";
 
 type Props = {
   open: boolean;
   signedIn: boolean;
   existingAccount: boolean;
   successCredentials: { username: string; temporaryPassword: string } | null;
+  kkProfileStatus: string;
+  skeapStatus?: string | null;
   onClose: () => void;
 };
 
@@ -18,13 +22,16 @@ export default function KkProfilingSuccessInterstitial({
   signedIn,
   existingAccount,
   successCredentials,
+  kkProfileStatus,
+  skeapStatus = null,
   onClose,
 }: Props) {
   const router = useRouter();
   const [credentialsCopied, setCredentialsCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
-  if (!open) return null;
+  if (!open && !showVerificationModal) return null;
 
   const continueTo = (destination: string) => {
     onClose();
@@ -46,25 +53,27 @@ export default function KkProfilingSuccessInterstitial({
   };
 
   return (
+    <>
+    {open ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/70 px-4 py-6">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="kk-profiling-success-title"
-        className="my-auto w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-200 sm:p-8"
+        className="my-auto w-full max-w-[30rem] rounded-3xl bg-white p-4 shadow-2xl ring-1 ring-slate-200 sm:p-5"
       >
-        <div className="flex flex-col items-center gap-5 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-            <CheckCircle2 className="h-10 w-10" aria-hidden="true" />
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <CheckCircle2 className="h-9 w-9" aria-hidden="true" />
           </div>
           <div>
             <h2
               id="kk-profiling-success-title"
-              className="text-2xl font-bold text-slate-900 sm:text-3xl"
+              className="text-xl font-bold text-slate-900 sm:text-2xl"
             >
               KK Profile Submitted Successfully!
             </h2>
-            <p className="mt-2 text-sm leading-7 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-slate-600">
               Thank you for registering with the Katipunan ng Kabataan of Barangay Pico.
             </p>
           </div>
@@ -113,18 +122,20 @@ export default function KkProfilingSuccessInterstitial({
           </p>
         ) : null}
 
-        <div className="mt-7 grid gap-3 sm:grid-cols-2">
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <button
             type="button"
-            onClick={() => continueTo("/programs/skeap-scholarship?openApply=1")}
-            className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#0F3D5C] px-4 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+            onClick={() => {
+              handleSkeapApply(kkProfileStatus, skeapStatus, router, setShowVerificationModal);
+            }}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 sm:w-auto"
           >
-            Apply for SKEAP Scholarship
+            Apply for SKEAP
           </button>
           <button
             type="button"
             onClick={() => continueTo("/youth-dashboard")}
-            className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 sm:w-auto"
           >
             Go to My Dashboard
           </button>
@@ -144,5 +155,16 @@ export default function KkProfilingSuccessInterstitial({
         ) : null}
       </section>
     </div>
+    ) : null}
+    <VerificationModal
+      open={showVerificationModal}
+      onClose={() => setShowVerificationModal(false)}
+      onCheckStatus={() => {
+        setShowVerificationModal(false);
+        onClose();
+        router.push("/programs/kk-profiling/status");
+      }}
+    />
+    </>
   );
 }

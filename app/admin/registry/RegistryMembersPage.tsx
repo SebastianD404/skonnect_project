@@ -241,8 +241,8 @@ export default async function RegistryMembersPage({
       ? GranteeStatus.ACTIVE
       : isProbationaryGrantee
         ? GranteeStatus.PROBATIONARY
-        : granteeStatus === GranteeStatus.REMOVED
-          ? GranteeStatus.REMOVED
+        : granteeStatus === GranteeStatus.REMOVED || granteeStatus === GranteeStatus.REVOKED
+          ? granteeStatus
           : applicationStatuses.includes(SubmissionStatus.APPROVED)
             ? SubmissionStatus.APPROVED
             : applicationStatuses.includes(SubmissionStatus.WAITLISTED)

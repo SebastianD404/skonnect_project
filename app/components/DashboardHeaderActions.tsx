@@ -18,6 +18,7 @@ type NotificationItem = {
   id: string;
   text: string;
   createdAt?: string;
+  href?: string;
 };
 
 type SupportThread = {
@@ -360,6 +361,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
             id: item.id,
             text: item.text,
             createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
+            href: item.id.startsWith("payout-disbursed:") ? "/grantee/payouts" : undefined,
           }];
         });
         const reminderPayload = asRecord(remindersData);
@@ -522,28 +524,60 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
               {visibleNotifications.length > 0 ? (
                 <div className="space-y-2">
                 {visibleNotifications.map((notification, idx) => {
+                  const isRead = readNotificationIds.has(notification.id);
                   const isExpanded = expandedNotificationId === notification.id;
+                  const cardContent = (
+                    <>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                          <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.5 1.5V19h17v-1.5L19 16Z" />
+                        </svg>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <p className={`break-words ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-4"}`}>
+                          {isExpanded ? notification.text : truncateMessage(notification.text, 160)}
+                        </p>
+                        {notification.createdAt || notification.href ? (
+                          <span className="mt-1 flex items-center justify-between gap-2 text-xs">
+                            <span className="text-slate-400">
+                              {notification.createdAt ? formatRelativeTime(notification.createdAt) : null}
+                            </span>
+                            {notification.href ? (
+                              <span className="shrink-0 font-semibold text-[#0F3D5C]">Confirm receipt →</span>
+                            ) : null}
+                          </span>
+                        ) : null}
+                      </span>
+                      {!isRead && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" aria-label="Unread" />}
+                    </>
+                  );
+                  const cardClassName = `flex w-full min-w-0 items-start gap-3 rounded-xl p-3 text-left text-sm ${
+                    isRead ? "bg-white text-slate-600" : "bg-blue-50 text-slate-700"
+                  }`;
                   return (
-                  <button
-                    key={`${notification.id}-${idx}`}
-                    type="button"
-                    onClick={() => handleNotificationClick(notification)}
-                    aria-expanded={isExpanded}
-                    className={`flex w-full min-w-0 items-start gap-3 rounded-xl p-3 text-left text-sm transition-all ${readNotificationIds.has(notification.id) ? "bg-white text-slate-600 hover:bg-gray-50" : "bg-blue-50 text-slate-700 hover:bg-blue-100/50"}`}
-                  >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                        <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.5 1.5V19h17v-1.5L19 16Z" />
-                      </svg>
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <p className={`break-words ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-4"}`}>
-                        {isExpanded ? notification.text : truncateMessage(notification.text, 160)}
-                      </p>
-                      {notification.createdAt && <span className="mt-1 block text-xs text-slate-400">{formatRelativeTime(notification.createdAt)}</span>}
-                    </span>
-                    {!readNotificationIds.has(notification.id) && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" aria-label="Unread" />}
-                  </button>
+                    notification.href ? (
+                      <Link
+                        key={`${notification.id}-${idx}`}
+                        href={notification.href}
+                        onClick={() => {
+                          if (!isRead) void markNotificationAsRead(notification.id);
+                          setOpenPanel("none");
+                        }}
+                        className={`${cardClassName} cursor-pointer transition-colors hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0F3D5C]`}
+                      >
+                        {cardContent}
+                      </Link>
+                    ) : (
+                      <button
+                        key={`${notification.id}-${idx}`}
+                        type="button"
+                        onClick={() => handleNotificationClick(notification)}
+                        aria-expanded={isExpanded}
+                        className={`${cardClassName} transition-all ${isRead ? "hover:bg-gray-50" : "hover:bg-blue-100/50"}`}
+                      >
+                        {cardContent}
+                      </button>
+                    )
                   );
                 })}
                 </div>

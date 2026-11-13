@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, X } from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
 import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-profile-client";
@@ -11,6 +12,8 @@ import { createBrowserClient } from "@/lib/supabase/browser";
 import { getSkeapRequiredDocuments } from "@/lib/skeap-upload";
 import type { SkeapEducationLevel } from "@/lib/skeap-education";
 import AccountRequiredModal from "@/app/components/AccountRequiredModal";
+import { handleSkeapApply } from "@/lib/skeap-application-guard";
+import VerificationModal from "@/app/components/VerificationModal";
 
 type Props = {
   slug: string;
@@ -68,6 +71,7 @@ function prefetchProgramStatus(slug: string) {
 }
 
 export default function ProgramApplyClient({ slug }: Props) {
+  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [open, setOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<KKProfile | null>(null);
@@ -76,6 +80,7 @@ export default function ProgramApplyClient({ slug }: Props) {
   const [kkCheckUnavailable, setKkCheckUnavailable] = useState(false);
   const [showKkRequiredModal, setShowKkRequiredModal] = useState(false);
   const [showAuthRequiredModal, setShowAuthRequiredModal] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [status, setStatus] = useState<ProgramStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [footerActionsTarget, setFooterActionsTarget] = useState<HTMLDivElement | null>(null);
@@ -238,13 +243,26 @@ export default function ProgramApplyClient({ slug }: Props) {
           if (!authLoading && !isSkeapTestAccount(user?.email)) prefetchKKProfile();
         }}
         onClick={() => {
-          void openApplyFlow();
+          if (!user) {
+            setShowAuthRequiredModal(true);
+            return;
+          }
+          handleSkeapApply(user.kkStatus, user.skeapStatus, router, setShowVerificationModal);
         }}
         disabled={checkingKkProfile || authLoading}
         className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
       >
         {checkingKkProfile ? "Checking KK profile..." : "Apply for SKEAP →"}
       </button>
+
+      <VerificationModal
+        open={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
+        onCheckStatus={() => {
+          setShowVerificationModal(false);
+          router.push("/programs/kk-profiling/status");
+        }}
+      />
 
         <AccountRequiredModal
           open={showAuthRequiredModal}

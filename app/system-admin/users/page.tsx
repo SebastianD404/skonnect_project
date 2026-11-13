@@ -108,7 +108,9 @@ export default async function SystemAdminUsersPage({
           displayName: formatDisplayName(user.kkProfile, user.fullName),
           email: user.email,
           avatarUrl: user.avatarUrl,
-          role: user.grantee?.status === "GRADUATED" || user.grantee?.status === "REMOVED"
+          role: user.grantee?.status === "GRADUATED" ||
+            user.grantee?.status === "REMOVED" ||
+            user.grantee?.status === "REVOKED"
             ? "YOUTH"
             : user.role,
           isActive: user.isActive,
