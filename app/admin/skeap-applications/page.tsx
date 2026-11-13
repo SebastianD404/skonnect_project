@@ -155,6 +155,7 @@ function mapInquiryToApplication(inquiry: {
     contactNumber?: string | null;
     emailAddress?: string | null;
     photoFileUrl?: string | null;
+    physicalDocumentsConfirmed?: boolean;
     uploadedFiles?: Prisma.JsonValue | null;
   } | null;
 }) {
@@ -195,6 +196,9 @@ function mapInquiryToApplication(inquiry: {
     const returnedMatcher = /returned|correction|required|revise|revision/i;
 
     if (inquiry.reviewStatus) {
+      if (/pre.?qual/i.test(inquiry.reviewStatus)) {
+        return "Pre-qualified";
+      }
       if (resubmittedMatcher.test(inquiry.reviewStatus)) {
         return "Resubmitted";
       }
@@ -294,6 +298,7 @@ function mapInquiryToApplication(inquiry: {
           contactNumber: inquiry.user?.phoneNumber || inquiry.application.contactNumber || undefined,
           emailAddress: inquiry.user?.email || inquiry.application.emailAddress || undefined,
           photoFileUrl: inquiry.application.photoFileUrl || undefined,
+          physicalDocumentsConfirmed: inquiry.application.physicalDocumentsConfirmed,
           uploadedFiles: inquiry.application.uploadedFiles ?? undefined,
         }
       : undefined,
@@ -346,7 +351,7 @@ export default async function SkeapApplicationsPage({
       ...queueBaseWhere,
       AND: [
         { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        skeapStatusWhere(["pending"]),
+        skeapStatusWhere(["pending", "pre_qualified"]),
       ],
     },
   });
@@ -379,7 +384,7 @@ export default async function SkeapApplicationsPage({
   });
 
   // Fetch rows for queue using the same base filter but matching any visible statuses
-  const visibleStatusPatterns = ["pending", "return", "resubm", "respond", "approve"];
+  const visibleStatusPatterns = ["pending", "pre_qualified", "return", "resubm", "respond", "approve"];
   const [inquiries, focusedInquiry] = await Promise.all([
     prisma.inquiry.findMany({
       where: {
@@ -398,8 +403,12 @@ export default async function SkeapApplicationsPage({
           where: {
             id: focusId,
             ...queueBaseWhere,
-            application: { is: { status: SubmissionStatus.PENDING } },
-            AND: [skeapStatusWhere(["pending"])],
+            application: {
+              is: {
+                status: { in: [SubmissionStatus.PENDING, SubmissionStatus.PRE_QUALIFIED] },
+              },
+            },
+            AND: [skeapStatusWhere(["pending", "pre_qualified"])],
           },
           select: SKEAP_APPLICATION_SELECT,
         })

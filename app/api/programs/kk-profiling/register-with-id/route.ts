@@ -5,7 +5,9 @@ import { uploadPrivateDocument } from "@/lib/private-documents";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 import { KK_PROFILING_MANUAL_REVIEW_NOTE } from "@/lib/kk-profiling-review";
 import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
+import { KKProfileSchema } from "@/lib/kk-profile-schema";
 import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
+import { formatSexLabel, parseSex } from "@/lib/sex";
 import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
@@ -177,6 +179,10 @@ export async function POST(req: NextRequest) {
     if (!body.consent) {
       return NextResponse.json({ error: "Consent is required" }, { status: 400 });
     }
+    const sex = parseSex(body.sex);
+    if (!sex) {
+      return NextResponse.json({ error: "Select Male or Female for sex." }, { status: 400 });
+    }
 
     const firstNameInput = String(body.firstName || "").trim();
     const middleNameInput = String(body.middleInitial || "").trim();
@@ -240,42 +246,59 @@ export async function POST(req: NextRequest) {
     const province = String(body.province || "").trim();
     // Upload ID and residency files
     const uploads: Array<{ label: string; file: File }> = [];
-    const frontFile = formData.get("frontFile") as File | null;
-    const backFile = formData.get("backFile") as File | null;
-    const residencyFile = formData.get("residencyFile") as File | null;
-    const photoFile = formData.get("photoFile") as File | null;
-    const birthCertificateFile = formData.get("birthCertificateFile") as File | null;
+    const frontFileEntry = formData.get("frontFile");
+    const backFileEntry = formData.get("backFile");
+    const residencyFileEntry = formData.get("residencyFile");
+    const photoFileEntry = formData.get("photoFile");
+    const birthCertificateFileEntry = formData.get("birthCertificateFile");
 
-    if (!frontFile || !backFile) {
+    if (!frontFileEntry || !backFileEntry) {
       return NextResponse.json(
         { error: "Please upload both the front and back of your valid ID." },
         { status: 400 }
       );
     }
 
-    if (!residencyFile) {
+    if (!residencyFileEntry) {
       return NextResponse.json(
         { error: "Please upload your Certificate of Residency." },
         { status: 400 }
       );
     }
 
-    if (!photoFile || !["image/jpeg", "image/png", "image/webp"].includes(photoFile.type)) {
+    if (!photoFileEntry) {
       return NextResponse.json(
-        { error: "Please upload a 2x2 ID picture as a JPG, PNG, or WebP image." },
+        { error: "Please upload a 2x2 ID picture." },
         { status: 400 }
       );
     }
 
-    if (
-      !birthCertificateFile ||
-      !["application/pdf", "image/jpeg", "image/png", "image/webp"].includes(birthCertificateFile.type)
-    ) {
+    if (!birthCertificateFileEntry) {
       return NextResponse.json(
-        { error: "Please upload your Birth Certificate as a PDF, JPG, PNG, or WebP file." },
+        { error: "Please upload your Birth Certificate." },
         { status: 400 }
       );
     }
+
+    const documentValidation = KKProfileSchema.safeParse({
+      profilePicture: photoFileEntry,
+      birthCertificate: birthCertificateFileEntry,
+      validId: { front: frontFileEntry, back: backFileEntry },
+      certificateOfResidency: residencyFileEntry,
+    });
+    if (!documentValidation.success) {
+      return NextResponse.json(
+        { error: documentValidation.error.issues[0]?.message ?? "The uploaded documents are invalid." },
+        { status: 400 }
+      );
+    }
+
+    const {
+      profilePicture: photoFile,
+      birthCertificate: birthCertificateFile,
+      validId: { front: frontFile, back: backFile },
+      certificateOfResidency: residencyFile,
+    } = documentValidation.data;
 
     // If a residency file was uploaded, the residency acknowledgement checkbox
     // is redundant because the document itself should state the 8-month residency.
@@ -303,13 +326,6 @@ export async function POST(req: NextRequest) {
 
     const storageUserId = authId;
     for (const upload of uploads) {
-      if (upload.file.size > 10 * 1024 * 1024) {
-        return NextResponse.json(
-          { error: "Each file must be less than 10MB." },
-          { status: 400 }
-        );
-      }
-
       const result = await uploadFile(storageUserId, upload.file, upload.label);
       if (upload.label === "front") {
         idFrontFileUrl = result.url;
@@ -346,6 +362,7 @@ export async function POST(req: NextRequest) {
             barangay: BARANGAY_PICO,
             birthDate,
             contactNumber,
+            sex,
             isVerified: false,
           },
         });
@@ -361,6 +378,7 @@ export async function POST(req: NextRequest) {
             barangay: BARANGAY_PICO,
             birthDate,
             contactNumber,
+            sex,
             email,
             isVerified: false,
           },
@@ -386,7 +404,7 @@ export async function POST(req: NextRequest) {
           fullName: names.fullName,
           middleName: names.middleName ?? "",
           address,
-          sex: String(body.sex || "").trim() || "Not specified",
+          sex: formatSexLabel(sex),
           age,
           birthDate,
           email,

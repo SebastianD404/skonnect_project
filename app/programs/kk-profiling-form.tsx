@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
 import {
@@ -18,6 +17,7 @@ import {
 } from "@/app/components/DocumentOCRValidationExample";
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { ChevronDown, Eye, EyeOff } from "lucide-react";
+import KkProfilingSuccessInterstitial from "@/app/programs/kk-profiling/KkProfilingSuccessInterstitial";
 
 const initialForm = {
   lastName: "",
@@ -173,13 +173,10 @@ export default function KKProfilingForm() {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [idFiles, setIdFiles] = useState<Partial<Record<ProfilingDocumentKey, File | null>>>({});
-  const [successMessage, setSuccessMessage] = useState("Your KK Profiling application has been received and is now pending verification.");
   const [successRedirectTo, setSuccessRedirectTo] = useState("/programs/kk-profiling/status");
   const [successCredentials, setSuccessCredentials] = useState<{ username: string; temporaryPassword: string } | null>(null);
-  const [credentialsCopied, setCredentialsCopied] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [existingAccount, setExistingAccount] = useState(false);
-  const [secureAccountError, setSecureAccountError] = useState<string | null>(null);
   const [accountExistsFallback, setAccountExistsFallback] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
@@ -674,10 +671,6 @@ export default function KKProfilingForm() {
           residency: { status: "idle", file: null },
         });
         setMessage(null);
-        setSuccessMessage(
-          body?.message ||
-            "Your KK Profiling request has been received and is now pending verification."
-        );
         setSuccessRedirectTo(body?.redirectTo || "/programs/kk-profiling/status");
         setSuccessCredentials(
           body?.credentials && body.credentials.username && body.credentials.temporaryPassword
@@ -687,11 +680,9 @@ export default function KKProfilingForm() {
               }
             : null
         );
-        setCredentialsCopied(false);
 
         setSignedIn(true);
         setExistingAccount(true);
-        setSecureAccountError(null);
         setShowSuccessModal(true);
       } else {
         if (body?.emailAlreadyRegistered) {
@@ -1034,16 +1025,18 @@ export default function KKProfilingForm() {
             <h3 className="border-b border-slate-200 pb-2 text-lg font-bold text-slate-900">
               PART III: Documents
             </h3>
-            <p className="mt-2 text-sm text-slate-500">Upload the four foundational identity documents. Your Certificate of Residency must state that you have lived in Barangay Pico for at least 6 months.</p>
+            <p className="mt-2 text-sm text-slate-500">
+              Upload all four required foundational documents. Each file must be no larger than 10 MB.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
             <DocumentUploadCard
-              title="2x2 ID Picture *"
+              title="Profile Picture (2x2) *"
               acceptedFormats="JPG, PNG, WebP"
               accept="image/jpeg,image/png,image/webp"
               maxSize={10 * 1024 * 1024}
-              ocrStrategy="photo"
+              ocrStrategy="none"
               initialFile={idFiles.photo ?? null}
               onUpload={(file) => handleIdFileChange("photo", file)}
             />
@@ -1053,62 +1046,70 @@ export default function KKProfilingForm() {
               accept="application/pdf,image/jpeg,image/png,image/webp"
               maxSize={10 * 1024 * 1024}
               ocrStrategy="birth-certificate"
+              helperText="Used to legally verify the 15-30 age requirement."
               initialFile={idFiles.birthCertificate ?? null}
               onUpload={(file) => handleIdFileChange("birthCertificate", file)}
             />
-            <DocumentUploadCard
-              title="Valid ID (Front) *"
-              acceptedFormats="JPG, PNG, WebP"
-              accept="image/jpeg,image/png,image/webp"
-              maxSize={10 * 1024 * 1024}
-              ocrStrategy="front-id"
-              initialFile={idFiles.front ?? null}
-              firstName={form.firstName}
-              middleInitial={form.middleInitial}
-              lastName={form.lastName}
-              profileBirthDate={form.birthDate}
-              onUpload={(file) => handleIdFileChange("front", file)}
-              onOcrStateChange={(state) => updateOcrDocumentState("front", state)}
-              onFailedOcrAttempt={() => recordFailedOcrAttempt("front")}
-            />
-            <DocumentUploadCard
-              title="Valid ID (Back) *"
-              acceptedFormats="JPG, PNG, WebP"
-              accept="image/jpeg,image/png,image/webp"
-              maxSize={10 * 1024 * 1024}
-              ocrStrategy="back-id"
-              initialFile={idFiles.back ?? null}
-              firstName={form.firstName}
-              middleInitial={form.middleInitial}
-              lastName={form.lastName}
-              profileBirthDate={form.birthDate}
-              onUpload={(file) => handleIdFileChange("back", file)}
-              onOcrStateChange={(state) => updateOcrDocumentState("back", state)}
-              onFailedOcrAttempt={() => recordFailedOcrAttempt("back")}
-            />
-            <div className="md:col-span-2">
-              <DocumentUploadCard
-                title="Certificate of Residency *"
-                acceptedFormats="JPG, PNG, WebP"
-                accept="image/jpeg,image/png,image/webp"
-                maxSize={10 * 1024 * 1024}
-                ocrStrategy="residency"
-                initialFile={idFiles.residency ?? null}
-                firstName={form.firstName}
-                middleInitial={form.middleInitial}
-                lastName={form.lastName}
-                profileBirthDate={form.birthDate}
-                onUpload={(file) => handleIdFileChange("residency", file)}
-                onOcrStateChange={(state) => updateOcrDocumentState("residency", state)}
-                onFailedOcrAttempt={() => recordFailedOcrAttempt("residency")}
-              />
+            <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2">
+                <h4 className="text-sm font-semibold text-slate-900">Valid ID (Front and Back) *</h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  Upload both sides of one valid ID.
+                </p>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <DocumentUploadCard
+                  title="Front *"
+                  acceptedFormats="PDF, JPG, PNG, WebP"
+                  accept="application/pdf,image/jpeg,image/png,image/webp"
+                  maxSize={10 * 1024 * 1024}
+                  ocrStrategy="front-id"
+                  compact
+                  initialFile={idFiles.front ?? null}
+                  firstName={form.firstName}
+                  middleInitial={form.middleInitial}
+                  lastName={form.lastName}
+                  profileBirthDate={form.birthDate}
+                  onUpload={(file) => handleIdFileChange("front", file)}
+                  onOcrStateChange={(state) => updateOcrDocumentState("front", state)}
+                  onFailedOcrAttempt={() => recordFailedOcrAttempt("front")}
+                />
+                <DocumentUploadCard
+                  title="Back *"
+                  acceptedFormats="PDF, JPG, PNG, WebP"
+                  accept="application/pdf,image/jpeg,image/png,image/webp"
+                  maxSize={10 * 1024 * 1024}
+                  ocrStrategy="back-id"
+                  compact
+                  initialFile={idFiles.back ?? null}
+                  firstName={form.firstName}
+                  middleInitial={form.middleInitial}
+                  lastName={form.lastName}
+                  profileBirthDate={form.birthDate}
+                  onUpload={(file) => handleIdFileChange("back", file)}
+                  onOcrStateChange={(state) => updateOcrDocumentState("back", state)}
+                  onFailedOcrAttempt={() => recordFailedOcrAttempt("back")}
+                />
+              </div>
             </div>
+            <DocumentUploadCard
+              title="Certificate of Residency *"
+              acceptedFormats="PDF, JPG, PNG, WebP"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              maxSize={10 * 1024 * 1024}
+              ocrStrategy="residency"
+              helperText="Must prove at least 6 months of residency for KK, or 1 year if you plan to apply for SKEAP."
+              initialFile={idFiles.residency ?? null}
+              firstName={form.firstName}
+              middleInitial={form.middleInitial}
+              lastName={form.lastName}
+              profileBirthDate={form.birthDate}
+              onUpload={(file) => handleIdFileChange("residency", file)}
+              onOcrStateChange={(state) => updateOcrDocumentState("residency", state)}
+              onFailedOcrAttempt={() => recordFailedOcrAttempt("residency")}
+            />
           </div>
 
-          <label className="flex items-start gap-3">
-            <input type="checkbox" checked={form.consent} onChange={(e) => setField("consent", e.target.checked)} className="mt-1" />
-            <span className="text-sm">I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling (required). <button type="button" onClick={() => setShowConsentModal(true)} className="ml-2 text-sm underline">(Read consent)</button></span>
-          </label>
         </div>
       </div>
 
@@ -1171,146 +1172,67 @@ export default function KKProfilingForm() {
           )}
         </div>
       )}
-      <div className="flex flex-col items-start gap-3">
-        <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+      <div className="mt-4 flex flex-col items-start justify-between gap-4 border-t border-slate-200 pt-6 md:flex-row md:items-center">
+        <div className="flex items-start gap-3">
+          <input
+            id="kk-profiling-consent"
+            type="checkbox"
+            checked={form.consent}
+            onChange={(e) => setField("consent", e.target.checked)}
+            className="mt-1 shrink-0"
+          />
+          <div className="text-sm">
+            <label htmlFor="kk-profiling-consent">
+              I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling (required).
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowConsentModal(true)}
+              className="ml-2 underline"
+            >
+              (Read consent)
+            </button>
+          </div>
+        </div>
+        <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
           <button
             type="submit"
             disabled={submitting || Boolean(emailError) || (!areDocumentsReady && !manualReviewAvailable)}
-            className={manualReviewAvailable
-              ? "px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm disabled:opacity-60"
-              : "inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"}
+            className="w-full min-w-[7rem] rounded-lg bg-slate-800 px-6 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
           >
             {submitting ? "Submitting..." : manualReviewAvailable ? "Submit for Manual Review" : "Submit"}
           </button>
           {manualReviewAvailable ? (
-            <p className="text-xs font-medium text-amber-700 dark:text-amber-500 m-0">
+            <p className="max-w-md text-xs font-medium text-amber-700 md:text-right">
               Maximum verification attempts reached. You may proceed by submitting your application for manual review by an SK Admin.
             </p>
           ) : null}
         </div>
-        {actionError || message ? (
-          <div
-            ref={submissionFeedbackRef}
-            tabIndex={-1}
-            aria-live={actionError ? "assertive" : "polite"}
-            className={`max-w-2xl rounded-xl border px-4 py-3 text-sm leading-relaxed focus:outline-none focus-visible:ring-2 ${
-              magicLinkSent
-                ? "border-teal-200 bg-teal-50 text-teal-800 focus-visible:ring-teal-500"
-                : "border-rose-200 bg-rose-50 text-rose-800 focus-visible:ring-rose-500"
-            }`}
-          >
-            {actionError ? <p role="alert">{actionError}</p> : null}
-            {message ? <p role="status">{message}</p> : null}
-          </div>
-        ) : null}
       </div>
+      {actionError || message ? (
+        <div
+          ref={submissionFeedbackRef}
+          tabIndex={-1}
+          aria-live={actionError ? "assertive" : "polite"}
+          className={`mt-4 max-w-2xl rounded-xl border px-4 py-3 text-sm leading-relaxed focus:outline-none focus-visible:ring-2 ${
+            magicLinkSent
+              ? "border-teal-200 bg-teal-50 text-teal-800 focus-visible:ring-teal-500"
+              : "border-rose-200 bg-rose-50 text-rose-800 focus-visible:ring-rose-500"
+          }`}
+        >
+          {actionError ? <p role="alert">{actionError}</p> : null}
+          {message ? <p role="status">{message}</p> : null}
+        </div>
+      ) : null}
       </form>
 
-      {showSuccessModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 py-6">
-          <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl ring-1 ring-slate-200">
-            <div className="flex flex-col items-center gap-6 text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill ="currentColor" className="h-10 w-10">
-                <path fillRule="evenodd" d="M12 2.25a9.75 9.75 0 1 0 0 19.5 9.75 9.75 0 0 0 0-19.5Zm4.72 7.78a.75.75 0 0 1 0 1.06l-5.5 5.5a.75.75 0 0 1-1.06 0l-2.5-2.5a.75.75 0 0 1 1.06-1.06l1.97 1.97 4.97-4.97a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900">Profiling submitted</h2>
-              <p className="mt-2 text-sm leading-7 text-slate-600">{successMessage}</p>
-            </div>
-            {successCredentials ? (
-              <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-4 text-left text-sm text-slate-700">
-                <p className="font-semibold text-slate-900">Your default account credentials</p>
-                <div className="mt-3 grid gap-2">
-                  <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
-                    <span className="text-slate-600">Email</span>
-                    <span className="font-medium text-slate-900 break-all">{successCredentials.username}</span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
-                    <span className="text-slate-600">Temporary password</span>
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="min-w-0 break-all text-right font-medium text-slate-900">{successCredentials.temporaryPassword}</span>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(successCredentials.temporaryPassword);
-                            setCredentialsCopied(true);
-                            setSecureAccountError(null);
-                          } catch {
-                            setSecureAccountError("Unable to copy the temporary password. Select and copy it manually.");
-                          }
-                        }}
-                        className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                      >
-                        {credentialsCopied ? "Copied" : "Copy"}
-                      </button>
-                    </span>
-                  </div>
-                </div>
-                <p className="mt-3 text-xs text-slate-500">
-                  Use these credentials only if you need to sign in again before securing your account. We recommend securing your account now.
-                </p>
-              </div>
-            ) : null}
-
-            <div className="text-sm text-slate-600">
-              {!signedIn && (
-                <p>
-                  {existingAccount
-                    ? "An account already exists for this email. Sign in with your current password to continue."
-                    : "Your registration is complete, but automatic sign-in was unavailable. Use the credentials above to sign in and view your status."}
-                </p>
-              )}
-            </div>
-
-            <div className="flex w-full flex-col gap-2.5 sm:flex-row sm:justify-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSuccessModal(false);
-                  const target = signedIn
-                    ? successRedirectTo
-                    : `/login?next=${encodeURIComponent(successRedirectTo)}`;
-                  router.push(target);
-                }}
-                className="inline-flex min-h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
-              >
-                {signedIn ? "View status" : "Sign in for status"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSuccessModal(false);
-                  router.push("/youth-dashboard");
-                }}
-                className="inline-flex min-h-10 flex-1 items-center justify-center whitespace-nowrap rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
-              >
-                Return to dashboard
-              </button>
-            </div>
-            {!signedIn ? (
-              <p className="text-center text-sm text-slate-600">
-                Forgot your password?{" "}
-                <Link
-                  href="/forgot-password"
-                  className="font-semibold text-[#0F3D5C] underline-offset-4 hover:underline"
-                  onClick={() => setShowSuccessModal(false)}
-                >
-                  Reset it
-                </Link>
-              </p>
-            ) : null}
-            {secureAccountError ? (
-              <p role="alert" className="text-sm leading-relaxed text-rose-700">
-                {secureAccountError}
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    )}
+      <KkProfilingSuccessInterstitial
+        open={showSuccessModal}
+        signedIn={signedIn}
+        existingAccount={existingAccount}
+        successCredentials={successCredentials}
+        onClose={() => setShowSuccessModal(false)}
+      />
         </>
       )}
     </>

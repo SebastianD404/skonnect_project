@@ -1,4 +1,5 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import { addReportHeading, styleReportTable } from "@/lib/excel-report-style";
 import { formatDate } from "@/lib/utils";
 
 export type ExportModule = "members" | "grantees" | "kk-profiling" | "submissions";
@@ -129,11 +130,11 @@ function formatSubmissionRow(source: ExportSource): ExportRow {
   };
 }
 
-export function exportToExcel<T extends object>(
+export async function exportToExcel<T extends object>(
   data: T[],
   filename: string,
   moduleType: ExportModule
-): ExcelExportFile {
+): Promise<ExcelExportFile> {
   const headers = moduleType === "grantees"
     ? GRANTEE_HEADERS
     : moduleType === "submissions"
@@ -147,24 +148,41 @@ export function exportToExcel<T extends object>(
       ? formatSubmissionRow(source)
       : formatProfileRow(source);
   });
-  const worksheet = formattedData.length
-    ? XLSX.utils.json_to_sheet(formattedData, { header: headers })
-    : XLSX.utils.aoa_to_sheet([headers]);
-
-  worksheet["!cols"] = headers.map((header) => {
+  const columnWidths = headers.map((header) => {
     const maxLength = Math.max(
       header.length,
       ...formattedData.map((row) => String(row[header] ?? "").length)
     );
-    return { wch: Math.min(Math.max(maxLength + 5, 12), 60) };
+    return Math.min(Math.max(maxLength + 5, 12), 60);
   });
 
-  const workbook = XLSX.utils.book_new();
   const sheetName = moduleType === "kk-profiling" ? "KK Profiling" : moduleType === "submissions" ? "Submissions" : moduleType;
-  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  const workbookBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer;
+  const reportTitle = moduleType === "grantees"
+    ? "Active Scholars Masterlist"
+    : moduleType === "members"
+      ? "KK Members"
+      : moduleType === "kk-profiling"
+        ? "KK Profiling"
+        : "SKEAP Submissions";
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "SKonnect";
+  workbook.created = new Date();
+  const worksheet = workbook.addWorksheet(sheetName);
+  worksheet.columns = headers.map((header, index) => ({
+    header,
+    key: header,
+    width: columnWidths[index],
+  }));
+  worksheet.addRows(formattedData);
+  addReportHeading(worksheet, reportTitle);
+  styleReportTable(worksheet, { headerRow: 5 });
+
+  const workbookBuffer = await workbook.xlsx.writeBuffer();
   const body = new ArrayBuffer(workbookBuffer.byteLength);
-  new Uint8Array(body).set(workbookBuffer);
+  const bytes = new Uint8Array(body);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = workbookBuffer[index];
+  }
   const dateStamp = new Date().toISOString().slice(0, 10);
 
   return {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSkeapResubmissionActivity,
+  areRequiredSkeapDocumentsPreScreened,
   getApplicantUploadedFiles,
   getPendingSkeapDraftReplacements,
   getLatestSkeapResubmissionUploadKeys,
@@ -69,6 +70,24 @@ describe("KK identity document mapping", () => {
 });
 
 describe("SKEAP upload verification state", () => {
+  it("requires the mandatory online documents to be pre-screened before pre-qualification", () => {
+    const uploads = {
+      enrollmentCertificate: { url: "https://example.com/enrollment.pdf", verified: true },
+      gradeReport: { url: "https://example.com/grades.pdf", verified: true },
+      incomeCertificate: { url: "https://example.com/income.pdf", verified: true },
+    };
+
+    expect(areRequiredSkeapDocumentsPreScreened(uploads)).toBe(true);
+    expect(areRequiredSkeapDocumentsPreScreened({
+      ...uploads,
+      gradeReport: { ...uploads.gradeReport, verified: false },
+    })).toBe(false);
+    expect(areRequiredSkeapDocumentsPreScreened({
+      ...uploads,
+      voterCertificate: { url: "https://example.com/voter.pdf", verified: false },
+    })).toBe(false);
+  });
+
   it("preserves verification state when normalizing uploaded files", () => {
     expect(normalizeUploadedFiles({
       voterCertificate: {

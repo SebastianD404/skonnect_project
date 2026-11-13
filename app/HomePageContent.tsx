@@ -6,7 +6,7 @@ import OrdinancesSection from "@/components/OrdinancesSection";
 import { useAuth } from "@/app/components/AuthProvider";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Mail } from "lucide-react";
+import { AlertTriangle, Mail } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { SkLogo } from "@/app/components/SkLogo";
 import AccountRequiredModal from "@/app/components/AccountRequiredModal";
@@ -27,6 +27,8 @@ export default function HomePageContent() {
   const [skeapApplicationState, setSkeapApplicationState] = useState<{
     userId: string;
     hasApplication: boolean;
+    reviewStatus: string | null;
+    applicationStatus: string | null;
   } | null>(null);
   const [kkProfilingApplicationState, setKkProfilingApplicationState] = useState<{
     userId: string;
@@ -73,6 +75,8 @@ export default function HomePageContent() {
           setSkeapApplicationState({
             userId,
             hasApplication: data.hasApplication === true,
+            reviewStatus: typeof data.reviewStatus === "string" ? data.reviewStatus : null,
+            applicationStatus: typeof data.applicationStatus === "string" ? data.applicationStatus : null,
           });
         }
       } catch (error) {
@@ -226,6 +230,24 @@ export default function HomePageContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
+      {pathname === "/youth-dashboard" &&
+      user?.role === "YOUTH" &&
+      user.id === skeapApplicationState?.userId &&
+      (skeapApplicationState?.reviewStatus?.trim().toUpperCase() === "PRE_QUALIFIED" ||
+        skeapApplicationState?.applicationStatus === "PRE_QUALIFIED") ? (
+        <section
+          role="alert"
+          className="mx-auto mt-6 flex max-w-7xl items-start gap-4 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950 shadow-sm sm:mx-6 lg:mx-auto lg:px-6"
+        >
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+          <div>
+            <h2 className="font-bold">Step 2: Physical Document Verification Required</h2>
+            <p className="mt-1 text-sm leading-6 text-amber-900">
+              Your online application has been pre-screened. To receive final approval, you must present the original or Certified True Copies of all uploaded documents to the SK Officials at the Barangay Pico Hall for manual verification.
+            </p>
+          </div>
+        </section>
+      ) : null}
       {accessError ? (
         <FloatingFeedback
           message={accessError}

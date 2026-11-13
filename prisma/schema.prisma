@@ -8,6 +8,12 @@ datasource db {
   extensions = [pg_stat_statements, pgcrypto, supabase_vault, uuid_ossp(map: "uuid-ossp"), vector]
 }
 
+enum Sex {
+  MALE
+  FEMALE
+  NOT_SPECIFIED
+}
+
 model User {
   id                     String                  @id @default(uuid())
   authId                 String                  @unique
@@ -57,6 +63,7 @@ model KKProfile {
   barangay      String   @default("Pico")
   birthDate     DateTime
   contactNumber String
+  sex           Sex      @default(NOT_SPECIFIED)
   email         String   @unique
   isVerified    Boolean  @default(true)
   createdAt     DateTime @default(now())
@@ -155,6 +162,7 @@ model SkeapApplication {
   enrollmentFileUrl        String
   reportCardFileUrl        String
   status                   SubmissionStatus @default(PENDING)
+  physicalDocumentsConfirmed Boolean         @default(false)
   submittedAt              DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
   applicantName            String?
@@ -538,6 +546,7 @@ enum EventStatus {
 
 enum SubmissionStatus {
   PENDING
+  PRE_QUALIFIED
   APPROVED
   REJECTED
   RETURNED_FOR_EDIT

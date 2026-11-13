@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import { getNonCompliantGrantees } from "@/lib/non-compliant-grantees";
+import { addReportHeading, styleReportTable } from "@/lib/excel-report-style";
 
 export const runtime = "nodejs";
 
@@ -67,36 +68,8 @@ function getStatusLabel(status: SubmissionStatus) {
 }
 
 function styleWorksheet(worksheet: ExcelJS.Worksheet) {
-  const header = worksheet.getRow(1);
-  header.height = 25;
-  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  header.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF0F172A" },
-  };
-  header.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-
-  worksheet.eachRow({ includeEmpty: true }, (row) => {
-    row.eachCell({ includeEmpty: true }, (cell) => {
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-
-      cell.alignment = row.number === 1
-        ? { horizontal: "center", vertical: "middle", wrapText: true }
-        : { horizontal: "left", vertical: "middle", wrapText: true };
-    });
-  });
-
-  worksheet.views = [{ state: "frozen", ySplit: 1 }];
-  worksheet.autoFilter = {
-    from: { row: 1, column: 1 },
-    to: { row: 1, column: worksheet.columnCount },
-  };
+  addReportHeading(worksheet, worksheet.name);
+  styleReportTable(worksheet, { headerRow: 5 });
 }
 
 export async function GET(request: NextRequest) {

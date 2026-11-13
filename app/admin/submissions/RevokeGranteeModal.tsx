@@ -2,31 +2,14 @@
 
 import { useState } from "react";
 import { AlertTriangle, Loader2, X } from "lucide-react";
-
-const REVOCATION_TEMPLATES = [
-  {
-    label: "Academic Failure",
-    content:
-      "After a careful review of your submitted Grade Report, we regret to inform you that you have not met the academic requirements for the SKEAP scholarship due to failing grades. Consequently, your scholarship status has been revoked.",
-  },
-  {
-    label: "Incomplete/Dropped",
-    content:
-      "Our records indicate that you have Incomplete (INC) or Dropped (DRP) subjects on your Grade Report. As per SKEAP guidelines, scholars must maintain a complete academic load. Therefore, your scholarship status has been revoked.",
-  },
-  {
-    label: "Falsified Documents",
-    content:
-      "During the verification process, discrepancies were found in your submitted documents. Providing inaccurate or falsified information is a violation of SKEAP policies, resulting in the immediate revocation of your scholarship.",
-  },
-] as const;
+import { SKEAP_REVOCATION_REASONS } from "@/lib/skeap-revocation";
 
 interface RevokeGranteeModalProps {
   granteeName: string;
   open: boolean;
   submitting: boolean;
   onClose: () => void;
-  onConfirm: (reason: string) => void;
+  onConfirm: (reason: string, additionalNotes: string) => void;
 }
 
 export default function RevokeGranteeModal({
@@ -37,12 +20,14 @@ export default function RevokeGranteeModal({
   onConfirm,
 }: RevokeGranteeModalProps) {
   const [reason, setReason] = useState("");
+  const [additionalNotes, setAdditionalNotes] = useState("");
 
   if (!open) return null;
 
   const close = () => {
     if (!submitting) {
       setReason("");
+      setAdditionalNotes("");
       onClose();
     }
   };
@@ -87,47 +72,40 @@ export default function RevokeGranteeModal({
           </div>
         </div>
 
-        <div className="mb-4 flex flex-col gap-2">
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <label htmlFor="revoke-grantee-reason" className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Reason for Revocation
-              </label>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Insert Template
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {REVOCATION_TEMPLATES.map((template) => (
-                <button
-                  key={template.label}
-                  type="button"
-                  onClick={() => setReason(template.content)}
-                  disabled={submitting}
-                  className="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {template.label}
-                </button>
+        <div className="mb-4 flex flex-col gap-3">
+          <label htmlFor="revoke-grantee-reason" className="flex flex-col gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Reason for Revocation
+            </span>
+            <select
+              id="revoke-grantee-reason"
+              value={reason}
+              onChange={(event) => setReason(event.currentTarget.value)}
+              disabled={submitting}
+              required
+              className="w-full rounded-lg border border-rose-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-transparent focus:ring-2 focus:ring-rose-500 disabled:cursor-not-allowed disabled:bg-slate-50"
+            >
+              <option value="">Select a reason</option>
+              {SKEAP_REVOCATION_REASONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
               ))}
-              <button
-                type="button"
-                onClick={() => setReason("")}
-                disabled={submitting}
-                className="rounded px-2 py-1 text-[11px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-          <textarea
-            id="revoke-grantee-reason"
-            rows={5}
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            disabled={submitting}
-            placeholder="e.g., Failed 2 major subjects..."
-            className="min-h-[120px] w-full resize-y rounded-lg border border-rose-300 bg-white p-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-transparent focus:ring-2 focus:ring-rose-500 disabled:cursor-not-allowed disabled:bg-slate-50"
-          />
+            </select>
+          </label>
+          <label htmlFor="revoke-grantee-additional-notes" className="flex flex-col gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Additional Notes <span className="font-medium normal-case text-slate-400">(Optional)</span>
+            </span>
+            <input
+              id="revoke-grantee-additional-notes"
+              type="text"
+              value={additionalNotes}
+              onChange={(event) => setAdditionalNotes(event.currentTarget.value)}
+              disabled={submitting}
+              maxLength={1000}
+              placeholder="Add context, such as the other scholarship agency"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500 disabled:cursor-not-allowed disabled:bg-slate-50"
+            />
+          </label>
         </div>
 
         <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 pt-4">
@@ -141,7 +119,7 @@ export default function RevokeGranteeModal({
           </button>
           <button
             type="button"
-            onClick={() => onConfirm(reason.trim())}
+            onClick={() => onConfirm(reason, additionalNotes.trim())}
             disabled={submitting || !reason.trim()}
             className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
           >

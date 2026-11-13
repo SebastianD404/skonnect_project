@@ -163,7 +163,7 @@ export async function GET(request: NextRequest) {
 
   if (format === "csv") return createCsvResponse(exportRows, CSV_COLUMNS, "SKEAP-Active-Scholars.xlsx");
 
-  const file = exportToExcel(exportRows, "grantee-records", "grantees");
+  const file = await exportToExcel(exportRows, "grantee-records", "grantees");
   return new NextResponse(file.body, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

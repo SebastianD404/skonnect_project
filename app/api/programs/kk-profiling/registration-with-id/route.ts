@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, Sex } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { uploadPrivateDocument } from "@/lib/private-documents";
 import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
+import { formatSexLabel, parseSex } from "@/lib/sex";
+import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 
 const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -70,6 +72,13 @@ export async function PUT(request: NextRequest) {
     const contactNumber = String(formData.get("contactNumber") || registration.contactNumber);
     if (!isValidContactNumber(contactNumber)) {
       return NextResponse.json({ error: "Contact number can contain numbers only." }, { status: 400 });
+    }
+    const submittedSex = formData.get("sex");
+    const parsedSex = submittedSex === null
+      ? parseSex(registration.sex) ?? Sex.NOT_SPECIFIED
+      : parseSex(submittedSex);
+    if (!parsedSex) {
+      return NextResponse.json({ error: "Sex must be Male, Female, or Not specified." }, { status: 400 });
     }
 
     const frontFile = getOptionalFile(formData, "frontFile");
@@ -142,7 +151,7 @@ export async function PUT(request: NextRequest) {
     const updateData: Prisma.ProfilingRegistrationUpdateInput = {
       fullName: String(formData.get("fullName") || registration.fullName),
       address: String(formData.get("address") || registration.address),
-      sex: String(formData.get("sex") || registration.sex),
+      sex: formatSexLabel(parsedSex),
       age: Number(formData.get("age") ?? registration.age),
       birthDate: new Date(String(formData.get("birthDate") || registration.birthDate.toISOString().slice(0, 10))),
       email: String(formData.get("email") || registration.email),
@@ -176,9 +185,17 @@ export async function PUT(request: NextRequest) {
       updateData.birthCertificateFileUrl = updatedFileUrls["birth-certificate"];
     }
 
-    const updated = await prisma.profilingRegistration.update({
-      where: { id: registration.id },
-      data: updateData,
+    const updated = await prisma.$transaction(async (tx) => {
+      const saved = await tx.profilingRegistration.update({
+        where: { id: registration.id },
+        data: updateData,
+      });
+
+      if (registration.userId) {
+        await syncKkProfileFromLatestRegistration(tx, registration.userId);
+      }
+
+      return saved;
     });
 
     return NextResponse.json({

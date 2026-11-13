@@ -3,6 +3,7 @@ export const SKEAP_EDUCATION_LEVELS = [
   "Senior High School",
   "College",
   "Vocational",
+  "Technical and Vocational (Tech-Voc)",
 ] as const;
 
 export const SKEAP_APPLICATION_EDUCATION_LEVELS = SKEAP_EDUCATION_LEVELS.filter(
@@ -16,6 +17,15 @@ export const SKEAP_YEAR_LEVELS: Record<SkeapEducationLevel, readonly string[]> =
   "Senior High School": ["Grade 11", "Grade 12"],
   College: ["Incoming Freshman", "1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year", "6th Year"],
   Vocational: ["Incoming Freshman", "1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year", "6th Year"],
+  "Technical and Vocational (Tech-Voc)": [
+    "Incoming Freshman",
+    "1st Year",
+    "2nd Year",
+    "3rd Year",
+    "4th Year",
+    "5th Year",
+    "6th Year",
+  ],
 };
 
 export function isSkeapEducationLevel(value: string): value is SkeapEducationLevel {

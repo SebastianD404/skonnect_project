@@ -10,6 +10,7 @@ const hiddenPaths = [
   "/logout",
   "/forgot-password",
   "/reset-password",
+  "/programs/kk-profiling",
 ];
 
 export function HeaderShell() {

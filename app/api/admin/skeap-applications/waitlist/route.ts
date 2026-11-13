@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           submittedAt: true,
+          physicalDocumentsConfirmed: true,
           applicantName: true,
           emailAddress: true,
           contactNumber: true,
@@ -61,6 +62,7 @@ export async function GET(request: NextRequest) {
         applications: candidates.map((application) => ({
           id: application.id,
           waitlistPosition: null,
+          physicalDocumentsConfirmed: application.physicalDocumentsConfirmed,
           submittedAt: application.submittedAt.toISOString(),
           applicantName: application.applicantName || application.user.fullName || application.user.email,
           emailAddress: application.emailAddress || application.user.email,
@@ -123,7 +125,7 @@ export async function POST(request: NextRequest) {
           where: { id: application.inquiry.id },
           data: {
             reviewStatus: "Waitlisted",
-            response: "Your SKEAP application was manually approved and added to the scholarship waitlist by an administrator.",
+            response: "Your SKEAP application was manually added to the scholarship waitlist by an administrator.",
             respondedAt: new Date(),
             isResolved: true,
             lastUpdatedBy: "admin",

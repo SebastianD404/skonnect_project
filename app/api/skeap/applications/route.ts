@@ -51,11 +51,20 @@ export async function GET() {
         subject: { contains: "SKEAP application", mode: "insensitive" },
         applicationId: { not: null },
       },
-      select: { id: true },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        reviewStatus: true,
+        application: { select: { status: true } },
+      },
     });
 
     return NextResponse.json(
-      { hasApplication: Boolean(applicationInquiry) },
+      {
+        hasApplication: Boolean(applicationInquiry),
+        reviewStatus: applicationInquiry?.reviewStatus ?? null,
+        applicationStatus: applicationInquiry?.application?.status ?? null,
+      },
       { headers: { "Cache-Control": "no-store, max-age=0" } }
     );
   } catch (error) {
@@ -410,27 +419,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    for (const upload of Object.values(uploadedFiles)) {
+      upload.verified = false;
+    }
+
     const uploadedPhoto = uploadedFiles[SKEAP_UPLOAD_KEY.PHOTO];
     uploadedFiles[SKEAP_UPLOAD_KEY.PHOTO] = {
       ...uploadedPhoto,
       url: photoFileUrl,
-      verified: true,
     };
     uploadedFiles[SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE] = {
       url: approvedKkRegistration.birthCertificateFileUrl,
-      verified: true,
     };
     uploadedFiles[SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY] = {
       url: approvedKkRegistration.idSingleFileUrl,
-      verified: true,
     };
     uploadedFiles[SKEAP_UPLOAD_KEY.KK_ID_FRONT] = {
       url: approvedKkRegistration.idFrontFileUrl,
-      verified: true,
     };
     uploadedFiles[SKEAP_UPLOAD_KEY.KK_ID_BACK] = {
       url: approvedKkRegistration.idBackFileUrl,
-      verified: true,
     };
 
     const missingUploadKeys = requiredUploadKeys.filter(

@@ -363,6 +363,23 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
   return null;
 }
 
+export function areRequiredSkeapDocumentsPreScreened(raw: unknown): boolean {
+  const uploads = normalizeUploadedFiles(raw);
+  if (!uploads) return false;
+
+  const requiredKeys = [
+    ...CORE_UPLOAD_KEYS,
+    ...(uploads[SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE]?.url.trim()
+      ? [SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE]
+      : []),
+  ];
+
+  return requiredKeys.every((key) => {
+    const upload = uploads[key];
+    return Boolean(upload?.url.trim()) && upload?.verified === true;
+  });
+}
+
 function parseUploadedFiles(raw: unknown): Record<string, SkeapUploadValue> | null {
   return normalizeUploadedFiles(raw);
 }

@@ -29,7 +29,7 @@ function LoginForm() {
   const search = useSearchParams();
   const next = search.get("next") ?? "";
   const sessionExpired = search.get("reason") === "session_expired";
-  const kkProfilingHref = `/programs/kk-profiling${next ? `?redirect=${encodeURIComponent(next)}` : ""}`;
+  const signupHref = `/signup${next ? `?next=${encodeURIComponent(next)}` : ""}`;
   const accountDeactivated = !submitting && state?.error === ACCOUNT_DEACTIVATED_ERROR;
 
   return (
@@ -184,9 +184,9 @@ function LoginForm() {
             </div>
 
             <div className="text-center text-sm text-slate-500">
-              Not yet profiled?{" "}
-              <Link href={kkProfilingHref} className="font-semibold text-[#0F3D5C] hover:underline">
-                Register via KK Profiling
+              Don&apos;t have an account?{" "}
+              <Link href={signupHref} prefetch={true} className="font-semibold text-[#0F3D5C] hover:underline">
+                Register here
               </Link>
             </div>
           </form>

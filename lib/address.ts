@@ -21,6 +21,15 @@ function findOfficialSitioSegment(parts: string[]) {
   return parts.find((part) => OFFICIAL_SITIOS.some((sitio) => part.toLowerCase() === sitio.toLowerCase()));
 }
 
+export function getOfficialKkSitio(value?: string | null) {
+  const parts = String(value ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return findOfficialSitioSegment(parts) ?? null;
+}
+
 export function formatKkAddress(value?: string | null) {
   const parts = String(value ?? "")
     .split(",")

@@ -22,15 +22,20 @@ function isTransientConnectionError(error: unknown) {
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const admin = await ensureProfile(user);
-  if (!admin || (admin.role !== Role.SK_OFFICIAL && admin.role !== Role.SUPER_ADMIN)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const admin = await ensureProfile(user);
+    if (!admin || (admin.role !== Role.SK_OFFICIAL && admin.role !== Role.SUPER_ADMIN)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } catch (error) {
+    console.error("Failed to authenticate admin sidebar counts request:", error);
+    return NextResponse.json({ error: "Failed to load sidebar counts." }, { status: 500 });
   }
 
   const startOfToday = new Date();
@@ -71,7 +76,7 @@ export async function GET(request: NextRequest) {
     },
   };
   const applicationStatusFilter = {
-    OR: ["pending", "return", "resubm", "respond"].flatMap((pattern) => [
+    OR: ["pending", "pre_qualified", "return", "resubm", "respond"].flatMap((pattern) => [
       { reviewStatus: { contains: pattern, mode: "insensitive" as const } },
       { response: { contains: pattern, mode: "insensitive" as const } },
     ]),

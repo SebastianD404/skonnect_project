@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
-import { Clock3, FileText, LoaderCircle, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { Clock3, FileText, LoaderCircle, UploadCloud, X } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
-export type OcrStrategy = "none" | "photo" | "residency" | "birth-certificate" | "front-id" | "back-id";
+export type OcrStrategy = "none" | "residency" | "birth-certificate" | "front-id" | "back-id";
 type ScannerDocumentType = "front_id" | "back_id" | "certificate";
 
 export type DocumentOCRState = {
@@ -26,6 +26,8 @@ type DocumentUploadCardProps = {
   accept: string;
   maxSize: number;
   ocrStrategy: OcrStrategy;
+  helperText?: string;
+  compact?: boolean;
   onUpload: (file: File | null) => void;
   initialFile?: File | null;
   firstName?: string;
@@ -42,14 +44,8 @@ export function evaluateDocumentOcr(
   scannerIsValid = true,
 ) {
   const normalizedText = text.toLowerCase();
-  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
-  const characterCount = text.replace(/\s/g, "").length;
 
   switch (strategy) {
-    case "photo":
-      return wordCount > 4 || characterCount > 20
-        ? { isValid: false, error: "Please upload a clear 2x2 portrait photo of your face. Avoid uploading documents or certificates here." }
-        : { isValid: true, error: null };
     case "residency":
       return /\b(pico|residency)\b/i.test(normalizedText)
         ? { isValid: true, error: null }
@@ -76,7 +72,6 @@ function getScannerDocumentType(strategy: OcrStrategy): ScannerDocumentType | nu
       return "back_id";
     case "residency":
       return "certificate";
-    case "photo":
     case "birth-certificate":
       return "front_id";
     case "none":
@@ -153,6 +148,8 @@ export function DocumentUploadCard({
   accept,
   maxSize,
   ocrStrategy,
+  helperText,
+  compact = false,
   onUpload,
   initialFile,
   firstName,
@@ -163,8 +160,10 @@ export function DocumentUploadCard({
   onFailedOcrAttempt,
 }: DocumentUploadCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
   const generationRef = useRef(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<DocumentOCRState>({
     status: "idle",
     file: null,
@@ -217,8 +216,13 @@ export function DocumentUploadCard({
       return;
     }
 
-    if (ocrStrategy === "none") {
-      publishOcrState({ status: "idle", file });
+    const shouldRunOcr =
+      ocrStrategy === "birth-certificate" ||
+      ocrStrategy === "residency" ||
+      ocrStrategy === "front-id" ||
+      ocrStrategy === "back-id";
+    if (!shouldRunOcr) {
+      publishOcrState({ status: "success", badgeText: "File validated", file });
       return;
     }
     if (!file.type.startsWith("image/") && !(file.type === "application/pdf" && ocrStrategy === "birth-certificate")) {
@@ -269,9 +273,6 @@ export function DocumentUploadCard({
         birthdateMatched: result.birthdateMatched,
         file,
       };
-      if (!evaluation.isValid && ocrStrategy === "photo") {
-        onUpload(null);
-      }
       if (!evaluation.isValid) {
         onFailedOcrAttempt?.();
       }
@@ -279,7 +280,6 @@ export function DocumentUploadCard({
     } catch {
       if (generation !== generationRef.current) return;
       const evaluation = evaluateDocumentOcr(ocrStrategy, "");
-      if (ocrStrategy === "photo") onUpload(null);
       publishOcrState({
         status: "error",
         badgeText: "Scanner unavailable",
@@ -297,10 +297,6 @@ export function DocumentUploadCard({
     }
   }, [initialFile, processFile, selectedFile]);
 
-  function chooseFile() {
-    inputRef.current?.click();
-  }
-
   function removeFile(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -310,138 +306,144 @@ export function DocumentUploadCard({
 
   const ocrFailed = ocrStrategy !== "none" && ocrStatus.status === "error";
   const isPdf = selectedFile?.type === "application/pdf";
+  const displayFileName = selectedFile?.name.replace(/\.[^.]+$/, "") || selectedFile?.name;
+  const hasImageBackground = Boolean(selectedFile && !isPdf && previewUrl);
+  const ocrErrorMessage = ocrFailed
+    ? ocrStatus.errorCode === "NAME_MISMATCH"
+      ? "Name on ID does not match your account. Please replace with your own ID."
+      : ocrStatus.message || "We couldn't check this file automatically. Our team will review it."
+    : null;
+  const dropzoneStateClasses = selectedFile
+    ? `border-2 border-dashed border-amber-400 ${hasImageBackground ? "bg-cover bg-center bg-no-repeat" : "bg-slate-700"}`
+    : isDragging
+      ? "border-2 border-dashed border-[var(--primary)] bg-slate-50 hover:border-[var(--primary)]"
+      : "border-2 border-dashed border-slate-300 bg-white hover:border-slate-400 hover:bg-slate-50";
 
   return (
     <>
       <div
-        role="group"
-        tabIndex={0}
-        aria-label={`${selectedFile ? "Replace" : "Upload"} ${title}`}
-        onClick={chooseFile}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            chooseFile();
+        aria-busy={ocrStatus.status === "scanning"}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setIsDragging(false);
           }
         }}
-        onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
+          setIsDragging(false);
           const file = event.dataTransfer.files?.[0];
           if (file) void processFile(file);
         }}
-        className={`group flex h-[130px] min-h-[130px] flex-col justify-between overflow-hidden rounded-xl border p-4 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 ${
-          ocrFailed
-            ? "border-red-400 bg-red-50/60 hover:bg-red-50"
-            : selectedFile
-              ? "border-amber-500/50 bg-amber-50/30 hover:border-slate-400 hover:bg-slate-100/60"
-              : "cursor-pointer border-dashed border-slate-300 bg-slate-50/50 hover:border-slate-400 hover:bg-slate-100/60"
-        } ${selectedFile ? "cursor-default" : ""}`}
+        className={`group relative flex ${compact ? "h-32" : "h-52"} flex-col items-center justify-center overflow-hidden rounded-xl text-center transition-colors duration-200 ${dropzoneStateClasses}`}
+        style={hasImageBackground && previewUrl ? { backgroundImage: `url("${previewUrl}")` } : undefined}
       >
         <input
           ref={inputRef}
+          id={inputId}
           type="file"
           accept={accept}
           aria-label={`Select ${title}`}
-          className="hidden"
-          onClick={(event) => event.stopPropagation()}
+          className="sr-only outline-none focus:outline-none focus:ring-0"
           onChange={(event) => {
             const file = event.currentTarget.files?.[0] ?? null;
             event.currentTarget.value = "";
             void processFile(file);
           }}
         />
-
-        <div className="flex min-h-0 items-center gap-3">
-          {selectedFile ? (
+        {selectedFile ? (
+          <div className="relative z-10 flex min-h-0 w-full flex-1 flex-col items-center justify-center">
             <button
               type="button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setIsPreviewOpen(true);
-              }}
-              aria-label={`View ${title}`}
-              className="h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-white transition-opacity hover:opacity-90"
+              onClick={() => setIsPreviewOpen(true)}
+              aria-label={`Preview ${title}: ${selectedFile.name}`}
+              className={`flex min-h-0 w-full flex-1 cursor-zoom-in flex-col items-center justify-center overflow-hidden text-center outline-none transition-all duration-150 ease-out active:scale-[0.99] focus:outline-none focus:ring-0 ${
+                compact ? "px-2 py-1" : "px-4 py-2"
+              } text-white`}
             >
-              {previewUrl ? (
-                <Image
-                  src={previewUrl}
-                  alt={`${title} thumbnail`}
-                  width={64}
-                  height={64}
-                  unoptimized
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <FileText className="mx-auto h-7 w-7 text-slate-500" aria-hidden="true" />
-              )}
-            </button>
-          ) : null}
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <p className="text-sm font-medium text-slate-900">{title}</p>
-              {selectedFile && !ocrFailed ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                  {ocrStatus.status === "scanning"
-                    ? <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" />
-                    : <Clock3 className="h-3 w-3" aria-hidden="true" />}
-                  For Verification
-                </span>
+              {isPdf ? <FileText className={`mb-1 text-white ${compact ? "h-4 w-4" : "h-6 w-6"}`} aria-hidden="true" /> : null}
+              <p className={`font-semibold leading-tight text-white ${compact ? "text-[11px]" : "text-sm"}`}>
+                {title}
+              </p>
+              <p
+                className={`max-w-full truncate text-white ${compact ? "text-[9px] leading-none" : "mt-1 text-xs"}`}
+                title={selectedFile.name}
+              >
+                {displayFileName} · {formatFileSize(selectedFile.size)}
+              </p>
+              <span
+                role={ocrStatus.status === "scanning" ? "status" : undefined}
+                aria-live="polite"
+                className={`inline-flex items-center gap-1 rounded-full border border-white/40 bg-white/15 font-semibold text-white ${compact ? "mt-0.5 px-1 py-0 text-[8px] leading-none" : "mt-1 px-2 py-0.5 text-[10px]"}`}
+              >
+                {ocrStatus.status === "scanning"
+                  ? <LoaderCircle className={`${compact ? "h-2.5 w-2.5" : "h-3 w-3"} animate-spin text-white`} aria-hidden="true" />
+                  : <Clock3 className={`${compact ? "h-2.5 w-2.5" : "h-3 w-3"} text-white`} aria-hidden="true" />}
+                {ocrStatus.status === "scanning" ? "Checking file..." : "For Verification"}
+              </span>
+              <p
+                className={`leading-tight text-white/90 ${compact ? "mt-0.5 line-clamp-1 text-[9px]" : "mt-1 text-xs"}`}
+                title="Original must be presented at the barangay."
+              >
+                Original must be presented at the barangay.
+              </p>
+              {ocrErrorMessage ? (
+                <p
+                  role="alert"
+                  className={`max-w-full line-clamp-1 font-medium leading-tight text-white ${compact ? "mt-0.5 text-[8px]" : "mt-1 text-[10px]"}`}
+                  title={ocrErrorMessage}
+                >
+                  {ocrErrorMessage}
+                </p>
               ) : null}
-            </div>
-            <p className="truncate text-xs text-slate-500">
-              {selectedFile ? "Original must be presented at the barangay." : `${acceptedFormats} · Max ${formatFileSize(maxSize)}`}
+            </button>
+            <button
+              type="button"
+              onClick={removeFile}
+              aria-label={`Remove ${title}`}
+              title={`Remove ${title}`}
+              className={`absolute right-2 top-2 z-20 inline-flex items-center justify-center rounded-full bg-white/90 text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 ${compact ? "h-6 w-6" : "h-7 w-7"}`}
+            >
+              <X className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} aria-hidden="true" />
+            </button>
+          </div>
+        ) : (
+          <label
+            htmlFor={inputId}
+            className={`flex min-h-0 w-full flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden text-center outline-none transition-all duration-150 ease-out active:scale-[0.99] active:bg-slate-50/60 focus:outline-none focus:ring-0 focus-within:outline-none focus-within:ring-0 ${
+              compact ? "p-2" : "p-3"
+            }`}
+          >
+            <UploadCloud
+              className={`mb-1 ${compact ? "h-5 w-5" : "h-6 w-6"} text-slate-400 transition-transform duration-150 group-hover:-translate-y-0.5 group-active:scale-90`}
+              aria-hidden="true"
+            />
+            <p className="text-sm font-semibold text-slate-800">{title}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {acceptedFormats} · Max {formatFileSize(maxSize)}
             </p>
-            {selectedFile ? (
-              <p className="truncate text-xs text-slate-700" title={selectedFile.name}>
-                {selectedFile.name} · {formatFileSize(selectedFile.size)}
+            {helperText ? (
+              <p className="mt-1 rounded bg-blue-50 px-2 py-1 text-xs leading-tight text-blue-600/80">
+                {helperText}
               </p>
             ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                chooseFile();
-              }}
-              aria-label={selectedFile ? `Replace ${title}` : `Upload ${title}`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-100"
-            >
-              {selectedFile ? <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> : <Upload className="h-3.5 w-3.5" aria-hidden="true" />}
-              {selectedFile ? "Replace" : "Upload"}
-            </button>
-            {selectedFile ? (
-              <button
-                type="button"
-                onClick={removeFile}
-                aria-label={`Remove ${title}`}
-                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-red-600 shadow-sm hover:bg-red-50"
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </button>
+            {fileError ? (
+              <p role="alert" className="mt-1 text-xs leading-tight text-rose-700">
+                {fileError}
+              </p>
             ) : null}
-          </div>
-        </div>
-        <div className="h-8 overflow-hidden">
-          {ocrFailed ? (
-            <p role="alert" className="line-clamp-2 text-xs font-medium text-red-800">
-              {ocrStatus.errorCode === "NAME_MISMATCH"
-                ? "Name on ID does not match your account. Please replace with your own ID."
-                : ocrStatus.message || "We couldn't check this file automatically. Our team will review it."}
-            </p>
-          ) : !selectedFile && fileError ? (
-            <p role="alert" className="line-clamp-2 text-xs text-rose-700">{fileError}</p>
-          ) : ocrStatus.status === "scanning" ? (
-            <p role="status" className="flex items-center gap-1.5 text-xs text-slate-600">
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              Checking your file…
-            </p>
-          ) : null}
-        </div>
+          </label>
+        )}
+        {hasImageBackground ? (
+          <div aria-hidden="true" className="absolute inset-0 z-0 rounded-xl bg-slate-900/60" />
+        ) : null}
       </div>
 
       {isPreviewOpen && selectedFile ? (

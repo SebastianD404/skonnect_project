@@ -255,7 +255,7 @@ export function PublicHeader() {
               >
                 Log in
               </Link>
-              <Link href="/programs/kk-profiling" className="rounded-xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-xl hover:scale-105 active:scale-95">
+              <Link href="/signup" className="rounded-xl bg-gradient-to-r from-[#0F3D5C] to-[#0D2E47] px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-xl hover:scale-105 active:scale-95">
                 Sign up
               </Link>
             </div>
@@ -311,7 +311,7 @@ export function PublicHeader() {
           {!authLoading && !sessionUser ? (
             <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-3">
               <Link
-                href="/programs/kk-profiling"
+                href="/signup"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="w-full rounded-xl bg-emerald-600 py-2.5 text-center font-semibold text-white transition-colors hover:bg-emerald-700"
               >

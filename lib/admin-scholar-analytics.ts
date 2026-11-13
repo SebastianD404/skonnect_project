@@ -10,6 +10,11 @@ export type ScholarDistributionAnalytics = {
   maxSlots: number;
   pendingApplications: number;
   pendingProfilingApplications: number;
+  genderDistribution: {
+    male: number;
+    female: number;
+    notSpecified: number;
+  };
   scholarDistribution: Array<{ sitio: string; scholars: number }>;
   populationDistribution: Array<{ sitio: string; population: number }>;
 };
@@ -34,6 +39,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     scholarRows,
     populationRows,
     pendingProfilingApplications,
+    genderRows,
   ] =
     await Promise.all([
       prisma.user.count({
@@ -101,6 +107,12 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
         GROUP BY sitio
       `,
       getProfilingRegistrationCountByStatus("Pending"),
+      prisma.$queryRaw<Array<{ sex: string; count: number }>>`
+        SELECT profile."sex"::text AS "sex", COUNT(*)::int AS "count"
+        FROM public."kk_profiles" AS profile
+        WHERE profile."isVerified" = TRUE
+        GROUP BY profile."sex"
+      `,
     ]);
 
   const scholarCountsBySitio = new Map(
@@ -109,6 +121,16 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
   const populationCountsBySitio = new Map(
     populationRows.map((row) => [row.sitio?.trim().toLowerCase() ?? "", row.population]),
   );
+  const genderDistribution = {
+    male: 0,
+    female: 0,
+    notSpecified: 0,
+  };
+  for (const row of genderRows) {
+    if (row.sex === "MALE") genderDistribution.male = row.count;
+    if (row.sex === "FEMALE") genderDistribution.female = row.count;
+    if (row.sex === "NOT_SPECIFIED") genderDistribution.notSpecified = row.count;
+  }
 
   return {
     totalRegisteredYouth,
@@ -117,6 +139,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     maxSlots,
     pendingApplications,
     pendingProfilingApplications,
+    genderDistribution,
     scholarDistribution: PICO_SITIOS.map((sitio) => ({
       sitio,
       scholars: scholarCountsBySitio.get(sitio.toLowerCase()) ?? 0,

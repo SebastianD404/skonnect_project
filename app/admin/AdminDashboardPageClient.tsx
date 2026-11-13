@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Check,
@@ -17,7 +18,9 @@ import DashboardHeaderWrapper from "./DashboardHeaderWrapper";
 import ScholarDistributionAnalytics, {
   type DashboardMetricCardData,
 } from "./ScholarDistributionAnalytics";
+import { GenderDistributionChart } from "./GenderDistributionChart";
 import type { ScholarDistributionAnalytics as ScholarAnalytics } from "@/lib/admin-scholar-analytics";
+import { parseApiJson } from "@/lib/parse-api-json";
 
 interface InquiryItem {
   id: string;
@@ -76,6 +79,7 @@ export default function AdminDashboardPageClient({
   pendingReviews,
 }: AdminDashboardPageClientProps) {
   const { searchQuery } = useAdminSearch();
+  const router = useRouter();
   const [overview, setOverview] = useState<DashboardOverview>({
     stats: {
       openInquiries: openInquiryCount,
@@ -129,10 +133,11 @@ export default function AdminDashboardPageClient({
 
   useEffect(() => {
     let disposed = false;
+    let authRedirected = false;
     let controller: AbortController | null = null;
 
     const refreshOverview = async () => {
-      if (disposed || document.visibilityState !== "visible" || requestInProgress.current) return;
+      if (disposed || authRedirected || document.visibilityState !== "visible" || requestInProgress.current) return;
       requestInProgress.current = true;
       controller = new AbortController();
 
@@ -141,11 +146,21 @@ export default function AdminDashboardPageClient({
           cache: "no-store",
           signal: controller.signal,
         });
-        const data = await response.json();
+        const responsePath = response.url ? new URL(response.url).pathname : "";
+        if (response.status === 401 || response.redirected || responsePath === "/login") {
+          authRedirected = true;
+          const next = `${window.location.pathname}${window.location.search}`;
+          router.replace(`/login?reason=session_expired&next=${encodeURIComponent(next)}`);
+          return;
+        }
+        const data = await parseApiJson<DashboardOverview & { error?: string }>(
+          response,
+          "/api/admin/dashboard-stats",
+        );
         if (!response.ok) {
           throw new Error(data?.error || "Unable to refresh the admin dashboard.");
         }
-        if (!disposed) setOverview(data as DashboardOverview);
+        if (!disposed) setOverview(data);
       } catch (error) {
         if (!disposed && !controller.signal.aborted) {
           console.error("Failed to refresh admin dashboard overview:", error);
@@ -172,7 +187,7 @@ export default function AdminDashboardPageClient({
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [router]);
 
   const filteredInquiries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -201,6 +216,7 @@ export default function AdminDashboardPageClient({
           analytics={overview.scholarAnalytics}
           metricCards={metricCards}
         />
+        <GenderDistributionChart data={overview.scholarAnalytics.genderDistribution} />
         <div className="flex items-center gap-4 py-2">
           <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">Action Center</span>
           <div className="h-px flex-1 rounded-full bg-slate-200/60" />

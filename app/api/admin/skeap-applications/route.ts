@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
           ...baseWhere,
           AND: [
             academicYearWhere,
-            skeapStatusWhere(["pending", "return", "resubm", "respond", "approve"]),
+            skeapStatusWhere(["pending", "pre_qualified", "return", "resubm", "respond", "approve"]),
             ...cursorWhere,
           ],
         },
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
       prisma.inquiry.count({
         where: {
           ...queueBaseWhere,
-          AND: [academicYearWhere, skeapStatusWhere(["pending"])],
+          AND: [academicYearWhere, skeapStatusWhere(["pending", "pre_qualified"])],
         },
       }),
       prisma.inquiry.count({

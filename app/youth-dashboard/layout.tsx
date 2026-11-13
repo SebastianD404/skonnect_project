@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import YouthDashboardHeader from "./YouthDashboardHeader";
-import YouthOnboardingGate from "./YouthOnboardingGate";
 
 const INACTIVE_GRANTEE_STATUSES = new Set<string>([
   GranteeStatus.GRADUATED,
@@ -47,12 +46,7 @@ export default async function YouthDashboardLayout({ children }: Readonly<{ chil
   }
 
   if (user.role === Role.YOUTH && user.kkStatus === "UNPROFILED") {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
-        <YouthDashboardHeader onboarding />
-        <YouthOnboardingGate />
-      </div>
-    );
+    redirect("/programs/kk-profiling");
   }
 
   return (

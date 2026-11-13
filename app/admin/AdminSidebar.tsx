@@ -8,6 +8,7 @@ import { AlertTriangle, Archive, BadgeCheck, Banknote, ClipboardList, Clock, Dat
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { Avatar } from "@/components/ui/Avatar";
+import { parseApiJson } from "@/lib/parse-api-json";
 
 type SessionUser = {
   fullName?: string | null;
@@ -148,12 +149,16 @@ export default function AdminSidebar({
           cache: "no-store",
           signal: controller.signal,
         });
-        if (response.status === 401) {
+        const responsePath = response.url ? new URL(response.url).pathname : "";
+        if (response.status === 401 || response.redirected || responsePath === "/login") {
           const next = `${window.location.pathname}${window.location.search}`;
           router.replace(`/login?reason=session_expired&next=${encodeURIComponent(next)}`);
           return;
         }
-        const data = await response.json();
+        const data = await parseApiJson<{ counts?: SidebarCounts; error?: string }>(
+          response,
+          "/api/admin/sidebar-counts",
+        );
         if (!response.ok) throw new Error(data?.error || "Unable to refresh sidebar counts.");
         if (
           mounted &&

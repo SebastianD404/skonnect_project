@@ -3,8 +3,8 @@ import * as XLSX from "xlsx";
 import { exportToExcel } from "@/lib/utils/export";
 
 describe("member Excel export", () => {
-  it("writes age as text so spreadsheet apps left-align it", () => {
-    const file = exportToExcel(
+  it("writes age as text so spreadsheet apps left-align it", async () => {
+    const file = await exportToExcel(
       [
         {
           fullName: "Jordan Member",
@@ -17,11 +17,11 @@ describe("member Excel export", () => {
       "members"
     );
 
-    const workbook = XLSX.read(file.body);
+    const workbook = XLSX.read(file.body, { type: "array" });
     const worksheet = workbook.Sheets.members;
 
-    expect(worksheet.D1.v).toBe("Age");
-    expect(worksheet.D2.v).toBe("22");
-    expect(worksheet.D2.t).toBe("s");
+    expect(worksheet.D5.v).toBe("Age");
+    expect(worksheet.D6.v).toBe("22");
+    expect(worksheet.D6.t).toBe("s");
   });
 });

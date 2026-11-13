@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Filter } from "lucide-react";
-import type { ReactNode } from "react";
+import { Filter, Loader2 } from "lucide-react";
+import { RegistryMembersCsvExportButton } from "./RegistryMembersCsvExportButton";
+import { useRegistryMembersSearchStatus } from "./RegistryMembersSearchStatus";
 
 const classificationOptions = [
   { label: "In School Youth", value: "In school Youth" },
@@ -17,18 +18,17 @@ type RegistryMembersFilterBarProps = {
   search: string;
   classification: string;
   skVoter: string;
-  exportMenu: ReactNode;
 };
 
 export function RegistryMembersFilterBar({
   search: initialSearch,
   classification: initialClassification,
   skVoter: initialSkVoter,
-  exportMenu,
 }: RegistryMembersFilterBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchStatus = useRegistryMembersSearchStatus();
   const [filters, setFilters] = useState({
     search: initialSearch,
     classification: initialClassification,
@@ -64,6 +64,24 @@ export function RegistryMembersFilterBar({
     },
     [],
   );
+
+  useEffect(() => {
+    if (
+      filters.search.trim() === initialSearch &&
+      filters.classification === initialClassification &&
+      filters.skVoter === initialSkVoter
+    ) {
+      searchStatus?.setIsSearching(false);
+    }
+  }, [
+    filters.classification,
+    filters.search,
+    filters.skVoter,
+    initialClassification,
+    initialSearch,
+    initialSkVoter,
+    searchStatus,
+  ]);
 
   useEffect(() => {
     if (!isPopoverOpen) return;
@@ -109,6 +127,11 @@ export function RegistryMembersFilterBar({
     }
     params.delete("skeapStatus");
     params.set("page", "1");
+    if (params.toString() === searchParams.toString()) {
+      searchStatus?.setIsSearching(false);
+      return;
+    }
+    searchStatus?.setIsSearching(true);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
@@ -141,21 +164,26 @@ export function RegistryMembersFilterBar({
 
   return (
     <div className="flex w-full flex-nowrap items-center gap-2 border-b border-slate-100 bg-slate-50/50 p-4 sm:gap-4">
-      <input
-        type="search"
-        value={filters.search}
-        onChange={(event) => {
-          const value = event.target.value;
-          const nextFilters = { ...filters, search: value };
-          setFilters(nextFilters);
-          if (searchTimeout.current) clearTimeout(searchTimeout.current);
-          searchTimeout.current = setTimeout(() => updateUrl(nextFilters), 300);
-        }}
-        placeholder="Search by name, email, or sitio..."
-        title="Search profiles by name, email, or address"
-        aria-label="Search profiles by name, email, or sitio"
-        className="h-9 min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 text-xs text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 sm:max-w-sm"
-      />
+      <label className="relative block min-w-0 flex-1 sm:max-w-sm">
+        <span className="sr-only">Search profiles by name, email, or sitio</span>
+        <input
+          type="search"
+          value={filters.search}
+          onChange={(event) => {
+            const value = event.target.value;
+            const nextFilters = { ...filters, search: value };
+            setFilters(nextFilters);
+            searchStatus?.setIsSearching(true);
+            if (searchTimeout.current) clearTimeout(searchTimeout.current);
+            searchTimeout.current = setTimeout(() => updateUrl(nextFilters), 300);
+          }}
+          placeholder="Search by name, email, or sitio..."
+          title="Search profiles by name, email, or address"
+          aria-label="Search profiles by name, email, or sitio"
+          aria-busy={searchStatus?.isSearching ?? false}
+          className="h-9 w-full rounded-full border border-slate-200 bg-white px-4 text-xs text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+        />
+      </label>
       <div className="relative shrink-0">
         <button
           ref={filterButtonRef}
@@ -222,8 +250,15 @@ export function RegistryMembersFilterBar({
           </div>
         ) : null}
       </div>
-      <div className="min-w-0 flex-1" />
-      {exportMenu}
+      <div className="min-w-0 flex-1">
+        {searchStatus?.isSearching ? (
+          <span role="status" aria-live="polite" className="flex items-center justify-end gap-1.5 whitespace-nowrap text-xs font-medium text-cyan-700">
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+            <span>Searching...</span>
+          </span>
+        ) : null}
+      </div>
+      <RegistryMembersCsvExportButton />
     </div>
   );
 }

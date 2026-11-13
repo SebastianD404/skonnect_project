@@ -1518,6 +1518,11 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
                   aria-hidden="true"
                 />
               </div>
+              {educationLevel === "Technical and Vocational (Tech-Voc)" ? (
+                <span className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Must be equivalent to at least one (1) semester or five (5) months.
+                </span>
+              ) : null}
             </label>
             {!isJuniorHighSchool ? (
               <EditableField

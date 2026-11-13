@@ -7,8 +7,8 @@ import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
 import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import { KKProfilingRegistrationsTable } from "../kk-profiling/KKProfilingRegistrationsTable";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
-import { MembersExportMenu } from "../members/MembersExportMenu";
 import { RegistryMembersFilterBar } from "./RegistryMembersFilterBar";
+import { RegistryMembersSearchStatusProvider } from "./RegistryMembersSearchStatus";
 
 const classificationFilters = [
   "In school Youth",
@@ -139,17 +139,22 @@ export default async function RegistryMembersPage({
     personWithDisabilityCount: 0,
     indigenousPeopleCount: 0,
   };
-  let totalCount = 0;
+  let filteredCount = 0;
+  let globalTotalCount = 0;
   let approvedClassificationCounts = defaultProfileCounts;
 
   if (hasRequiredProfileColumns) {
-    const [filteredCountRows, classificationRows] = await Promise.all([
+    const [filteredCountRows, globalCountRows, classificationRows] = await Promise.all([
       prisma.$queryRaw<Array<{ count: number }>>(
         Prisma.sql`${createUniqueProfileCte(cohort === "regular", true)}
           SELECT COUNT(*)::int AS count FROM filtered_profiles`
       ),
+      prisma.$queryRaw<Array<{ count: number }>>(
+        Prisma.sql`${createUniqueProfileCte(cohort === "regular")}
+          SELECT COUNT(*)::int AS count FROM filtered_profiles`
+      ),
       prisma.$queryRaw<Array<{ classification: string | null; count: number }>>(
-        Prisma.sql`${createUniqueProfileCte(cohort === "regular", true)}
+        Prisma.sql`${createUniqueProfileCte(cohort === "regular")}
           SELECT "youthClassification" AS classification, COUNT(*)::int AS count
           FROM filtered_profiles
           GROUP BY "youthClassification"`
@@ -160,7 +165,8 @@ export default async function RegistryMembersPage({
       const key = classification?.trim().toLowerCase() ?? "";
       countsByClassification.set(key, (countsByClassification.get(key) ?? 0) + count);
     }
-    totalCount = filteredCountRows[0]?.count ?? 0;
+    filteredCount = filteredCountRows[0]?.count ?? 0;
+    globalTotalCount = globalCountRows[0]?.count ?? 0;
     approvedClassificationCounts = {
       inSchoolYouthCount: countsByClassification.get("in school youth") ?? 0,
       outOfSchoolYouthCount: countsByClassification.get("out of school youth") ?? 0,
@@ -170,10 +176,10 @@ export default async function RegistryMembersPage({
     };
   }
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
   const currentPage = Math.min(page, totalPages);
   const skip = (currentPage - 1) * pageSize;
-  const pageKeys = hasRequiredProfileColumns && totalCount > 0
+  const pageKeys = hasRequiredProfileColumns && filteredCount > 0
     ? await prisma.$queryRaw<Array<{ id: string }>>(
         Prisma.sql`${createUniqueProfileCte(cohort === "regular", true)}
           SELECT "id"
@@ -286,7 +292,7 @@ export default async function RegistryMembersPage({
               <Users aria-hidden="true" className="h-5 w-5 text-cyan-200" />
             </div>
             <p className="relative mt-3 text-3xl font-black tracking-tight sm:text-4xl">
-              {totalCount.toLocaleString()}
+              {globalTotalCount.toLocaleString()}
             </p>
             <p className="relative mt-1 text-xs text-slate-300">
               {cohort === "all" ? "All approved profiles" : "Without an active SKEAP grant"}
@@ -297,7 +303,7 @@ export default async function RegistryMembersPage({
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-sm font-bold text-slate-900">Classification Breakdown</h2>
               <p className="text-xs text-slate-500">
-                {classificationBreakdown.reduce((sum, item) => sum + item.value, 0).toLocaleString()} of {totalCount.toLocaleString()} youth
+                {classificationBreakdown.reduce((sum, item) => sum + item.value, 0).toLocaleString()} of {globalTotalCount.toLocaleString()} youth
               </p>
             </div>
             <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
@@ -309,12 +315,12 @@ export default async function RegistryMembersPage({
                     role="progressbar"
                     aria-label={`${label} share of youth`}
                     aria-valuemin={0}
-                    aria-valuemax={totalCount}
+                    aria-valuemax={globalTotalCount}
                     aria-valuenow={value}
                   >
                     <div
                       className={`h-full rounded-full ${color}`}
-                      style={{ width: totalCount > 0 ? `${(value / totalCount) * 100}%` : "0%" }}
+                      style={{ width: globalTotalCount > 0 ? `${(value / globalTotalCount) * 100}%` : "0%" }}
                     />
                   </div>
                   <span className="w-10 shrink-0 text-right text-xs font-bold tabular-nums text-slate-900">
@@ -328,27 +334,28 @@ export default async function RegistryMembersPage({
 
         <section className="relative z-10 mt-4 flex w-full flex-col overflow-visible rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="w-full overflow-visible">
-            <KKProfilingRegistrationsTable
-              registrations={membersForTable}
-              statusLabel="Approved"
-              flat
-              fitContainer
-              archiveAction
-              showMemberRoleColumn
-              controlBar={cohort === "all" ? (
-                <RegistryMembersFilterBar
-                  key="registry-members-filter-bar"
-                  search={profileSearch}
-                  classification={classificationFilter}
-                  skVoter={skVoterFilter}
-                  exportMenu={<MembersExportMenu key="members-export-menu" />}
-                />
-              ) : undefined}
-            />
+            <RegistryMembersSearchStatusProvider>
+              <KKProfilingRegistrationsTable
+                registrations={membersForTable}
+                statusLabel="Approved"
+                flat
+                fitContainer
+                archiveAction
+                showMemberRoleColumn
+                controlBar={cohort === "all" ? (
+                  <RegistryMembersFilterBar
+                    key="registry-members-filter-bar"
+                    search={profileSearch}
+                    classification={classificationFilter}
+                    skVoter={skVoterFilter}
+                  />
+                ) : undefined}
+              />
+            </RegistryMembersSearchStatusProvider>
           </div>
 
           <AdminTablePaginationFooter
-            totalCount={totalCount}
+            totalCount={filteredCount}
             page={currentPage}
             pageSize={pageSize}
             basePath={cohort === "all" ? "/admin/registry/masterlist" : "/admin/registry/regular"}

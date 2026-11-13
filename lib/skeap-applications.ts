@@ -84,6 +84,7 @@ export const SKEAP_APPLICATION_SELECT = {
       contactNumber: true,
       emailAddress: true,
       photoFileUrl: true,
+      physicalDocumentsConfirmed: true,
       uploadedFiles: true,
     },
   },
@@ -272,6 +273,7 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
     const returnedMatcher = /returned|correction|required|revise|revision/i;
 
     if (inquiry.reviewStatus) {
+      if (/pre.?qual/i.test(inquiry.reviewStatus)) return "Pre-qualified";
       if (resubmittedMatcher.test(inquiry.reviewStatus)) return "Resubmitted";
       if (returnedMatcher.test(inquiry.reviewStatus)) return "Returned";
       if (/approve|approved/i.test(inquiry.reviewStatus)) return "Approved";
@@ -351,6 +353,7 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
           contactNumber: inquiry.user?.phoneNumber || inquiry.application.contactNumber || undefined,
           emailAddress: inquiry.user?.email || inquiry.application.emailAddress || undefined,
           photoFileUrl: inquiry.application.photoFileUrl || undefined,
+          physicalDocumentsConfirmed: inquiry.application.physicalDocumentsConfirmed,
           uploadedFiles: inquiry.application.uploadedFiles ?? undefined,
         }
       : undefined,

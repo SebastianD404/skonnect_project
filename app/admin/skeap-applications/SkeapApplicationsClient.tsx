@@ -28,7 +28,7 @@ interface DocumentItem {
   fileName?: string;
   updated?: boolean;
   verificationStatus?: "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
-  status?: "Pending" | "Returned" | "Verified" | string;
+  status?: "Pending" | "Returned" | "Pre-screened" | string;
 }
 
 interface ApplicationMessage {
@@ -101,6 +101,7 @@ interface ApplicationRecord {
     mothersContact?: string;
     contactNumber?: string;
     emailAddress?: string;
+    physicalDocumentsConfirmed?: boolean;
     photoFileUrl?: string;
   };
   messages: ApplicationMessage[];
@@ -141,7 +142,7 @@ function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onC
 }
 
 function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMessage[]) {
-  if (doc.verified) return "Verified";
+  if (doc.verified) return "Pre-screened";
   if (doc.status === "Returned") return "Returned";
 
   const flaggedAttachment = reviewThread
@@ -165,6 +166,7 @@ function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMes
 
 function normalizeApplicationStatus(status: string) {
   const normalized = (status || "").trim().toLowerCase();
+  if (/pre.?qual/.test(normalized)) return "Pre-qualified";
   if (/waitlist/.test(normalized)) return "Waitlisted";
   if (/resubm|resubmit|resubmitted/.test(normalized)) return "Resubmitted";
   if (/returned|correction|required|revise|revision/.test(normalized)) return "Returned";
@@ -391,9 +393,8 @@ export default function SkeapApplicationsClient({
   const activityMessagesContainerRef = useRef<HTMLDivElement | null>(null);
   const activityMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const [showApprovePreview, setShowApprovePreview] = useState(false);
-  const [approvalCapacityFull, setApprovalCapacityFull] = useState<boolean | null>(null);
-  const [isLoadingApprovalPreview, setIsLoadingApprovalPreview] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [isPrequalifying, setIsPrequalifying] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [showApprovalWarning, setShowApprovalWarning] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -418,7 +419,7 @@ export default function SkeapApplicationsClient({
   const displayedApplications = useMemo(
     () => applications.filter((app) => {
       const status = normalizeApplicationStatus(app.status);
-      if (viewFilter === "pending") return status === "Pending Review";
+      if (viewFilter === "pending") return status === "Pending Review" || status === "Pre-qualified";
       if (viewFilter === "resubmitted") return status === "Resubmitted";
       if (viewFilter === "returned") return status === "Returned";
       if (viewFilter === "approved") return status === "Approved";
@@ -495,12 +496,18 @@ export default function SkeapApplicationsClient({
   const selectedStatus = normalizeApplicationStatus(selectedApplication?.status ?? "");
   const isApproved = selectedStatus === "Approved";
   const isWaitlisted = selectedStatus === "Waitlisted";
+  const isPreQualified = selectedStatus === "Pre-qualified";
   const isReviewFinalized = isApproved || isWaitlisted;
-  const canReturnForEdits = !isReviewFinalized && selectedStatus !== "Returned" && selectedStatus !== "Rejected" && selectedStatus !== "Ineligible";
+  const canReturnForEdits =
+    !isReviewFinalized &&
+    !isPreQualified &&
+    selectedStatus !== "Returned" &&
+    selectedStatus !== "Rejected" &&
+    selectedStatus !== "Ineligible";
 
   const queueTitle =
     viewFilter === "pending"
-      ? "Pending Review"
+      ? "Pending & Physical Verification"
       : viewFilter === "resubmitted"
       ? "Resubmitted Applications"
       : viewFilter === "approved"
@@ -508,7 +515,7 @@ export default function SkeapApplicationsClient({
       : "Returned Applications";
   const activeFilterName =
     viewFilter === "pending"
-      ? "Pending Review"
+      ? "Pending & Physical Verification"
       : viewFilter === "resubmitted"
       ? "Resubmitted Applications"
       : viewFilter === "returned"
@@ -533,7 +540,10 @@ export default function SkeapApplicationsClient({
 
   const stats = useMemo(() => {
     const derived = {
-      pending: applications.filter((app) => normalizeApplicationStatus(app.status) === "Pending Review").length,
+      pending: applications.filter((app) => {
+        const status = normalizeApplicationStatus(app.status);
+        return status === "Pending Review" || status === "Pre-qualified";
+      }).length,
       returned: applications.filter((app) => normalizeApplicationStatus(app.status) === "Returned").length,
       resubmitted: applications.filter((app) => normalizeApplicationStatus(app.status) === "Resubmitted").length,
       approved: applications.filter((app) => normalizeApplicationStatus(app.status) === "Approved").length,
@@ -1020,13 +1030,19 @@ export default function SkeapApplicationsClient({
     setActiveReviewFile(reviewKey);
   }
 
-  async function saveReviewUpdate(action: "message" | "approve" | "return", text: string, attachments: AttachedFileNote[]) {
+  async function saveReviewUpdate(
+    action: "message" | "approve" | "prequalify" | "return",
+    text: string,
+    attachments: AttachedFileNote[],
+    physicalDocumentsConfirmed = false,
+  ) {
     if (!selectedApplication) return;
 
     const payload = {
       action,
       text,
       attachments: attachments.length > 0 ? attachments : undefined,
+      ...(physicalDocumentsConfirmed ? { physicalDocumentsConfirmed: true } : {}),
     } as const;
 
     const response = await fetch(`/api/inquiries/${selectedApplication.id}`, {
@@ -1136,54 +1152,62 @@ export default function SkeapApplicationsClient({
     }
   }
 
-  function handleApproveClick() {
-    if (isReviewFinalized) return;
+  async function handlePrequalify() {
+    if (!selectedApplication || isReviewFinalized || isPrequalifying || isPreQualified) return;
     if (!isFullyVerified) {
       setShowApprovalWarning(true);
       return;
     }
+
     setApprovalError(null);
-    setApprovalCapacityFull(null);
-    setIsLoadingApprovalPreview(true);
-    void fetch("/api/programs/skeap-scholarship/status", { cache: "no-store" })
-      .then(async (response) => {
-        const result: unknown = await response.json();
-        if (
-          !response.ok ||
-          typeof result !== "object" ||
-          result === null ||
-          !("remainingSlots" in result) ||
-          typeof result.remainingSlots !== "number"
-        ) {
-          const errorMessage =
-            typeof result === "object" && result !== null && "error" in result && typeof result.error === "string"
-              ? result.error
-              : "Unable to check SKEAP slot availability.";
-          throw new Error(errorMessage);
-        }
-        setApprovalCapacityFull(result.remainingSlots <= 0);
-        setShowApprovePreview(true);
-      })
-      .catch((error: unknown) => {
-        setApprovalError(error instanceof Error ? error.message : "Unable to check SKEAP slot availability.");
-      })
-      .finally(() => setIsLoadingApprovalPreview(false));
+    setIsPrequalifying(true);
+    try {
+      const prequalificationText =
+        "Your online documents have been pre-screened. Please present the originals or Certified True Copies of all uploaded documents at Barangay Pico Hall for physical verification.";
+      const result = await saveReviewUpdate("prequalify", prequalificationText, []);
+      const updatedApplication: ApplicationRecord = {
+        ...selectedApplication,
+        status: result?.reviewStatus ?? "Pre-qualified",
+        messages: result?.reviewThread ?? selectedApplication.messages,
+      };
+      updateSelectedApplication(() => updatedApplication);
+      router.refresh();
+      await handleRefresh(selectedAcademicYear, {
+        refreshServerData: false,
+        preserveApplication: updatedApplication,
+      });
+    } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : "Unable to pre-qualify application.");
+      console.error(error);
+    } finally {
+      setIsPrequalifying(false);
+    }
+  }
+
+  function handleConfirmPhysicalDocumentsClick() {
+    if (!selectedApplication || !isPreQualified || isReviewFinalized) return;
+    setApprovalError(null);
+    setShowApprovePreview(true);
   }
 
   async function handleApprove() {
-    if (!selectedApplication || isReviewFinalized || isApproving) return;
+    if (!selectedApplication || !isPreQualified || isReviewFinalized || isApproving) return;
 
     setIsApproving(true);
     setApprovalError(null);
     try {
-      const approvalText = "Application reviewed for approval.";
-      const result = await saveReviewUpdate("approve", approvalText, []);
+      const approvalText = "The applicant presented authentic physical documents. Application approved.";
+      const result = await saveReviewUpdate("approve", approvalText, [], true);
       router.refresh();
       const reviewThread = result?.reviewThread;
       const resultingStatus = result?.reviewStatus ?? "Approved";
       const updatedApplication: ApplicationRecord = {
         ...selectedApplication,
         status: resultingStatus,
+        application: {
+          ...selectedApplication.application,
+          physicalDocumentsConfirmed: true,
+        },
         messages: reviewThread ?? [
           {
             id: `msg-${Date.now()}`,
@@ -1388,6 +1412,8 @@ export default function SkeapApplicationsClient({
                           <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${
                             normalizeApplicationStatus(application.status) === "Approved"
                               ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : normalizeApplicationStatus(application.status) === "Pre-qualified"
+                              ? "border-sky-200 bg-sky-50 text-sky-700"
                               : normalizeApplicationStatus(application.status) === "Returned"
                               ? "border-amber-200 bg-amber-50 text-amber-700"
                               : normalizeApplicationStatus(application.status) === "Resubmitted"
@@ -1574,8 +1600,8 @@ export default function SkeapApplicationsClient({
                           <span className="text-sm font-semibold text-slate-900">{formatDate(selectedApplication.submittedAt)}</span>
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Verified docs</span>
-                          <span className="text-sm font-semibold text-slate-900">{isReviewFinalized ? "5/5" : `${verifiedCount}/${verifyDocumentCount}`}</span>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pre-screened docs</span>
+                          <span className="text-sm font-semibold text-slate-900">{verifiedCount}/{verifyDocumentCount}</span>
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5 bg-white p-4 md:p-5">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Education / Course / Year</span>
@@ -1617,7 +1643,41 @@ export default function SkeapApplicationsClient({
                       </div>
                     </section>
 
-                    {isApproved ? (
+                    {isPreQualified ? (
+                      <div className="rounded-xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 shrink-0">
+                            <Clock className="h-5 w-5 text-sky-700" />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <h4 className="text-sm font-bold text-slate-900">Online pre-screen complete</h4>
+                            <p className="text-sm leading-relaxed text-slate-600">
+                              Final approval requires the applicant to present the original or Certified True Copies of all uploaded documents at Barangay Pico Hall.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={handleConfirmPhysicalDocumentsClick}
+                              disabled={isApproving}
+                              className="mt-2 inline-flex items-center justify-center gap-2 self-start rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-sky-800 disabled:cursor-wait disabled:opacity-70"
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              Confirm Physical Documents
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRejectError(null);
+                                setShowRejectModal(true);
+                              }}
+                              className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-50"
+                            >
+                              Reject Application
+                            </button>
+                            {approvalError ? <p role="alert" className="text-sm text-rose-600">{approvalError}</p> : null}
+                          </div>
+                        </div>
+                      </div>
+                    ) : isApproved ? (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
                         <div className="flex items-start gap-3">
                           <div className="mt-0.5 shrink-0">
@@ -1628,7 +1688,9 @@ export default function SkeapApplicationsClient({
                               Application Approved &amp; Onboarded
                             </h4>
                             <p className="text-sm leading-relaxed text-slate-600">
-                              All mandatory documents have been verified. This applicant&apos;s review cycle is complete and they have been successfully provisioned as an active Grantee.
+                              {selectedApplication.application?.physicalDocumentsConfirmed
+                                ? "The applicant presented authentic physical documents. Their application is approved and they have been provisioned as an active Grantee."
+                                : "This application was approved before physical-document confirmation was recorded. The current record does not confirm whether the applicant presented Certified True Copies."}
                             </p>
                             <div className="mt-2">
                               <Link
@@ -1651,7 +1713,9 @@ export default function SkeapApplicationsClient({
                           <div className="flex flex-col gap-1.5">
                             <h4 className="text-sm font-bold text-slate-900">Application Waitlisted</h4>
                             <p className="text-sm leading-relaxed text-slate-600">
-                              All mandatory documents have been verified, but no active scholarship slots were available. This applicant is in the SKEAP waitlist and can be promoted when capacity opens.
+                              {selectedApplication.application?.physicalDocumentsConfirmed
+                                ? "The applicant presented authentic physical documents, but no active scholarship slot was available. Their confirmed application can be promoted when capacity opens."
+                                : "No active scholarship slot was available. When capacity opens, this applicant must complete online pre-screening and physical document verification before final approval."}
                             </p>
                             <div className="mt-2">
                               <Link
@@ -1669,12 +1733,18 @@ export default function SkeapApplicationsClient({
                       <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-6">
                         <button
                           type="button"
-                          onClick={handleApproveClick}
-                          disabled={isLoadingApprovalPreview}
-                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-70"
+                          onClick={isPreQualified ? handleConfirmPhysicalDocumentsClick : () => void handlePrequalify()}
+                          disabled={isPrequalifying || (isPreQualified && isApproving)}
+                          className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors disabled:cursor-wait disabled:opacity-70 ${
+                            isPreQualified ? "bg-sky-700 hover:bg-sky-800" : "bg-emerald-600 hover:bg-emerald-700"
+                          }`}
                         >
                           <CheckCircle2 className="h-4 w-4" />
-                          {isLoadingApprovalPreview ? "Checking availability..." : <span>Approve<span className="hidden sm:inline"> Application</span></span>}
+                          {isPrequalifying
+                            ? "Pre-screening..."
+                            : isPreQualified
+                              ? "Confirm Physical Documents"
+                              : "Pre-qualify Application"}
                         </button>
                         {approvalError ? <p role="alert" className="text-sm text-rose-600">{approvalError}</p> : null}
                         <div className={`grid w-full gap-3 ${canReturnForEdits ? "grid-cols-2" : "grid-cols-1"}`}>
@@ -1713,7 +1783,7 @@ export default function SkeapApplicationsClient({
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Files</p>
-                          <h2 className="mt-1 text-xl font-semibold text-slate-950">Documents to verify</h2>
+                          <h2 className="mt-1 text-xl font-semibold text-slate-950">Online documents to pre-screen</h2>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
@@ -1727,19 +1797,31 @@ export default function SkeapApplicationsClient({
                           {visibleVerifyDocuments.map((doc) => {
                             const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
                             const isResubmittedDoc = doc.updated || (selectedStatus === "Resubmitted" && docStatus === "Returned");
-                            const badgeClass = isReviewFinalized || doc.verified
+                            const badgeClass = isApproved && selectedApplication.application?.physicalDocumentsConfirmed
                               ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : isApproved
+                              ? "border border-amber-200 bg-amber-50 text-amber-700"
+                              : doc.verified
+                              ? "border border-sky-200 bg-sky-50 text-sky-700"
                               : isResubmittedDoc
                               ? "bg-sky-50 text-sky-700 border border-sky-200"
                               : docStatus === "Returned"
                               ? "bg-red-50 text-red-600 border border-red-100"
                               : "bg-slate-100 text-slate-600 border border-slate-200";
-                            const statusText = isReviewFinalized || doc.verified ? "Verified" : isResubmittedDoc ? "Pending" : docStatus;
+                            const statusText = isApproved
+                              ? selectedApplication.application?.physicalDocumentsConfirmed
+                                ? "Physical copies confirmed"
+                                : "Prior approval; physical status unrecorded"
+                              : doc.verified
+                                ? "Pre-screened"
+                                : isResubmittedDoc
+                                  ? "Pending"
+                                  : docStatus;
                             const needsManualReview = selectedApplication?.uploadGroups?.some(
                               (group) => group.key === doc.id && group.manualReview
                             ) ?? false;
                             const ocrStatusLabel = doc.verificationStatus === "AUTO_VERIFIED"
-                              ? "OCR auto-verified"
+                              ? "OCR pre-screen passed"
                               : doc.verificationStatus === "PENDING_ADMIN_REVIEW"
                                 ? "OCR pending review"
                                 : null;
@@ -2155,7 +2237,7 @@ export default function SkeapApplicationsClient({
                             <CheckCircle2 className="h-3 w-3 stroke-[2.5]" />
                           )}
                         </span>
-                        <span>{activeReviewVerified ? "Mark as unverified" : "Mark as verified"}</span>
+                        <span>{activeReviewVerified ? "Remove pre-screen mark" : "Mark as pre-screened"}</span>
                       </button>
                       {reviewModalError ? (
                         <p role="alert" className="text-xs text-red-600">{reviewModalError}</p>
@@ -2301,11 +2383,11 @@ export default function SkeapApplicationsClient({
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Action blocked</p>
-                  <h3 className="mt-2 text-xl font-semibold text-slate-950">Approval temporarily disabled</h3>
+                  <h3 className="mt-2 text-xl font-semibold text-slate-950">Pre-qualification temporarily disabled</h3>
                 </div>
               </div>
               <p className="mt-4 text-sm leading-6 text-slate-600">
-                Some documents are still pending verification. Review the current files and mark them <span className="font-semibold text-slate-950">Verified</span> before returning to approve the application.
+                Some required online documents have not been pre-screened. Review the current files and mark each required document <span className="font-semibold text-slate-950">Pre-screened</span> before pre-qualifying the application.
               </p>
             </div>
             <div className="border-t border-slate-200 px-6 py-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -2331,39 +2413,41 @@ export default function SkeapApplicationsClient({
         </div>
       ) : null}
 
-      {showApprovePreview && selectedApplication && !isReviewFinalized ? (
+      {showApprovePreview && selectedApplication && isPreQualified && !isReviewFinalized ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="absolute inset-x-0 top-0 h-[6px] bg-gradient-to-r from-emerald-600 via-emerald-300 to-emerald-100" aria-hidden="true" />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="physical-documents-confirmation-title"
+            className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <div className="absolute inset-x-0 top-0 h-[6px] bg-gradient-to-r from-sky-700 via-sky-400 to-sky-100" aria-hidden="true" />
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-                  <CheckCircle className="h-6 w-6" />
+                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700">
+                  <AlertTriangle className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-[0.35em] text-emerald-500">Approval preview</p>
-                  <h2 className="mt-1 text-3xl font-bold text-slate-950">Approve this applicant</h2>
+                  <p className="text-xs uppercase tracking-[0.35em] text-sky-700">Physical verification</p>
+                  <h2 id="physical-documents-confirmation-title" className="mt-1 text-2xl font-bold text-slate-950">Confirm physical documents</h2>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowApprovePreview(false)}
                 className="p-2 text-slate-400 transition hover:text-slate-600"
-                aria-label="Close approval preview"
+                aria-label="Close physical document confirmation"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-8 rounded-xl border border-emerald-200 bg-emerald-50/50 p-6 text-slate-900">
-              <div className="flex items-center gap-3 text-sm font-semibold text-emerald-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-700" aria-hidden="true" />
-                {approvalCapacityFull ? "Waitlist Assignment Preview" : "Active Acceptance Preview"}
-              </div>
-              <p className="mt-4 leading-7">
-                {approvalCapacityFull
-                  ? `Dear ${selectedApplication.applicantName || "Applicant"}, SKEAP scholarship capacity is currently full. Your application will be placed on the scholarship waitlist, and you will be contacted if a slot becomes available.`
-                  : `Dear ${selectedApplication.applicantName || "Applicant"}, your SKEAP application has been successfully approved! You have been granted an active scholarship slot for Barangay Pico. Please check your portal for next steps.`}
+            <div className="mt-8 rounded-xl border border-sky-200 bg-sky-50/50 p-6 text-slate-900">
+              <p className="leading-7">
+                Has the applicant presented the authentic physical copies of their documents?
+              </p>
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                Confirming records the physical verification and approves the application if a SKEAP slot is available. If capacity is full, the application will remain waitlisted with physical documents confirmed.
               </p>
             </div>
             {approvalError ? <p role="alert" className="mt-4 text-sm text-rose-600">{approvalError}</p> : null}
@@ -2380,9 +2464,9 @@ export default function SkeapApplicationsClient({
                 type="button"
                 onClick={handleApprove}
                 disabled={isApproving}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition transform hover:bg-emerald-700 hover:shadow-md active:scale-95 active:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:cursor-wait disabled:opacity-70"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-700 px-4 py-3 text-sm font-semibold text-white transition transform hover:bg-sky-800 hover:shadow-md active:scale-95 active:bg-sky-900 focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:cursor-wait disabled:opacity-70"
               >
-                {isApproving ? "Confirming..." : "Confirm approval"}
+                {isApproving ? "Confirming..." : "Confirm Physical Documents"}
                 <ArrowRight className="h-4 w-4" />
               </button>
             </div>

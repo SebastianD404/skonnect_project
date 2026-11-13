@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma, Role } from "@prisma/client";
+import { Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { logAuditEvent, writeAuditLog } from "@/lib/audit/logger";
 import { ensureThreadMessage } from "@/lib/inquiries/thread";
-import { normalizeUploadedFiles } from "@/lib/skeap-upload";
+import { areRequiredSkeapDocumentsPreScreened, normalizeUploadedFiles } from "@/lib/skeap-upload";
 import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -95,6 +95,7 @@ export async function PATCH(
     const body = await request.json();
     const action = String(body.action ?? "").trim();
     const text = String(body.text ?? "").trim();
+    const physicalDocumentsConfirmed = body.physicalDocumentsConfirmed === true;
     const attachments = Array.isArray(body.attachments)
       ? body.attachments.filter(isValidAttachedFileNote)
       : [];
@@ -103,7 +104,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Missing inquiry id" }, { status: 400 });
     }
 
-    if (action !== "message" && action !== "reply" && action !== "resolve" && action !== "reopen" && action !== "approve" && action !== "return") {
+    if (action !== "message" && action !== "reply" && action !== "resolve" && action !== "reopen" && action !== "approve" && action !== "prequalify" && action !== "return") {
       return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
     }
 
@@ -112,6 +113,9 @@ export async function PATCH(
     }
     if (action === "return" && !text) {
       return NextResponse.json({ error: "Required corrections are needed to return this application" }, { status: 400 });
+    }
+    if (action === "approve" && !physicalDocumentsConfirmed) {
+      return NextResponse.json({ error: "Physical document confirmation is required before approval." }, { status: 400 });
     }
 
     const inquiry = await prisma.inquiry.findUnique({
@@ -137,7 +141,11 @@ export async function PATCH(
       id: `admin-${Date.now()}`,
       role: "admin",
       createdAt: new Date().toISOString(),
-      text: action === "approve" && !text ? "Application approved. We will move this applicant to the next step." : text,
+      text: action === "approve" && !text
+        ? "Physical documents confirmed. Application approved."
+        : action === "prequalify" && !text
+          ? "Your online documents have been pre-screened. Please present the originals or Certified True Copies at Barangay Pico Hall for physical verification."
+          : text,
       action: action === "return" ? "return" : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
     };
@@ -186,6 +194,14 @@ export async function PATCH(
       updateData.lastUpdatedBy = "admin";
     }
 
+    if (action === "prequalify") {
+      updateData.reviewStatus = "PRE_QUALIFIED";
+      updateData.response = message.text;
+      updateData.respondedAt = new Date();
+      updateData.isResolved = false;
+      updateData.lastUpdatedBy = "admin";
+    }
+
     const updatedInquiry = await prisma.$transaction(async (tx) => {
       let maxSlots: number | null = null;
       if (action === "approve") {
@@ -227,6 +243,33 @@ export async function PATCH(
         ) {
           throw new Error("This application is no longer eligible to be returned for edits.");
         }
+      }
+
+      if (action === "prequalify") {
+        const currentReviewStatus = String(currentInquiry?.reviewStatus || "").toLowerCase();
+        const currentApplicationStatus = currentInquiry?.application?.status;
+        if (
+          !currentInquiry?.application?.id ||
+          !(/pending|resubmitted|resubmit/.test(currentReviewStatus)) ||
+          (currentApplicationStatus !== SubmissionStatus.PENDING &&
+            currentApplicationStatus !== SubmissionStatus.RETURNED_FOR_EDIT)
+        ) {
+          throw new Error("This application is no longer eligible for pre-qualification.");
+        }
+
+        if (!areRequiredSkeapDocumentsPreScreened(currentInquiry.application.uploadedFiles)) {
+          throw new Error("All required online documents must be pre-screened before pre-qualification.");
+        }
+      }
+
+      if (action === "approve" && currentInquiry?.application?.status !== SubmissionStatus.PRE_QUALIFIED) {
+        throw new Error("Only pre-qualified applications can be approved.");
+      }
+      if (
+        action === "approve" &&
+        !areRequiredSkeapDocumentsPreScreened(currentInquiry?.application?.uploadedFiles)
+      ) {
+        throw new Error("All required online documents must be pre-screened before pre-qualification.");
       }
 
       if (action === "approve" && currentInquiry?.application?.user.grantee?.status === "GRADUATED") {
@@ -294,6 +337,16 @@ export async function PATCH(
         },
       });
 
+      if (action === "prequalify" && currentInquiry?.application?.id) {
+        await tx.skeapApplication.update({
+          where: { id: currentInquiry.application.id },
+          data: {
+            status: SubmissionStatus.PRE_QUALIFIED,
+            physicalDocumentsConfirmed: false,
+          },
+        });
+      }
+
       if (action === "return" && currentInquiry?.application?.id) {
         const uploadedFiles = normalizeUploadedFiles(currentInquiry.application.uploadedFiles);
         await tx.skeapApplication.update({
@@ -346,6 +399,7 @@ export async function PATCH(
             data: {
               status: approvalStatus,
               waitlistPosition: approvalStatus === "WAITLISTED" ? waitlistPosition : null,
+              physicalDocumentsConfirmed,
             },
           });
         }
@@ -419,18 +473,37 @@ export async function PATCH(
           resultingStatus: updatedInquiry.reviewStatus ?? "Approved",
         },
       });
+    } else if (action === "prequalify") {
+      logAuditEvent({
+        actorId: appUser.id,
+        actorEmail: appUser.email,
+        action: "APPLICATION_PRE_QUALIFIED",
+        resource: "inquiries",
+        resourceId: id,
+        metadata: {
+          applicantId: inquiry.userId,
+          target: inquiry.application?.applicantName || inquiry.userId,
+          resultingStatus: "PRE_QUALIFIED",
+        },
+      });
     }
 
     revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin");
     revalidatePath("/admin/inquiries");
     revalidatePath(`/applications/${id}`);
-    if (action === "approve" && updatedInquiry.reviewStatus === "Approved") {
+    if (action === "approve") {
       revalidatePath("/applications");
       revalidatePath("/youth-dashboard");
-      revalidatePath("/grantee-dashboard");
-      revalidatePath("/admin/members");
-      revalidatePath("/admin/kk-profiling");
+      if (updatedInquiry.reviewStatus === "Approved") {
+        revalidatePath("/grantee-dashboard");
+        revalidatePath("/admin/members");
+        revalidatePath("/admin/kk-profiling");
+      }
+    }
+    if (action === "prequalify") {
+      revalidatePath("/applications");
+      revalidatePath("/youth-dashboard");
     }
 
     return NextResponse.json({
@@ -454,6 +527,13 @@ export async function PATCH(
       );
     }
     if (message === "This application is no longer eligible to be returned for edits.") {
+      return NextResponse.json({ error: message }, { status: 409 });
+    }
+    if (
+      message === "This application is no longer eligible for pre-qualification." ||
+      message === "All required online documents must be pre-screened before pre-qualification." ||
+      message === "Only pre-qualified applications can be approved."
+    ) {
       return NextResponse.json({ error: message }, { status: 409 });
     }
     if (

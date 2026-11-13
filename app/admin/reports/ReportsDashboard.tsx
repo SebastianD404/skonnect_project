@@ -10,6 +10,7 @@ import {
   FileCheck,
   GraduationCap,
   History,
+  LoaderCircle,
   SlidersHorizontal,
   UsersRound,
   UserX,
@@ -62,22 +63,30 @@ const REPORT_ICONS = {
 
 export default function ReportsDashboard({ sections }: { sections: ReportSection[] }) {
   const [selectedReport, setSelectedReport] = useState<ReportCard | null>(null);
-  const [exportingReport, setExportingReport] = useState<string | null>(null);
-  const [exportError, setExportError] = useState<{ title: string; message: string } | null>(null);
+  const [exportingReports, setExportingReports] = useState<Set<string>>(() => new Set());
+  const [exportErrors, setExportErrors] = useState<Record<string, string>>({});
   const advancedButtonRef = useRef<HTMLButtonElement>(null);
 
   const quickExport = async (report: ReportCard) => {
-    setExportingReport(report.title);
-    setExportError(null);
+    setExportingReports((current) => new Set(current).add(report.title));
+    setExportErrors((current) => {
+      const next = { ...current };
+      delete next[report.title];
+      return next;
+    });
     try {
       await downloadReport({ href: report.href, title: report.title });
     } catch (error) {
-      setExportError({
-        title: report.title,
-        message: error instanceof Error ? error.message : "Unable to generate this report.",
-      });
+      setExportErrors((current) => ({
+        ...current,
+        [report.title]: error instanceof Error ? error.message : "Unable to generate this report.",
+      }));
     } finally {
-      setExportingReport(null);
+      setExportingReports((current) => {
+        const next = new Set(current);
+        next.delete(report.title);
+        return next;
+      });
     }
   };
 
@@ -112,14 +121,19 @@ export default function ReportsDashboard({ sections }: { sections: ReportSection
                     <button
                       type="button"
                       onClick={() => void quickExport(report)}
-                      disabled={exportingReport !== null}
+                      disabled={exportingReports.has(report.title)}
                       className={`inline-flex min-w-0 flex-1 items-center justify-center gap-2 ${
                         report.reportType === "STATIC" ? "rounded-xl" : "rounded-l-xl"
                       } bg-[#0F3D5C] px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60`}
+                      aria-live="polite"
                     >
-                      <Download aria-hidden="true" className="h-4 w-4 shrink-0" />
+                      {exportingReports.has(report.title) ? (
+                        <LoaderCircle aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <Download aria-hidden="true" className="h-4 w-4 shrink-0" />
+                      )}
                       <span className="truncate">
-                        {exportingReport === report.title ? "Exporting..." : "Quick Export (.xlsx)"}
+                        {exportingReports.has(report.title) ? "Preparing..." : "Quick Export (.xlsx)"}
                       </span>
                     </button>
                     {report.reportType !== "STATIC" ? (
@@ -138,8 +152,8 @@ export default function ReportsDashboard({ sections }: { sections: ReportSection
                       </button>
                     ) : null}
                   </div>
-                  {exportError?.title === report.title ? (
-                    <p role="alert" className="mt-2 text-xs text-rose-700">{exportError.message}</p>
+                  {exportErrors[report.title] ? (
+                    <p role="alert" className="mt-2 text-xs text-rose-700">{exportErrors[report.title]}</p>
                   ) : null}
                 </article>
               );

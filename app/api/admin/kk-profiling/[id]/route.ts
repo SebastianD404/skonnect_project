@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { formatSexLabel, parseSex } from "@/lib/sex";
+import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 
 async function authorizeUser() {
   const supabase = await createClient();
@@ -87,6 +89,10 @@ export async function PUT(
     if (email !== undefined && !email?.trim()) {
       return NextResponse.json({ error: "Email is required." }, { status: 400 });
     }
+    const parsedSex = sex === undefined ? null : parseSex(sex);
+    if (sex !== undefined && !parsedSex) {
+      return NextResponse.json({ error: "Sex must be Male, Female, or Not specified." }, { status: 400 });
+    }
     if (
       typeof reviewStatus === "string" &&
       reviewStatus.trim().toLowerCase() === "rejected" &&
@@ -104,7 +110,7 @@ export async function PUT(
         data: {
           fullName: fullName !== undefined ? fullName.trim() : registration.fullName,
           address: address !== undefined ? address.trim() : registration.address,
-          sex: sex !== undefined ? sex?.trim() ?? registration.sex : registration.sex,
+          sex: parsedSex ? formatSexLabel(parsedSex) : registration.sex,
           age: age !== undefined ? Number(age ?? registration.age) : registration.age,
           birthDate: birthDate !== undefined ? new Date(birthDate) : registration.birthDate,
           email: email !== undefined ? email.trim() : registration.email,
@@ -156,6 +162,10 @@ export async function PUT(
               : registration.reviewNotes,
         },
       });
+
+      if (registration.userId) {
+        await syncKkProfileFromLatestRegistration(tx, registration.userId);
+      }
 
       const isReturnedForEdits =
         typeof reviewStatus === "string" &&

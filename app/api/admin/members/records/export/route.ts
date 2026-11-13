@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/audit/logger";
 import { getKKMemberArchiveReasonLabel } from "@/lib/kk-member-archive";
 import { createCsvResponse, parseReportDateRange, parseReportFormat } from "@/lib/report-export";
+import { addReportHeading, styleReportTable } from "@/lib/excel-report-style";
 
 export const runtime = "nodejs";
 
@@ -48,38 +49,11 @@ const COLUMNS = [
 ] as const;
 
 function styleWorksheet(worksheet: ExcelJS.Worksheet) {
-  const header = worksheet.getRow(1);
-  header.height = 30;
-  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  header.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF0F172A" },
-  };
-  header.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-
-  worksheet.eachRow((row, rowNumber) => {
-    row.eachCell((cell) => {
-      cell.border = {
-        top: { style: "thin", color: { argb: "FFCBD5E1" } },
-        left: { style: "thin", color: { argb: "FFCBD5E1" } },
-        bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
-        right: { style: "thin", color: { argb: "FFCBD5E1" } },
-      };
-      if (rowNumber > 1) {
-        cell.alignment = { vertical: "top", wrapText: true };
-      }
-    });
-  });
-
+  addReportHeading(worksheet, worksheet.name);
+  styleReportTable(worksheet, { headerRow: 5 });
   worksheet.getColumn("birthDate").numFmt = "mmm d, yyyy";
   worksheet.getColumn("submittedAt").numFmt = "mmm d, yyyy";
   worksheet.getColumn("archivedAt").numFmt = "mmm d, yyyy";
-  worksheet.views = [{ state: "frozen", ySplit: 1 }];
-  worksheet.autoFilter = {
-    from: { row: 1, column: 1 },
-    to: { row: 1, column: COLUMNS.length },
-  };
 }
 
 export async function GET(request: NextRequest) {

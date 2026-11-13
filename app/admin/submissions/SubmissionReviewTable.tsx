@@ -898,7 +898,7 @@ export default function SubmissionReviewTable() {
     }
   }
 
-  async function revokeSelectedGrantee(reason: string) {
+  async function revokeSelectedGrantee(reason: string, additionalNotes: string) {
     if (!selectedSubmission || isSaving || !reason) return;
 
     setSavingSubmissionId(selectedSubmission.id);
@@ -909,7 +909,7 @@ export default function SubmissionReviewTable() {
       const response = await fetch(`/api/admin/submissions/${selectedSubmission.id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "REVOKE", reason }),
+        body: JSON.stringify({ action: "REVOKE", reason, additionalNotes }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -1322,7 +1322,7 @@ export default function SubmissionReviewTable() {
         granteeName={selectedSubmission?.grantee.user.fullName ?? "this grantee"}
         submitting={isSaving}
         onClose={() => setIsRevokeModalOpen(false)}
-        onConfirm={(reason) => void revokeSelectedGrantee(reason)}
+        onConfirm={(reason, additionalNotes) => void revokeSelectedGrantee(reason, additionalNotes)}
       />
     </section>
   );

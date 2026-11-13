@@ -7,6 +7,7 @@ import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { isKKMemberArchiveReason } from "@/lib/kk-member-archive";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
+import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 
 export async function PATCH(
   request: Request,
@@ -59,6 +60,10 @@ export async function PATCH(
           archivedAt: new Date(),
         },
       });
+
+      if (registration.userId) {
+        await syncKkProfileFromLatestRegistration(tx, registration.userId);
+      }
 
       if (registration.userId) {
         const waitlistedApplications = await tx.skeapApplication.findMany({

@@ -14,6 +14,7 @@ describe("SKEAP education options", () => {
       "Junior High School",
       "Senior High School",
       "College",
+      "Technical and Vocational (Tech-Voc)",
     ]);
   });
 
@@ -23,6 +24,7 @@ describe("SKEAP education options", () => {
       "Senior High School",
       "College",
       "Vocational",
+      "Technical and Vocational (Tech-Voc)",
     ]);
     expect(SKEAP_YEAR_LEVELS["Junior High School"]).toEqual([
       "Grade 7",
@@ -41,6 +43,9 @@ describe("SKEAP education options", () => {
       "6th Year",
     ]);
     expect(SKEAP_YEAR_LEVELS.Vocational).toEqual(SKEAP_YEAR_LEVELS.College);
+    expect(SKEAP_YEAR_LEVELS["Technical and Vocational (Tech-Voc)"]).toEqual(
+      SKEAP_YEAR_LEVELS.College,
+    );
   });
 
   it("validates education and year-level combinations", () => {
@@ -53,6 +58,8 @@ describe("SKEAP education options", () => {
     expect(isValidSkeapYearLevel("College", "Grade 12")).toBe(false);
     expect(isValidSkeapYearLevel("Senior High School", "Grade 7")).toBe(false);
     expect(isValidSkeapYearLevel("Vocational", "4th Year")).toBe(true);
+    expect(isSkeapEducationLevel("Technical and Vocational (Tech-Voc)")).toBe(true);
+    expect(isValidSkeapYearLevel("Technical and Vocational (Tech-Voc)", "1st Year")).toBe(true);
   });
 
   it("allows college applicants through third year and rejects fourth year or above", () => {

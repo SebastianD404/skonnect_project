@@ -2,22 +2,8 @@ import { describe, expect, it } from "vitest";
 import { evaluateDocumentOcr } from "@/app/components/DocumentOCRValidationExample";
 
 describe("document OCR strategies", () => {
-  it("rejects photo OCR text above 4 words or 20 non-whitespace characters", () => {
-    const fourWords = "one two three four";
-    const fiveWords = "one two three four five";
-    const twentyCharacters = "12345678901234567890";
-    const twentyOneCharacters = "123456789012345678901";
-
-    expect(evaluateDocumentOcr("photo", fourWords)).toEqual({ isValid: true, error: null });
-    expect(evaluateDocumentOcr("photo", twentyCharacters)).toEqual({ isValid: true, error: null });
-    expect(evaluateDocumentOcr("photo", fiveWords)).toEqual({
-      isValid: false,
-      error: "Please upload a clear 2x2 portrait photo of your face. Avoid uploading documents or certificates here.",
-    });
-    expect(evaluateDocumentOcr("photo", twentyOneCharacters)).toEqual({
-      isValid: false,
-      error: "Please upload a clear 2x2 portrait photo of your face. Avoid uploading documents or certificates here.",
-    });
+  it("accepts files for fields that do not require OCR", () => {
+    expect(evaluateDocumentOcr("none", "any content")).toEqual({ isValid: true, error: null });
   });
 
   it("checks residency keywords case-insensitively", () => {

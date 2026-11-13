@@ -58,6 +58,8 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const [slotLimitDraft, setSlotLimitDraft] = useState(String(initialData.maxSlots));
   const [savingCapacity, setSavingCapacity] = useState(false);
   const isCapacityExceeded = capacityWarning || capacity.activeCount >= capacity.maxSlots;
+  const isPromotionBlockedByCapacity =
+    selectedApplicant?.physicalDocumentsConfirmed === true && isCapacityExceeded;
   const isOverConfiguredCapacity = capacity.activeCount > capacity.maxSlots;
   const isOverHardCapacity = capacity.activeCount > DEFAULT_SKEAP_MAX_SLOTS;
   const canIncreaseConfiguredCapacity =
@@ -192,7 +194,11 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
       }
       setIsPromoteModalOpen(false);
       setSelectedApplicant(null);
-      setToastMessage(`${application.applicantName} was promoted to an active grantee.`);
+      setToastMessage(
+        body.awaitingReview === true
+          ? `${application.applicantName} was returned to the SKEAP review queue for pre-screening and physical verification.`
+          : `${application.applicantName} was promoted to an active grantee.`
+      );
       await loadWaitlist();
     } catch (promoteError) {
       setIsPromoteModalOpen(false);
@@ -210,7 +216,10 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
 
   async function handleConfirmPromotion() {
     if (!selectedApplicant) return;
-    if (capacity.activeCount >= capacity.maxSlots || capacityWarning) {
+    if (
+      selectedApplicant.physicalDocumentsConfirmed &&
+      (capacity.activeCount >= capacity.maxSlots || capacityWarning)
+    ) {
       setCapacityWarning(true);
       return;
     }
@@ -415,12 +424,12 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     <button
                       type="button"
                       onClick={() => openPromotionModal(application)}
-                      disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
-                      title={isCapacityExceeded ? capacityTooltip : "Promote to active Grantee"}
+                      disabled={(application.physicalDocumentsConfirmed && isCapacityExceeded) || promotingId !== null || waitlistActionId !== null}
+                      title={application.physicalDocumentsConfirmed && isCapacityExceeded ? capacityTooltip : application.physicalDocumentsConfirmed ? "Promote to active Grantee" : "Return to application review"}
                       className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <UserCheck className="h-4 w-4" aria-hidden="true" />
-                      Promote
+                      {application.physicalDocumentsConfirmed ? "Promote" : "Return to Review"}
                     </button>
                     <button
                       type="button"
@@ -480,9 +489,9 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                         <button
                           type="button"
                           onClick={() => openPromotionModal(application)}
-                          disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
-                          aria-label="Promote to Grantee"
-                          title={isCapacityExceeded ? capacityTooltip : "Promote to active Grantee"}
+                          disabled={(application.physicalDocumentsConfirmed && isCapacityExceeded) || promotingId !== null || waitlistActionId !== null}
+                          aria-label={application.physicalDocumentsConfirmed ? "Promote to Grantee" : "Return to application review"}
+                          title={application.physicalDocumentsConfirmed && isCapacityExceeded ? capacityTooltip : application.physicalDocumentsConfirmed ? "Promote to active Grantee" : "Return to application review"}
                           className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <UserCheck className="h-4 w-4" aria-hidden="true" />
@@ -570,9 +579,9 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
             role="dialog"
             aria-modal="true"
             aria-labelledby="promote-modal-title"
-            className={`relative flex w-full max-w-sm flex-col items-center gap-3 overflow-hidden rounded-2xl border border-t-4 border-slate-200 bg-white p-5 text-center shadow-xl ring-1 ring-slate-900/5 animate-in zoom-in-95 fade-in duration-200 ${isCapacityExceeded ? "border-t-amber-500" : "border-t-emerald-500"}`}
+            className={`relative flex w-full max-w-sm flex-col items-center gap-3 overflow-hidden rounded-2xl border border-t-4 border-slate-200 bg-white p-5 text-center shadow-xl ring-1 ring-slate-900/5 animate-in zoom-in-95 fade-in duration-200 ${isPromotionBlockedByCapacity ? "border-t-amber-500" : "border-t-emerald-500"}`}
           >
-            {isCapacityExceeded ? (
+            {isPromotionBlockedByCapacity ? (
               <>
                 <div className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-amber-50 ring-4 ring-amber-50/50">
                   <AlertTriangle className="h-6 w-6 text-amber-600" aria-hidden="true" />
@@ -646,10 +655,12 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <h3 id="promote-modal-title" className="text-[17px] font-black leading-none text-slate-900">
-                    Promote to grantee?
+                    {selectedApplicant.physicalDocumentsConfirmed ? "Promote to grantee?" : "Return to application review?"}
                   </h3>
                   <p className="px-2 text-[13px] leading-snug text-slate-500">
-                    You&apos;re promoting <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span>. This uses <span className="font-bold text-slate-900">1 slot</span> and sends an automated email.
+                    {selectedApplicant.physicalDocumentsConfirmed
+                      ? <>You&apos;re promoting <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span>. This uses <span className="font-bold text-slate-900">1 slot</span> and sends an automated email.</>
+                      : <> <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span> has not completed physical document verification. Return the application to the review queue for pre-screening and verification.</>}
                   </p>
                 </div>
                 <div className="grid w-full grid-cols-2 gap-2.5">
@@ -669,7 +680,11 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     disabled={promotingId !== null}
                     className="w-full rounded-xl border border-emerald-600 bg-emerald-600 py-2 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {promotingId === selectedApplicant.id ? "Promoting..." : "Confirm"}
+                    {promotingId === selectedApplicant.id
+                      ? "Processing..."
+                      : selectedApplicant.physicalDocumentsConfirmed
+                        ? "Confirm"
+                        : "Return to Review"}
                   </button>
                 </div>
               </>

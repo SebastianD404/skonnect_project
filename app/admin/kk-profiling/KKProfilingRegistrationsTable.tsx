@@ -14,6 +14,8 @@ import { DEFAULT_ADMIN_TABLE_PAGE_SIZE, normalizeAdminTablePageSize } from "@/li
 import { isKKProfilingManualReview } from "@/lib/kk-profiling-review";
 import type { KKMemberArchiveReason } from "@/lib/kk-member-archive";
 import { useKKProfilingTableSearch } from "./KKProfilingTableSearch";
+import { useRegistryMembersSearchStatus } from "../registry/RegistryMembersSearchStatus";
+import { RegistryMembersViewRowsProvider } from "../registry/RegistryMembersViewRowsContext";
 import {
   KKProfilingMobileTableSkeleton,
   KKProfilingTableSkeletonRows,
@@ -26,7 +28,7 @@ function rowsForStatus(registrations: KKProfilingRegistration[], statusLabel?: s
     : registrations;
 }
 
-function getSkeapStatusBadge(status?: string | null) {
+export function getSkeapStatusBadge(status?: string | null) {
   switch (status?.toUpperCase()) {
     case "ACTIVE":
       return {
@@ -105,6 +107,7 @@ export function KKProfilingRegistrationsTable({
   const [error, setError] = useState<string | null>(null);
   const { searchQuery } = useAdminSearch();
   const pageSearch = useKKProfilingTableSearch();
+  const registrySearchStatus = useRegistryMembersSearchStatus();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -130,7 +133,11 @@ export function KKProfilingRegistrationsTable({
     requestedPage !== (pageNumber ?? 1) ||
     requestedPageSize !== (pageSize ?? DEFAULT_ADMIN_TABLE_PAGE_SIZE)
   );
-  const isLoading = routePending || pageSearch?.isNavigating === true;
+  const isLoading = routePending ||
+    pageSearch?.isNavigating === true ||
+    registrySearchStatus?.isSearching === true;
+  const resultsKey = registrations.map(({ id }) => id).join("|");
+  const displayedRowsKey = isLoading ? "loading" : `results-${resultsKey}`;
 
   const filteredRows = useMemo(() => {
     const workspaceQuery = deferredSearchQuery.trim().toLowerCase();
@@ -205,7 +212,8 @@ export function KKProfilingRegistrationsTable({
       {error ? <FloatingFeedback message={error} type="error" onDismiss={() => setError(null)} /> : null}
       <div className={flat ? "relative" : "relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"}>
         {!pageSearch && (
-          controlBar ?? (
+          <RegistryMembersViewRowsProvider rows={filteredRows}>
+            {controlBar ?? (
             <div className={`relative flex flex-col items-stretch justify-between gap-3 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row sm:items-center ${fitContainer ? "z-40" : ""}`}>
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <label className="relative block w-full sm:w-80">
@@ -229,10 +237,15 @@ export function KKProfilingRegistrationsTable({
                 />
               ) : null)}
             </div>
-          )
+            )}
+          </RegistryMembersViewRowsProvider>
         )}
         {!fitContainer ? (
-          <div className="p-3 md:hidden">
+          <div
+            key={displayedRowsKey}
+            className="p-3 md:hidden [animation:fadeIn_220ms_ease-out_both] motion-reduce:animate-none"
+            aria-busy={isLoading}
+          >
             {isLoading ? <KKProfilingMobileTableSkeleton /> : filteredRows.map((registration) => {
               const status = registration.reviewStatus || "Pending";
               const normalizedStatus = status.toLowerCase();
@@ -302,7 +315,11 @@ export function KKProfilingRegistrationsTable({
           </div>
         ) : null}
         {fitContainer ? (
-          <div className="p-3 md:hidden">
+          <div
+            key={displayedRowsKey}
+            className="p-3 md:hidden [animation:fadeIn_220ms_ease-out_both] motion-reduce:animate-none"
+            aria-busy={isLoading}
+          >
             {isLoading ? <KKProfilingMobileTableSkeleton /> : filteredRows.map((registration) => {
               const statusBadge = getSkeapStatusBadge(registration.skeapStatus);
 
@@ -368,8 +385,8 @@ export function KKProfilingRegistrationsTable({
         <div
           className="relative hidden w-full overflow-x-auto whitespace-nowrap scrollbar-thin md:block"
           style={{ touchAction: "pan-x", WebkitOverflowScrolling: "touch" }}
+          aria-busy={isLoading}
         >
-          {isLoading ? <span role="status" aria-live="polite" className="sr-only">Loading applications</span> : null}
           <table aria-busy={isLoading} className={fitContainer
             ? "w-full min-w-[850px] table-fixed border-collapse text-left text-sm"
             : "min-w-full border-collapse whitespace-nowrap text-left text-sm"}
@@ -416,7 +433,10 @@ export function KKProfilingRegistrationsTable({
               <th scope="col" className={`${actionCellPadding} text-center`}>{archiveAction ? "Actions" : "Action"}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
+          <tbody
+            key={displayedRowsKey}
+            className="divide-y divide-slate-100 bg-white text-slate-700 [animation:fadeIn_220ms_ease-out_both] motion-reduce:animate-none"
+          >
               {isLoading ? (
                 <KKProfilingTableSkeletonRows
                   showMemberRoleColumn={showMemberRoleColumn}

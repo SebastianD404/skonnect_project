@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
+import { isSkeapRevocationReason } from "@/lib/skeap-revocation";
 
 type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE" | "REVOKE";
 type DocumentType = "coe" | "grades";
@@ -17,6 +18,7 @@ type ReviewBody = {
   reviewNotes?: string;
   flaggedFields?: string[];
   reason?: string;
+  additionalNotes?: string;
 };
 
 
@@ -48,7 +50,11 @@ export async function POST(
     const documentType = body.documentType || "coe";
     const action = body.action;
     const reviewNotes = String(body.reviewNotes ?? "").trim();
-    const revocationReason = String(body.reason ?? "").trim();
+    const revocationReasonOption = String(body.reason ?? "").trim();
+    const additionalNotes = String(body.additionalNotes ?? "").trim();
+    const revocationReason = additionalNotes
+      ? `${revocationReasonOption}\nAdditional Notes: ${additionalNotes}`
+      : revocationReasonOption;
 
     if (action !== "APPROVE" && action !== "RETURN_FOR_UPDATE" && action !== "REVOKE") {
       return NextResponse.json({ error: "Invalid review action" }, { status: 400 });
@@ -64,8 +70,11 @@ export async function POST(
         { status: 400 }
       );
     }
-    if (action === "REVOKE" && !revocationReason) {
-      return NextResponse.json({ error: "A reason for revocation is required." }, { status: 400 });
+    if (action === "REVOKE" && !isSkeapRevocationReason(revocationReasonOption)) {
+      return NextResponse.json({ error: "Select a valid reason for revocation." }, { status: 400 });
+    }
+    if (action === "REVOKE" && additionalNotes.length > 1000) {
+      return NextResponse.json({ error: "Additional notes must be 1,000 characters or fewer." }, { status: 400 });
     }
 
     const existing = await prisma.submission.findUnique({

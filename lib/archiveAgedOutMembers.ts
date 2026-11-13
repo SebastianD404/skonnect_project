@@ -2,6 +2,7 @@ import { GranteeStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 
 const AGED_OUT_REASON = "Aged Out (31+)";
 const AGED_OUT_GRANTEE_REMARK = "Disqualified: Exceeded KK age limit (Turned 31)";
@@ -51,6 +52,10 @@ export async function checkAndArchiveAgedOutMembers(actorId: string) {
         },
       });
       if (archived.count !== 1) return { archived: false, granteeRemoved: false };
+
+      if (profile.userId) {
+        await syncKkProfileFromLatestRegistration(tx, profile.userId);
+      }
 
       const grantee = profile.user?.grantee;
       let granteeRemoved = false;

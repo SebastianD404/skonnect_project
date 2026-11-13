@@ -6,6 +6,7 @@ import { logAuditEvent } from "@/lib/audit/logger";
 import { getSkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { createClient } from "@/lib/supabase/server";
 import { createCsvResponse, parseReportDateRange, parseReportFormat } from "@/lib/report-export";
+import { addReportHeading, styleReportTable } from "@/lib/excel-report-style";
 
 export const runtime = "nodejs";
 
@@ -22,17 +23,9 @@ const COLUMNS = [
 ] as const;
 
 function styleWorksheet(worksheet: ExcelJS.Worksheet) {
-  const header = worksheet.getRow(1);
-  header.height = 26;
-  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F3D5C" } };
-  header.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  addReportHeading(worksheet, worksheet.name);
+  styleReportTable(worksheet, { headerRow: 5 });
   worksheet.getColumn("submittedAt").numFmt = "mmm d, yyyy";
-  worksheet.views = [{ state: "frozen", ySplit: 1 }];
-  worksheet.autoFilter = {
-    from: { row: 1, column: 1 },
-    to: { row: 1, column: COLUMNS.length },
-  };
 }
 
 export async function GET(request: NextRequest) {

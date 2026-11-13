@@ -86,143 +86,153 @@ export default function SecureAccountForm({
 
   if (isSignup) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(15,61,92,0.10),_transparent_32%),linear-gradient(180deg,#f8fbff_0%,#f6f9fc_100%)] px-4 py-10 text-slate-900">
-        <section className="w-full max-w-md rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-[0_24px_70px_rgba(15,61,92,0.10)] sm:p-8">
-          <div className="mb-7 flex flex-col items-center text-center">
-            <div className="flex items-center justify-center gap-3">
-              <SkLogo className="h-12 w-12" />
-              <h1 className="text-2xl font-bold tracking-tight text-[#0D2E47]">SKonnect</h1>
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,61,92,0.08),_transparent_35%),linear-gradient(180deg,#f7f9fc_0%,#f4f7fb_100%)] px-4 py-10 text-slate-900">
+        <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-6xl flex-col items-center justify-center gap-8">
+          <Link
+            href="/"
+            aria-label="SKonnect Home - Return to landing page"
+            className="group flex cursor-pointer items-center gap-3 text-left transition-opacity hover:opacity-90 focus-visible:rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-4"
+          >
+            <SkLogo className="h-12 w-12" />
+            <div>
+              <div className="text-xl font-semibold tracking-tight text-[#0D2E47] transition-colors group-hover:text-[#0F3D5C]">SKonnect</div>
+              <div className="text-sm text-slate-500">Barangay Pico Youth Services Portal</div>
             </div>
-            <h2 className="mt-6 text-2xl font-semibold text-slate-900">Create your account</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              Register to continue to your requested page.
-            </p>
-          </div>
+          </Link>
 
-          {state?.message ? (
-            <p role="status" aria-live="polite" className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-              {state.message}
-            </p>
-          ) : null}
+          <section className="w-full max-w-[430px] rounded-[2rem] border border-slate-200 bg-white p-7 shadow-[0_28px_70px_rgba(15,61,92,0.10)] sm:p-8">
+            <div className="text-center">
+              <h2 className="text-3xl font-semibold tracking-tight text-[#0D2E47]">Create your account</h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Register to continue to your requested page.
+              </p>
+            </div>
 
-          <form action={formAction} className="space-y-5">
-            {redirect ? <input type="hidden" name="next" value={redirect} /> : null}
-            {errorMessage ? (
-              <p role="alert" className="text-sm font-medium text-rose-600">{errorMessage}</p>
+            {state?.message ? (
+              <p role="status" aria-live="polite" className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                {state.message}
+              </p>
             ) : null}
 
-            <div>
-              <label htmlFor="email" className="text-sm font-semibold text-slate-900">Email</label>
-              <div className="relative mt-2">
-                <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="text-sm font-semibold text-slate-900">Password</label>
-              <div className="relative mt-2">
-                <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="new-password"
-                  placeholder="At least 8 characters"
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <div className="mt-3 grid grid-cols-4 gap-2" aria-label={`Password strength: ${passwordStrengthLabel}`}>
-                {passwordChecks.map((check, index) => (
-                  <div
-                    key={check.label}
-                    className={`h-1.5 rounded-full transition ${index < matchedChecks ? passwordStrengthColor : "bg-slate-200"}`}
-                  />
-                ))}
-              </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Password requirements">
-                {passwordChecks.map((check) => (
-                  <div key={check.label} className="flex items-center gap-2 text-xs">
-                    <CheckCircle2
-                      className={`h-4 w-4 ${check.met ? "text-emerald-500" : "text-slate-300"}`}
-                      aria-hidden="true"
-                    />
-                    <span className={check.met ? "text-slate-700" : "text-slate-500"}>{check.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="confirmPassword" className="text-sm font-semibold text-slate-900">
-                Confirm password
-              </label>
-              <div className="relative mt-2">
-                <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                <input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type={showConfirmPassword ? "text" : "password"}
-                  required
-                  minLength={8}
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  autoComplete="new-password"
-                  placeholder="Repeat your password"
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword((value) => !value)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
-                >
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              {confirmPassword.length > 0 ? (
-                <p className={`mt-2 text-xs ${passwordsMatch ? "text-emerald-600" : "text-rose-600"}`}>
-                  {passwordsMatch ? "Passwords match." : "Passwords do not match yet."}
-                </p>
+            <form action={formAction} className="mt-6 space-y-5">
+              {redirect ? <input type="hidden" name="next" value={redirect} /> : null}
+              {errorMessage ? (
+                <p role="alert" className="text-sm font-medium text-rose-600">{errorMessage}</p>
               ) : null}
-            </div>
 
-            <button
-              type="submit"
-              disabled={pending}
-              className="w-full rounded-2xl bg-[#0F3D5C] px-4 py-3.5 text-sm font-semibold text-white shadow-[0_16px_30px_rgba(15,61,92,0.22)] transition hover:bg-[#0D2E47] disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {pending ? "Creating account..." : "Create account"}
-            </button>
-          </form>
+              <div>
+                <label htmlFor="email" className="text-sm font-semibold text-slate-900">Email</label>
+                <div className="relative mt-2">
+                  <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
+                  />
+                </div>
+              </div>
 
-          <p className="mt-6 text-center text-sm text-slate-500">
-            Already have an account?{" "}
-            <Link href={`/login?next=${encodeURIComponent(redirect || "/youth-dashboard")}`} className="font-semibold text-[#0F3D5C] hover:underline">
-              Sign in
-            </Link>
-          </p>
-        </section>
+              <div>
+                <label htmlFor="password" className="text-sm font-semibold text-slate-900">Password</label>
+                <div className="relative mt-2">
+                  <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    required
+                    minLength={8}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete="new-password"
+                    placeholder="At least 8 characters"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((value) => !value)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <div className="mt-3 grid grid-cols-4 gap-2" aria-label={`Password strength: ${passwordStrengthLabel}`}>
+                  {passwordChecks.map((check, index) => (
+                    <div
+                      key={check.label}
+                      className={`h-1.5 rounded-full transition ${index < matchedChecks ? passwordStrengthColor : "bg-slate-200"}`}
+                    />
+                  ))}
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Password requirements">
+                  {passwordChecks.map((check) => (
+                    <div key={check.label} className="flex items-center gap-2 text-xs">
+                      <CheckCircle2
+                        className={`h-4 w-4 ${check.met ? "text-emerald-500" : "text-slate-300"}`}
+                        aria-hidden="true"
+                      />
+                      <span className={check.met ? "text-slate-700" : "text-slate-500"}>{check.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="confirmPassword" className="text-sm font-semibold text-slate-900">
+                  Confirm password
+                </label>
+                <div className="relative mt-2">
+                  <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    required
+                    minLength={8}
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    autoComplete="new-password"
+                    placeholder="Repeat your password"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0F3D5C] focus:bg-white focus:ring-4 focus:ring-[#0F3D5C]/10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((value) => !value)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {confirmPassword.length > 0 ? (
+                  <p className={`mt-2 text-xs ${passwordsMatch ? "text-emerald-600" : "text-rose-600"}`}>
+                    {passwordsMatch ? "Passwords match." : "Passwords do not match yet."}
+                  </p>
+                ) : null}
+              </div>
+
+              <button
+                type="submit"
+                disabled={pending}
+                className="w-full rounded-2xl bg-[#0F3D5C] px-4 py-3.5 text-sm font-semibold text-white shadow-[0_16px_30px_rgba(15,61,92,0.22)] transition hover:bg-[#0D2E47] disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {pending ? "Creating account..." : "Create account"}
+              </button>
+            </form>
+
+            <p className="mt-6 text-center text-sm text-slate-500">
+              Already have an account?{" "}
+              <Link href={`/login?next=${encodeURIComponent(redirect || "/youth-dashboard")}`} className="font-semibold text-[#0F3D5C] hover:underline">
+                Sign in
+              </Link>
+            </p>
+          </section>
+        </div>
       </main>
     );
   }

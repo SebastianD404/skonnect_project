@@ -45,6 +45,7 @@ export async function POST(
         select: {
           id: true,
           status: true,
+          physicalDocumentsConfirmed: true,
           userId: true,
           applicantName: true,
           user: { select: { email: true } },
@@ -63,6 +64,40 @@ export async function POST(
         select: { status: true },
       });
       if (existingGrantee?.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
+
+      if (!application.physicalDocumentsConfirmed) {
+        await tx.skeapApplication.update({
+          where: { id },
+          data: {
+            status: "PENDING",
+            waitlistPosition: null,
+            physicalDocumentsConfirmed: false,
+          },
+        });
+
+        if (application.inquiry) {
+          await tx.inquiry.update({
+            where: { id: application.inquiry.id },
+            data: {
+              reviewStatus: "Pending review",
+              response: "Your SKEAP application has returned to the review queue. Online pre-screening and physical document verification are required before final approval.",
+              respondedAt: new Date(),
+              isResolved: false,
+              lastUpdatedBy: "admin",
+            },
+          });
+        }
+
+        await reindexSkeapWaitlist(tx);
+        return {
+          id: application.id,
+          applicantId: application.userId,
+          applicantName: application.applicantName,
+          applicantEmail: application.user.email,
+          granteeStatusChanged: false,
+          awaitingReview: true,
+        };
+      }
 
       const activeCount = await getSkeapCapacityCount(tx, application.userId);
       if (activeCount >= maxSlots) throw new Error("CAPACITY_FULL");
@@ -111,10 +146,11 @@ export async function POST(
         applicantName: application.applicantName,
         applicantEmail: application.user.email,
         granteeStatusChanged: existingGrantee?.status === "REMOVED",
+        awaitingReview: false,
       };
     });
 
-    const { granteeStatusChanged, applicantEmail, ...promotedApplication } = promoted;
+    const { granteeStatusChanged, applicantEmail, awaitingReview, ...promotedApplication } = promoted;
     if (granteeStatusChanged) {
       try {
         await refreshInactiveGranteesView();
@@ -134,8 +170,12 @@ export async function POST(
         transporter,
         promotedApplication.applicantId,
         applicantEmail,
-        "Your SKEAP scholarship application was approved",
-        `Hello ${promotedApplication.applicantName || "Scholar"},\n\nYour SKEAP scholarship application has been promoted from the waitlist and approved. Your account is now active as a Grantee.\n\nPlease sign in to SKonnect to view your scholarship information.\n\nSKEAP Administration`,
+        awaitingReview
+          ? "Your SKEAP application is back in review"
+          : "Your SKEAP scholarship application was approved",
+        awaitingReview
+          ? `Hello ${promotedApplication.applicantName || "Applicant"},\n\nYour SKEAP application has returned to the review queue. Online pre-screening and physical document verification are required before final approval. Please sign in to SKonnect for updates.\n\nSKEAP Administration`
+          : `Hello ${promotedApplication.applicantName || "Scholar"},\n\nYour SKEAP scholarship application has been promoted from the waitlist and approved. Your account is now active as a Grantee.\n\nPlease sign in to SKonnect to view your scholarship information.\n\nSKEAP Administration`,
       );
       emailSent = emailResult !== null;
     } catch (error) {
@@ -151,11 +191,12 @@ export async function POST(
       metadata: {
         applicantId: promotedApplication.applicantId,
         target: promotedApplication.applicantName || promotedApplication.applicantId,
-        resultingStatus: "APPROVED",
+        resultingStatus: awaitingReview ? "PENDING" : "APPROVED",
       },
     });
 
     revalidatePath("/admin");
+    revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin/skeap-waitlist");
     revalidatePath("/applications");
     revalidatePath("/youth-dashboard");
@@ -164,7 +205,7 @@ export async function POST(
     revalidatePath("/admin/members");
     revalidatePath("/admin/kk-profiling");
 
-    return NextResponse.json({ success: true, emailSent, application: promotedApplication });
+    return NextResponse.json({ success: true, emailSent, awaitingReview, application: promotedApplication });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to promote application.";
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });

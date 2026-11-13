@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 
 export async function PATCH(
   _request: Request,
@@ -36,6 +37,10 @@ export async function PATCH(
           ...(restoredStatus === "Pending" ? { reviewNotes: null } : {}),
         },
       });
+
+      if (registration.userId) {
+        await syncKkProfileFromLatestRegistration(tx, registration.userId);
+      }
 
       await writeAuditLog(tx, {
         action: "PROFILE_RESTORED",

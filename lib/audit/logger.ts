@@ -37,6 +37,7 @@ export async function writeAuditLog(client: AuditLogClient, input: AuditLogInput
 
 export type AuditEventAction =
   | "APPLICATION_APPROVED"
+  | "APPLICATION_PRE_QUALIFIED"
   | "APPLICATION_REJECTED"
   | "APPLICATION_PROMOTED"
   | "DOCUMENT_OVERRIDDEN"

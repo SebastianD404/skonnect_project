@@ -47,6 +47,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       select: {
         reviewThread: true,
         userId: true,
+        application: { select: { id: true } },
       },
     });
 
@@ -80,6 +81,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           reviewThread: updatedThread,
         },
       });
+
+      if (inquiryRecord.application?.id) {
+        await tx.skeapApplication.update({
+          where: { id: inquiryRecord.application.id },
+          data: { status: "REJECTED" },
+        });
+      }
 
       await writeAuditLog(tx as any, {
         action: "APPLICATION_REJECTED",
@@ -121,6 +129,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin");
+    revalidatePath("/applications");
+    revalidatePath("/youth-dashboard");
 
     return NextResponse.json({ success: true, reviewStatus: inquiry.reviewStatus, response: inquiry.response });
   } catch (error) {

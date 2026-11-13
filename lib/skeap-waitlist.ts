@@ -24,6 +24,7 @@ export async function reindexSkeapWaitlist(tx: Prisma.TransactionClient) {
 export type SkeapWaitlistApplication = {
   id: string;
   waitlistPosition: number | null;
+  physicalDocumentsConfirmed: boolean;
   submittedAt: string;
   applicantName: string;
   emailAddress: string;
@@ -47,6 +48,7 @@ export async function getSkeapWaitlistSnapshot(): Promise<SkeapWaitlistSnapshot>
     select: {
       id: true,
       waitlistPosition: true,
+      physicalDocumentsConfirmed: true,
       submittedAt: true,
       applicantName: true,
       emailAddress: true,
@@ -70,6 +72,7 @@ export async function getSkeapWaitlistSnapshot(): Promise<SkeapWaitlistSnapshot>
     applications: applications.map((application) => ({
       id: application.id,
       waitlistPosition: application.waitlistPosition,
+      physicalDocumentsConfirmed: application.physicalDocumentsConfirmed,
       submittedAt: application.submittedAt.toISOString(),
       applicantName: application.applicantName || application.user.fullName || application.user.email,
       emailAddress: application.emailAddress || application.user.email,

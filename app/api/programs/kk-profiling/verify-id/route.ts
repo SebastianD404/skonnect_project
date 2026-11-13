@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { uploadPrivateDocument } from "@/lib/private-documents";
 import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
+import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 
 const ALLOWED_TYPES = new Set([
   "application/pdf",
@@ -117,9 +118,13 @@ export async function POST(request: NextRequest) {
     updateData.idBackFileUrl = uploadedFiles.find((file) => file.label === "back")?.url ?? null;
     updateData.idSingleFileUrl = uploadedFiles.find((file) => file.label === "residency")?.url ?? null;
 
-    const updatedRegistration = await prisma.profilingRegistration.update({
-      where: { id: latestRegistration.id },
-      data: updateData,
+    const updatedRegistration = await prisma.$transaction(async (tx) => {
+      const saved = await tx.profilingRegistration.update({
+        where: { id: latestRegistration.id },
+        data: updateData,
+      });
+      await syncKkProfileFromLatestRegistration(tx, appUser.id);
+      return saved;
     });
 
     return NextResponse.json({

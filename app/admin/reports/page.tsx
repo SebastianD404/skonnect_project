@@ -71,6 +71,13 @@ export default async function AdminReportsPage() {
           reportType: "STATIC",
         },
         {
+          title: "Demographic Distribution (Gender & Sitio)",
+          description: "Verified youth counts by sitio, with male, female, and overall totals.",
+          href: "/api/admin/reports/demographic-distribution",
+          icon: "users",
+          reportType: "STATIC",
+        },
+        {
           title: "Archived/Aged-Out Youth Records",
           description: "Archived KK profiles with archive reasons and review notes.",
           href: "/api/admin/members/records/export",

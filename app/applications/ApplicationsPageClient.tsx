@@ -23,7 +23,7 @@ function getStatusTone(label: string): ApplicationCardStatus["tone"] {
   const normalized = label.toLowerCase();
   if (normalized.includes("approved") || normalized.includes("complete")) return "emerald";
   if (normalized.includes("return") || normalized.includes("action") || normalized.includes("reject")) return "rose";
-  if (normalized.includes("pending") || normalized.includes("review") || normalized.includes("resubmit")) return "amber";
+  if (normalized.includes("pending") || normalized.includes("review") || normalized.includes("resubmit") || normalized.includes("pre-qual")) return "amber";
   return "slate";
 }
 
@@ -89,7 +89,9 @@ export default function ApplicationsPage() {
         const data = await skeapResult.value.json();
         const latest = (data.inquiries ?? [])[0] as ApplicationRecord | undefined;
         if (latest) {
-          const label = latest.reviewStatus || (latest.isResolved ? "Completed" : latest.response ? "Update available" : "Pending review");
+          const label = latest.reviewStatus?.trim().toUpperCase() === "PRE_QUALIFIED"
+            ? "Pre-qualified — physical verification required"
+            : latest.reviewStatus || (latest.isResolved ? "Completed" : latest.response ? "Update available" : "Pending review");
           setSkeapApplication(latest);
           setSkeapStatus({ label, tone: getStatusTone(label) });
         } else {
