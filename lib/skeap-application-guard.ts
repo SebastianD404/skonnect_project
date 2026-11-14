@@ -1,3 +1,5 @@
+import { SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
+
 export type SkeapApplyRouter = {
   push: (href: string) => void;
 };
@@ -9,6 +11,49 @@ type SkeapApplyToast = {
 };
 
 const SKEAP_APPLY_TOAST_EVENT = "skonnect:skeap-apply-toast";
+const VOTER_ELIGIBILITY_ERROR =
+  "Ineligible under Section 3(6): Applicants who have reached voting age (18+) must be duly registered voters of Barangay Pico to qualify for SKEAP.";
+
+type SkeapSubmissionGuardInput = {
+  age: number;
+  registeredVoter: boolean;
+  parentGuardianRegisteredVoter: boolean;
+  parentGuardianVoterFullName: string;
+  uploadedFiles: Record<string, { url?: string }> | null;
+};
+
+export function getSkeapSubmissionGuardError({
+  age,
+  registeredVoter,
+  parentGuardianRegisteredVoter,
+  parentGuardianVoterFullName,
+  uploadedFiles,
+}: SkeapSubmissionGuardInput): string | null {
+  if (age >= 18 && !registeredVoter) return VOTER_ELIGIBILITY_ERROR;
+
+  if (age < 18 && !registeredVoter) {
+    if (!parentGuardianRegisteredVoter) {
+      return "A parent or legal guardian must be a duly registered voter of Barangay Pico.";
+    }
+    if (!parentGuardianVoterFullName.trim()) {
+      return "Enter the registered parent or legal guardian's full name.";
+    }
+  }
+
+  const requiredUploadKeys = [
+    SKEAP_UPLOAD_KEY.FAMILY_INCOME,
+    SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
+    SKEAP_UPLOAD_KEY.GRADE_REPORT,
+    SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+  ];
+  const missingUploadKeys = requiredUploadKeys.filter(
+    (key) => !uploadedFiles?.[key]?.url?.trim(),
+  );
+
+  return missingUploadKeys.length
+    ? `Missing required uploadedFiles keys: ${missingUploadKeys.join(", ")}`
+    : null;
+}
 
 function showSkeapApplyToast(toast: SkeapApplyToast) {
   window.dispatchEvent(new CustomEvent<SkeapApplyToast>(SKEAP_APPLY_TOAST_EVENT, {

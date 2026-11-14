@@ -2,10 +2,11 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { fakerEN } from "@faker-js/faker";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient, Role, SubmissionStatus } from "@prisma/client";
+import { PrismaClient, Role, Sex, SubmissionStatus } from "@prisma/client";
 import { Pool } from "pg";
 import { PICO_SITIOS } from "../lib/barangay-sitios";
 import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "../lib/skeap-capacity";
+import { formatSexLabel } from "../lib/sex";
 
 const DEMO_EMAIL_SUFFIX = "@demo.skonnect.invalid";
 const DEMO_SEED = 20261112;
@@ -14,6 +15,7 @@ const KK_ONLY_PROFILE_COUNT = 800;
 const PENDING_KK_APPLICATION_COUNT = 40;
 const WAITLISTED_SKEAP_APPLICATION_COUNT = 50;
 const PENDING_SKEAP_APPLICATION_COUNT = 30;
+const DEMO_PLACES_OF_BIRTH = ["La Trinidad, Benguet", "Baguio City"] as const;
 
 const FIRST_NAMES = [
   "Maria", "Jose", "Juan", "Ana", "Rosa", "Angelo", "Gabriel", "Sofia",
@@ -111,8 +113,9 @@ export function generateDemoRecords(
     } while (reservedEmails.has(email.toLowerCase()));
     const age = fakerEN.number.int({ min: 15, max: 30 });
     const birthDate = randomDateOfBirth(age);
+    const placeOfBirth = fakerEN.helpers.arrayElement(DEMO_PLACES_OF_BIRTH);
     const sitio = fakerEN.helpers.arrayElement(PICO_SITIOS);
-    const sex = fakerEN.helpers.arrayElement(["Female", "Male"]);
+    const sex = fakerEN.helpers.arrayElement([Sex.FEMALE, Sex.MALE]);
     const contactNumber = `09${fakerEN.string.numeric(9)}`;
     const id = randomUUID();
     const kkProfileId = randomUUID();
@@ -131,6 +134,7 @@ export function generateDemoRecords(
       fullName,
       age,
       birthDate,
+      placeOfBirth,
       sitio,
       sex,
       contactNumber,
@@ -200,7 +204,9 @@ async function seed() {
           addressLine: `Barangay Pico, La Trinidad, Benguet`,
           barangay: "Pico",
           birthDate: record.birthDate,
+          placeOfBirth: record.placeOfBirth,
           contactNumber: record.contactNumber,
+          sex: record.sex,
           email: record.email,
           isVerified: record.cohort !== "KK_PENDING_APPLICATION",
           createdAt: record.createdAt,
@@ -231,7 +237,7 @@ async function seed() {
           userId: record.id,
           fullName: record.fullName,
           address: `${record.sitio}, Pico, La Trinidad, Benguet`,
-          sex: record.sex,
+          sex: formatSexLabel(record.sex),
           age: record.age,
           birthDate: record.birthDate,
           email: record.email,
@@ -295,7 +301,9 @@ async function seed() {
           school: fakerEN.helpers.arrayElement(SCHOOLS),
           permanentAddress: `${record.sitio}, Pico, La Trinidad, Benguet`,
           dateOfBirth: record.birthDate,
+          placeOfBirth: record.placeOfBirth,
           age: record.age,
+          gender: formatSexLabel(record.sex),
           contactNumber: record.contactNumber,
           emailAddress: record.email,
           status: record.cohort === "ACTIVE_SCHOLAR"

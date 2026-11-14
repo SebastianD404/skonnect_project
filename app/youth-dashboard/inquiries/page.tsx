@@ -2,6 +2,7 @@ import SupportInboxClient from "@/app/grantee-dashboard/inquiries/SupportInboxCl
 
 type Props = {
   searchParams: Promise<{
+    inquiryId?: string;
     inquiry?: string;
     submitted?: string;
   }>;
@@ -13,7 +14,7 @@ export default async function YouthInquiriesPage({ searchParams }: Props) {
   return (
     <SupportInboxClient
       basePath="/youth-dashboard"
-      initialInquiryId={params.inquiry ?? null}
+      initialInquiryId={params.inquiryId ?? params.inquiry ?? null}
       showSubmittedToast={params.submitted === "1"}
     />
   );

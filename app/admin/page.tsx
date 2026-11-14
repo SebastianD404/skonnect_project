@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getScholarDistributionAnalytics } from "@/lib/admin-scholar-analytics";
 import AdminDashboardPageClient from "./AdminDashboardPageClient";
 import { requireRole } from "@/lib/auth";
+import { supportInboxInquiryWhere } from "@/lib/inquiries/filters";
 
 export default async function SKOfficialDashboardPage() {
   const adminUser = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
@@ -11,18 +12,9 @@ export default async function SKOfficialDashboardPage() {
     redirect("/system-admin");
   }
 
-  const supportInquiryFilter = {
-    NOT: {
-      subject: {
-        contains: "SKEAP application",
-        mode: "insensitive" as const,
-      },
-    },
-  };
-
   const [openInquiryCount, pendingSubmissionCount, scholarAnalytics] = await Promise.all([
     prisma.inquiry.count({
-      where: { ...supportInquiryFilter, isResolved: false },
+      where: { ...supportInboxInquiryWhere, isResolved: false },
     }),
     prisma.submission.count({
       where: { status: "PENDING" },

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
+import { useAuth } from "@/app/components/AuthProvider";
 import { Avatar } from "@/components/ui/Avatar";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
@@ -31,9 +32,19 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
-function dispatchProfileUpdate(fullName: string, email: string, phoneNumber = "") {
+function dispatchProfileUpdate(
+  fullName: string,
+  email: string,
+  phoneNumber = "",
+  avatarUrl?: string | null
+) {
   window.dispatchEvent(new CustomEvent("skonnect-profile-updated", {
-    detail: { fullName, email, phoneNumber },
+    detail: {
+      fullName,
+      email,
+      phoneNumber,
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+    },
   }));
 }
 
@@ -70,6 +81,7 @@ export function ProfileSettingsForm({
   pendingEmail,
 }: ProfileSettingsFormProps) {
   const router = useRouter();
+  const { user: authUser } = useAuth();
   const [state, setState] = useState<{ error?: string; message?: string } | null>(
     emailConfirmation === "success"
       ? { message: "Your email was confirmed successfully." }
@@ -78,7 +90,8 @@ export function ProfileSettingsForm({
         : null
   );
   const [isPending, setIsPending] = useState(false);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(authUser?.avatarUrl ?? null);
   const [fallbackAvatarUrl, setFallbackAvatarUrl] = useState<string | null>(null);
   const [formData, setFormData] = useState(() => ({
     fullName: toDisplayName(fullName, email),
@@ -108,7 +121,7 @@ export function ProfileSettingsForm({
           const fallback = serverUser?.profilePhotoFallbackUrl ?? null;
           const storedAvatar = localStorage.getItem("skonnect-avatar");
           setFallbackAvatarUrl(fallback);
-          setAvatarPreview(serverUser?.avatarUrl || storedAvatar || fallback);
+          setAvatarPreview((current) => serverUser?.avatarUrl || storedAvatar || fallback || current);
         }
       } catch {}
     })();
@@ -139,8 +152,9 @@ export function ProfileSettingsForm({
     }
   }, [state?.message, formData, router]);
 
-  function handleAvatarUpload(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleAvatarUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
+    const input = event.currentTarget;
 
     if (!file) {
       return;
@@ -148,18 +162,26 @@ export function ProfileSettingsForm({
 
     const form = new FormData();
     form.append("avatar", file);
+    setIsUploadingAvatar(true);
+    setState(null);
 
-    fetch("/api/avatar", { method: "POST", body: form })
-      .then((r) => r.json())
-      .then((body) => {
-        if (body.avatarUrl) {
-          setAvatarPreview(body.avatarUrl);
-          // Keep a local copy for backward compatibility
-          try { localStorage.setItem("skonnect-avatar", body.avatarUrl); } catch {}
-          dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
-        }
-      })
-      .catch(() => {});
+    try {
+      const response = await fetch("/api/avatar", { method: "POST", body: form });
+      const body = await response.json() as { avatarUrl?: string | null; error?: string };
+      if (!response.ok || !body.avatarUrl) {
+        throw new Error(body.error || "Unable to upload your profile picture.");
+      }
+
+      setAvatarPreview(body.avatarUrl);
+      try { localStorage.setItem("skonnect-avatar", body.avatarUrl); } catch {}
+      dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber, body.avatarUrl);
+    } catch (error) {
+      console.error("Unable to upload profile picture:", error);
+      setState({ error: "We could not upload your profile picture. Please try again." });
+    } finally {
+      setIsUploadingAvatar(false);
+      input.value = "";
+    }
   }
 
   async function clearAvatar() {
@@ -169,9 +191,13 @@ export function ProfileSettingsForm({
         throw new Error("Unable to remove the saved profile picture.");
       }
 
-      localStorage.removeItem("skonnect-avatar");
+      if (fallbackAvatarUrl) {
+        localStorage.setItem("skonnect-avatar", fallbackAvatarUrl);
+      } else {
+        localStorage.removeItem("skonnect-avatar");
+      }
       setAvatarPreview(fallbackAvatarUrl);
-      dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber);
+      dispatchProfileUpdate(formData.fullName, formData.email, formData.phoneNumber, fallbackAvatarUrl);
     } catch (error) {
       console.error("Unable to remove profile picture:", error);
       setState({ error: "We could not remove your profile picture. Please try again." });
@@ -237,6 +263,7 @@ export function ProfileSettingsForm({
             alt={formData.fullName}
             size={112}
             className="border border-slate-200"
+            isUploading={isUploadingAvatar}
           />
 
           <div>
@@ -247,13 +274,14 @@ export function ProfileSettingsForm({
 
           <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
             Upload profile picture
-            <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+            <input type="file" accept="image/*" className="hidden" disabled={isUploadingAvatar} onChange={handleAvatarUpload} />
           </label>
 
           <button
             type="button"
             onClick={clearAvatar}
-            className="text-sm font-semibold text-slate-500 transition hover:text-[#0F3D5C]"
+            disabled={isUploadingAvatar}
+            className="text-sm font-semibold text-slate-500 transition hover:text-[#0F3D5C] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Remove profile picture
           </button>

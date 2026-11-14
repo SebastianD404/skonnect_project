@@ -7,6 +7,7 @@ import {
 } from "@/lib/skeap-upload";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
+import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
 
 interface ApplicationMessage {
   id: string;
@@ -107,7 +108,7 @@ export function skeapStatusWhere(patterns: readonly string[]): Prisma.InquiryWhe
 
 export function skeapPendingApplicationsWhere(academicYearRange: { start: Date; end: Date }): Prisma.InquiryWhereInput {
   return {
-    subject: { contains: "SKEAP application", mode: Prisma.QueryMode.insensitive },
+    ...skeapApplicationInquiryWhere,
     NOT: [
       { reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive } },
       { reviewStatus: { contains: "approve", mode: Prisma.QueryMode.insensitive } },

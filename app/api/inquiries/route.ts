@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
 
       const supportInquiryFilter: Prisma.InquiryWhereInput = {
         userId: appUser.id,
-        NOT: { subject: { contains: "SKEAP application", mode: "insensitive" } },
+        applicationId: null,
       };
       const activeCount = await tx.inquiry.count({
         where: { ...supportInquiryFilter, isResolved: false },
@@ -65,16 +66,28 @@ export async function POST(request: NextRequest) {
         throw new InquirySubmissionError(INQUIRY_COOLDOWN_MESSAGE, 429);
       }
 
+      const createdAt = new Date();
+      const inquiryId = randomUUID();
+      const initialMessage: Prisma.InputJsonObject = {
+        id: `applicant-${inquiryId}`,
+        role: "applicant",
+        createdAt: createdAt.toISOString(),
+        text: message,
+      };
+
       return tx.inquiry.create({
         data: {
+          id: inquiryId,
           userId: appUser.id,
           subject,
           message,
+          createdAt,
+          reviewThread: [initialMessage],
         },
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 
-    return NextResponse.json({ success: true, inquiryId: inquiry.id });
+    return NextResponse.json({ success: true, id: inquiry.id, inquiryId: inquiry.id });
   } catch (err) {
     if (err instanceof InquirySubmissionError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

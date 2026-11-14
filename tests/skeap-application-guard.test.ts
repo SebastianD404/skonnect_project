@@ -1,9 +1,70 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { handleSkeapApply } from "@/lib/skeap-application-guard";
+import {
+  getSkeapSubmissionGuardError,
+  handleSkeapApply,
+} from "@/lib/skeap-application-guard";
+import { SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
 
 describe("handleSkeapApply", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  describe("getSkeapSubmissionGuardError", () => {
+    const requiredUploads = {
+      [SKEAP_UPLOAD_KEY.FAMILY_INCOME]: { url: "income.pdf" },
+      [SKEAP_UPLOAD_KEY.ENROLLMENT_CERT]: { url: "enrollment.pdf" },
+      [SKEAP_UPLOAD_KEY.GRADE_REPORT]: { url: "grades.pdf" },
+      [SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE]: { url: "voter.pdf" },
+    };
+
+    it("rejects applicants who are voting age and are not registered", () => {
+      expect(getSkeapSubmissionGuardError({
+        age: 18,
+        registeredVoter: false,
+        parentGuardianRegisteredVoter: false,
+        parentGuardianVoterFullName: "",
+        uploadedFiles: requiredUploads,
+      })).toContain("Section 3(6)");
+    });
+
+    it("requires a registered parent or guardian and their full name for minors", () => {
+      expect(getSkeapSubmissionGuardError({
+        age: 17,
+        registeredVoter: false,
+        parentGuardianRegisteredVoter: true,
+        parentGuardianVoterFullName: " ",
+        uploadedFiles: requiredUploads,
+      })).toContain("full name");
+    });
+
+    it.each([
+      SKEAP_UPLOAD_KEY.FAMILY_INCOME,
+      SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
+      SKEAP_UPLOAD_KEY.GRADE_REPORT,
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+    ])("rejects submissions missing required upload %s", (missingKey) => {
+      const uploadsMissingDocument: Record<string, { url: string }> = { ...requiredUploads };
+      delete uploadsMissingDocument[missingKey];
+
+      expect(getSkeapSubmissionGuardError({
+        age: 18,
+        registeredVoter: true,
+        parentGuardianRegisteredVoter: false,
+        parentGuardianVoterFullName: "",
+        uploadedFiles: uploadsMissingDocument,
+      })).toContain(missingKey);
+    });
+
+    it("allows eligible submissions with all required uploads", () => {
+      expect(getSkeapSubmissionGuardError({
+        age: 17,
+        registeredVoter: false,
+        parentGuardianRegisteredVoter: true,
+        parentGuardianVoterFullName: "Parent Guardian",
+        uploadedFiles: requiredUploads,
+      })).toBeNull();
+    });
   });
 
   it("routes approved first-time applicants without a re-application toast", () => {

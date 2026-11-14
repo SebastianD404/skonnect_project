@@ -92,8 +92,9 @@ export async function GET() {
   }
 
   const metadataAvatar = (user.user_metadata as any)?.avatar_url || (user.user_metadata as any)?.avatarUrl || null;
-  const avatarPath = profile.avatarUrl || metadataAvatar;
-  const profilePhotoFallbackUrl = metadataAvatar || latestKkRegistration?.photoFileUrl || null;
+  const kkProfilePhotoUrl = latestKkRegistration?.photoFileUrl || null;
+  const profilePhotoFallbackUrl = metadataAvatar || kkProfilePhotoUrl;
+  const avatarPath = profile.avatarUrl || profilePhotoFallbackUrl;
   const kkProfileAddress = formatAddressParts([kkProfile?.purok, kkProfile?.barangay, kkProfile?.addressLine]);
   const registrationAddress = formatKkAddress(latestKkRegistration?.address || "");
   const autofillAddress =
@@ -118,7 +119,12 @@ export async function GET() {
   };
 
   if (avatarPath) {
-    if (!avatarPath.startsWith("http://") && !avatarPath.startsWith("https://")) {
+    const isPrivateDocumentUrl = avatarPath.startsWith("/api/private-documents/");
+    if (
+      !isPrivateDocumentUrl &&
+      !avatarPath.startsWith("http://") &&
+      !avatarPath.startsWith("https://")
+    ) {
       try {
         const signed = await supabase.storage.from("avatars").createSignedUrl(avatarPath, 60 * 60 * 24 * 7);
         const signedUrl = signed.data?.signedUrl;

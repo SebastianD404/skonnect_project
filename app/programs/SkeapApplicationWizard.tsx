@@ -14,6 +14,7 @@ import {
 import type { KKProfile } from "@/lib/kk-profile-client";
 import { validateDocumentOCR } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
+import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
 import {
   isEligibleSkeapApplicantYearLevel,
   SKEAP_APPLICATION_EDUCATION_LEVELS,
@@ -223,7 +224,10 @@ const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
   schoolName: ["School / Institution is required.", "Please enter or select your school."],
   educationLevel: ["Education level is required."],
   dateOfBirth: ["Date of birth is required."],
-  placeOfBirth: ["Place of birth is required."],
+  placeOfBirth: [
+    "Enter your full city/municipality (do not abbreviate)",
+    "Do not use abbreviations (e.g., write 'La Trinidad, Benguet')",
+  ],
   age: ["Age is required.", "Applicants must be between 15 and 30 years old."],
   civilStatus: ["Civil status is required."],
   gender: ["Gender is required."],
@@ -231,7 +235,14 @@ const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
   emailAddress: ["Email address is required."],
   photo: ["Please upload a 2x2 photo (ID)."],
   photoFile: ["Please upload a valid 2x2 photo.", "Please upload a 2x2 photo (ID)."],
-  registeredVoter: ["Please indicate Registered Voter (Yes/No)."],
+  registeredVoter: [
+    "Please indicate Registered Voter (Yes/No).",
+    "Ineligible under Section 3(6): Applicants who have reached voting age (18+) must be duly registered voters of Barangay Pico to qualify for SKEAP.",
+  ],
+  parentGuardianRegisteredVoter: [
+    "A parent or legal guardian must be a duly registered voter of Barangay Pico.",
+  ],
+  parentGuardianVoterFullName: ["Enter the registered parent or legal guardian's full name."],
   course: ["Course is required."],
   yearLevel: ["Year level is required."],
   fathersName: ["Father's name is required."],
@@ -398,13 +409,36 @@ function SchoolCombobox({
   );
 }
 
-export default function SkeapApplicationWizard({ onSubmitted, educationLevel, onEducationLevelChange, yearLevel, onYearLevelChange, requiredDocuments, footerActionsTarget, scrollContainerRef, userProfile, allowManualProfileDetails = false }: { onSubmitted: (reference: string) => void; educationLevel: SkeapEducationLevel | ""; onEducationLevelChange: (educationLevel: SkeapEducationLevel | "") => void; yearLevel: string; onYearLevelChange: (yearLevel: string) => void; requiredDocuments: SkeapRequiredDocument[]; footerActionsTarget?: HTMLElement | null; scrollContainerRef: RefObject<HTMLDivElement | null>; userProfile: KKProfile | null; allowManualProfileDetails?: boolean }) {
+export default function SkeapApplicationWizard({
+  onSubmitted,
+  educationLevel,
+  onEducationLevelChange,
+  yearLevel,
+  onYearLevelChange,
+  requiredDocuments,
+  footerActionsTarget,
+  scrollContainerRef,
+  userProfile,
+  onEligibilityChange,
+  allowManualProfileDetails = false,
+}: {
+  onSubmitted: (reference: string) => void;
+  educationLevel: SkeapEducationLevel | "";
+  onEducationLevelChange: (educationLevel: SkeapEducationLevel | "") => void;
+  yearLevel: string;
+  onYearLevelChange: (yearLevel: string) => void;
+  requiredDocuments: SkeapRequiredDocument[];
+  footerActionsTarget?: HTMLElement | null;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
+  userProfile: KKProfile | null;
+  onEligibilityChange?: (age: number, registeredVoter: boolean | null) => void;
+  allowManualProfileDetails?: boolean;
+}) {
   const [step, setStep] = useState(0);
   const parsedProfileName = parseProfileName(userProfile?.fullName ?? "");
+  const profilePlaceOfBirth = userProfile?.placeOfBirth;
   const profileBirthDate = userProfile?.birthDate ? String(userProfile.birthDate).slice(0, 10) : "";
   const profileAge = profileBirthDate ? computeAgeFromDateValue(profileBirthDate) : undefined;
-  const profileVoterStatus =
-    userProfile?.registration?.registeredNationalVoter || userProfile?.registeredNationalVoter;
 
   const [course, setCourse] = useState("");
   const [gwa, setGwa] = useState("");
@@ -426,7 +460,8 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
       userProfile?.addressLine,
     ])
   );
-  const [placeOfBirth, setPlaceOfBirth] = useState("");
+  const [placeOfBirth, setPlaceOfBirth] = useState(userProfile?.placeOfBirth ?? "");
+  const hasHydratedPlaceOfBirthRef = useRef(Boolean(userProfile?.placeOfBirth));
   const [dateOfBirth, setDateOfBirth] = useState(profileBirthDate);
   const [age, setAge] = useState(
     profileAge !== undefined ? String(profileAge) : String(userProfile?.age ?? "")
@@ -443,11 +478,9 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
   const [mothersContact, setMothersContact] = useState("");
   const [contactNumber, setContactNumber] = useState(userProfile?.contactNumber ?? "");
   const emailAddress = userProfile?.email ?? "";
-  const [registeredVoter, setRegisteredVoter] = useState<boolean | null>(
-    typeof profileVoterStatus === "string"
-      ? profileVoterStatus.toLowerCase() === "yes" || profileVoterStatus.toLowerCase() === "true"
-      : null
-  );
+  const [registeredVoter, setRegisteredVoter] = useState<boolean | null>(null);
+  const [parentGuardianRegisteredVoter, setParentGuardianRegisteredVoter] = useState(false);
+  const [parentGuardianVoterFullName, setParentGuardianVoterFullName] = useState("");
   const [totalFamilyMonthlyIncome, setTotalFamilyMonthlyIncome] = useState("");
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
   const yearLevels = educationLevel
@@ -456,6 +489,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
   const isJuniorHighSchool = educationLevel === "Junior High School";
   const isSeniorHighSchool = educationLevel === "Senior High School";
   const isIncomingFreshman = yearLevel === "Incoming Freshman";
+  const isVotingAge = Number(age) >= 18;
 
   // Educational background
   const [elementarySchool, setElementarySchool] = useState("");
@@ -479,6 +513,12 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const previewObjectUrlsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (hasHydratedPlaceOfBirthRef.current || !profilePlaceOfBirth) return;
+    setPlaceOfBirth((current) => current.trim() ? current : profilePlaceOfBirth);
+    hasHydratedPlaceOfBirthRef.current = true;
+  }, [profilePlaceOfBirth]);
 
   async function updateProfilePhoto(file: File) {
     setUpdatingPhoto(true);
@@ -584,7 +624,10 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
       if (!schoolName.trim()) addError("schoolName", "School / Institution is required.");
       else if (schoolName.trim().length < 2) addError("schoolName", "Please enter or select your school.");
       if (!dateOfBirth.trim()) addError("dateOfBirth", "Date of birth is required.");
-      if (!placeOfBirth.trim()) addError("placeOfBirth", "Place of birth is required.");
+      const placeOfBirthResult = placeOfBirthSchema.safeParse(placeOfBirth);
+      if (!placeOfBirthResult.success) {
+        addError("placeOfBirth", placeOfBirthResult.error.issues[0]?.message ?? "Enter a valid place of birth.");
+      }
       const parsedAge = Number(age);
       if (!age.trim()) {
         addError("age", "Age is required.");
@@ -604,9 +647,24 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         );
       }
       if (registeredVoter === null) addError("registeredVoter", "Please indicate Registered Voter (Yes/No).");
-      if (registeredVoter === true && Number(age) >= 18) {
-        if (!isUploadCompleteForKey(files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE)) {
-          addError(SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE, "Please upload a photocopy of the voter's certificate.");
+      if (isVotingAge && registeredVoter === false) {
+        addError(
+          "registeredVoter",
+          "Ineligible under Section 3(6): Applicants who have reached voting age (18+) must be duly registered voters of Barangay Pico to qualify for SKEAP.",
+        );
+      }
+      if (Number(age) < 18 && registeredVoter === false) {
+        if (!parentGuardianRegisteredVoter) {
+          addError(
+            "parentGuardianRegisteredVoter",
+            "A parent or legal guardian must be a duly registered voter of Barangay Pico.",
+          );
+        }
+        if (!parentGuardianVoterFullName.trim()) {
+          addError(
+            "parentGuardianVoterFullName",
+            "Enter the registered parent or legal guardian's full name.",
+          );
         }
       }
     }
@@ -732,10 +790,12 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
       }
 
       if (currentStep === 0) {
-        const voterInput = document.querySelector<HTMLInputElement>("input[type=file][data-requirement=\"voter_certificate\"]");
-        if (voterInput) {
-          voterInput.scrollIntoView({ behavior: "smooth", block: "center" });
-          voterInput.focus();
+        const guardianCheckbox = document.querySelector<HTMLInputElement>(
+          'input[type="checkbox"][aria-invalid="true"]',
+        );
+        if (guardianCheckbox) {
+          guardianCheckbox.scrollIntoView({ behavior: "smooth", block: "center" });
+          guardianCheckbox.focus();
         }
       }
     } catch (e) {
@@ -1032,6 +1092,12 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
           contactNumber,
           emailAddress,
           registeredVoter,
+          parentGuardianRegisteredVoter: Number(age) < 18 && registeredVoter === false
+            ? parentGuardianRegisteredVoter
+            : false,
+          parentGuardianVoterFullName: Number(age) < 18 && registeredVoter === false
+            ? parentGuardianVoterFullName.trim()
+            : "",
           voterCertificateFileUrl: doneUrls.find((u, idx) => files.findIndex((f) => f.requirement === "voter_certificate" && f.url === u) >= 0) || null,
           totalFamilyMonthlyIncome,
           educationalBackground: {
@@ -1188,7 +1254,10 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
                 onChange={(event) => {
                   setDateOfBirth(event.target.value);
                   const computedAge = computeAgeFromDateValue(event.target.value);
-                  if (computedAge !== undefined) setAge(String(computedAge));
+                  if (computedAge !== undefined) {
+                    setAge(String(computedAge));
+                    onEligibilityChange?.(computedAge, registeredVoter);
+                  }
                   markFieldValid("dateOfBirth");
                 }}
                 className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 focus:outline-none ${invalidFields.has("dateOfBirth") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : allowManualProfileDetails ? "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500"}`}
@@ -1201,13 +1270,20 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
                 required
                 aria-required="true"
                 value={placeOfBirth}
+                placeholder="e.g., La Trinidad, Benguet"
                 aria-invalid={invalidFields.has("placeOfBirth")}
+                aria-describedby={invalidFields.has("placeOfBirth") ? "skeap-place-of-birth-error" : undefined}
                 onChange={(e) => {
                   setPlaceOfBirth(e.target.value);
                   markFieldValid("placeOfBirth");
                 }}
                 className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 shadow-sm transition-colors focus:ring-2 ${invalidFields.has("placeOfBirth") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100"}`}
               />
+              {invalidFields.has("placeOfBirth") ? (
+                <span id="skeap-place-of-birth-error" role="alert" className="mt-1 text-xs text-rose-600">
+                  {validationErrors.placeOfBirth}
+                </span>
+              ) : null}
             </label>
             <label className="flex flex-col">
               <span className="text-sm font-semibold">Age <span className="text-black" aria-hidden="true">*</span></span>
@@ -1222,7 +1298,9 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
                 readOnly={!allowManualProfileDetails}
                 aria-invalid={invalidFields.has("age")}
                 onChange={(event) => {
-                  setAge(event.target.value);
+                  const nextAge = event.target.value;
+                  setAge(nextAge);
+                  onEligibilityChange?.(Number(nextAge), registeredVoter);
                   markFieldValid("age");
                 }}
                 className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 focus:outline-none ${invalidFields.has("age") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : allowManualProfileDetails ? "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500"}`}
@@ -1346,139 +1424,102 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
             </div>
             <fieldset className="mt-2 flex flex-col gap-2 md:col-span-2">
               <legend className="text-sm font-semibold text-slate-900">Registered Voter <span className="text-black" aria-hidden="true">*</span></legend>
-              <div className="flex items-center gap-4">
-                <label className="inline-flex items-center gap-2">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${registeredVoter === true ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-slate-300"} ${invalidFields.has("registeredVoter") ? "border-rose-300" : ""}`}>
                   <input
-                    type="checkbox"
+                    type="radio"
+                    name="registeredVoter"
+                    value="yes"
+                    required
                     checked={registeredVoter === true}
-                    aria-invalid={invalidFields.has("registeredVoter")}
+                    aria-describedby={
+                      validationErrors.registeredVoter
+                        ? "registered-voter-error"
+                        : isVotingAge && registeredVoter === false
+                          ? "section-3-6-voter-blocker"
+                          : undefined
+                    }
                     onChange={() => {
                       setRegisteredVoter(true);
+                      onEligibilityChange?.(Number(age), true);
                       markFieldValid("registeredVoter");
                     }}
-                    className={`h-4 w-4 ${invalidFields.has("registeredVoter") ? "outline outline-1 outline-rose-600" : ""}`}
+                    className="mt-0.5 h-4 w-4 shrink-0"
                   />
-                  <span className="text-sm">Yes</span>
+                  <span className="text-sm font-medium text-slate-800">Yes, I am a registered voter of Barangay Pico</span>
                 </label>
-                <label className="inline-flex items-center gap-2">
+                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${registeredVoter === false ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-slate-300"} ${invalidFields.has("registeredVoter") ? "border-rose-300" : ""}`}>
                   <input
-                    type="checkbox"
+                    type="radio"
+                    name="registeredVoter"
+                    value="no"
+                    required
                     checked={registeredVoter === false}
-                    aria-invalid={invalidFields.has("registeredVoter")}
+                    aria-describedby={
+                      validationErrors.registeredVoter
+                        ? "registered-voter-error"
+                        : isVotingAge && registeredVoter === false
+                          ? "section-3-6-voter-blocker"
+                          : undefined
+                    }
                     onChange={() => {
                       setRegisteredVoter(false);
+                      onEligibilityChange?.(Number(age), false);
                       markFieldValid("registeredVoter");
                     }}
-                    className={`h-4 w-4 ${invalidFields.has("registeredVoter") ? "outline outline-1 outline-rose-600" : ""}`}
+                    className="mt-0.5 h-4 w-4 shrink-0"
                   />
-                  <span className="text-sm">No</span>
+                  <span className="text-sm font-medium text-slate-800">No, I am not a registered voter</span>
                 </label>
               </div>
-              <p className="text-xs text-slate-500">*(If yes, please present voter’s certificate and attach a photocopy of voter’s certificate for 18 years old and above only)</p>
-              {registeredVoter === true && Number(age) >= 18 ? (
-                (() => {
-                  const voterFile = files.find((file) => file.requirement === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
-                  const inputId = "voter-certificate-upload";
-                  const voterFileUrl = voterFile?.status === "done" ? voterFile.url : undefined;
-                  return (
-                    <div
-                      className="mt-2 space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        void onChooseFiles(event.dataTransfer.files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
+              {isVotingAge && registeredVoter === false ? (
+                <p id="section-3-6-voter-blocker" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm leading-relaxed text-rose-700" role="alert">
+                  Ineligible under Section 3(6): Applicants who have reached voting age (18+) must be duly registered voters of Barangay Pico to qualify for SKEAP.
+                </p>
+              ) : null}
+              {validationErrors.registeredVoter && !(isVotingAge && registeredVoter === false) ? (
+                <p id="registered-voter-error" className="text-xs text-rose-600" role="alert">
+                  {validationErrors.registeredVoter}
+                </p>
+              ) : null}
+              {Number(age) < 18 && registeredVoter === false ? (
+                <div className="mt-2 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <label className="flex items-start gap-2 text-sm text-slate-700">
+                    <input
+                      data-required="profile"
+                      type="checkbox"
+                      required
+                      checked={parentGuardianRegisteredVoter}
+                      aria-invalid={invalidFields.has("parentGuardianRegisteredVoter")}
+                      onChange={(event) => {
+                        setParentGuardianRegisteredVoter(event.target.checked);
+                        markFieldValid("parentGuardianRegisteredVoter");
                       }}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <label htmlFor={inputId} className="text-sm font-semibold text-slate-900">
-                            Voter&apos;s certificate (photocopy) <span className="text-red-500" aria-hidden="true">*</span>
-                          </label>
-                          <p className="mt-0.5 text-xs text-slate-500">Supports PDF, JPG, PNG, and WebP (Max 15MB).</p>
-                        </div>
-                      </div>
-                      <input
-                        id={inputId}
-                        data-required="profile"
-                        data-requirement={SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE}
-                        type="file"
-                        accept={ACCEPTED_DOCUMENT_TYPES}
-                        onChange={(event) => {
-                          void onChooseFiles(event.currentTarget.files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
-                          event.currentTarget.value = "";
-                        }}
-                        className="sr-only"
-                        aria-label="Upload or replace voter's certificate"
-                      />
-                      {voterFile?.status === "uploading" ? (
-                        <div className="flex h-[68px] items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/40 px-4" role="status">
-                          <LoaderCircle className="h-5 w-5 shrink-0 animate-spin text-blue-600" aria-hidden="true" />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-medium text-blue-900">Uploading your document...</span>
-                            <div className="mt-2 h-1.5 animate-pulse rounded-full bg-blue-200" aria-hidden="true" />
-                          </div>
-                        </div>
-                      ) : voterFile ? (
-                        <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                          <div className="flex min-w-0 items-center gap-3">
-                            {isPreviewableImage(voterFile) && voterFile.previewUrl && !voterFile.previewFailed ? (
-                              <img
-                                src={voterFile.previewUrl}
-                                alt=""
-                                onError={() => setFiles((prev) => prev.map((file) =>
-                                  file.id === voterFile.id ? { ...file, previewFailed: true } : file
-                                ))}
-                                className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-500">
-                                  {isPdfFile(voterFile) ? "PDF" : <FileText className="h-5 w-5" aria-hidden="true" />}
-                              </div>
-                            )}
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-slate-900" title={voterFile.name}>{voterFile.name}</p>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-slate-500">{(voterFile.size / (1024 * 1024)).toFixed(2)} MB</span>
-                                {getFileBadge(voterFile)}
-                                {voterFileUrl || voterFile.previewUrl ? (
-                                  <a
-                                    href={voterFileUrl || voterFile.previewUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="cursor-pointer text-xs font-medium text-blue-600 hover:underline"
-                                    aria-label={`View ${voterFile.name} in a new tab`}
-                                  >
-                                    View file
-                                  </a>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                          <label htmlFor={inputId} className="shrink-0 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
-                            Change
-                          </label>
-                        </div>
-                      ) : (
-                        <label htmlFor={inputId} className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-dashed p-4 transition-colors hover:border-slate-300 hover:bg-slate-100 ${invalidFields.has(SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE) ? "border-rose-300 bg-rose-50/30" : "border-slate-200 bg-slate-50/50"}`}>
-                          <span className="flex items-center gap-3">
-                            <UploadCloud className="h-5 w-5 text-slate-400" aria-hidden="true" />
-                            <span className="text-sm text-slate-600">Click or drop to upload document</span>
-                          </span>
-                          <span className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm transition-all duration-150 active:scale-95 active:bg-slate-100 active:shadow-inner">
-                            Browse
-                          </span>
-                        </label>
-                      )}
-                      {voterFile?.status === "done" && voterFile.url ? (
-                        <p className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700" role="status">
-                          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                          File uploaded successfully
-                        </p>
-                      ) : null}
-                      {voterFile?.error ? <p className="text-sm text-slate-600" role="status">{voterFile.error}</p> : null}
-                    </div>
-                  );
-                })()
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span>My parent or legal guardian is a duly registered voter of Barangay Pico</span>
+                  </label>
+                  {validationErrors.parentGuardianRegisteredVoter ? (
+                    <p className="text-xs text-rose-600" role="alert">{validationErrors.parentGuardianRegisteredVoter}</p>
+                  ) : null}
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-sm font-medium text-slate-800">Parent / Guardian Registered Voter Full Name <span className="text-rose-600" aria-hidden="true">*</span></span>
+                    <input
+                      data-required="profile"
+                      required
+                      value={parentGuardianVoterFullName}
+                      aria-invalid={invalidFields.has("parentGuardianVoterFullName")}
+                      onChange={(event) => {
+                        setParentGuardianVoterFullName(event.target.value);
+                        markFieldValid("parentGuardianVoterFullName");
+                      }}
+                      className={`rounded-lg border px-3 py-2 text-slate-900 ${invalidFields.has("parentGuardianVoterFullName") ? "border-rose-300 bg-rose-50/30" : "border-slate-300 bg-white"}`}
+                    />
+                    {validationErrors.parentGuardianVoterFullName ? (
+                      <span className="text-xs text-rose-600" role="alert">{validationErrors.parentGuardianVoterFullName}</span>
+                    ) : null}
+                  </label>
+                </div>
               ) : null}
             </fieldset>
           </div>
@@ -1810,11 +1851,30 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
         <div className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-6">
           <section aria-labelledby="verified-identity-documents-title" className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
             <h3 id="verified-identity-documents-title" className="text-base font-bold text-slate-900">
-              Verified Identity Documents
+              Section A — Already on File via KK Profile (No Upload Needed)
             </h3>
             <p className="mt-1 text-xs text-slate-600">
-              These documents are securely attached from your approved KK Profile. No re-upload is needed.
+              These Section 5 records are verified digitally or generated from your application. No re-upload is needed.
             </p>
+            <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+              {[
+                { label: "Official SKEAP Application Form", detail: "Auto-generated" },
+                { label: '2"×2" Latest I.D. Picture', detail: "Attached from KK Profile" },
+                { label: "Birth Certificate", detail: "Verified in KK Profile" },
+                { label: "Certificate of Residency", detail: "Verified in KK Profile" },
+              ].map(({ label, detail }) => (
+                <li key={label} className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-white/80 p-3">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-slate-800">{label}</span>
+                    <span className="mt-0.5 block text-[11px] text-slate-500">{detail}</span>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                    On File (KK Profile)
+                  </span>
+                </li>
+              ))}
+            </ul>
             {loadingIdentityDocuments ? (
               <p role="status" className="mt-4 text-sm text-slate-600">Loading your approved KK Profile documents…</p>
             ) : identityDocumentsError ? (
@@ -1822,7 +1882,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
                 {identityDocumentsError}
               </p>
             ) : identityDocuments ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4 grid gap-3 border-t border-emerald-200 pt-4 sm:grid-cols-2">
                 <UpdatablePhotoDocumentCard
                   label="2x2 ID Picture"
                   href={identityDocuments.photo}
@@ -1842,11 +1902,14 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
             ) : null}
           </section>
 
-          <p className="text-sm font-semibold text-slate-900">Upload this term&apos;s required application documents</p>
+          <section aria-labelledby="skeap-required-uploads-title">
+          <h3 id="skeap-required-uploads-title" className="mb-3 text-base font-bold text-slate-900">
+            Section B — Required Digital Uploads for SKEAP
+          </h3>
 
           <div className="grid gap-3">
             {requiredDocuments.map((requiredDocument) => {
-              const { key, label } = requiredDocument;
+              const { key, label, helperText } = requiredDocument;
               const inputId = `file-input-${key}`;
               const matchingFile = findUploadFileForKey(files, key);
               const isReady = matchingFile?.status === "done" && Boolean(matchingFile.url);
@@ -1894,6 +1957,9 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
                         </span>
                       ) : null}
                     </div>
+                    {helperText ? (
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">{helperText}</p>
+                    ) : null}
                     <p className="mt-0.5 text-xs text-slate-500">
                       Supports PDF, JPG, PNG, and WebP (Max 15MB).
                     </p>
@@ -2068,6 +2134,12 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
                 </div>
               ))}
           </div>
+          </section>
+
+          <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">
+            Documents marked &apos;On File&apos; are already verified digitally from your KK Profile. Please bring physical originals/Certified True Copies (CTCs) of all Section 5 documents to Barangay Pico Hall once pre-qualified.
+          </p>
+
         </div>
       ) : null}
 
@@ -2106,7 +2178,7 @@ export default function SkeapApplicationWizard({ onSubmitted, educationLevel, on
             <button
               type="button"
               onClick={goNext}
-              disabled={submitting}
+              disabled={submitting || (step === 0 && isVotingAge && registeredVoter === false)}
               className="rounded-lg bg-[#0F3D5C] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2f47] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Next

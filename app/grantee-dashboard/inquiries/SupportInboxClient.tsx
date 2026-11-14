@@ -96,6 +96,15 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
   }, [isNewInquiryModalOpen]);
 
   useEffect(() => {
+    if (!showSubmittedToast) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("submitted")) return;
+    params.delete("submitted");
+    const query = params.toString();
+    router.replace(`${basePath}/inquiries${query ? `?${query}` : ""}`, { scroll: false });
+  }, [basePath, router, showSubmittedToast]);
+
+  useEffect(() => {
     let active = true;
     let hasLoadedInitially = false;
     let requestPending = false;
@@ -394,13 +403,16 @@ export default function SupportInboxClient({ basePath, initialInquiryId, showSub
     }
   }
 
+  const submittedToastMessage = basePath === "/youth-dashboard"
+    ? "Inquiry sent to Barangay Pico SK officials"
+    : "Inquiry submitted successfully.";
+
   return (
     <main className="px-6 pb-20 pt-10 lg:px-10 lg:pt-14">
       {toastVisible && (
         <FloatingFeedback
-          message="Inquiry submitted successfully."
+          message={submittedToastMessage}
           type="success"
-          autoDismissMs={0}
           onDismiss={() => setToastVisible(false)}
         />
       )}

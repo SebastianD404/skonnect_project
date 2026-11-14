@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import {
+  skeapApplicationInquiryWhere,
+  supportInboxInquiryWhere,
+} from "@/lib/inquiries/filters";
 
 const db = prisma;
 import { ensureProfile } from "@/lib/auth";
@@ -30,13 +34,8 @@ export async function GET(request: Request) {
     const skeapOnly = url.searchParams.get("skeapOnly") === "1";
     const where: Prisma.InquiryWhereInput = {
       userId: appUser.id,
+      ...(skeapOnly ? skeapApplicationInquiryWhere : supportInboxInquiryWhere),
     };
-
-    if (skeapOnly) {
-      where.subject = { contains: "SKEAP application", mode: "insensitive" };
-    } else {
-      where.NOT = { subject: { contains: "SKEAP application", mode: "insensitive" } };
-    }
 
     const [inquiries, totalCount] = await Promise.all([
       db.inquiry.findMany({

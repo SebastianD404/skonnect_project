@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { supportInboxInquiryWhere } from "@/lib/inquiries/filters";
 
 const DEFAULT_PAGE_SIZE = 15;
 const MAX_PAGE_SIZE = 50;
@@ -57,9 +58,7 @@ export async function GET(request: NextRequest) {
     : status === "RESOLVED"
       ? { isResolved: true }
       : {};
-  const baseWhere: Prisma.InquiryWhereInput = {
-    NOT: { subject: { contains: "SKEAP application", mode: "insensitive" } },
-  };
+  const baseWhere: Prisma.InquiryWhereInput = supportInboxInquiryWhere;
   const where: Prisma.InquiryWhereInput = { ...baseWhere, ...statusWhere };
   const [rows, totalCount] = await Promise.all([
     prisma.inquiry.findMany({

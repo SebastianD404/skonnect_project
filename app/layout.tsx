@@ -78,16 +78,50 @@ async function getInitialAuthUser() {
   }
 
   const isApprovedGrantee = await reconcileApprovedSkeapGrantee(profile.id, profile.role);
-  const grantee = await prisma.grantee.findUnique({
-    where: { userId: profile.id },
-    select: { status: true },
-  });
+  const userMetadata =
+    authUser.user_metadata && typeof authUser.user_metadata === "object"
+      ? authUser.user_metadata as Record<string, unknown>
+      : {};
+  const metadataAvatar =
+    typeof userMetadata.avatar_url === "string"
+      ? userMetadata.avatar_url
+      : typeof userMetadata.avatarUrl === "string"
+        ? userMetadata.avatarUrl
+        : undefined;
+  const avatarPath = profile.avatarUrl || metadataAvatar;
+  const [grantee, latestKkPhoto] = await Promise.all([
+    prisma.grantee.findUnique({
+      where: { userId: profile.id },
+      select: { status: true },
+    }),
+    avatarPath
+      ? Promise.resolve(null)
+      : prisma.profilingRegistration.findFirst({
+          where: { userId: profile.id, photoFileUrl: { not: null } },
+          orderBy: { submittedAt: "desc" },
+          select: { photoFileUrl: true },
+        }),
+  ]);
+  const avatarSource = avatarPath || latestKkPhoto?.photoFileUrl || undefined;
+  let avatarUrl = avatarSource;
+
+  if (
+    avatarSource &&
+    !avatarSource.startsWith("/api/private-documents/") &&
+    !avatarSource.startsWith("http://") &&
+    !avatarSource.startsWith("https://")
+  ) {
+    const signed = await supabase.storage
+      .from("avatars")
+      .createSignedUrl(avatarSource, 60 * 60 * 24 * 7);
+    avatarUrl = signed.data?.signedUrl || avatarSource;
+  }
 
   return {
     id: profile.id,
     fullName: profile.fullName,
     email: profile.email,
-    avatarUrl: profile.avatarUrl ?? undefined,
+    avatarUrl,
     role: isApprovedGrantee ? "GRANTEE" : profile.role,
     kkStatus: profile.kkStatus,
     skeapStatus: grantee?.status ?? null,

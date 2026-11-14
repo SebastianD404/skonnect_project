@@ -62,6 +62,7 @@ model KKProfile {
   addressLine   String
   barangay      String   @default("Pico")
   birthDate     DateTime
+  placeOfBirth  String?
   contactNumber String
   sex           Sex      @default(NOT_SPECIFIED)
   email         String   @unique
@@ -191,6 +192,8 @@ model SkeapApplication {
   gender                   String?
   grades                   Json?
   timeline                 Json?
+  parentGuardianRegisteredVoter Boolean?
+  parentGuardianVoterFullName String?
   waitlistPosition         Int?
   waitlistRemark           String?          @map("waitlist_remark")
   educationalBackground    Json?

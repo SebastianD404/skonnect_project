@@ -18,6 +18,7 @@ import {
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { ChevronDown, Eye, EyeOff, MapPin } from "lucide-react";
 import KkProfilingSuccessInterstitial from "@/app/programs/kk-profiling/KkProfilingSuccessInterstitial";
+import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
 
 const initialForm = {
   lastName: "",
@@ -30,6 +31,7 @@ const initialForm = {
   sex: "",
   age: "",
   birthDate: "",
+  placeOfBirth: "",
   email: "",
   facebook: "",
   contactNumber: "",
@@ -277,6 +279,14 @@ export default function KKProfilingForm() {
         if (!mounted) return;
         if (response.ok) {
           const data = await response.json();
+          if (typeof data.profile?.placeOfBirth === "string") {
+            setForm((current) => ({
+              ...current,
+              placeOfBirth: current.placeOfBirth.trim()
+                ? current.placeOfBirth
+                : data.profile.placeOfBirth,
+            }));
+          }
           const profileStatus = data.profile?.status || "";
           const isApprovedStatus = profileStatus.toLowerCase().includes("approved");
           const isRejectedStatus = profileStatus.toLowerCase().includes("rejected");
@@ -527,6 +537,8 @@ export default function KKProfilingForm() {
     if (!form.sex) return "Sex is required";
     if (!form.age) return "Age is required";
     if (!form.birthDate) return "Birth date is required";
+    const placeOfBirthResult = placeOfBirthSchema.safeParse(form.placeOfBirth);
+    if (!placeOfBirthResult.success) return placeOfBirthResult.error.issues[0]?.message;
     if (!form.email.trim()) return "Email is required";
     if (!form.facebook.trim()) return "Facebook account name is required";
     if (!form.contactNumber.trim()) return "Contact number is required";
@@ -620,6 +632,7 @@ export default function KKProfilingForm() {
       formData.append("sex", form.sex);
       formData.append("age", form.age);
       formData.append("birthDate", form.birthDate);
+      formData.append("placeOfBirth", form.placeOfBirth);
       formData.append("email", form.email);
       formData.append("facebook", form.facebook);
       formData.append("contactNumber", form.contactNumber);
@@ -727,7 +740,7 @@ export default function KKProfilingForm() {
         <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
           <div className="min-w-0 pr-24">
             <strong>Informed Consent</strong>
-            <p className="mt-2">The Profiling aims to gather KK member information for the National Youth Commission. Data will be stored and used for database management by the NYC. Participation is voluntary. No monetary compensation will be provided.</p>
+            <p className="mt-2">Your registered KK profile details, including identity and birth details, are securely stored in the Barangay Pico Youth Registry and used to auto-fill official Sangguniang Kabataan program applications such as SKEAP, in accordance with the Data Privacy Act of 2012 (RA 10173). Participation is voluntary. No monetary compensation will be provided.</p>
           </div>
           <div className="absolute bottom-2 right-2">
             <button type="button" onClick={() => setShowConsentModal(true)} className="text-sm underline text-slate-700 transition duration-200 hover:text-slate-900 hover:bg-slate-100 hover:no-underline rounded-md px-2 py-1">View full consent</button>
@@ -742,7 +755,7 @@ export default function KKProfilingForm() {
             </p>
           </div>
 
-      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Last Name *</span>
           <input
@@ -843,6 +856,18 @@ export default function KKProfilingForm() {
               }
             }}
             required
+            className="rounded-lg border px-3 py-2"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-semibold">Place of Birth *</span>
+          <input
+            value={form.placeOfBirth}
+            onChange={(event) => setField("placeOfBirth", event.target.value)}
+            placeholder="e.g., La Trinidad, Benguet"
+            required
+            aria-required="true"
             className="rounded-lg border px-3 py-2"
           />
         </label>
@@ -1130,7 +1155,7 @@ export default function KKProfilingForm() {
               <div className="mt-4 max-h-[70vh] overflow-y-auto text-sm text-slate-700 space-y-3">
                 <p><strong>Katipunan ng Kabataan (KK) Profiling</strong></p>
                 <p><strong>Consulting Agency:</strong> National Youth Commission (NYC), Quezon City, Philippines</p>
-                <p><strong>1. Purpose of the Study</strong><br/>The Profiling aims to gather the information and data of the Katipunan ng Kabataan members. The information gathered in the KK Profiling will be stored to the upcoming SK Portal and will only be used for the purpose of database management handled by the National Youth Commission.</p>
+                <p><strong>1. Purpose and Use of Your Information</strong><br/>KK Profiling collects information for official youth program administration. Your registered KK profile details—including identity and birth details—are securely stored in the Barangay Pico Youth Registry and may be used to auto-fill official Sangguniang Kabataan program applications, such as SKEAP. Access and use are limited to authorized Barangay Pico personnel for these official purposes, consistent with the Data Privacy Act of 2012 (RA 10173).</p>
                 <p><strong>2. Terms and Duration of Participation</strong><br/>You are asked to join the study as participant in the KK Profiling. The conduct of the profiling will take 2 to 3 hours per Barangay; the data will serve as an updated National database of the Katipunan ng Kabataan members in the Philippines.</p>
                 <p><strong>3. Risks/Confidentiality</strong><br/>Your participation in the study will be treated with utmost confidentiality. Any information collected from you will be used in the Database management. Also, your safety is also my primary concern. The profiling ensures that there will be no risk to encounter during the process of data collection.</p>
                 <p><strong>4. Compensation</strong><br/>The activity is mandated by the Department of Interior and Local Government together with the National Youth Commission; there will be no monetary remuneration other than our sincerest gratitude for your time and effort. Your participation will be highly appreciated.</p>

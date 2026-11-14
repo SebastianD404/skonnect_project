@@ -8,6 +8,8 @@ import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/li
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { isEligibleSkeapApplicantYearLevel, isSkeapEducationLevel } from "@/lib/skeap-education";
+import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
+import { getSkeapSubmissionGuardError } from "@/lib/skeap-application-guard";
 
 const EDUCATION_LEVELS = ["elementary", "highSchool", "college", "vocational"] as const;
 const EDUCATION_FIELDS = [
@@ -28,6 +30,18 @@ const EDUCATION_FIELDS = [
   "vocationalSchool",
   "vocationalYear",
 ] as const;
+
+function getAgeFromBirthDate(birthDate: Date) {
+  const today = new Date();
+  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+  if (
+    today.getUTCMonth() < birthDate.getUTCMonth() ||
+    (today.getUTCMonth() === birthDate.getUTCMonth() && today.getUTCDate() < birthDate.getUTCDate())
+  ) {
+    age -= 1;
+  }
+  return age;
+}
 
 export async function GET() {
   try {
@@ -259,6 +273,8 @@ export async function POST(request: NextRequest) {
     const age = ageRaw ? Number(ageRaw) : undefined;
     const totalFamilyMonthlyIncome = String(body.totalFamilyMonthlyIncome ?? "").trim();
     const registeredVoter = body.registeredVoter;
+    const parentGuardianRegisteredVoter = body.parentGuardianRegisteredVoter === true;
+    const parentGuardianVoterFullName = String(body.parentGuardianVoterFullName ?? "").trim();
     const signatureUrl = typeof body.signatureUrl === "string" ? body.signatureUrl : "";
 
     if (!firstName || !middleName || !lastName) {
@@ -266,7 +282,7 @@ export async function POST(request: NextRequest) {
     }
     if (typeof registeredVoter !== "boolean") {
       return NextResponse.json(
-        { error: "Please indicate whether you are a registered national voter." },
+        { error: "Please indicate whether you are a registered voter of Barangay Pico." },
         { status: 400 }
       );
     }
@@ -277,7 +293,6 @@ export async function POST(request: NextRequest) {
       !dateOfBirthRaw ||
       !dateOfBirth ||
       Number.isNaN(dateOfBirth.getTime()) ||
-      !placeOfBirth ||
       !ageRaw ||
       !civilStatus ||
       !gender ||
@@ -286,6 +301,13 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "All personal information fields are required, including the applicant photo." },
+        { status: 400 }
+      );
+    }
+    const placeOfBirthResult = placeOfBirthSchema.safeParse(placeOfBirth);
+    if (!placeOfBirthResult.success) {
+      return NextResponse.json(
+        { error: placeOfBirthResult.error.issues[0]?.message ?? "Enter a valid place of birth." },
         { status: 400 }
       );
     }
@@ -381,6 +403,7 @@ export async function POST(request: NextRequest) {
       },
       orderBy: { submittedAt: "desc" },
       select: {
+        birthDate: true,
         photoFileUrl: true,
         birthCertificateFileUrl: true,
         idFrontFileUrl: true,
@@ -401,12 +424,10 @@ export async function POST(request: NextRequest) {
       );
     }
     const photoFileUrl = approvedKkRegistration.photoFileUrl;
-
-    const requiredUploadKeys = [
-      SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
-      SKEAP_UPLOAD_KEY.GRADE_REPORT,
-      SKEAP_UPLOAD_KEY.FAMILY_INCOME,
-    ];
+    const verifiedAge = getAgeFromBirthDate(approvedKkRegistration.birthDate);
+    if (verifiedAge < 15 || verifiedAge > 30) {
+      return NextResponse.json({ error: "Applicants must be between 15 and 30 years old." }, { status: 400 });
+    }
 
     if (!uploadedFiles) {
       console.error("Invalid uploadedFiles payload for SKEAP application", {
@@ -441,12 +462,16 @@ export async function POST(request: NextRequest) {
       url: approvedKkRegistration.idBackFileUrl,
     };
 
-    const missingUploadKeys = requiredUploadKeys.filter(
-      (key) => !uploadedFiles[key] || !uploadedFiles[key].url?.trim()
-    );
-    if (missingUploadKeys.length > 0) {
+    const submissionGuardError = getSkeapSubmissionGuardError({
+      age: verifiedAge,
+      registeredVoter,
+      parentGuardianRegisteredVoter,
+      parentGuardianVoterFullName,
+      uploadedFiles,
+    });
+    if (submissionGuardError) {
       return NextResponse.json(
-        { error: `Missing required uploadedFiles keys: ${missingUploadKeys.join(", ")}` },
+        { error: submissionGuardError },
         { status: 400 }
       );
     }
@@ -466,11 +491,17 @@ export async function POST(request: NextRequest) {
       reportCardFileUrl,
       applicantName,
       permanentAddress,
-      dateOfBirth,
+      dateOfBirth: approvedKkRegistration.birthDate,
       placeOfBirth,
-      age,
+      age: verifiedAge,
       civilStatus,
       registeredVoter,
+      parentGuardianRegisteredVoter: verifiedAge < 18 && !registeredVoter
+        ? parentGuardianRegisteredVoter
+        : undefined,
+      parentGuardianVoterFullName: verifiedAge < 18 && !registeredVoter
+        ? parentGuardianVoterFullName
+        : undefined,
       totalFamilyMonthlyIncome: totalFamilyMonthlyIncome || undefined,
       signatureUrl,
       gender,

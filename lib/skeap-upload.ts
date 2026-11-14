@@ -224,22 +224,39 @@ export const SKEAP_UPLOAD_LABELS: Record<SkeapUploadKey, string> = {
   [SKEAP_UPLOAD_KEY.OTHER]: "Additional Document",
 };
 
-export function getSkeapRequiredDocuments(_educationLevel: string, _yearLevel: string): SkeapRequiredDocument[] {
-  void _educationLevel;
-  void _yearLevel;
+export function getSkeapRequiredDocuments(
+  educationLevel: string,
+  _yearLevel: string,
+  applicantAge = 0,
+  isRegisteredVoter: boolean | null = null,
+): SkeapRequiredDocument[] {
+  const isHighSchool = educationLevel === "Junior High School" || educationLevel === "Senior High School";
+  const voterCertificateLabel = isRegisteredVoter === true
+    ? "Applicant's COMELEC Voter's Certificate (Barangay Pico)"
+    : applicantAge < 18 && isRegisteredVoter === false
+      ? "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico)"
+      : "COMELEC Voter's Certificate (Barangay Pico)";
+
   return [
     {
       key: SKEAP_UPLOAD_KEY.FAMILY_INCOME,
       label: "Certificate of Low-Income",
-      helperText: 'Stating for the purpose of "Sangguniang Kabataan Educational Assistance Program"',
+      helperText: 'Must state purpose: "Sangguniang Kabataan Educational Assistance Program"',
     },
     {
       key: SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
       label: "Certificate of Enrollment",
+      helperText: "Current semester/school year enrollment form or COE",
     },
     {
       key: SKEAP_UPLOAD_KEY.GRADE_REPORT,
-      label: "Certified Grades / Form 138",
+      label: isHighSchool
+        ? "Certified True Copy of Report Card / Form 138"
+        : "Grades Issued by School Registrar",
+    },
+    {
+      key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+      label: voterCertificateLabel,
     },
   ];
 }

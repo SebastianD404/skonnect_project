@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, X } from "lucide-react";
@@ -17,7 +17,6 @@ import VerificationModal from "@/app/components/VerificationModal";
 
 type Props = {
   slug: string;
-  requirements?: string[];
 };
 
 type ProgramStatus = {
@@ -90,14 +89,30 @@ export default function ProgramApplyClient({ slug }: Props) {
   const [submittedReference, setSubmittedReference] = useState<string | null>(null);
   const [educationLevel, setEducationLevel] = useState<SkeapEducationLevel | "">("");
   const [yearLevel, setYearLevel] = useState("");
+  const [applicantEligibility, setApplicantEligibility] = useState<{
+    age: number;
+    registeredVoter: boolean | null;
+  }>({ age: 0, registeredVoter: null });
   const autoApplyHandled = useRef(false);
+  const handleEligibilityChange = useCallback((age: number, registeredVoter: boolean | null) => {
+    setApplicantEligibility({ age, registeredVoter });
+  }, []);
   const requiredDocuments = useMemo(
-    () => getSkeapRequiredDocuments(educationLevel, yearLevel),
-    [educationLevel, yearLevel]
+    () => getSkeapRequiredDocuments(
+      educationLevel,
+      yearLevel,
+      applicantEligibility.age,
+      applicantEligibility.registeredVoter,
+    ),
+    [educationLevel, yearLevel, applicantEligibility]
   );
 
   function openApplicationModal(profile: KKProfile) {
     setUserProfile(profile);
+    setApplicantEligibility({
+      age: Number(profile.age) || 0,
+      registeredVoter: null,
+    });
     setStatus(getCachedProgramStatus(slug));
     setLoading(true);
     setEducationLevel("");
@@ -519,19 +534,48 @@ export default function ProgramApplyClient({ slug }: Props) {
                 {(!status || isOpen) ? (
                   <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                     <p className="text-sm font-semibold text-slate-900">Checklist before submit</p>
-                    <ul className="mt-4 flex flex-col space-y-4">
-                      {requiredDocuments.map((document) => (
-                        <li key={document.key} className="flex items-start gap-3">
-                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden="true" />
-                          <span className="text-sm leading-relaxed text-slate-600">
-                            <span>{document.label}</span>
-                            {document.helperText ? (
-                              <span className="mt-0.5 block text-xs text-slate-500">{document.helperText}</span>
-                            ) : null}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                        Section A — Already on File via KK Profile (No Upload Needed)
+                      </p>
+                      <ul className="mt-3 space-y-3">
+                        {[
+                          ["Official SKEAP Application Form", "Auto-generated"],
+                          ['2"×2" Latest I.D. Picture', "Attached from KK Profile"],
+                          ["Birth Certificate", "Verified in KK Profile"],
+                          ["Certificate of Residency", "Verified in KK Profile"],
+                        ].map(([label, detail]) => (
+                          <li key={label} className="flex items-start gap-2">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-xs font-medium leading-relaxed text-slate-700">{label}</span>
+                              <span className="block text-[11px] leading-relaxed text-slate-500">{detail}</span>
+                            </span>
+                            <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                              On File (KK Profile)
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="mt-5 border-t border-slate-200 pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+                        Section B — Required Digital Uploads for SKEAP
+                      </p>
+                      <ul className="mt-3 space-y-3">
+                        {requiredDocuments.map((document) => (
+                          <li key={document.key} className="flex items-start gap-2">
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden="true" />
+                            <span className="text-xs leading-relaxed text-slate-600">
+                              <span>{document.label}</span>
+                              {document.helperText ? (
+                                <span className="mt-0.5 block text-[11px] text-slate-500">{document.helperText}</span>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   </div>
                 ) : null}
 
@@ -562,6 +606,7 @@ export default function ProgramApplyClient({ slug }: Props) {
                     footerActionsTarget={footerActionsTarget}
                     scrollContainerRef={scrollContainerRef}
                     userProfile={userProfile}
+                    onEligibilityChange={handleEligibilityChange}
                     allowManualProfileDetails={isSkeapTestAccount(user?.email)}
                     onSubmitted={setSubmittedReference}
                   />

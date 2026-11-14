@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { Role, type Prisma } from "@prisma/client";
 import InquiriesPageClient from "../InquiriesPageClient";
 import type { TimePeriod } from "../DashboardHeaderWrapper";
+import { supportInboxInquiryWhere } from "@/lib/inquiries/filters";
 
 type StatItem = {
   label: string;
@@ -86,14 +87,7 @@ export default async function AdminInquiriesPage() {
   const prevQuarter = new Date(startOfQuarter);
   prevQuarter.setDate(startOfQuarter.getDate() - 90);
 
-  const supportInquiryFilter: Prisma.InquiryWhereInput = {
-    NOT: {
-      subject: {
-        contains: "SKEAP application",
-        mode: "insensitive" as const,
-      },
-    },
-  };
+  const supportInquiryFilter: Prisma.InquiryWhereInput = supportInboxInquiryWhere;
 
   const [
     openInquiryCount,

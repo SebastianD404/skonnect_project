@@ -19,13 +19,19 @@ import { exportAnalyticsCardAsPng, exportAnalyticsTable } from "./analytics-expo
 
 type DemographicsData = Pick<
   ScholarDistributionAnalytics,
-  "genderDistribution" | "youthGenderDistribution" | "yearLevelDistribution" | "programOutcomes"
+  | "genderDistribution"
+  | "youthGenderDistribution"
+  | "yearLevelDistribution"
+  | "yearLevelBreakdowns"
+  | "programOutcomes"
 >;
+
+type YearLevelView = "all" | "highSchool" | "college";
 
 const SEX_SERIES = [
   { key: "male", label: "Male", color: "#0ea5e9" },
   { key: "female", label: "Female", color: "#8b5cf6" },
-  { key: "notSpecified", label: "Not specified", color: "#cbd5e1" },
+  { key: "notSpecified", label: "No value on file", color: "#cbd5e1" },
 ] as const;
 
 export default function DemographicsSection({ data }: { data: DemographicsData }) {
@@ -33,6 +39,13 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
   const yearCardRef = useRef<HTMLElement | null>(null);
   const outcomesCardRef = useRef<HTMLElement | null>(null);
   const [sexPopulation, setSexPopulation] = useState<"youth" | "grantee">("youth");
+  const [yearLevelView, setYearLevelView] = useState<YearLevelView>("all");
+  const selectedYearLevelData = data.yearLevelBreakdowns[yearLevelView];
+  const yearLevelSubtitle = {
+    all: "All educational levels",
+    highSchool: "Junior & Senior High (Grades 7–12)",
+    college: "College & Tech-Voc (1st–4th Year)",
+  }[yearLevelView];
   const selectedGenderDistribution =
     sexPopulation === "youth" ? data.youthGenderDistribution : data.genderDistribution;
   const totalBySex =
@@ -41,7 +54,7 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
     selectedGenderDistribution.notSpecified;
   const maxYearLevelCount = Math.max(
     0,
-    ...data.yearLevelDistribution.map(({ count }) => count),
+    ...selectedYearLevelData.map(({ count }) => count),
   );
   const sexData = SEX_SERIES.map((series) => ({
     name: series.label,
@@ -96,7 +109,7 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
       sheetName: "Scholars by Year",
       title: "SKEAP Scholars by Year Level",
       headers: ["Year Level", "Scholars"],
-      rows: data.yearLevelDistribution.map(({ yearLevel, count }) => [yearLevel, count]),
+      rows: selectedYearLevelData.map(({ yearLevel, count }) => [yearLevel, count]),
     });
   const exportOutcomesImage = () =>
     exportAnalyticsCardAsPng(outcomesCardRef.current, "skeap-program-outcomes.png");
@@ -222,7 +235,10 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
                   {sexPopulation === "youth" ? "Youth" : "Grantees"}
                 </text>
                 <Tooltip
-                  formatter={(value) => [Number(value).toLocaleString("en-PH"), "Youth"]}
+                  formatter={(value) => [
+                    Number(value).toLocaleString("en-PH"),
+                    sexPopulation === "youth" ? "Youth" : "Grantees",
+                  ]}
                   contentStyle={{ borderRadius: "0.75rem", borderColor: "#e2e8f0", fontSize: "0.75rem" }}
                 />
               </PieChart>
@@ -243,6 +259,9 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
               </li>
             ))}
           </ul>
+          <p className="mt-2 text-center text-[10px] leading-relaxed text-slate-400">
+            No Male/Female value was found in the linked profile, approved KK registration, or SKEAP application.
+          </p>
           {totalBySex === 0 ? (
             <p className="mt-2 text-center text-xs text-slate-400">
               No {sexPopulation === "youth" ? "KK youth" : "SKEAP grantee"} records yet.
@@ -255,22 +274,49 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
           aria-labelledby="scholars-by-year-title"
           className="min-h-[320px] rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
         >
-          <header className="flex items-start gap-2">
-            <div className="min-w-0">
+          <header className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
               <h3 id="scholars-by-year-title" className="text-base font-bold text-slate-900">
                 Scholars by Year Level
               </h3>
-              <p className="mt-1 text-xs text-slate-500">1st through 4th year</p>
+              <p className="mt-1 text-xs text-slate-500">{yearLevelSubtitle}</p>
             </div>
-            <AnalyticsExportMenu
-              label="scholars by year level"
-              onExportImage={exportYearImage}
-              onExportTable={exportYearTable}
-            />
+            <div className="flex shrink-0 items-center gap-1">
+              <div
+                role="group"
+                aria-label="Scholar year-level view"
+                className="inline-flex whitespace-nowrap rounded-full bg-slate-100 p-1"
+              >
+                {([
+                  ["all", "All"],
+                  ["highSchool", "High School"],
+                  ["college", "College"],
+                ] as const).map(([view, label]) => (
+                  <button
+                    key={view}
+                    type="button"
+                    aria-pressed={yearLevelView === view}
+                    onClick={() => setYearLevelView(view)}
+                    className={`rounded-full px-2.5 py-1.5 text-[10px] font-semibold transition-colors ${
+                      yearLevelView === view
+                        ? "bg-slate-800 text-white shadow-sm"
+                        : "text-slate-500 hover:bg-slate-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <AnalyticsExportMenu
+                label="scholars by year level"
+                onExportImage={exportYearImage}
+                onExportTable={exportYearTable}
+              />
+            </div>
           </header>
           <div role="img" aria-label="SKEAP scholars by academic year level" className="mt-4 h-[220px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.yearLevelDistribution} margin={{ top: 10, right: 4, left: -20, bottom: 0 }}>
+              <BarChart data={selectedYearLevelData} margin={{ top: 10, right: 4, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                 <XAxis
                   dataKey="yearLevel"
@@ -278,20 +324,23 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
                   axisLine={false}
                   tick={{ fill: "#64748b", fontSize: 10 }}
                   interval={0}
+                  tickFormatter={(value: string) =>
+                    yearLevelView === "highSchool" ? value.replace("Grade ", "G") : value
+                  }
                 />
                 <YAxis
+                  width={32}
                   allowDecimals={false}
                   tickLine={false}
                   axisLine={false}
                   tick={{ fill: "#94a3b8", fontSize: 10 }}
-                  width={34}
                 />
                 <Tooltip
                   formatter={(value) => [Number(value).toLocaleString("en-PH"), "Scholars"]}
                   contentStyle={{ borderRadius: "0.75rem", borderColor: "#e2e8f0", fontSize: "0.75rem" }}
                 />
                 <Bar dataKey="count" name="Scholars" radius={[4, 4, 0, 0]} maxBarSize={38}>
-                  {data.yearLevelDistribution.map((entry) => (
+                  {selectedYearLevelData.map((entry) => (
                     <Cell
                       key={entry.yearLevel}
                       fill={entry.count === maxYearLevelCount ? "#0f172a" : "#0ea5e9"}

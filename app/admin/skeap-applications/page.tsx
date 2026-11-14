@@ -3,13 +3,14 @@ import { requireRole } from "@/lib/auth";
 import { Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { getUploadGroups } from "@/lib/skeap-upload";
 import {
-  skeapPendingApplicationsWhere,
   skeapStatusWhere,
   SKEAP_APPLICATION_SELECT,
 } from "@/lib/skeap-applications";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { getAcademicYearDateRange, getAcademicYears, getCurrentAcademicYear } from "@/lib/semester";
+import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
 import SkeapApplicationsClient from "./SkeapApplicationsClient";
 
 interface ApplicationMessage {
@@ -334,7 +335,7 @@ export default async function SkeapApplicationsPage({
   if (!academicYearRange) throw new Error("Unable to determine the current academic year.");
 
   // Shared base filter pieces (subject match + exclude cancelled/approved-like responses)
-  const subjectWhere = { subject: { contains: "SKEAP application", mode: Prisma.QueryMode.insensitive } };
+  const subjectWhere: Prisma.InquiryWhereInput = skeapApplicationInquiryWhere;
   const oldestInquiry = await prisma.inquiry.findFirst({
     where: subjectWhere,
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -354,39 +355,47 @@ export default async function SkeapApplicationsPage({
     NOT: [excludeCancelled, excludeApproved],
   };
 
-  const pendingCount = await prisma.inquiry.count({
-    where: skeapPendingApplicationsWhere(academicYearRange),
-  });
-  const returnedCount = await prisma.inquiry.count({
-    where: {
-      ...queueBaseWhere,
-      AND: [
-        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        skeapStatusWhere(["returned", "return", "correction", "revise", "revision"]),
-      ],
-    },
-  });
-  const resubmittedCount = await prisma.inquiry.count({
-    where: {
-      ...queueBaseWhere,
-      AND: [
-        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        skeapStatusWhere(["resubm", "resubmit", "resubmitted"]),
-      ],
-    },
-  });
-  const approvedCount = await prisma.inquiry.count({
-    where: {
-      ...baseWhere,
-      AND: [
-        { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-        skeapStatusWhere(["approve", "approved"]),
-      ],
-    },
-  });
+  const academicYearWhere = {
+    createdAt: { gte: academicYearRange.start, lt: academicYearRange.end },
+  };
+  const [
+    pendingCount,
+    physicalCtcCount,
+    resubmittedCount,
+    approvedCount,
+    activeGranteeCount,
+    maxSlots,
+  ] = await Promise.all([
+    prisma.inquiry.count({
+      where: {
+        ...queueBaseWhere,
+        AND: [academicYearWhere, skeapStatusWhere(["pending"])],
+      },
+    }),
+    prisma.inquiry.count({
+      where: {
+        ...queueBaseWhere,
+        AND: [academicYearWhere, skeapStatusWhere(["pre_qualified"])],
+      },
+    }),
+    prisma.inquiry.count({
+      where: {
+        ...queueBaseWhere,
+        AND: [academicYearWhere, skeapStatusWhere(["resubm", "resubmit", "resubmitted"])],
+      },
+    }),
+    prisma.inquiry.count({
+      where: {
+        ...baseWhere,
+        AND: [academicYearWhere, skeapStatusWhere(["approve", "approved"])],
+      },
+    }),
+    getSkeapCapacityCount(),
+    getSkeapMaxSlots(),
+  ]);
 
   // Fetch rows for queue using the same base filter but matching any visible statuses
-  const visibleStatusPatterns = ["pending", "pre_qualified", "return", "resubm", "respond", "approve"];
+  const visibleStatusPatterns = ["pending", "pre_qualified", "resubm", "respond", "approve"];
   const [inquiries, focusedInquiry] = await Promise.all([
     prisma.inquiry.findMany({
       where: {
@@ -444,10 +453,11 @@ export default async function SkeapApplicationsPage({
         }
         counts={{
           pending: pendingCount,
-          returned: returnedCount,
+          physicalCtc: physicalCtcCount,
           resubmitted: resubmittedCount,
           approved: approvedCount,
         }}
+        initialCapacityFull={activeGranteeCount >= maxSlots}
       />
     </div>
   );

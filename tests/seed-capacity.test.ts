@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Sex } from "@prisma/client";
 import { generateDemoRecords } from "../prisma/seed";
 
 describe("SKEAP demo seed capacity", () => {
@@ -22,5 +23,19 @@ describe("SKEAP demo seed capacity", () => {
 
     expect(records.some(({ email }) => reservedEmails.has(email))).toBe(false);
     expect(records).toHaveLength(920);
+  });
+
+  it("uses HUC-safe demo birthplaces", () => {
+    const records = generateDemoRecords(0);
+
+    expect(records.every(({ placeOfBirth }) =>
+      placeOfBirth === "La Trinidad, Benguet" || placeOfBirth === "Baguio City"
+    )).toBe(true);
+  });
+
+  it("generates only explicit male or female values for demo profiles", () => {
+    const records = generateDemoRecords(0);
+
+    expect(records.every(({ sex }) => sex === Sex.MALE || sex === Sex.FEMALE)).toBe(true);
   });
 });

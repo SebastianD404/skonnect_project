@@ -238,8 +238,10 @@ export async function PATCH(
         if (
           !currentInquiry ||
           !currentInquiry.application?.id ||
-          !(/pending|resubmitted|resubmit/.test(currentReviewStatus)) ||
-          (currentApplicationStatus !== "PENDING" && currentApplicationStatus !== "RETURNED_FOR_EDIT")
+          !(/pending|resubmitted|resubmit|pre.?qual/.test(currentReviewStatus)) ||
+          (currentApplicationStatus !== "PENDING" &&
+            currentApplicationStatus !== "RETURNED_FOR_EDIT" &&
+            currentApplicationStatus !== SubmissionStatus.PRE_QUALIFIED)
         ) {
           throw new Error("This application is no longer eligible to be returned for edits.");
         }
@@ -299,8 +301,8 @@ export async function PATCH(
         }
         const applicantName = currentInquiry.application.applicantName || "Applicant";
         const approvalText = approvalStatus === "WAITLISTED"
-          ? `Dear ${applicantName}, SKEAP scholarship capacity is currently full. Your application has been placed on the scholarship waitlist at position ${waitlistPosition}. You will be contacted if a slot becomes available.`
-          : `Dear ${applicantName}, your SKEAP application has been successfully approved. You have been granted an active scholarship slot for Barangay Pico. Please check your portal for next steps.`;
+          ? `Dear ${applicantName}, your physical Certified True Copies were verified at Barangay Pico Hall. SKEAP scholarship capacity is currently full, so your application has been placed on the scholarship waitlist at position ${waitlistPosition}. You will be contacted if a slot becomes available.`
+          : `Dear ${applicantName}, your physical Certified True Copies were verified at Barangay Pico Hall and your SKEAP application has been approved. You have been granted an active scholarship slot for Barangay Pico. Please check your portal for next steps.`;
         approvalMessage = { ...message, text: approvalText };
       }
 
@@ -353,6 +355,7 @@ export async function PATCH(
           where: { id: currentInquiry.application.id },
           data: {
             status: "RETURNED_FOR_EDIT",
+            physicalDocumentsConfirmed: false,
             ...(uploadedFiles
               ? {
                   uploadedFiles: Object.fromEntries(
@@ -471,6 +474,8 @@ export async function PATCH(
           applicantId: inquiry.userId,
           target: inquiry.application?.applicantName || inquiry.userId,
           resultingStatus: updatedInquiry.reviewStatus ?? "Approved",
+          physicalDocumentsConfirmed: true,
+          physicalVerificationAt: message.createdAt,
         },
       });
     } else if (action === "prequalify") {

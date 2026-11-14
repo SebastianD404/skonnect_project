@@ -5,11 +5,12 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import {
   mapInquiryToApplication,
-  skeapPendingApplicationsWhere,
   skeapStatusWhere,
   SKEAP_APPLICATION_SELECT,
 } from "@/lib/skeap-applications";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
+import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
 
 const PAGE_SIZE = 15;
 
@@ -40,9 +41,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid pagination cursor." }, { status: 400 });
     }
 
-    const subjectWhere: Prisma.InquiryWhereInput = {
-      subject: { contains: "SKEAP application", mode: Prisma.QueryMode.insensitive },
-    };
+    const subjectWhere: Prisma.InquiryWhereInput = skeapApplicationInquiryWhere;
     const excludeCancelled: Prisma.InquiryWhereInput = {
       reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive },
     };
@@ -69,13 +68,47 @@ export async function GET(request: NextRequest) {
         }]
       : [];
 
-    const [inquiries, pendingCount, returnedCount, resubmittedCount, approvedCount] = await Promise.all([
+    const metricsPromise = cursorId
+      ? Promise.resolve(null)
+      : Promise.all([
+          prisma.inquiry.count({
+            where: {
+              ...queueBaseWhere,
+              AND: [academicYearWhere, skeapStatusWhere(["pending"])],
+            },
+          }),
+          prisma.inquiry.count({
+            where: {
+              ...queueBaseWhere,
+              AND: [academicYearWhere, skeapStatusWhere(["pre_qualified"])],
+            },
+          }),
+          prisma.inquiry.count({
+            where: {
+              ...queueBaseWhere,
+              AND: [academicYearWhere, skeapStatusWhere(["resubm", "resubmit", "resubmitted"])],
+            },
+          }),
+          prisma.inquiry.count({
+            where: {
+              ...baseWhere,
+              AND: [academicYearWhere, skeapStatusWhere(["approve", "approved"])],
+            },
+          }),
+          getSkeapCapacityCount(),
+          getSkeapMaxSlots(),
+        ]).then(([pending, physicalCtc, resubmitted, approved, activeGranteeCount, maxSlots]) => ({
+          counts: { pending, physicalCtc, resubmitted, approved },
+          capacityFull: activeGranteeCount >= maxSlots,
+        }));
+
+    const [inquiries, metrics] = await Promise.all([
       prisma.inquiry.findMany({
         where: {
           ...baseWhere,
           AND: [
             academicYearWhere,
-            skeapStatusWhere(["pending", "pre_qualified", "return", "resubm", "respond", "approve"]),
+            skeapStatusWhere(["pending", "pre_qualified", "resubm", "respond", "approve"]),
             ...cursorWhere,
           ],
         },
@@ -83,27 +116,7 @@ export async function GET(request: NextRequest) {
         take: PAGE_SIZE + 1,
         select: SKEAP_APPLICATION_SELECT,
       }),
-      prisma.inquiry.count({
-        where: skeapPendingApplicationsWhere(academicYearRange),
-      }),
-      prisma.inquiry.count({
-        where: {
-          ...queueBaseWhere,
-          AND: [academicYearWhere, skeapStatusWhere(["returned", "return", "correction", "revise", "revision"])],
-        },
-      }),
-      prisma.inquiry.count({
-        where: {
-          ...queueBaseWhere,
-          AND: [academicYearWhere, skeapStatusWhere(["resubm", "resubmit", "resubmitted"])],
-        },
-      }),
-      prisma.inquiry.count({
-        where: {
-          ...baseWhere,
-          AND: [academicYearWhere, skeapStatusWhere(["approve", "approved"])],
-        },
-      }),
+      metricsPromise,
     ]);
 
     const hasNextPage = inquiries.length > PAGE_SIZE;
@@ -112,12 +125,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       applications: page.map(mapInquiryToApplication),
-      counts: {
-        pending: pendingCount,
-        returned: returnedCount,
-        resubmitted: resubmittedCount,
-        approved: approvedCount,
-      },
+      counts: metrics?.counts,
+      capacityFull: metrics?.capacityFull,
       hasNextPage,
       nextCursor: hasNextPage && lastInquiry
         ? { id: lastInquiry.id, createdAt: lastInquiry.createdAt.toISOString() }

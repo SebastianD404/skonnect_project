@@ -90,7 +90,7 @@ export default function ApplicationsPage() {
         const latest = (data.inquiries ?? [])[0] as ApplicationRecord | undefined;
         if (latest) {
           const label = latest.reviewStatus?.trim().toUpperCase() === "PRE_QUALIFIED"
-            ? "Pre-qualified — physical verification required"
+            ? "For Physical CTC — physical verification required"
             : latest.reviewStatus || (latest.isResolved ? "Completed" : latest.response ? "Update available" : "Pending review");
           setSkeapApplication(latest);
           setSkeapStatus({ label, tone: getStatusTone(label) });

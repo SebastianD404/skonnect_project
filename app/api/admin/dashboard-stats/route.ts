@@ -4,17 +4,9 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getScholarDistributionAnalytics } from "@/lib/admin-scholar-analytics";
 import { createClient } from "@/lib/supabase/server";
+import { supportInboxInquiryWhere } from "@/lib/inquiries/filters";
 
 export const dynamic = "force-dynamic";
-
-const supportInquiryFilter = {
-  NOT: {
-    subject: {
-      contains: "SKEAP application",
-      mode: "insensitive" as const,
-    },
-  },
-};
 
 export async function GET() {
   try {
@@ -30,7 +22,7 @@ export async function GET() {
     }
 
     const [openInquiries, documentReviews, scholarAnalytics] = await Promise.all([
-      prisma.inquiry.count({ where: { ...supportInquiryFilter, isResolved: false } }),
+      prisma.inquiry.count({ where: { ...supportInboxInquiryWhere, isResolved: false } }),
       prisma.submission.count({ where: { status: "PENDING" } }),
       getScholarDistributionAnalytics(),
     ]);

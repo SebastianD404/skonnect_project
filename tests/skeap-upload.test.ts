@@ -18,25 +18,41 @@ import {
 } from "@/lib/skeap-upload";
 
 describe("SKEAP required document labels", () => {
-  it("requires only academic documents in SKEAP applications", () => {
+  it("requires all four digital uploads with ordinance-specific helper text", () => {
     expect(getSkeapRequiredDocuments("College", "1st Year")).toEqual([
       {
         key: SKEAP_UPLOAD_KEY.FAMILY_INCOME,
         label: "Certificate of Low-Income",
-        helperText: 'Stating for the purpose of "Sangguniang Kabataan Educational Assistance Program"',
+        helperText: 'Must state purpose: "Sangguniang Kabataan Educational Assistance Program"',
       },
       {
         key: SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
         label: "Certificate of Enrollment",
+        helperText: "Current semester/school year enrollment form or COE",
       },
-      { key: SKEAP_UPLOAD_KEY.GRADE_REPORT, label: "Certified Grades / Form 138" },
+      { key: SKEAP_UPLOAD_KEY.GRADE_REPORT, label: "Grades Issued by School Registrar" },
+      {
+        key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+        label: "COMELEC Voter's Certificate (Barangay Pico)",
+      },
     ]);
   });
 
-  it("keeps the same academic document requirements across education levels", () => {
-    expect(getSkeapRequiredDocuments("Junior High School", "1st Year")).toEqual(
-      getSkeapRequiredDocuments("Vocational", "Incoming Freshman"),
+  it("uses the level-appropriate grades label and voter certificate holder", () => {
+    const highSchoolDocs = getSkeapRequiredDocuments("Senior High School", "Grade 11", 17, false);
+
+    expect(highSchoolDocs[2].label).toBe("Certified True Copy of Report Card / Form 138");
+    expect(highSchoolDocs[3].label).toBe(
+      "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico)",
     );
+
+    const registeredApplicantDocs = getSkeapRequiredDocuments("College", "1st Year", 18, true);
+    expect(registeredApplicantDocs[3].label).toBe(
+      "Applicant's COMELEC Voter's Certificate (Barangay Pico)",
+    );
+    expect(
+      getSkeapRequiredDocuments("Technical and Vocational (Tech-Voc)", "1st Semester")[2].label,
+    ).toBe("Grades Issued by School Registrar");
   });
 });
 

@@ -1,11 +1,30 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import {
+  BarChart3,
+  Bot,
+  ChevronRight,
+  FileCheck2,
+  Headset,
+  Home,
+  MessageSquarePlus,
+  UserCheck,
+} from "lucide-react";
 import ProgramApplyClient from "@/app/programs/ProgramApplyClient";
+import AdminInquiryModal from "@/app/programs/AdminInquiryModal";
+import ProgramActionButton from "@/app/programs/ProgramActionButton";
+import ProgramTableOfContents from "@/app/programs/ProgramTableOfContents";
 import KKProfilingForm from "@/app/programs/kk-profiling-form";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
+
+const overviewIcons = [BarChart3, FileCheck2, Headset];
+const actionRowClass =
+  "group flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100/80 hover:text-slate-900";
+const actionIconClass =
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-colors group-hover:bg-white";
 
 type Props = { params: Promise<{ slug: string | string[] }> };
 
@@ -17,6 +36,17 @@ type ProgramStatus = {
   totalScholars: number;
   nextReview: string;
   deadline: string;
+};
+
+type ProgramRequirement = string | {
+  label: string;
+  detail?: string;
+  linkedFromKkProfile?: boolean;
+};
+
+type ProgramProcessStep = {
+  title: string;
+  description: string;
 };
 
 async function getProgramStatus(slug: string): Promise<ProgramStatus | null> {
@@ -44,8 +74,9 @@ type ProgramPageData = {
   statusTypes?: { title: string; description: string }[];
   faq: { q: string; a: string }[];
   cta: { label: string; href: string }[];
-  howItWorks?: string[];
-  requirements?: string[];
+  howItWorks?: Array<string | ProgramProcessStep>;
+  requirements?: ProgramRequirement[];
+  requirementsCallout?: string;
 };
 
 const PROGRAMS: Record<string, ProgramPageData> = {
@@ -67,39 +98,82 @@ const PROGRAMS: Record<string, ProgramPageData> = {
       { title: "Removed Scholar", description: "Students who were removed from the program due to ineligibility, withdrawal, or other administrative reasons. Removed scholars are not currently receiving benefits." },
     ],
     howItWorks: [
-      "Complete your SKonnect profile and submit the complete documentary requirements.",
-      "SKEAP staff review submissions, verify residency, and confirm academic eligibility.",
-      "Approved scholars receive confirmation and can track disbursement status in the portal.",
-      "Keep your records up to date each semester to remain eligible for ongoing support.",
+      {
+        title: "Complete KK Profile & Apply Online",
+        description:
+          "Complete your Katipunan ng Kabataan (KK) Profile and submit the online SKEAP application along with your required digital documents.",
+      },
+      {
+        title: "Digital Screening & Physical CTC Verification",
+        description:
+          "SK officials conduct digital screening of your uploaded files. Once pre-qualified, you will be notified to present original copies and Certified True Copies (CTCs) at the Barangay Pico Hall for final verification.",
+      },
+      {
+        title: "Approval & Payout Tracking",
+        description:
+          "Verified and approved scholars receive confirmation and can track their grant and payout status directly in the SKonnect portal.",
+      },
+      {
+        title: "Semestral Renewal",
+        description:
+          "Submit updated enrollment and grade requirements each semester to maintain your active grantee eligibility.",
+      },
     ],
     requirements: [
-      "Birth Certificate / Valid ID",
-      "Barangay Certificate of Residency",
-      "Certificate of Enrollment",
-      "Latest grade report / Transcript of Records",
-      "Family income certificate or income tax return",
+      {
+        label: "PSA Birth Certificate",
+        detail: "Identity & age verification",
+        linkedFromKkProfile: true,
+      },
+      {
+        label: "Barangay Certificate of Residency",
+        detail: "At least 1 year in Barangay Pico",
+        linkedFromKkProfile: true,
+      },
+      {
+        label: 'Latest 2"×2" I.D. Picture',
+        detail: "Attached from KK Profile",
+        linkedFromKkProfile: true,
+      },
+      {
+        label: "Certificate of Low-Income",
+        detail: 'Stating purpose: "Sangguniang Kabataan Educational Assistance Program"',
+      },
+      {
+        label: "Certificate of Enrollment",
+        detail: "Current Semester / School Year",
+      },
+      {
+        label: "Certified True Copy of Grades / Form 138",
+        detail: "Minimum grade of at least 80 with no failing marks",
+      },
+      {
+        label: "COMELEC Voter's Certificate (Barangay Pico)",
+        detail: "Applicant if 18+, or Parent/Guardian if aged 15–17",
+      },
     ],
+    requirementsCallout:
+      "Original copies and Certified True Copies (CTCs) of all required documents—including those linked from the KK Profile—must be presented at Barangay Pico Hall after online pre-qualification.",
     faq: [
       {
         q: "Who can apply for SKEAP?",
-        a: "Barangay Pico youth aged 15 to 30 may apply at any grade or educational level, regardless of current enrollment status or timing, as long as they submit the complete documentary requirements.",
+        a: "Bona fide residents of Barangay Pico for at least one (1) year, aged 15 to 30 years old, belonging to a low-income family, with a minimum grade of at least 80, not receiving any other government or NGO scholarship, and duly registered voters of Barangay Pico (applicants aged 18+ must be registered voters themselves; applicants aged 15–17 may qualify through a registered voter parent or guardian).",
       },
       {
         q: "What documents should I submit?",
-        a: "Submit a Certificate of Enrollment, recent grades, a valid ID, and proof of residency. Additional paperwork may be requested during review.",
+        a: "Upload your Certificate of Low-Income (stating the SKEAP purpose), Certificate of Enrollment, Certified Grades/Form 138, and Barangay Pico COMELEC Voter's Certificate online. Your PSA Birth Certificate, Certificate of Residency, and 2\"×2\" ID photo are automatically linked from your verified KK Profile. After online pre-qualification, you must present the original copies and Certified True Copies (CTCs) at the Barangay Pico Hall for final approval.",
       },
       {
         q: "How do I know if my application was received and approved?",
-        a: "After submitting your application, SKonnect will show your current status on the program page. You'll also receive any required document requests or approval updates through the app and the contact details on your account.",
+        a: "Track your real-time application status in the Applications tab (Pending Review → For Physical CTC → Approved or Waitlisted). You will also receive portal notifications when your online files are pre-qualified for physical CTC inspection at the Barangay Hall.",
       },
       {
-        q: "What is the minimum GPA to qualify for the SKEAP?",
-        a: "The minimum GPA to qualify is 80.",
+        q: "What is the minimum grade requirement to qualify for SKEAP?",
+        a: "Under Section 3(4) of the Barangay Pico SKEAP Ordinance, applicants must maintain a minimum grade of at least 80 (or its equivalent) with no failing grades.",
       },
     ],
     cta: [
-      { label: "Start KK profiling", href: "/programs/kk-profiling" },
-      { label: "Get application help", href: "/chatbot" },
+      { label: "Start KK Profiling", href: "/programs/kk-profiling" },
     ],
   },
   "event-registration": {
@@ -161,7 +235,7 @@ const PROGRAMS: Record<string, ProgramPageData> = {
       { q: "Is this an AI bot or live operator?", a: "It starts with automated answers and escalates to a human operator when needed." },
       { q: "What topics can it help with?", a: "Scholarships, events, account access, and general community questions." },
     ],
-    cta: [{ label: "Start a conversation", href: "/chatbot" }],
+    cta: [{ label: "Start a conversation", href: "#ai-chatbot" }],
   },
   "kk-profiling": {
     title: "Katipunan ng Kabataan (KK) Profiling",
@@ -255,9 +329,24 @@ export default async function ProgramPage({ params }: Props) {
     );
   }
 
+  const tocSections = [
+    { id: "overview", index: "01", label: "Overview" },
+    ...(data.howItWorks
+      ? [{ id: "how-it-works", index: "02", label: "How it works" }]
+      : []),
+    ...(data.requirements
+      ? [{ id: "requirements", index: "03", label: "Requirements" }]
+      : []),
+    { id: "faq", index: "04", label: "FAQ" },
+  ];
+
   return (
     <div className="min-h-screen bg-[#F3F7FB] text-slate-900">
       <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <AdminInquiryModal
+          subject={slug === "skeap-scholarship" ? "SKEAP Application Inquiry" : `${data.title} Inquiry`}
+          returnTo={`/programs/${slug}`}
+        />
         <div className="mb-4 flex items-center gap-2 text-sm">
           <Link href="/" className="text-slate-500 transition hover:text-slate-900">
             Home
@@ -302,13 +391,13 @@ export default async function ProgramPage({ params }: Props) {
 
             {slug !== "kk-profiling" && (
               <div className="flex flex-wrap gap-3">
-                <ProgramApplyClient slug={slug} requirements={data.requirements} />
-                <Link
-                  href="/chatbot"
+                <ProgramApplyClient slug={slug} />
+                <ProgramActionButton
+                  action="admin-inquiry"
                   className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
                 >
                   Get application help →
-                </Link>
+                </ProgramActionButton>
               </div>
             )}
           </div>
@@ -362,69 +451,171 @@ export default async function ProgramPage({ params }: Props) {
               </div>
             )}
 
-            <div id="overview" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <section id="overview" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
               <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
                 <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">01</span>
                 <span>Overview</span>
               </div>
               <h2 className="mt-6 text-3xl font-bold text-slate-900">Overview</h2>
               <p className="mt-4 max-w-3xl text-base leading-8 text-slate-600">{data.overview ?? data.subtitle}</p>
-              <div className="mt-8 grid gap-4 sm:grid-cols-3">
+              <div className="mt-8 grid grid-cols-1 items-stretch gap-4 md:grid-cols-3">
                 {data.features.map((feature, index) => (
-                  <div key={feature.title} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
+                  <div key={feature.title} className="flex h-full flex-col justify-between rounded-2xl border border-slate-200/80 bg-slate-50/50 p-5 transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-md">
                     <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-900 shadow-sm">0{index + 1}</span>
+                      {(() => {
+                        const Icon = overviewIcons[index] ?? Headset;
+                        return (
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+                            <Icon className="h-4 w-4" aria-hidden="true" />
+                          </span>
+                        );
+                      })()}
                       <p className="text-sm font-semibold text-slate-900">{feature.title}</p>
                     </div>
                     <p className="mt-4 text-sm leading-6 text-slate-600">{feature.detail}</p>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
 
             {/* Scholar status section removed as requested */}
 
             {data.howItWorks && (
-              <div id="how-it-works" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <section id="how-it-works" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
                 <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
                   <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">02</span>
                   <span>How it works</span>
                 </div>
                 <h2 className="mt-6 text-3xl font-bold text-slate-900">How it works</h2>
-                <ol className="mt-8 space-y-4">
-                  {data.howItWorks.map((step, index) => (
-                    <li key={`${step}-${index}`} className="flex gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white shadow-sm">{index + 1}</span>
-                      <p className="text-sm leading-7 text-slate-600">{step}</p>
-                    </li>
-                  ))}
+                <ol className="mt-8">
+                  {data.howItWorks.map((step, index) => {
+                    const title = typeof step === "string" ? `Step ${index + 1}` : step.title;
+                    const description = typeof step === "string" ? step : step.description;
+                    return (
+                      <li
+                        key={`${title}-${index}`}
+                        className="relative pl-11 pb-7 last:pb-0 before:absolute before:left-[15px] before:top-8 before:h-[calc(100%-2rem)] before:w-px before:bg-slate-200 last:before:hidden"
+                      >
+                        <span className="absolute left-0 top-0 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                          {index + 1}
+                        </span>
+                        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+                        <p className="mt-1 text-sm leading-relaxed text-slate-600">{description}</p>
+                      </li>
+                    );
+                  })}
                 </ol>
-              </div>
+              </section>
             )}
 
             {data.requirements && (
-              <div id="requirements" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <section id="requirements" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
                 <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
                   <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">03</span>
                   <span>Requirements</span>
                 </div>
                 <h2 className="mt-6 text-3xl font-bold text-slate-900">Requirements</h2>
-                <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                  {data.requirements.map((requirement, index) => (
-                    <div key={`${requirement}-${index}`} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
-                      <div className="flex items-start gap-3">
-                        <svg className="h-5 w-5 flex-shrink-0 text-emerald-500 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                        <p className="text-sm leading-6 text-slate-600">{requirement}</p>
-                      </div>
+                {data.requirements.some((requirement) =>
+                  typeof requirement !== "string" && requirement.linkedFromKkProfile
+                ) ? (
+                  <>
+                    <p className="mb-3 mt-8 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Auto-Linked from Your KK Profile
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {data.requirements
+                        .filter((requirement) =>
+                          typeof requirement !== "string" && requirement.linkedFromKkProfile
+                        )
+                        .map((requirement, index) => {
+                          if (typeof requirement === "string") return null;
+                          return (
+                            <article
+                              key={`${requirement.label}-${index}`}
+                              className="min-h-36 rounded-2xl border border-slate-200/80 bg-white p-4"
+                            >
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                                <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                  <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.415l-8 8a1 1 0 01-1.415 0l-4-4A1 1 0 114.29 9.29l3.293 3.294 7.707-7.293a1 1 0 011.414 0Z" clipRule="evenodd" />
+                                </svg>
+                                On File
+                              </span>
+                              <h3 className="mt-3 text-sm font-semibold leading-5 text-slate-900">
+                                {requirement.label}
+                              </h3>
+                              {requirement.detail ? (
+                                <p className="mt-1 text-xs leading-relaxed text-slate-500">{requirement.detail}</p>
+                              ) : null}
+                            </article>
+                          );
+                        })}
                     </div>
-                  ))}
-                </div>
-              </div>
+
+                    <p className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Required Digital Uploads
+                    </p>
+                    <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+                      {data.requirements
+                        .filter((requirement) =>
+                          typeof requirement === "string" || !requirement.linkedFromKkProfile
+                        )
+                        .map((requirement, index) => {
+                          const label = typeof requirement === "string" ? requirement : requirement.label;
+                          const detail = typeof requirement === "string" ? undefined : requirement.detail;
+                          return (
+                            <article
+                              key={`${label}-${index}`}
+                              className="flex min-h-28 items-start gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/40 p-4"
+                            >
+                              <svg className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 006.5 20h11a1.5 1.5 0 001.5-1.5V14" />
+                              </svg>
+                              <div className="min-w-0">
+                                <h3 className="text-sm font-semibold leading-5 text-slate-900">{label}</h3>
+                                {detail ? (
+                                  <p className="mt-1 text-xs leading-relaxed text-slate-600">{detail}</p>
+                                ) : null}
+                              </div>
+                            </article>
+                          );
+                        })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-8 grid gap-4 sm:grid-cols-2">
+                    {data.requirements.map((requirement, index) => {
+                      const label = typeof requirement === "string" ? requirement : requirement.label;
+                      const detail = typeof requirement === "string" ? undefined : requirement.detail;
+                      return (
+                        <div key={`${label}-${index}`} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:shadow-md hover:border-slate-300 hover:-translate-y-1">
+                          <div className="flex items-start gap-3">
+                            <svg className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm leading-6 text-slate-700">{label}</p>
+                              {detail ? <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p> : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {data.requirementsCallout ? (
+                  <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-xs leading-relaxed text-amber-900" role="note">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3h.008v.008H12v-.008ZM10.3 4.9 2.9 18a1.5 1.5 0 0 0 1.3 2.25h15.6a1.5 1.5 0 0 0 1.3-2.25L13.7 4.9a2 2 0 0 0-3.4 0Z" />
+                    </svg>
+                    <p className="leading-6">
+                      <strong>In-Person Verification Required:</strong> {data.requirementsCallout}
+                    </p>
+                  </div>
+                ) : null}
+              </section>
             )}
 
-            <div id="faq" className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <section id="faq" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
               <div className="flex items-center gap-4 text-sm uppercase tracking-[0.35em] text-teal-600">
                 <span className="rounded-full bg-teal-100 px-3 py-1 font-semibold text-teal-700">04</span>
                 <span>FAQ</span>
@@ -443,69 +634,97 @@ export default async function ProgramPage({ params }: Props) {
                   </details>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
 
-          <aside className="sticky top-24 self-start space-y-6">
+          <aside className="self-start space-y-6 lg:sticky lg:top-24">
             <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm transition duration-300 hover:shadow-md hover:border-slate-300">
-              <p className="text-xs uppercase tracking-[0.35em] text-slate-500">On this page</p>
-              <ul className="mt-4 space-y-3 text-sm text-slate-600">
-                <li><a href="#overview" className="hover:text-slate-900">Overview</a></li>
-                
-                <li><a href="#how-it-works" className="hover:text-slate-900">How it works</a></li>
-                <li><a href="#requirements" className="hover:text-slate-900">Requirements</a></li>
-                <li><a href="#faq" className="hover:text-slate-900">FAQ</a></li>
-              </ul>
+              <ProgramTableOfContents sections={tocSections} />
             </div>
 
             <div className="rounded-[2rem] border border-slate-800/30 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 shadow-sm shadow-slate-400/10">
-              <p className="text-xs uppercase tracking-[0.35em] text-teal-300">Help desk</p>
-              <h3 className="mt-4 text-xl font-semibold tracking-tight text-white">Need help?</h3>
-              <p className="mt-3 text-sm leading-7 text-slate-300">Start a conversation with our helpdesk for step-by-step assistance.</p>
-              <Link
-                href="/chatbot"
+              <p className="text-xs uppercase tracking-[0.35em] text-teal-300">AI CHATBOT</p>
+              <h3 className="mt-4 text-xl font-semibold tracking-tight text-white">Ask SKonnect AI</h3>
+              <p className="mt-3 text-sm leading-7 text-slate-300">
+                Get instant 24/7 answers about SKEAP eligibility, grade rules, and required documents.
+              </p>
+              <ProgramActionButton
+                action="chatbot"
                 className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
               >
-                Chat now →
-              </Link>
+                <Bot className="mr-2 h-4 w-4" aria-hidden="true" />
+                Chat with AI Assistant
+              </ProgramActionButton>
             </div>
 
             <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm transition duration-300 hover:shadow-md hover:border-slate-300">
               <h3 className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Quick actions</h3>
-              <div className="mt-4 space-y-3">
-                {data.cta.map((c) => (
-                  c.href === "/signup" ? (
-                    supabaseUser ? (
-                      <div key={c.href} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900">
-                        <ProgramApplyClient slug={slug} requirements={data.requirements} />
-                      </div>
-                    ) : (
-                      <Link
-                        key={c.href}
-                        href={`/signup?next=${encodeURIComponent(`/programs/${slug}?openApply=1`)}`}
-                        className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-300 hover:bg-slate-100"
-                      >
-                        {c.label}
-                        <span className="text-slate-400">→</span>
-                      </Link>
-                    )
-                  ) : (
-                    <Link
-                      key={c.href}
-                      href={c.href}
-                      className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-300 hover:bg-slate-100"
-                    >
-                      {c.label}
-                      <span className="text-slate-400">→</span>
+              <div className="mt-4 flex flex-col gap-1.5">
+                {slug === "skeap-scholarship" ? (
+                  <>
+                    <Link href="/programs/kk-profiling" className={actionRowClass}>
+                      <span className="flex items-center gap-3">
+                        <span className={actionIconClass}><UserCheck className="h-4 w-4" aria-hidden="true" /></span>
+                        Start KK Profiling
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
                     </Link>
-                  )
-                ))}
-                <Link
-                  href="/"
-                  className="block rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
-                >
-                  Back to home
-                </Link>
+                    <ProgramActionButton action="admin-inquiry" className={actionRowClass}>
+                      <span className="flex items-center gap-3">
+                        <span className={actionIconClass}><MessageSquarePlus className="h-4 w-4" aria-hidden="true" /></span>
+                        Ask SK Admin
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                    </ProgramActionButton>
+                    <Link href="/" className={actionRowClass}>
+                      <span className="flex items-center gap-3">
+                        <span className={actionIconClass}><Home className="h-4 w-4" aria-hidden="true" /></span>
+                        Back to Home
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    {data.cta.map((cta) => cta.href === "#ai-chatbot" ? (
+                      <ProgramActionButton
+                        key={cta.href}
+                        action="chatbot"
+                        className={actionRowClass}
+                      >
+                        <span>{cta.label}</span>
+                        <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                      </ProgramActionButton>
+                    ) : cta.href === "/signup" ? (
+                      supabaseUser ? (
+                        <div key={cta.href} className={actionRowClass}>
+                          <ProgramApplyClient slug={slug} />
+                        </div>
+                      ) : (
+                        <Link
+                          key={cta.href}
+                          href={`/signup?next=${encodeURIComponent(`/programs/${slug}?openApply=1`)}`}
+                          className={actionRowClass}
+                        >
+                          <span>{cta.label}</span>
+                          <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                        </Link>
+                      )
+                    ) : (
+                      <Link key={cta.href} href={cta.href} className={actionRowClass}>
+                        <span>{cta.label}</span>
+                        <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                      </Link>
+                    ))}
+                    <Link href="/" className={actionRowClass}>
+                      <span className="flex items-center gap-3">
+                        <span className={actionIconClass}><Home className="h-4 w-4" aria-hidden="true" /></span>
+                        Back to Home
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                    </Link>
+                  </>
+                )}
               </div>
             </div>
           </aside>

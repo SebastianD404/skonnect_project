@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { getProfilingRegistrationCountByStatusSince, prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import {
+  skeapApplicationInquiryWhere,
+  supportInboxInquiryWhere,
+} from "@/lib/inquiries/filters";
 
 function getViewedAt(request: NextRequest, cookieName: string) {
   const value = request.cookies.get(cookieName)?.value;
@@ -67,14 +71,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const supportInquiryFilter = {
-    NOT: {
-      subject: {
-        contains: "SKEAP application",
-        mode: "insensitive" as const,
-      },
-    },
-  };
   const applicationStatusFilter = {
     OR: ["pending", "pre_qualified", "return", "resubm", "respond"].flatMap((pattern) => [
       { reviewStatus: { contains: pattern, mode: "insensitive" as const } },
@@ -85,11 +81,15 @@ export async function GET(request: NextRequest) {
   try {
     const loadCounts = () => Promise.all([
       prisma.inquiry.count({
-        where: { ...supportInquiryFilter, isResolved: false, createdAt: { gte: inquiryLastViewed ?? startOfToday } },
+        where: {
+          ...supportInboxInquiryWhere,
+          isResolved: false,
+          createdAt: { gte: inquiryLastViewed ?? startOfToday },
+        },
       }),
       prisma.inquiry.count({
         where: {
-          subject: { contains: "SKEAP application", mode: "insensitive" },
+          ...skeapApplicationInquiryWhere,
           NOT: [
             { reviewStatus: { contains: "cancel", mode: "insensitive" } },
             { reviewStatus: { contains: "approve", mode: "insensitive" } },

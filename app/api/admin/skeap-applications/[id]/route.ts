@@ -28,6 +28,7 @@ export async function GET(
       where: {
         id,
         subject: { contains: "SKEAP application", mode: "insensitive" },
+        applicationId: { not: null },
       },
       select: SKEAP_APPLICATION_SELECT,
     });
@@ -91,6 +92,7 @@ export async function PATCH(
         where: {
           id,
           subject: { contains: "SKEAP application", mode: "insensitive" },
+          applicationId: { not: null },
         },
         select: {
           application: {

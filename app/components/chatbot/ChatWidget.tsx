@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import { ChatPanelCompact as ChatPanel } from "@/app/components/chatbot/ChatPanelCompact";
 import { useChatSession } from "@/app/components/chatbot/hooks/useChatSession";
+import { OPEN_CHATBOT_EVENT } from "@/lib/program-support-events";
 
 const BUTTON_SIZE = 56;
 const VIEWPORT_MARGIN = 24;
@@ -174,6 +175,12 @@ function ChatWidgetContent() {
 
     loadHistory();
   }, [isOpen, loadHistory]);
+
+  useEffect(() => {
+    const openChatbot = () => setIsOpen(true);
+    window.addEventListener(OPEN_CHATBOT_EVENT, openChatbot);
+    return () => window.removeEventListener(OPEN_CHATBOT_EVENT, openChatbot);
+  }, []);
 
   const panelPosition = useMemo(() => {
     if (!viewportSize.width || !viewportSize.height) {

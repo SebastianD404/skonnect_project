@@ -8,6 +8,7 @@ export type KKProfile = {
   addressLine: string;
   barangay: string;
   birthDate: string;
+  placeOfBirth?: string | null;
   age: number;
   civilStatus?: string;
   sex?: string;

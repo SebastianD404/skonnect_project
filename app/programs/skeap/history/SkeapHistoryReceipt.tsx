@@ -62,6 +62,7 @@ export default async function SkeapHistoryReceipt({ applicationId }: Props) {
       ...(applicationId ? { id: applicationId } : {}),
       userId: profile.id,
       subject: { contains: "SKEAP application", mode: "insensitive" },
+      applicationId: { not: null },
       reviewStatus: { equals: "Approved", mode: "insensitive" },
     },
     orderBy: { createdAt: "desc" },

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Inbox } from "lucide-react";
 import { useNotificationState } from "./NotificationProvider";
 import { useAuth } from "./AuthProvider";
@@ -50,6 +50,19 @@ function getString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
 
+function hasSameAvatarResource(first: string, second: string) {
+  if (!first || !second) return false;
+
+  try {
+    const baseUrl = "https://skonnect.invalid";
+    const firstUrl = new URL(first, baseUrl);
+    const secondUrl = new URL(second, baseUrl);
+    return firstUrl.origin === secondUrl.origin && firstUrl.pathname === secondUrl.pathname;
+  } catch {
+    return first === second;
+  }
+}
+
 export function DashboardHeaderActions({ notifications = [], supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
   const pathname = usePathname();
   const { user: authUser } = useAuth();
@@ -67,6 +80,12 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
   );
   const [profileEmail, setProfileEmail] = useState(authUser?.email || "");
   const [profileAvatar, setProfileAvatar] = useState(authUser?.avatarUrl || "");
+  const profileAvatarRef = useRef(profileAvatar);
+  const profileAvatarUserIdRef = useRef(authUser?.id ?? null);
+  const updateProfileAvatar = useCallback((avatarUrl: string) => {
+    profileAvatarRef.current = avatarUrl;
+    setProfileAvatar(avatarUrl);
+  }, []);
   const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
   const [broadcastNotifications, setBroadcastNotifications] = useState<NotificationItem[]>([]);
   const [inAppNotifications, setInAppNotifications] = useState<NotificationItem[]>([]);
@@ -158,6 +177,8 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
         const serverUser = body.user;
         if (!serverUser) return; // not signed in
 
+        const isNewUser = profileAvatarUserIdRef.current !== serverUser.id;
+        profileAvatarUserIdRef.current = serverUser.id;
         setProfileId(serverUser.id);
 
         // Always sync profile name/email from server to avoid stale local data.
@@ -170,16 +191,19 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
           setProfileEmail(serverUser.email);
         }
 
-        // Prefer server-side avatar if present. If server has no avatar, remove any
-        // locally-stored avatar to avoid showing another user's picture.
-        const serverAvatar = serverUser.avatarUrl;
+        // Prefer the server avatar, but retain the last known image during same-user refetches.
+        const serverAvatar = serverUser.avatarUrl || serverUser.profilePhotoFallbackUrl;
         try { setServerRole(serverUser.role || ""); } catch {}
         if (serverAvatar) {
-          try { localStorage.setItem('skonnect-avatar', serverAvatar); } catch {}
-          setProfileAvatar(serverAvatar);
-        } else {
+          const currentAvatar = profileAvatarRef.current;
+          const avatarToKeep = !isNewUser && hasSameAvatarResource(currentAvatar, serverAvatar)
+            ? currentAvatar
+            : serverAvatar;
+          try { localStorage.setItem('skonnect-avatar', avatarToKeep); } catch {}
+          updateProfileAvatar(avatarToKeep);
+        } else if (isNewUser) {
           try { localStorage.removeItem('skonnect-avatar'); } catch {}
-          setProfileAvatar('');
+          updateProfileAvatar('');
         }
 
         // Notify other tabs/components that profile changed
@@ -192,12 +216,26 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
 
       reconcileProfile();
 
-    function syncProfile() {
+    function syncProfile(event: Event) {
       try {
         setProfileName(localStorage.getItem("skonnect-profile-name") || "Your account");
         setProfileEmail(localStorage.getItem("skonnect-profile-email") || "");
-        setProfileAvatar(localStorage.getItem("skonnect-avatar") || "");
-      } catch (error) {}
+        if (event.type === "storage" && (event as StorageEvent).key === "skonnect-avatar") {
+          updateProfileAvatar((event as StorageEvent).newValue || "");
+          return;
+        }
+
+        const detail = event instanceof CustomEvent
+          ? event.detail as { avatarUrl?: string | null } | undefined
+          : undefined;
+        if (detail && Object.prototype.hasOwnProperty.call(detail, "avatarUrl")) {
+          updateProfileAvatar(detail.avatarUrl || "");
+          return;
+        }
+
+        const storedAvatar = localStorage.getItem("skonnect-avatar");
+        if (storedAvatar) updateProfileAvatar(storedAvatar);
+      } catch {}
     }
 
     window.addEventListener("storage", syncProfile);
@@ -208,7 +246,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
       window.removeEventListener("skonnect-profile-updated", syncProfile as EventListener);
         // Removed focus and visibility listeners and polling
     };
-  }, []);
+  }, [updateProfileAvatar]);
 
   const displayedNotifications: NotificationItem[] = [
     ...notifications.map<NotificationItem>((notification, index) => ({ id: `provided:${index}:${notification}`, text: notification })),
