@@ -10,16 +10,26 @@ const ALLOWED_TYPES = new Set([
   "application/pdf",
   "image/png",
   "image/jpeg",
+  "image/jfif",
   "image/jpg",
   "image/webp",
 ]);
 
-function isImageType(type: string) {
-  return type.startsWith("image/");
+function isImageType(type: string, fileName: string) {
+  const normalizedType = type.toLowerCase();
+  return (ALLOWED_TYPES.has(normalizedType) && normalizedType.startsWith("image/")) ||
+    (/\.jfif$/i.test(fileName) &&
+      (!normalizedType || normalizedType === "application/octet-stream"));
 }
 
 async function uploadFile(userId: string, file: File, suffix: string) {
-  const result = await uploadPrivateDocument(userId, file, "kk-verification", suffix);
+  const fileType = file.type.toLowerCase();
+  const isGenericJfif = /\.jfif$/i.test(file.name) &&
+    (!fileType || fileType === "application/octet-stream");
+  const normalizedFile = fileType === "image/jfif" || isGenericJfif
+    ? new File([file], file.name, { type: "image/jpeg", lastModified: file.lastModified })
+    : file;
+  const result = await uploadPrivateDocument(userId, normalizedFile, "kk-verification", suffix);
   return { path: result.path, url: result.url };
 }
 
@@ -83,9 +93,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!isImageType(frontFile.type) || !isImageType(backFile.type)) {
+    if (!isImageType(frontFile.type, frontFile.name) || !isImageType(backFile.type, backFile.name)) {
       return NextResponse.json(
-        { error: "Valid ID uploads must be image files (JPG, PNG, or WEBP)." },
+        { error: "Valid ID uploads must be image files (JPG/JFIF, PNG, or WEBP)." },
         { status: 400 }
       );
     }

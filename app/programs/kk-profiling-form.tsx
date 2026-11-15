@@ -755,8 +755,8 @@ export default function KKProfilingForm() {
             </p>
           </div>
 
-      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="flex flex-col gap-1.5">
+      <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-3">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Last Name *</span>
           <input
             value={form.lastName}
@@ -766,12 +766,12 @@ export default function KKProfilingForm() {
             required
             aria-invalid={Boolean(lastNameError)}
             aria-describedby={lastNameError ? "last-name-error" : undefined}
-            className={`rounded-lg border px-3 py-2 ${lastNameError ? "border-red-500" : ""}`}
+            className={`w-full rounded-lg border px-3 py-2 ${lastNameError ? "border-red-500" : ""}`}
           />
           {lastNameError ? <span id="last-name-error" className="text-sm text-red-600" role="alert">{lastNameError}</span> : null}
         </label>
 
-        <label className="flex flex-col gap-1.5">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">First Name *</span>
           <input
             value={form.firstName}
@@ -781,12 +781,12 @@ export default function KKProfilingForm() {
             required
             aria-invalid={Boolean(firstNameError)}
             aria-describedby={firstNameError ? "first-name-error" : undefined}
-            className={`rounded-lg border px-3 py-2 ${firstNameError ? "border-red-500" : ""}`}
+            className={`w-full rounded-lg border px-3 py-2 ${firstNameError ? "border-red-500" : ""}`}
           />
           {firstNameError ? <span id="first-name-error" className="text-sm text-red-600" role="alert">{firstNameError}</span> : null}
         </label>
 
-        <label className="flex flex-col gap-1.5">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Middle Name *</span>
           <input
             value={form.middleInitial}
@@ -797,16 +797,16 @@ export default function KKProfilingForm() {
             required
             aria-invalid={Boolean(middleNameError)}
             aria-describedby={middleNameError ? "middle-name-error" : undefined}
-            className={`rounded-lg border px-3 py-2 ${middleNameError ? "border-red-500" : ""}`}
+            className={`w-full rounded-lg border px-3 py-2 ${middleNameError ? "border-red-500" : ""}`}
           />
           {middleNameError ? <span id="middle-name-error" className="text-sm text-red-600" role="alert">{middleNameError}</span> : null}
         </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5">
+      <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Sitio *</span>
-          <SelectWithChevron value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} required className="w-full rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select sitio</option>
             {OFFICIAL_SITIOS.map((sitio) => (
               <option key={sitio} value={sitio}>{sitio}</option>
@@ -814,33 +814,35 @@ export default function KKProfilingForm() {
           </SelectWithChevron>
         </label>
 
-        <label className="flex flex-col gap-1.5">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Barangay *</span>
-          <input value={form.barangay} readOnly className="rounded-lg border bg-slate-100 px-3 py-2" />
-        </label>
-
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">Municipality *</span>
-          <input value={form.municipality} readOnly className="rounded-lg border bg-slate-100 px-3 py-2" />
-        </label>
-
-        <label className="flex flex-col">
-          <span className="text-sm font-semibold">Province *</span>
-          <input value={form.province} readOnly className="rounded-lg border bg-slate-100 px-3 py-2" />
+          <input value={form.barangay} readOnly className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
         </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-3">
-        <label className="flex flex-col gap-1.5">
+      <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
+        <label className="flex w-full flex-col gap-1.5">
+          <span className="text-sm font-semibold">Municipality *</span>
+          <input value={form.municipality} readOnly className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
+        </label>
+
+        <label className="flex w-full flex-col gap-1.5">
+          <span className="text-sm font-semibold">Province *</span>
+          <input value={form.province} readOnly className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
+        </label>
+      </div>
+
+      <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-3">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Sex *</span>
-          <SelectWithChevron value={form.sex} onChange={(e) => setField("sex", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron value={form.sex} onChange={(e) => setField("sex", e.target.value)} required className="w-full rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Male</option>
             <option>Female</option>
           </SelectWithChevron>
         </label>
 
-        <label className="flex flex-col gap-1.5">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Birth Date *</span>
           <input
             type="date"
@@ -856,23 +858,11 @@ export default function KKProfilingForm() {
               }
             }}
             required
-            className="rounded-lg border px-3 py-2"
+            className="w-full rounded-lg border px-3 py-2"
           />
         </label>
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">Place of Birth *</span>
-          <input
-            value={form.placeOfBirth}
-            onChange={(event) => setField("placeOfBirth", event.target.value)}
-            placeholder="e.g., La Trinidad, Benguet"
-            required
-            aria-required="true"
-            className="rounded-lg border px-3 py-2"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1.5">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Age *</span>
           <input
             type="number"
@@ -880,13 +870,38 @@ export default function KKProfilingForm() {
             value={form.age}
             readOnly
             aria-readonly="true"
-            className="rounded-lg border bg-slate-100 px-3 py-2 text-slate-700"
+            className="w-full rounded-lg border bg-slate-100 px-3 py-2 text-slate-700"
           />
         </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5">
+      <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
+        <label className="flex w-full flex-col gap-1.5">
+          <span className="text-sm font-semibold">Place of Birth *</span>
+          <input
+            value={form.placeOfBirth}
+            onChange={(event) => setField("placeOfBirth", event.target.value)}
+            placeholder="e.g., La Trinidad, Benguet"
+            required
+            aria-required="true"
+            className="w-full rounded-lg border px-3 py-2"
+          />
+        </label>
+
+        <label className="flex w-full flex-col gap-1.5">
+          <span className="text-sm font-semibold">Contact Number *</span>
+          <input
+            value={form.contactNumber}
+            onChange={(e) => setField("contactNumber", keepContactNumberDigits(e.target.value))}
+            inputMode="numeric"
+            required
+            className="w-full rounded-lg border px-3 py-2"
+          />
+        </label>
+      </div>
+
+      <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Email Address *</span>
           <input
             ref={emailInputRef}
@@ -897,7 +912,7 @@ export default function KKProfilingForm() {
             aria-readonly="true"
             aria-invalid={Boolean(emailError)}
             aria-describedby={emailError ? "kk-profiling-email-error" : undefined}
-            className={`rounded-lg border bg-slate-100 px-3 py-2 ${emailError ? "border-rose-400 focus-visible:outline-rose-500" : ""}`}
+            className={`w-full rounded-lg border bg-slate-100 px-3 py-2 ${emailError ? "border-rose-400 focus-visible:outline-rose-500" : ""}`}
           />
           {emailError ? (
             <p id="kk-profiling-email-error" className="text-sm text-rose-700" role="alert">
@@ -906,16 +921,11 @@ export default function KKProfilingForm() {
           ) : null}
         </label>
 
-        <label className="flex flex-col gap-1.5">
+        <label className="flex w-full flex-col gap-1.5">
           <span className="text-sm font-semibold">Facebook Account (Name) *</span>
-          <input value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} required className="rounded-lg border px-3 py-2" />
+          <input value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} required className="w-full rounded-lg border px-3 py-2" />
         </label>
       </div>
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-semibold">Contact Number *</span>
-        <input value={form.contactNumber} onChange={(e) => setField("contactNumber", keepContactNumberDigits(e.target.value))} inputMode="numeric" required className="rounded-lg border px-3 py-2" />
-      </label>
 
         </div>
 
@@ -1064,8 +1074,8 @@ export default function KKProfilingForm() {
           <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
             <DocumentUploadCard
               title="Profile Picture (2x2) *"
-              acceptedFormats="JPG, PNG, WebP"
-              accept="image/jpeg,image/png,image/webp"
+              acceptedFormats="JPG/JFIF, PNG, WebP"
+              accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
               maxSize={10 * 1024 * 1024}
               ocrStrategy="none"
               initialFile={idFiles.photo ?? null}
@@ -1073,8 +1083,8 @@ export default function KKProfilingForm() {
             />
             <DocumentUploadCard
               title="Birth Certificate *"
-              acceptedFormats="PDF, JPG, PNG, WebP"
-              accept="application/pdf,image/jpeg,image/png,image/webp"
+              acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
+              accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
               maxSize={10 * 1024 * 1024}
               ocrStrategy="birth-certificate"
               helperText="Used to legally verify the 15-30 age requirement."
@@ -1091,8 +1101,8 @@ export default function KKProfilingForm() {
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <DocumentUploadCard
                   title="Front *"
-                  acceptedFormats="PDF, JPG, PNG, WebP"
-                  accept="application/pdf,image/jpeg,image/png,image/webp"
+                  acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
+                  accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
                   maxSize={10 * 1024 * 1024}
                   ocrStrategy="front-id"
                   compact
@@ -1107,8 +1117,8 @@ export default function KKProfilingForm() {
                 />
                 <DocumentUploadCard
                   title="Back *"
-                  acceptedFormats="PDF, JPG, PNG, WebP"
-                  accept="application/pdf,image/jpeg,image/png,image/webp"
+                  acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
+                  accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
                   maxSize={10 * 1024 * 1024}
                   ocrStrategy="back-id"
                   compact
@@ -1125,8 +1135,8 @@ export default function KKProfilingForm() {
             </div>
             <DocumentUploadCard
               title="Certificate of Residency *"
-              acceptedFormats="PDF, JPG, PNG, WebP"
-              accept="application/pdf,image/jpeg,image/png,image/webp"
+              acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
+              accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
               maxSize={10 * 1024 * 1024}
               ocrStrategy="residency"
               helperText="Must prove at least 6 months of residency for KK, or 1 year if you plan to apply for SKEAP."

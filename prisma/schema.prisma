@@ -81,6 +81,8 @@ model Grantee {
   status             GranteeStatus     @default(ACTIVE)
   revocationReason   String?
   revocationNotes    String?
+  isPermanentlyDisqualified Boolean   @default(false)
+  identityFingerprint String?
   revocationNotificationStatus   GranteeRevocationNotificationStatus @default(NOT_REQUIRED)
   revocationNotificationAttempts Int @default(0)
   revocationNotificationError    String?
@@ -195,11 +197,11 @@ model SkeapApplication {
   parentGuardianRegisteredVoter Boolean?
   parentGuardianVoterFullName String?
   waitlistPosition         Int?
+  waitlistFinalPosition    Int?
   waitlistRemark           String?          @map("waitlist_remark")
   educationalBackground    Json?
   registeredVoter          Boolean?
   totalFamilyMonthlyIncome String?
-  signatureUrl             String?
   educationLevel           String?
   inquiry                  Inquiry?
   user                     User             @relation(fields: [userId], references: [id], onDelete: Cascade)

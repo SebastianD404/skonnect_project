@@ -1,6 +1,10 @@
 import { createWorker, PSM } from "tesseract.js";
 import PizZip from "pizzip";
-import { SKEAP_UPLOAD_KEY, type SkeapUploadKey } from "@/lib/skeap-upload";
+import {
+  SKEAP_UPLOAD_KEY,
+  type SkeapOcrNameStatus,
+  type SkeapUploadKey,
+} from "@/lib/skeap-upload";
 import {
   DOCUMENT_KEYWORDS,
   extractDocxTextFromBuffer,
@@ -13,8 +17,45 @@ export type DocumentOCRResult =
   | { status: "review"; extractedText: string; confidence: number; reason: string }
   | { status: "skipped"; extractedText: ""; confidence: 0 };
 
+export type PersonNameParts = {
+  firstName: string;
+  middleName: string;
+  lastName: string;
+};
+
+export type OcrDocumentNameVerification = {
+  status: SkeapOcrNameStatus;
+  matchedName: string | null;
+  message: string;
+};
+
+type NameVerificationDocumentType =
+  | typeof SKEAP_UPLOAD_KEY.ENROLLMENT_CERT
+  | typeof SKEAP_UPLOAD_KEY.FAMILY_INCOME
+  | typeof SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE;
+
 const MINIMUM_CONFIDENCE = 50;
 const MINIMUM_BIRTH_CERTIFICATE_HEADING_CONFIDENCE = 30;
+const SIGNIFICANT_SURNAME_PARTICLES = new Set([
+  "DA",
+  "DAS",
+  "DE",
+  "DEL",
+  "DELA",
+  "DELOS",
+  "DI",
+  "DOS",
+  "LA",
+  "LAS",
+  "LOS",
+  "MAC",
+  "MC",
+  "SAN",
+  "SANTA",
+  "SANTO",
+  "VAN",
+  "VON",
+]);
 const STRONG_BIRTH_CERTIFICATE_MATCHES = new Set([
   "birth certificate",
   "certificate of live birth",
@@ -24,6 +65,179 @@ const STRONG_BIRTH_CERTIFICATE_MATCHES = new Set([
   "civil registrar general",
 ]);
 const VOTER_CERTIFICATE_KEYWORDS = ["vote", "voter", "voters", "commissiononelections", "comelec"];
+
+function normalizeNameTokens(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => /[A-Z]/.test(token) ? token.replace(/0/g, "O").replace(/1/g, "I") : token)
+    .flatMap((token) => token === "DELA"
+      ? ["DE", "LA"]
+      : token === "DELOS"
+        ? ["DE", "LOS"]
+        : [token]);
+}
+
+function getSignificantNameTokens(value: string) {
+  return normalizeNameTokens(value).filter((token) => token.length > 1);
+}
+
+function matchesSignificantFullName(normalizedOcrText: string, name: string) {
+  const nameTokens = getSignificantNameTokens(name);
+  if (nameTokens.length < 2) return false;
+
+  const ocrTokens = new Set(normalizedOcrText.split(/\s+/).filter(Boolean));
+  return nameTokens.every((token) => ocrTokens.has(token));
+}
+
+export function matchesPersonName(
+  normalizedOcrText: string,
+  { firstName, middleName, lastName }: PersonNameParts,
+) {
+  const firstNameTokens = normalizeNameTokens(firstName);
+  const givenNameTokens = firstNameTokens.length
+    ? firstNameTokens
+    : getSignificantNameTokens(middleName);
+  const lastNameTokens = normalizeNameTokens(lastName);
+  if (!givenNameTokens.length || !lastNameTokens.length) return false;
+
+  const ocrTokens = new Set(normalizedOcrText.split(/\s+/).filter(Boolean));
+  return [...givenNameTokens, ...lastNameTokens].every((token) => ocrTokens.has(token));
+}
+
+function parseParentName(value: string): PersonNameParts | null {
+  const trimmedName = value.trim();
+  if (!trimmedName) return null;
+
+  const commaIndex = trimmedName.indexOf(",");
+  if (commaIndex >= 0) {
+    const lastName = trimmedName.slice(0, commaIndex).trim();
+    const givenNames = normalizeNameTokens(trimmedName.slice(commaIndex + 1));
+    if (!lastName || !givenNames.length) return null;
+    return {
+      firstName: givenNames[0],
+      middleName: givenNames.slice(1).join(" "),
+      lastName,
+    };
+  }
+
+  const tokens = normalizeNameTokens(trimmedName);
+  while (tokens.length > 1 && ["II", "III", "IV", "JR", "SR"].includes(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+  if (tokens.length < 2) return null;
+
+  let surnameStart = tokens.length - 1;
+  while (
+    surnameStart > 1 &&
+    SIGNIFICANT_SURNAME_PARTICLES.has(tokens[surnameStart - 1])
+  ) {
+    surnameStart -= 1;
+  }
+
+  return {
+    firstName: tokens[0],
+    middleName: tokens.slice(1, surnameStart).join(" "),
+    lastName: tokens.slice(surnameStart).join(" "),
+  };
+}
+
+function formatPersonName({ firstName, middleName, lastName }: PersonNameParts) {
+  return [firstName, middleName, lastName].map((part) => part.trim()).filter(Boolean).join(" ");
+}
+
+export function verifyOcrDocumentName(
+  ocrText: string,
+  documentType: NameVerificationDocumentType,
+  {
+    applicant,
+    fatherName,
+    motherName,
+    isRegisteredVoter,
+    age,
+    parentVoterName,
+    confidence,
+  }: {
+    applicant: PersonNameParts;
+    fatherName?: string;
+    motherName?: string;
+    isRegisteredVoter?: boolean | null;
+    age?: number;
+    parentVoterName?: string;
+    confidence?: number;
+  },
+): OcrDocumentNameVerification {
+  const normalizedOcrText = normalizeNameTokens(ocrText).join(" ");
+  const applicantFullName = formatPersonName(applicant);
+
+  if (documentType === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE) {
+    const isMinorNotRegistered = age !== undefined && age < 18 && isRegisteredVoter === false;
+    if (isMinorNotRegistered) {
+      for (const parentName of [parentVoterName, fatherName, motherName]) {
+        if (parentName?.trim() && matchesSignificantFullName(normalizedOcrText, parentName)) {
+          return {
+            status: "MATCHED_PARENT",
+            matchedName: parentName.trim(),
+            message: "Parent or guardian name matched the document.",
+          };
+        }
+      }
+    } else if (
+      isRegisteredVoter === true &&
+      matchesPersonName(normalizedOcrText, applicant)
+    ) {
+      return {
+        status: "MATCHED_APPLICANT",
+        matchedName: applicantFullName,
+        message: "Applicant name matched the document.",
+      };
+    }
+  } else if (matchesPersonName(normalizedOcrText, applicant)) {
+    return {
+      status: "MATCHED_APPLICANT",
+      matchedName: applicantFullName,
+      message: "Applicant name matched the document.",
+    };
+  }
+
+  if (documentType === SKEAP_UPLOAD_KEY.FAMILY_INCOME) {
+    for (const parentName of [fatherName, motherName]) {
+      if (!parentName) continue;
+      const parent = parseParentName(parentName);
+      if (parent && matchesPersonName(normalizedOcrText, parent)) {
+        return {
+          status: "MATCHED_PARENT",
+          matchedName: parentName.trim(),
+          message: "A parent name matched the document.",
+        };
+      }
+    }
+  }
+
+  const ocrTokens = normalizedOcrText.split(/\s+/).filter(Boolean);
+  if ((confidence !== undefined && confidence <= MINIMUM_CONFIDENCE) || ocrTokens.length < 5) {
+    return {
+      status: "LOW_READABILITY",
+      matchedName: null,
+      message: "The document text is too unclear to verify the holder's name.",
+    };
+  }
+
+  return {
+    status: "NAME_MISMATCH",
+    matchedName: null,
+    message: documentType === SKEAP_UPLOAD_KEY.FAMILY_INCOME
+      ? "The document name does not match the applicant or listed parents."
+      : documentType === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE && age !== undefined && age < 18 && isRegisteredVoter === false
+        ? "The document name does not match the registered parent or guardian."
+        : "The document name does not match the applicant.",
+  };
+}
 
 function hasDocumentKeyword(text: string, docType: SkeapUploadKey) {
   if (docType === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE) {

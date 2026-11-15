@@ -11,6 +11,10 @@ import {
   isSkeapRevocationReason,
 } from "@/lib/skeap-revocation";
 import { sendSkeapRevocationEmail } from "@/lib/skeap-revocation-email";
+import {
+  buildIdentityFingerprint,
+  parseSkeapApplicantName,
+} from "@/lib/skeap-application-guard";
 
 type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE" | "REVOKE";
 type DocumentType = "coe" | "grades";
@@ -22,6 +26,7 @@ type ReviewBody = {
   flaggedFields?: string[];
   reason?: string;
   additionalNotes?: string;
+  isPermanentlyDisqualified?: boolean;
 };
 
 
@@ -55,6 +60,7 @@ export async function POST(
     const reviewNotes = String(body.reviewNotes ?? "").trim();
     const revocationReasonValue = String(body.reason ?? "").trim();
     const additionalNotes = String(body.additionalNotes ?? "").trim();
+    const isPermanentlyDisqualified = body.isPermanentlyDisqualified === true;
     const revocationReasonOption = isSkeapRevocationReason(revocationReasonValue)
       ? getSkeapRevocationReasonLabel(revocationReasonValue)
       : "";
@@ -76,11 +82,21 @@ export async function POST(
         { status: 400 }
       );
     }
-    if (action === "REVOKE" && !isSkeapRevocationReason(revocationReasonValue)) {
+    if (
+      action === "REVOKE" &&
+      (revocationReasonValue.length < 5 || !isSkeapRevocationReason(revocationReasonValue))
+    ) {
       return NextResponse.json({ error: "Select a valid reason for revocation." }, { status: 400 });
     }
     if (action === "REVOKE" && additionalNotes.length > 1000) {
       return NextResponse.json({ error: "Additional notes must be 1,000 characters or fewer." }, { status: 400 });
+    }
+    if (
+      action === "REVOKE" &&
+      body.isPermanentlyDisqualified !== undefined &&
+      typeof body.isPermanentlyDisqualified !== "boolean"
+    ) {
+      return NextResponse.json({ error: "Permanent disqualification must be a boolean value." }, { status: 400 });
     }
 
     const existing = await prisma.submission.findUnique({
@@ -126,7 +142,27 @@ export async function POST(
               select: {
                 id: true,
                 status: true,
-                user: { select: { id: true, email: true, fullName: true, role: true } },
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    fullName: true,
+                    role: true,
+                    kkProfile: {
+                      select: {
+                        firstName: true,
+                        middleName: true,
+                        lastName: true,
+                        birthDate: true,
+                      },
+                    },
+                    skeapApplications: {
+                      orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+                      take: 1,
+                      select: { applicantName: true, dateOfBirth: true },
+                    },
+                  },
+                },
               },
             },
           },
@@ -137,6 +173,27 @@ export async function POST(
           throw new Error("GRANTEE_ALREADY_REVOKED");
         }
 
+        const latestApplication = current.grantee.user.skeapApplications?.[0];
+        const applicationName = parseSkeapApplicantName(latestApplication?.applicantName);
+        const profileName = parseSkeapApplicantName(current.grantee.user.fullName);
+        const identityFingerprint = buildIdentityFingerprint({
+          firstName:
+            current.grantee.user.kkProfile?.firstName ??
+            applicationName?.firstName ??
+            profileName?.firstName,
+          middleName:
+            current.grantee.user.kkProfile?.middleName ??
+            applicationName?.middleName ??
+            profileName?.middleName,
+          lastName:
+            current.grantee.user.kkProfile?.lastName ??
+            applicationName?.lastName ??
+            profileName?.lastName,
+          dateOfBirth:
+            current.grantee.user.kkProfile?.birthDate ??
+            latestApplication?.dateOfBirth,
+        })?.exact ?? null;
+
         const updatedGrantee = await tx.grantee.update({
           where: { id: current.grantee.id },
           data: {
@@ -145,6 +202,8 @@ export async function POST(
             remarks: revocationReason,
             revocationReason: revocationReasonOption,
             revocationNotes: additionalNotes || null,
+            isPermanentlyDisqualified,
+            identityFingerprint,
           },
         });
         await downgradeInactiveGranteeRole(tx, current.grantee.user.id);
@@ -169,10 +228,12 @@ export async function POST(
             dateRemoved: updatedGrantee.dateRemoved,
             revocationReason: updatedGrantee.revocationReason,
             revocationNotes: updatedGrantee.revocationNotes,
+            isPermanentlyDisqualified: updatedGrantee.isPermanentlyDisqualified,
             userRole: "YOUTH",
           },
           metadata: {
             reason: revocationReason,
+            isPermanentlyDisqualified,
             submissionId: id,
             targetEmail: current.grantee.user.email,
             previousUserRole: current.grantee.user.role,

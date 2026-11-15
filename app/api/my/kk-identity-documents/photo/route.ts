@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const PHOTO_TYPES = new Map([
   ["image/jpeg", "jpg"],
+  ["image/jfif", "jpg"],
   ["image/png", "png"],
 ]);
 
@@ -58,11 +59,13 @@ export async function POST(request: Request) {
   }
 
   if (!(photo instanceof File)) {
-    return NextResponse.json({ error: "Please choose a JPG or PNG photo." }, { status: 400 });
+    return NextResponse.json({ error: "Please choose a JPG, JFIF, or PNG photo." }, { status: 400 });
   }
-  const extension = PHOTO_TYPES.get(photo.type);
+  const isJfif = /\.jfif$/i.test(photo.name) &&
+    (!photo.type || photo.type === "application/octet-stream" || photo.type === "image/jpeg");
+  const extension = PHOTO_TYPES.get(photo.type) ?? (isJfif ? "jpg" : undefined);
   if (!extension) {
-    return NextResponse.json({ error: "Photo must be a JPG or PNG image." }, { status: 400 });
+    return NextResponse.json({ error: "Photo must be a JPG, JFIF, or PNG image." }, { status: 400 });
   }
   if (photo.size === 0 || photo.size > MAX_FILE_SIZE) {
     return NextResponse.json({ error: "Photo must be no larger than 10MB." }, { status: 400 });
@@ -71,9 +74,15 @@ export async function POST(request: Request) {
   let privateDocumentPath: string | null = null;
   let avatarPath: string | null = null;
   try {
+    const normalizedPhoto = photo.type === "image/png"
+      ? photo
+      : new File([photo], photo.name, { type: "image/jpeg", lastModified: photo.lastModified });
     const privateDocument = await uploadPrivateDocument(
       authUser.id,
-      new File([photo], `latest-photo.${extension}`, { type: photo.type }),
+      new File([normalizedPhoto], `latest-photo.${extension}`, {
+        type: normalizedPhoto.type,
+        lastModified: normalizedPhoto.lastModified,
+      }),
       "kk-verification",
       "photo",
     );
@@ -82,8 +91,8 @@ export async function POST(request: Request) {
     avatarPath = `avatars/${authUser.id}/kk-profile-${Date.now()}-${randomUUID()}.${extension}`;
     const { error: avatarUploadError } = await supabase.storage
       .from("avatars")
-      .upload(avatarPath, await photo.arrayBuffer(), {
-        contentType: photo.type,
+      .upload(avatarPath, await normalizedPhoto.arrayBuffer(), {
+        contentType: normalizedPhoto.type,
         cacheControl: "3600",
         upsert: false,
       });

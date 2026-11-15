@@ -622,12 +622,14 @@ export default function GranteeDocumentsClient({
     }
 
     const allowedTypes = kind === "grade" ? GRADE_REPORT_MIME_TYPES : COE_MIME_TYPES;
-    if (!allowedTypes.has(normalizedFileType)) {
+    const isGenericJfif = /\.jfif$/i.test(file.name) &&
+      (!normalizedFileType || normalizedFileType === "application/octet-stream");
+    if (!allowedTypes.has(normalizedFileType) && !isGenericJfif) {
       setOcrStatus("ERROR");
       setFileError(
         kind === "grade"
-          ? "Grade reports must be PDF, JPG, PNG, or WEBP files."
-          : "Certificates of Enrollment must be PDF, JPG, PNG, or WEBP files."
+          ? "Grade reports must be PDF, JPG/JFIF, PNG, or WEBP files."
+          : "Certificates of Enrollment must be PDF, JPG/JFIF, PNG, or WEBP files."
       );
       return;
     }
@@ -888,8 +890,8 @@ export default function GranteeDocumentsClient({
                     ocrWarning={gradeOcrWarning}
                     ocrOverridden={gradeOcrOverride}
                     onOcrOverride={() => setGradeOcrOverride(true)}
-                    subtitle="PDF, JPG, PNG, WEBP"
-                    accept="application/pdf,image/jpeg,image/png,image/webp"
+                    subtitle="PDF, JPG/JFIF, PNG, WEBP"
+                    accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
                     onChange={(file) => handleFileChange(file, "grade")}
                     errorText={gradeFileError}
                     onRemoveFile={() => {
@@ -923,8 +925,8 @@ export default function GranteeDocumentsClient({
                     ocrWarning={coeOcrWarning}
                     ocrOverridden={coeOcrOverride}
                     onOcrOverride={() => setCoeOcrOverride(true)}
-                    subtitle="PDF, JPG, PNG, WEBP"
-                    accept="application/pdf,image/jpeg,image/png,image/webp"
+                    subtitle="PDF, JPG/JFIF, PNG, WEBP"
+                    accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
                     onChange={(file) => handleFileChange(file, "coe")}
                     errorText={coeFileError}
                     onRemoveFile={() => {

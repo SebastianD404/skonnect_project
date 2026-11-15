@@ -19,7 +19,7 @@ import { exportAnalyticsCardAsPng, exportAnalyticsTable } from "./analytics-expo
 
 type DemographicsData = Pick<
   ScholarDistributionAnalytics,
-  | "genderDistribution"
+  | "activeGranteeGenderDistribution"
   | "youthGenderDistribution"
   | "yearLevelDistribution"
   | "yearLevelBreakdowns"
@@ -44,10 +44,10 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
   const yearLevelSubtitle = {
     all: "All educational levels",
     highSchool: "Junior & Senior High (Grades 7–12)",
-    college: "College & Tech-Voc (1st–4th Year)",
+    college: "College (1st–4th Year)",
   }[yearLevelView];
   const selectedGenderDistribution =
-    sexPopulation === "youth" ? data.youthGenderDistribution : data.genderDistribution;
+    sexPopulation === "youth" ? data.youthGenderDistribution : data.activeGranteeGenderDistribution;
   const totalBySex =
     selectedGenderDistribution.male +
     selectedGenderDistribution.female +
@@ -66,16 +66,19 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
       label: "Active Grantees",
       count: data.programOutcomes.activeGrantees,
       indicatorColor: "#10b981",
+      segmentClass: "bg-emerald-500",
     },
     {
       label: "Graduated",
       count: data.programOutcomes.graduated,
-      indicatorColor: "#8b5cf6",
+      indicatorColor: "#0f766e",
+      segmentClass: "bg-teal-700",
     },
     {
       label: "Removed / Revoked",
       count: data.programOutcomes.removedOrRevoked,
       indicatorColor: "#e11d48",
+      segmentClass: "bg-rose-500",
     },
   ];
   const totalOutcomes = outcomes.reduce((total, outcome) => total + outcome.count, 0);
@@ -85,20 +88,20 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
       sexCardRef.current,
       sexPopulation === "youth"
         ? "youth-population-by-sex.png"
-        : "skeap-grantee-population-by-sex.png",
+        : "skeap-active-grantees-by-sex.png",
     );
   const exportSexTable = () =>
     exportAnalyticsTable({
       fileName:
         sexPopulation === "youth"
           ? "youth-population-by-sex.xlsx"
-          : "skeap-grantee-population-by-sex.xlsx",
-      sheetName: sexPopulation === "youth" ? "Youth by Sex" : "Grantees by Sex",
+          : "skeap-active-grantees-by-sex.xlsx",
+      sheetName: sexPopulation === "youth" ? "Youth by Sex" : "Active Grantees by Sex",
       title:
         sexPopulation === "youth"
           ? "Youth Population by Sex"
-          : "Grantee Population by Sex",
-      headers: ["Sex", sexPopulation === "youth" ? "Total Youth" : "Total Grantees"],
+          : "Active Grantees by Sex",
+      headers: ["Sex", sexPopulation === "youth" ? "Total Youth" : "Total Active Grantees"],
       rows: sexData.map(({ name, count }) => [name, count]),
     });
   const exportYearImage = () =>
@@ -147,12 +150,12 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
           <header className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
               <h3 id="youth-by-sex-title" className="text-base font-bold text-slate-900">
-                {sexPopulation === "youth" ? "Youth Population by Sex" : "Grantee Population by Sex"}
+                {sexPopulation === "youth" ? "Youth Population by Sex" : "Active Grantees by Sex"}
               </h3>
               <p className="mt-1 text-xs text-slate-500">
                 {sexPopulation === "youth"
                   ? "Across the entire KK youth registry"
-                  : "Across all SKEAP grantee statuses"}
+                  : "Current active and probationary SKEAP grantees"}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -187,7 +190,7 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
                 </button>
               </div>
               <AnalyticsExportMenu
-                label={sexPopulation === "youth" ? "youth population by sex" : "grantee population by sex"}
+                label={sexPopulation === "youth" ? "youth population by sex" : "active grantee population by sex"}
                 onExportImage={exportSexImage}
                 onExportTable={exportSexTable}
               />
@@ -232,12 +235,12 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
                   fontWeight="600"
                   aria-hidden="true"
                 >
-                  {sexPopulation === "youth" ? "Youth" : "Grantees"}
+                  {sexPopulation === "youth" ? "Youth" : "Active"}
                 </text>
                 <Tooltip
                   formatter={(value) => [
                     Number(value).toLocaleString("en-PH"),
-                    sexPopulation === "youth" ? "Youth" : "Grantees",
+                    sexPopulation === "youth" ? "Youth" : "Active grantees",
                   ]}
                   contentStyle={{ borderRadius: "0.75rem", borderColor: "#e2e8f0", fontSize: "0.75rem" }}
                 />
@@ -264,7 +267,7 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
           </p>
           {totalBySex === 0 ? (
             <p className="mt-2 text-center text-xs text-slate-400">
-              No {sexPopulation === "youth" ? "KK youth" : "SKEAP grantee"} records yet.
+              No {sexPopulation === "youth" ? "KK youth" : "active SKEAP grantee"} records yet.
             </p>
           ) : null}
         </section>
@@ -402,6 +405,35 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
                 </div>
               );
             })}
+          </div>
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <div
+              aria-hidden="true"
+              className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-slate-100"
+            >
+              {totalOutcomes > 0
+                ? outcomes.map(({ label, count, segmentClass }) => (
+                    <div
+                      key={label}
+                      className={`h-full ${segmentClass}`}
+                      style={{
+                        width: `${(count / Math.max(totalOutcomes, 1)) * 100}%`,
+                      }}
+                    />
+                  ))
+                : null}
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-xs font-medium text-slate-500">
+                Total historical grantees
+              </span>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-bold tabular-nums text-slate-900">
+                  {totalOutcomes}
+                </span>
+                <span className="text-xs font-medium text-slate-400">100%</span>
+              </div>
+            </div>
           </div>
         </section>
       </div>

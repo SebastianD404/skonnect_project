@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getCurrentAcademicYear } from "@/lib/semester";
+import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 
 const PROGRAM_STATUS_DEFAULTS: Record<string, { badge: string; label: string }> = {
   "skeap-scholarship": {
@@ -28,6 +30,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
   ]);
 
   const remainingSlots = Math.max(0, maxSlots - activeScholarsCount);
+  const waitlistCycleState = await getSkeapWaitlistCycleState(getCurrentAcademicYear());
+  const isCycleClosedAndFull = waitlistCycleState.isClosed;
   const totalScholars = activeScholars + probationaryScholars + graduatedScholars;
   const summary = pendingApplications > 0
     ? `There are ${pendingApplications} pending SKEAP application${pendingApplications === 1 ? "" : "s"} awaiting review.`
@@ -36,14 +40,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
       : "No SKEAP scholars are currently registered.";
 
   return NextResponse.json({
-    badge: defaults.badge,
-    label: defaults.label,
+    badge: isCycleClosedAndFull ? "Cycle closed" : defaults.badge,
+    label: isCycleClosedAndFull ? "Applications are closed" : defaults.label,
     summary,
     granteeCount: activeScholars,
     activeScholars,
     activeScholarsCount,
     maxSlots,
     remainingSlots,
+    isCycleClosedAndFull,
     removedScholars,
     totalScholars,
     nextReview: "TBA",

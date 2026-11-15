@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
 
 export type ProgramTocSection = {
   id: string;
@@ -75,7 +74,7 @@ export default function ProgramTableOfContents({
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
         On this page
       </p>
-      <ol className="mt-4 flex flex-col gap-1 border-l-2 border-slate-100 pl-2">
+      <ol className="mt-4 flex flex-col border-l border-slate-200/80">
         {sections.map((section) => {
           const isActive = activeId === section.id;
           return (
@@ -91,30 +90,22 @@ export default function ProgramTableOfContents({
                     block: "start",
                   });
                 }}
-                className={`group flex items-center justify-between rounded-xl px-3 py-2 text-sm transition-all duration-150 ${
+                className={`group -ml-px flex items-center gap-2.5 border-l-2 py-1.5 pl-3.5 pr-2 text-sm transition-colors duration-150 ${
                   isActive
-                    ? "bg-sky-50/80 font-semibold text-slate-900 ring-1 ring-inset ring-sky-200/70"
-                    : "font-medium text-slate-600 hover:translate-x-0.5 hover:bg-slate-100/80 hover:text-slate-900"
+                    ? "border-slate-900 font-semibold text-slate-900"
+                    : "border-transparent font-normal text-slate-500 hover:border-slate-300 hover:text-slate-900"
                 }`}
               >
-                <span className="flex items-center gap-3">
-                  <span
-                    className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] transition-colors ${
-                      isActive
-                        ? "bg-sky-600 font-bold text-white"
-                        : "text-slate-400 group-hover:text-sky-600"
-                    }`}
-                  >
-                    {section.index}
-                  </span>
-                  {section.label}
+                <span
+                  className={`font-mono text-[11px] tabular-nums ${
+                    isActive
+                      ? "font-semibold text-teal-600"
+                      : "text-slate-400 group-hover:text-slate-600"
+                  }`}
+                >
+                  {section.index}
                 </span>
-                {isActive ? (
-                  <ChevronRight
-                    className="h-4 w-4 shrink-0 text-sky-600"
-                    aria-hidden="true"
-                  />
-                ) : null}
+                {section.label}
               </a>
             </li>
           );

@@ -1,26 +1,160 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { CheckCircle2, ChevronDown, Eye, FileText, LoaderCircle, TriangleAlert, UploadCloud } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
+import { CheckCircle2, ChevronDown, ChevronsUpDown, Eye, FileText, Info, LoaderCircle, TriangleAlert, UploadCloud, X } from "lucide-react";
 import {
   SKEAP_UPLOAD_KEY,
+  SKEAP_TERM_UPLOAD_KEYS,
+  SKEAP_UPLOAD_LABELS,
   type SkeapRequiredDocument,
   getSupportedSkeapDocumentType,
   normalizeUploadRequirement,
+  type SkeapOcrNameStatus,
   type SkeapVerificationStatus,
   type SkeapUploadKey,
 } from "@/lib/skeap-upload";
 import type { KKProfile } from "@/lib/kk-profile-client";
-import { validateDocumentOCR } from "@/lib/skeap-document-ocr";
+import { validateDocumentOCR, verifyOcrDocumentName } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
 import {
+  DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS,
+  getSkeapEducationLevelCode,
   isEligibleSkeapApplicantYearLevel,
-  SKEAP_APPLICATION_EDUCATION_LEVELS,
+  SKEAP_EDUCATION_LEVEL_OPTIONS,
   SKEAP_YEAR_LEVELS,
   type SkeapEducationLevel,
+  type SkeapEducationLevelCode,
 } from "@/lib/skeap-education";
+
+type CoursePresetGroup = {
+  label: string;
+  options: readonly string[];
+};
+
+export const SKEAP_COURSE_PRESETS: Record<
+  SkeapEducationLevelCode,
+  readonly CoursePresetGroup[]
+> = {
+  COLLEGE: [
+    {
+      label: "Computing & Information Technology",
+      options: [
+        "BS Information Technology",
+        "BS Computer Science",
+        "BS Information Systems",
+        "BS Data Science",
+      ],
+    },
+    {
+      label: "Teacher Education",
+      options: [
+        "Bachelor of Elementary Education (BEEd)",
+        "Bachelor of Secondary Education (BSEd)",
+        "Bachelor of Physical Education (BPEd)",
+        "Bachelor of Early Childhood Education (BECEd)",
+      ],
+    },
+    {
+      label: "Business, Accountancy & Management",
+      options: [
+        "BS Accountancy",
+        "BS Business Administration (BSBA)",
+        "BS Management Accounting",
+        "BS Entrepreneurship",
+        "BS Office Administration",
+      ],
+    },
+    {
+      label: "Health & Allied Sciences",
+      options: [
+        "BS Nursing",
+        "BS Medical Laboratory Science",
+        "BS Pharmacy",
+        "BS Physical Therapy",
+        "BS Radiologic Technology",
+        "BS Midwifery",
+      ],
+    },
+    {
+      label: "Engineering & Architecture",
+      options: [
+        "BS Civil Engineering",
+        "BS Electrical Engineering",
+        "BS Electronics Engineering",
+        "BS Mechanical Engineering",
+        "BS Industrial Engineering",
+        "BS Mining Engineering",
+        "BS Architecture",
+      ],
+    },
+    {
+      label: "Agriculture, Forestry & Sciences",
+      options: [
+        "BS Agriculture",
+        "BS Forestry",
+        "BS Agribusiness",
+        "BS Environmental Science",
+        "BS Development Communication",
+        "BS Food Technology",
+        "BS Nutrition and Dietetics",
+      ],
+    },
+    {
+      label: "Criminology & Public Safety",
+      options: ["BS Criminology", "BS Forensic Science"],
+    },
+    {
+      label: "Hospitality & Tourism",
+      options: ["BS Hospitality Management (BSHM)", "BS Tourism Management (BSTM)"],
+    },
+    {
+      label: "Arts, Humanities & Social Sciences",
+      options: [
+        "BS Psychology",
+        "BA Psychology",
+        "BA Political Science",
+        "BA Communication",
+        "BS Social Work",
+        "BA English Language Studies",
+      ],
+    },
+  ],
+  SENIOR_HIGH: [
+    {
+      label: "Tracks",
+      options: [
+        "Academic Track – STEM",
+        "Academic Track – ABM",
+        "Academic Track – HUMSS",
+        "Academic Track – GAS",
+        "TVL Track – ICT",
+        "TVL Track – Home Economics",
+        "TVL Track – Industrial Arts",
+        "TVL Track – Agri-Fishery Arts",
+        "Arts and Design Track",
+        "Sports Track",
+      ],
+    },
+  ],
+  TECH_VOC: [
+    {
+      label: "TESDA / TVET Programs",
+      options: [
+        "Cookery NC II",
+        "Bread and Pastry Production NC II",
+        "Computer Systems Servicing NC II",
+        "Electrical Installation and Maintenance NC II",
+        "Shielded Metal Arc Welding (SMAW) NC II",
+        "Housekeeping NC II",
+        "Automotive Servicing NC II",
+        "Caregiving NC II",
+      ],
+    },
+  ],
+  JUNIOR_HIGH: [],
+};
 
 type UploadedFile = {
   id: string;
@@ -37,14 +171,19 @@ type UploadedFile = {
   previewUrl?: string;
   previewFailed?: boolean;
   verificationStatus?: SkeapVerificationStatus;
+  ocrNameStatus?: SkeapOcrNameStatus;
+  ocrText?: string;
+  ocrConfidence?: number;
   file?: File;
 };
 
 type SkeapUploadValue = {
   name?: string;
   url: string;
+  fileType?: string;
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
+  ocrNameStatus?: SkeapOcrNameStatus;
 };
 
 type KkIdentityDocuments = {
@@ -68,7 +207,7 @@ function isKkIdentityDocuments(value: unknown): value is KkIdentityDocuments {
 }
 
 const MAX_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024;
-const ACCEPTED_DOCUMENT_TYPES = "image/jpeg,image/png,image/webp,application/pdf";
+const ACCEPTED_DOCUMENT_TYPES = "image/jpeg,image/jfif,.jfif,image/png,image/webp,application/pdf";
 const STRICT_OCR_UPLOAD_KEYS = new Set<SkeapUploadKey>([
   SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE,
   SKEAP_UPLOAD_KEY.FAMILY_INCOME,
@@ -202,20 +341,169 @@ function isUploadCompleteForKey(files: UploadedFile[], key: SkeapUploadKey) {
   });
 }
 
-const STEPS = ["Profile", "School", "Educational Background", "Uploads", "Signature"] as const;
-const SCHOOL_OPTIONS = [
-  "Benguet State University (BSU)",
-  "King's College of the Philippines (KCP)",
-  "Cordillera Career Development College (CCDC)",
-  "Star Colleges",
-  "BVS Colleges",
-  "Saint Louis University (SLU)",
-  "University of the Cordilleras (UC)",
-  "University of Baguio (UB)",
-  "University of the Philippines Baguio (UPB)",
-  "Baguio Central University (BCU)",
-  "Pines City Colleges (PCC)",
+const STEPS = ["Profile", "School", "Educational Background", "Uploads"] as const;
+type PresetOptionGroup = {
+  label: string;
+  options: readonly string[];
+};
+
+type SchoolPresetLevel = "ELEMENTARY" | "HIGH_SCHOOL" | "COLLEGE" | "VOCATIONAL";
+
+export const SKEAP_SCHOOL_PRESETS: Record<SchoolPresetLevel, readonly PresetOptionGroup[]> = {
+  ELEMENTARY: [
+    {
+      label: "La Trinidad, Benguet",
+      options: [
+        "Pico Elementary School",
+        "La Trinidad Central School",
+        "Benguet State University (BSU) Elementary Laboratory School",
+        "Puguis Elementary School",
+        "Buyagan Elementary School",
+        "Balili Elementary School",
+        "Wangal Elementary School",
+        "King's College of the Philippines (KCP) Elementary",
+        "Cordillera Career Development College (CCDC) Elementary",
+      ],
+    },
+    {
+      label: "Baguio City",
+      options: [
+        "Baguio Central School",
+        "Saint Louis University (SLU) Laboratory Elementary School",
+        "University of the Cordilleras (UC) Grade School",
+        "University of Baguio (UB) Laboratory Elementary School",
+        "Lucban Elementary School",
+      ],
+    },
+  ],
+  HIGH_SCHOOL: [
+    {
+      label: "La Trinidad, Benguet",
+      options: [
+        "Benguet National High School (BeNHS) – Main",
+        "Benguet State University (BSU) Secondary Laboratory School",
+        "La Trinidad National High School",
+        "King's College of the Philippines (KCP) High School",
+        "Cordillera Career Development College (CCDC) High School",
+        "Star Colleges High School",
+      ],
+    },
+    {
+      label: "Baguio City",
+      options: [
+        "Baguio City National High School (BCNHS)",
+        "Saint Louis University (SLU) Laboratory High School",
+        "University of the Cordilleras (UC) Senior High School",
+        "University of Baguio (UB) High School",
+        "Pines City National High School",
+        "University of the Philippines Baguio High School",
+      ],
+    },
+  ],
+  COLLEGE: [
+    {
+      label: "La Trinidad, Benguet",
+      options: [
+        "Benguet State University (BSU)",
+        "King's College of the Philippines (KCP)",
+        "Cordillera Career Development College (CCDC)",
+        "Star Colleges",
+      ],
+    },
+    {
+      label: "Baguio City",
+      options: [
+        "Saint Louis University (SLU)",
+        "University of the Cordilleras (UC)",
+        "University of Baguio (UB)",
+        "University of the Philippines Baguio (UPB)",
+        "Baguio Central University (BCU)",
+        "Pines City Colleges (PCC)",
+      ],
+    },
+  ],
+  VOCATIONAL: [
+    {
+      label: "La Trinidad, Benguet",
+      options: [
+        "TESDA Benguet Provincial Training Center (La Trinidad)",
+        "King's College of the Philippines (KCP) – TVET",
+        "Cordillera Career Development College (CCDC) – TVET",
+      ],
+    },
+    {
+      label: "Baguio City",
+      options: [
+        "TESDA Regional Training Center – CAR (Baguio)",
+        "Baguio City School of Arts and Trades (BCSAT)",
+        "Data Center College of the Philippines – Baguio",
+      ],
+    },
+  ],
+};
+
+function getSchoolPresetGroups(educationLevel: SkeapEducationLevel | "") {
+  if (educationLevel === "Junior High School" || educationLevel === "Senior High School") {
+    return SKEAP_SCHOOL_PRESETS.HIGH_SCHOOL;
+  }
+  if (educationLevel === "College") return SKEAP_SCHOOL_PRESETS.COLLEGE;
+  if (educationLevel === "Technical and Vocational (Tech-Voc)") {
+    return SKEAP_SCHOOL_PRESETS.VOCATIONAL;
+  }
+  return ["La Trinidad, Benguet", "Baguio City"]
+    .map((label) => ({
+      label,
+      options: Object.values(SKEAP_SCHOOL_PRESETS)
+        .flatMap((groups) => groups)
+        .filter((group) => group.label === label)
+        .flatMap((group) => group.options),
+    }))
+    .filter((group) => group.options.length > 0);
+}
+
+export const LOCAL_OCCUPATION_GROUPS: readonly PresetOptionGroup[] = [
+  {
+    label: "Agriculture & Trade",
+    options: ["Farmer", "Vendor", "Store Tender", "Packer / Porter"],
+  },
+  {
+    label: "Transport & Delivery",
+    options: ["Driver", "Delivery Rider", "Mechanic"],
+  },
+  {
+    label: "Labor & Trades",
+    options: [
+      "Laborer",
+      "Construction Worker",
+      "Carpenter",
+      "Mason",
+      "Welder",
+      "Painter",
+      "Electrician",
+      "Plumber",
+    ],
+  },
+  {
+    label: "Service, Retail & Care",
+    options: [
+      "Sales Clerk",
+      "Cashier",
+      "Security Guard",
+      "Cook / Kitchen Helper",
+      "Househelper",
+      "Caregiver",
+      "Laundry Worker",
+      "Seamstress / Tailor",
+      "Janitor / Utility Worker",
+      "Barangay Worker",
+    ],
+  },
+  {
+    label: "Household / Status",
+    options: ["Homemaker", "Self-Employed", "Unemployed", "Retired", "Deceased"],
+  },
 ];
+
 const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
   lastName: ["Last name and first name are required."],
   firstName: ["Last name and first name are required."],
@@ -242,7 +530,9 @@ const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
   parentGuardianRegisteredVoter: [
     "A parent or legal guardian must be a duly registered voter of Barangay Pico.",
   ],
-  parentGuardianVoterFullName: ["Enter the registered parent or legal guardian's full name."],
+  parentGuardianVoterFullName: [
+    "Enter the registered parent or legal guardian's full name (at least 3 characters).",
+  ],
   course: ["Course is required."],
   yearLevel: ["Year level is required."],
   fathersName: ["Father's name is required."],
@@ -252,29 +542,72 @@ const FIELD_VALIDATION_MESSAGES: Record<string, readonly string[]> = {
   mothersOccupation: ["Mother's occupation is required."],
   mothersContact: ["Mother's contact is required."],
   totalFamilyMonthlyIncome: ["Total family monthly income is required."],
-  applicantSignature: ["Please provide a signature."],
 };
 
-function SchoolCombobox({
+type GroupedPresetComboboxProps = {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onClear?: () => void;
+  groups: readonly PresetOptionGroup[];
+  onValid?: () => void;
+  invalid?: boolean;
+  error?: string;
+  required?: boolean;
+  dataRequired?: string;
+  placeholder?: string;
+  disabled?: boolean;
+  emptyMessage: string;
+};
+
+function GroupedPresetCombobox({
+  label,
   value,
   onChange,
+  onClear,
+  groups,
   onValid,
   invalid,
   error,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onValid: () => void;
-  invalid: boolean;
-  error?: string;
-}) {
+  required = false,
+  dataRequired,
+  placeholder,
+  disabled = false,
+  emptyMessage,
+}: GroupedPresetComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const filteredOptions = SCHOOL_OPTIONS.filter((option) =>
-    option.toLowerCase().includes(value.trim().toLowerCase())
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
+  const listboxId = useId();
+  const errorId = useId();
+  const filteredGroups = useMemo(() => {
+    let nextIndex = 0;
+    const query = value.trim().toLowerCase();
+    return groups
+      .map((group) => ({
+        ...group,
+        options: group.options
+          .filter((option) => option.toLowerCase().includes(query))
+          .map((option) => ({ value: option, index: nextIndex++ })),
+      }))
+      .filter((group) => group.options.length > 0);
+  }, [groups, value]);
+  const filteredOptions = filteredGroups.flatMap((group) => group.options);
+  const query = value.trim();
+  const hasExactMatch = query.length > 0 && groups.some((group) =>
+    group.options.some((option) => option.toLowerCase() === query.toLowerCase())
   );
-  const activeOptionId = activeIndex >= 0 ? `skeap-school-option-${activeIndex}` : undefined;
+  const showCustomEntry = query.length > 0 && !hasExactMatch;
+  const customOptionIndex = filteredOptions.length;
+  const selectableOptionCount = filteredOptions.length + Number(showCustomEntry);
+  const activeOption = filteredOptions[activeIndex];
+  const activeOptionId = activeOption
+    ? `${listboxId}-option-${activeOption.index}`
+    : showCustomEntry && activeIndex === customOptionIndex
+      ? `${listboxId}-custom-option`
+      : undefined;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -290,118 +623,175 @@ function SchoolCombobox({
 
   function selectOption(option: string) {
     onChange(option);
-    onValid();
+    onValid?.();
     setIsOpen(false);
     setActiveIndex(-1);
   }
 
+  function updateValue(nextValue: string) {
+    onChange(nextValue);
+    if (!nextValue.trim()) onClear?.();
+    else if (nextValue.trim().length >= 2) onValid?.();
+    setIsOpen(true);
+    setActiveIndex(-1);
+  }
+
+  function acceptCustomEntry() {
+    setIsOpen(false);
+    setActiveIndex(-1);
+    if (value.trim().length >= 2) onValid?.();
+  }
+
   return (
     <div ref={wrapperRef} className="relative flex min-w-0 flex-col">
-      <label htmlFor="skeap-school-name" className="text-sm font-semibold">
-        School / Institution <span className="text-black" aria-hidden="true">*</span>
+      <label htmlFor={inputId} className="text-sm font-semibold">
+        {label}{required ? <span className="ml-1 text-black" aria-hidden="true">*</span> : null}
       </label>
       <div className="relative mt-1">
         <input
-          id="skeap-school-name"
+          id={inputId}
+          ref={inputRef}
           type="text"
           role="combobox"
           aria-autocomplete="list"
-          aria-expanded={isOpen}
-          aria-controls="skeap-school-options"
-          aria-activedescendant={activeOptionId}
-          data-required="profile"
-          required
-          minLength={2}
-          aria-required="true"
+          aria-expanded={!disabled && isOpen}
+          aria-controls={!disabled && isOpen ? listboxId : undefined}
+          aria-activedescendant={disabled ? undefined : activeOptionId}
+          data-required={dataRequired}
+          required={required}
+          minLength={required ? 2 : undefined}
+          disabled={disabled}
+          aria-required={required}
           aria-invalid={invalid}
-          aria-describedby={invalid ? "school-name-error" : undefined}
+          aria-describedby={invalid ? errorId : undefined}
           value={value}
           onChange={(event) => {
-            const nextValue = event.currentTarget.value;
-            onChange(nextValue);
-            setIsOpen(true);
-            setActiveIndex(-1);
-            if (nextValue.trim().length >= 2) onValid();
+            updateValue(event.currentTarget.value);
           }}
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => {
+            if (!disabled) setIsOpen(true);
+          }}
+          onBlur={(event) => {
+            if (!wrapperRef.current?.contains(event.relatedTarget as Node | null)) {
+              setIsOpen(false);
+              setActiveIndex(-1);
+            }
+          }}
           onKeyDown={(event) => {
+            if (disabled) return;
             if (event.key === "ArrowDown") {
               event.preventDefault();
               setIsOpen(true);
               setActiveIndex((current) =>
-                filteredOptions.length ? Math.min(current + 1, filteredOptions.length - 1) : -1
+                selectableOptionCount ? Math.min(current + 1, selectableOptionCount - 1) : -1
               );
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
               setIsOpen(true);
               setActiveIndex((current) =>
-                filteredOptions.length ? Math.max(current - 1, 0) : -1
+                selectableOptionCount ? Math.max(current - 1, 0) : -1
               );
-            } else if (event.key === "Enter" && isOpen && activeIndex >= 0) {
+            } else if (event.key === "Enter" && isOpen) {
               event.preventDefault();
-              const option = filteredOptions[activeIndex];
-              if (option) selectOption(option);
+              const option = activeOption;
+              if (option) {
+                selectOption(option.value);
+              } else if (showCustomEntry && activeIndex === customOptionIndex) {
+                acceptCustomEntry();
+              } else {
+                acceptCustomEntry();
+              }
             } else if (event.key === "Escape") {
+              event.preventDefault();
               setIsOpen(false);
               setActiveIndex(-1);
             }
           }}
-          placeholder="Select or type your school"
+          placeholder={placeholder ?? `Select or type ${label.toLowerCase()}`}
           autoComplete="off"
-          className={`w-full min-w-0 rounded-lg border px-3 py-2 pr-10 text-slate-900 shadow-sm transition-colors focus:outline-none focus:ring-2 ${invalid ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100"}`}
+          className={`w-full min-w-0 rounded-lg border px-3 py-2 pr-16 shadow-sm transition-colors focus:outline-none focus:ring-2 ${disabled ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400" : invalid ? "border-rose-300 bg-rose-50/30 text-slate-900 ring-2 ring-rose-100" : "border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-100"}`}
         />
         <button
           type="button"
-          aria-label={isOpen ? "Close school suggestions" : "Show school suggestions"}
-          aria-expanded={isOpen}
+          aria-label={!disabled && isOpen ? `Close ${label.toLowerCase()} suggestions` : `Show ${label.toLowerCase()} suggestions`}
+          aria-expanded={!disabled && isOpen}
+          disabled={disabled}
           onClick={() => {
             setIsOpen((open) => !open);
             setActiveIndex(-1);
           }}
-          className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500"
+          onMouseDown={(event) => event.preventDefault()}
+          className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-400 transition-colors hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300"
         >
-          <svg
-            className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-          </svg>
+          <ChevronsUpDown className="h-4 w-4" aria-hidden="true" />
         </button>
-        {isOpen ? (
-          <div
-            id="skeap-school-options"
-            role="listbox"
-            aria-label="School suggestions"
-            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+        {value && !disabled ? (
+          <button
+            type="button"
+            aria-label={`Clear ${label.toLowerCase()}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              updateValue("");
+              inputRef.current?.focus();
+            }}
+            className="absolute inset-y-0 right-9 flex items-center px-2 text-slate-400 transition-colors hover:text-slate-700"
           >
-            {filteredOptions.length ? (
-              filteredOptions.map((option, index) => (
-                <div
-                  id={`skeap-school-option-${index}`}
-                  key={option}
-                  role="option"
-                  aria-selected={option === value}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => selectOption(option)}
-                  className={`cursor-pointer px-4 py-2 text-sm text-slate-700 transition-colors ${index === activeIndex ? "bg-slate-100" : "hover:bg-slate-100"}`}
-                >
-                  {option}
-                </div>
-              ))
-            ) : (
-              <p className="px-4 py-3 text-sm text-slate-500" role="status">
-                No matching schools. Your typed entry will be used.
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        ) : null}
+        {isOpen && !disabled ? (
+          <div
+            className="absolute left-0 top-full z-30 mt-1.5 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+          >
+            {filteredOptions.length === 0 ? (
+              <p className="px-2.5 py-2 text-xs text-slate-500" role="status">
+                {emptyMessage}
               </p>
-            )}
+            ) : null}
+            <div id={listboxId} role="listbox" aria-label={`${label} suggestions`}>
+              {filteredGroups.map((group) => (
+                <div key={group.label} role="group" aria-label={group.label}>
+                  <p
+                    className="sticky top-0 z-10 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400"
+                    aria-hidden="true"
+                  >
+                    {group.label}
+                  </p>
+                  {group.options.map((option) => (
+                    <div
+                      id={`${listboxId}-option-${option.index}`}
+                      key={option.value}
+                      role="option"
+                      aria-selected={option.value === value}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActiveIndex(option.index)}
+                      onClick={() => selectOption(option.value)}
+                      className={`cursor-pointer px-4 py-2 text-sm text-slate-700 transition-colors ${option.index === activeIndex ? "bg-slate-100" : "hover:bg-slate-100"}`}
+                    >
+                      {option.value}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {showCustomEntry ? (
+                <div
+                  id={`${listboxId}-custom-option`}
+                  role="option"
+                  aria-selected={activeIndex === customOptionIndex}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setActiveIndex(customOptionIndex)}
+                  onClick={acceptCustomEntry}
+                  className={`cursor-pointer rounded-lg px-2.5 py-2 text-sm text-slate-600 transition-colors ${activeIndex === customOptionIndex ? "bg-slate-100" : "hover:bg-slate-50"}`}
+                >
+                  Use &quot;{query}&quot;
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>
       {invalid ? (
-        <span id="school-name-error" className="mt-1 text-xs text-rose-600">
+        <span id={errorId} className="mt-1 text-xs text-rose-600">
           {error || "Please enter or select your school."}
         </span>
       ) : null}
@@ -409,10 +799,30 @@ function SchoolCombobox({
   );
 }
 
+type SchoolComboboxProps = Omit<GroupedPresetComboboxProps, "emptyMessage">;
+
+function SchoolCombobox(props: SchoolComboboxProps) {
+  return <GroupedPresetCombobox {...props} emptyMessage="No matching schools." />;
+}
+
+type OccupationComboboxProps = Omit<GroupedPresetComboboxProps, "emptyMessage" | "groups">;
+
+function OccupationCombobox(props: OccupationComboboxProps) {
+  return (
+    <GroupedPresetCombobox
+      key={props.disabled ? "disabled" : "enabled"}
+      {...props}
+      groups={LOCAL_OCCUPATION_GROUPS}
+      emptyMessage="No matching occupations."
+    />
+  );
+}
+
 export default function SkeapApplicationWizard({
   onSubmitted,
   educationLevel,
   onEducationLevelChange,
+  initialActiveEducationLevels,
   yearLevel,
   onYearLevelChange,
   requiredDocuments,
@@ -421,10 +831,13 @@ export default function SkeapApplicationWizard({
   userProfile,
   onEligibilityChange,
   allowManualProfileDetails = false,
+  hasPriorRevocation = false,
+  initialUploadedFiles,
 }: {
   onSubmitted: (reference: string) => void;
   educationLevel: SkeapEducationLevel | "";
   onEducationLevelChange: (educationLevel: SkeapEducationLevel | "") => void;
+  initialActiveEducationLevels: readonly SkeapEducationLevelCode[];
   yearLevel: string;
   onYearLevelChange: (yearLevel: string) => void;
   requiredDocuments: SkeapRequiredDocument[];
@@ -433,6 +846,8 @@ export default function SkeapApplicationWizard({
   userProfile: KKProfile | null;
   onEligibilityChange?: (age: number, registeredVoter: boolean | null) => void;
   allowManualProfileDetails?: boolean;
+  hasPriorRevocation?: boolean;
+  initialUploadedFiles?: Partial<Record<SkeapUploadKey, SkeapUploadValue>>;
 }) {
   const [step, setStep] = useState(0);
   const parsedProfileName = parseProfileName(userProfile?.fullName ?? "");
@@ -441,6 +856,9 @@ export default function SkeapApplicationWizard({
   const profileAge = profileBirthDate ? computeAgeFromDateValue(profileBirthDate) : undefined;
 
   const [course, setCourse] = useState("");
+  const [isManualCourse, setIsManualCourse] = useState(false);
+  const manualCourseInputRef = useRef<HTMLInputElement>(null);
+  const courseFieldId = useId();
   const [gwa, setGwa] = useState("");
 
   
@@ -453,6 +871,7 @@ export default function SkeapApplicationWizard({
   );
   const [schoolName, setSchoolName] = useState("");
   const applicantName = `${lastName.trim()}${firstName.trim() ? `, ${firstName.trim()}` : ""}${middleName.trim() ? ` ${middleName.trim()}` : ""}`;
+  const applicantDisplayName = [firstName, middleName, lastName].map((part) => part.trim()).filter(Boolean).join(" ");
   const [permanentAddress, setPermanentAddress] = useState(
     formatPermanentAddress([
       userProfile?.purok,
@@ -482,14 +901,60 @@ export default function SkeapApplicationWizard({
   const [parentGuardianRegisteredVoter, setParentGuardianRegisteredVoter] = useState(false);
   const [parentGuardianVoterFullName, setParentGuardianVoterFullName] = useState("");
   const [totalFamilyMonthlyIncome, setTotalFamilyMonthlyIncome] = useState("");
-  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
   const yearLevels = educationLevel
     ? SKEAP_YEAR_LEVELS[educationLevel].filter((year) => isEligibleSkeapApplicantYearLevel(educationLevel, year))
     : [];
+  const activeEducationLevels = initialActiveEducationLevels.length
+    ? initialActiveEducationLevels
+    : DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS;
+  const educationLevelOptions = useMemo<SkeapEducationLevel[]>(
+    () => SKEAP_EDUCATION_LEVEL_OPTIONS
+      .filter((option) => activeEducationLevels.includes(option.value))
+      .map((option) => option.label),
+    [activeEducationLevels],
+  );
   const isJuniorHighSchool = educationLevel === "Junior High School";
   const isSeniorHighSchool = educationLevel === "Senior High School";
-  const isIncomingFreshman = yearLevel === "Incoming Freshman";
+  const isTechVoc = educationLevel === "Technical and Vocational (Tech-Voc)";
+  const coursePresetGroups = useMemo(() => {
+    const code = getSkeapEducationLevelCode(educationLevel);
+    return code ? SKEAP_COURSE_PRESETS[code] : [];
+  }, [educationLevel]);
+  const coursePresetValues = useMemo(
+    () => coursePresetGroups.flatMap((group) => group.options),
+    [coursePresetGroups],
+  );
+  const courseSelectValue = isJuniorHighSchool
+    ? "General Secondary Curriculum"
+    : isManualCourse || (course.trim() && !coursePresetValues.includes(course))
+      ? "__OTHER__"
+      : course;
+  const isIncomingFreshman = yearLevel === "Incoming Freshman" || yearLevel === "New Trainee / Incoming";
   const isVotingAge = Number(age) >= 18;
+  const isMinorApplicant = Number(age) >= 15 && Number(age) < 18;
+
+  function getVoterCertificateNameVerification(
+    file?: Pick<UploadedFile, "ocrText" | "ocrConfidence">,
+  ) {
+    if (!file || file.ocrText === undefined) return undefined;
+    return verifyOcrDocumentName(
+      file.ocrText,
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+      {
+        applicant: { firstName, middleName, lastName },
+        fatherName: fathersName,
+        motherName: mothersMaidenName,
+        isRegisteredVoter: registeredVoter,
+        age: Number(age),
+        parentVoterName: parentGuardianVoterFullName,
+        confidence: file.ocrConfidence,
+      },
+    );
+  }
+
+  useEffect(() => {
+    if (courseSelectValue === "__OTHER__") manualCourseInputRef.current?.focus();
+  }, [courseSelectValue]);
 
   // Educational background
   const [elementarySchool, setElementarySchool] = useState("");
@@ -501,7 +966,27 @@ export default function SkeapApplicationWizard({
   const [vocational, setVocational] = useState("");
   const [vocationalYearGraduated, setVocationalYearGraduated] = useState("");
 
-  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [files, setFiles] = useState<UploadedFile[]>(() =>
+    SKEAP_TERM_UPLOAD_KEYS.flatMap((key) => {
+      const upload = initialUploadedFiles?.[key];
+      if (!upload?.url.trim()) return [];
+
+      return [{
+        id: `initial-${key}`,
+        name: upload.name || SKEAP_UPLOAD_LABELS[key],
+        type: upload.fileType || (upload.name?.toLowerCase().endsWith(".pdf") ? "application/pdf" : ""),
+        size: 0,
+        progress: 100,
+        status: "done" as const,
+        url: upload.url,
+        previewUrl: upload.url,
+        requirement: key,
+        manualReview: upload.manualReview,
+        verificationStatus: upload.verificationStatus,
+        ocrNameStatus: upload.ocrNameStatus,
+      }];
+    })
+  );
   const [identityDocuments, setIdentityDocuments] = useState<KkIdentityDocuments | null>(null);
   const [identityDocumentsError, setIdentityDocumentsError] = useState<string | null>(null);
   const [loadingIdentityDocuments, setLoadingIdentityDocuments] = useState(true);
@@ -653,34 +1138,35 @@ export default function SkeapApplicationWizard({
           "Ineligible under Section 3(6): Applicants who have reached voting age (18+) must be duly registered voters of Barangay Pico to qualify for SKEAP.",
         );
       }
-      if (Number(age) < 18 && registeredVoter === false) {
+      if (isMinorApplicant && registeredVoter === false) {
         if (!parentGuardianRegisteredVoter) {
           addError(
             "parentGuardianRegisteredVoter",
             "A parent or legal guardian must be a duly registered voter of Barangay Pico.",
           );
         }
-        if (!parentGuardianVoterFullName.trim()) {
+        if (parentGuardianVoterFullName.trim().length < 3) {
           addError(
             "parentGuardianVoterFullName",
-            "Enter the registered parent or legal guardian's full name.",
+            "Enter the registered parent or legal guardian's full name (at least 3 characters).",
           );
         }
       }
     }
     if (step === 1) {
       if (!educationLevel) addError("educationLevel", "Education level is required.");
+      else if (!educationLevelOptions.includes(educationLevel)) {
+        addError(
+          "educationLevel",
+          "This education category is not open for the current SKEAP cycle. Please select an available category.",
+        );
+      }
       if (!isJuniorHighSchool && !course.trim()) {
         addError("course", isSeniorHighSchool ? "Academic / TVL strand is required." : "Course is required.");
       }
       if (!yearLevel.trim()) addError("yearLevel", "Year level is required.");
       else if (!educationLevel || !isEligibleSkeapApplicantYearLevel(educationLevel, yearLevel)) {
-        addError(
-          "yearLevel",
-          educationLevel === "College"
-            ? "Applicants must be in 3rd year college or below."
-            : "Select a year level for the chosen education level.",
-        );
+        addError("yearLevel", "Select a valid year level for the chosen education level.");
       }
       if (!fathersName.trim()) addError("fathersName", "Father's name is required.");
       if (!fathersOccupation.trim()) addError("fathersOccupation", "Father's occupation is required.");
@@ -698,7 +1184,6 @@ export default function SkeapApplicationWizard({
         addError(key, `Please upload the required file: ${label}.`);
       }
     }
-    if (step === 4 && !signatureUrl) addError("applicantSignature", "Please provide a signature.");
     return { invalidFields: invalid, errors };
   }
 
@@ -745,62 +1230,32 @@ export default function SkeapApplicationWizard({
   }
 
   function focusFirstInvalidInStep(currentStep: number) {
-    try {
-      if (currentStep === 4) {
-        if (!signatureUrl) {
-          const signature = document.getElementById("applicant-signature");
-          signature?.scrollIntoView({ behavior: "smooth", block: "center" });
-          signature?.querySelector("canvas")?.focus();
-        }
-        return;
-      }
-
-      if (currentStep === 3) {
-        const missingKeys = requiredDocuments
-          .map((document) => document.key)
-          .filter((key) => !isUploadCompleteForKey(files, key));
-        if (missingKeys.length > 0) {
-          const missingKey = missingKeys[0];
-          const uploadCard = document.getElementById(`upload-${missingKey}`);
-          if (uploadCard) {
-            uploadCard.scrollIntoView({ behavior: "smooth", block: "center" });
-            uploadCard.focus();
-            return;
-          }
+    if (currentStep === 3) {
+      const missingKey = requiredDocuments
+        .map((document) => document.key)
+        .find((key) => !isUploadCompleteForKey(files, key));
+      if (missingKey) {
+        const uploadCard = document.getElementById(`upload-${missingKey}`);
+        if (uploadCard) {
+          uploadCard.scrollIntoView({ behavior: "smooth", block: "center" });
+          uploadCard.focus({ preventScroll: true });
+          return;
         }
       }
-
-      const selector = currentStep === 0
-        ? "[data-required=profile]"
-        : currentStep === 1
-          ? "[data-required=scholarship]"
-          : currentStep === 2
-            ? "[data-required=education]"
-            : "[data-required=profile]";
-      const els = Array.from(document.querySelectorAll<HTMLInputElement | HTMLSelectElement>(selector));
-      const firstEmpty = els.find((el) => !(el as HTMLInputElement).value || !(el as HTMLInputElement).value.toString().trim());
-      if (firstEmpty) {
-        requestAnimationFrame(() => {
-          firstEmpty.scrollIntoView({ behavior: "smooth", block: "center" });
-          if (!(firstEmpty instanceof HTMLSelectElement)) {
-            firstEmpty.focus({ preventScroll: true });
-          }
-        });
-        return;
-      }
-
-      if (currentStep === 0) {
-        const guardianCheckbox = document.querySelector<HTMLInputElement>(
-          'input[type="checkbox"][aria-invalid="true"]',
-        );
-        if (guardianCheckbox) {
-          guardianCheckbox.scrollIntoView({ behavior: "smooth", block: "center" });
-          guardianCheckbox.focus();
-        }
-      }
-    } catch (e) {
-      // ignore DOM focus errors
     }
+
+    requestAnimationFrame(() => {
+      const firstInvalid = scrollContainerRef.current
+        ?.querySelector<HTMLElement>('[aria-invalid="true"], [data-focus-invalid="true"]');
+      if (!firstInvalid) return;
+
+      const target = firstInvalid.matches("input, select, textarea, button, canvas, [tabindex]")
+        ? firstInvalid
+        : firstInvalid.querySelector<HTMLElement>("input, select, textarea, button, canvas, [tabindex]") ??
+          firstInvalid;
+      target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      target.focus({ preventScroll: true });
+    });
   }
 
   function goBack() {
@@ -823,7 +1278,7 @@ export default function SkeapApplicationWizard({
       const normalizedKey = normalizedRequirement || normalizeUploadRequirement(file.name || "");
       const isVoterCertificate = normalizedKey === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE;
       if (!getSupportedSkeapDocumentType(file)) {
-        const errorText = "That file type isn't supported. Please choose a PDF, JPG, PNG, or WebP.";
+        const errorText = "That file type isn't supported. Please choose a PDF, JPG/JFIF, PNG, or WebP.";
         setFiles((prev) => [
           ...prev.filter((existingFile) => existingFile.requirement !== normalizedKey),
           {
@@ -856,7 +1311,9 @@ export default function SkeapApplicationWizard({
         size: file.size,
         previewUrl,
         progress: 0,
-        status: STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey) ? "validating" : "queued",
+        status: STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey) || isVoterCertificate
+          ? "validating"
+          : "queued",
         requirement: normalizedKey,
         ...(isVoterCertificate ? { verificationStatus: "PENDING_ADMIN_REVIEW" as const } : {}),
         file,
@@ -885,20 +1342,76 @@ export default function SkeapApplicationWizard({
         newUpload,
       ]);
 
-      if (STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey)) {
+      if (STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey) || isVoterCertificate) {
         try {
-          const validation = await validateDocumentOCR(file, normalizedKey);
-          if (validation.status !== "verified") {
+          const validation = await validateDocumentOCR(file, normalizedKey).catch((error: unknown) => {
+            if (!isVoterCertificate) throw error;
+            console.error("COMELEC Voter's Certificate OCR name check failed; the upload will be sent for administrator review.", {
+              fileName: file.name,
+              error,
+            });
+            return {
+              status: "review" as const,
+              extractedText: "",
+              confidence: 0,
+              reason: "The document reader could not read the holder name.",
+            };
+          });
+          const isNameVerificationDocument =
+            normalizedKey === SKEAP_UPLOAD_KEY.FAMILY_INCOME ||
+            normalizedKey === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT ||
+            isVoterCertificate;
+          const nameVerification = isNameVerificationDocument
+            ? verifyOcrDocumentName(validation.extractedText, normalizedKey, {
+                applicant: { firstName, middleName, lastName },
+                fatherName: fathersName,
+                motherName: mothersMaidenName,
+                ...(isVoterCertificate
+                  ? {
+                      isRegisteredVoter: registeredVoter,
+                      age: Number(age),
+                      parentVoterName: parentGuardianVoterFullName,
+                    }
+                  : {}),
+                confidence: validation.confidence,
+              })
+            : undefined;
+          const ocrNameStatus = validation.status === "verified"
+            ? nameVerification?.status
+            : isVoterCertificate
+              ? nameVerification?.status ?? "LOW_READABILITY"
+            : nameVerification?.status === "LOW_READABILITY"
+              ? nameVerification.status
+              : undefined;
+
+          if (validation.status !== "verified" && !isVoterCertificate) {
             const errorText = `Document not verified. ${validation.status === "review"
               ? validation.reason
               : "Please upload a readable document for this requirement."}`;
             setFiles((prev) => prev.map((uploadedFile) => uploadedFile.id === id
-              ? { ...uploadedFile, status: "error", error: errorText, manualReviewAvailable: true }
+              ? {
+                  ...uploadedFile,
+                  status: "error",
+                  error: errorText,
+                  manualReviewAvailable: true,
+                  ...(ocrNameStatus ? { ocrNameStatus } : {}),
+                }
               : uploadedFile));
             return errorText;
           }
           setFiles((prev) => prev.map((uploadedFile) => uploadedFile.id === id
-            ? { ...uploadedFile, status: "queued", error: undefined }
+            ? {
+                ...uploadedFile,
+                status: "queued",
+                error: undefined,
+                ...(ocrNameStatus ? { ocrNameStatus } : {}),
+                ...(isVoterCertificate
+                  ? {
+                      ocrText: validation.extractedText,
+                      ocrConfidence: validation.confidence,
+                    }
+                  : {}),
+              }
             : uploadedFile));
         } catch (error) {
           const details = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -1003,6 +1516,7 @@ export default function SkeapApplicationWizard({
             name: file.name,
             url: file.url.trim(),
             ...(file.manualReview ? { manualReview: true } : {}),
+            ...(file.ocrNameStatus ? { ocrNameStatus: file.ocrNameStatus } : {}),
             ...(key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE && file.verificationStatus
               ? { verificationStatus: file.verificationStatus }
               : {}),
@@ -1018,10 +1532,14 @@ export default function SkeapApplicationWizard({
       }
       const voterCertificate = findUploadFileForKey(files, SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
       if (voterCertificate?.status === "done" && voterCertificate.url?.trim()) {
+        const voterOcrNameStatus =
+          getVoterCertificateNameVerification(voterCertificate)?.status ||
+          voterCertificate.ocrNameStatus;
         documentUploads[SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE] = {
           name: voterCertificate.name,
           url: voterCertificate.url.trim(),
           verificationStatus: "PENDING_ADMIN_REVIEW",
+          ...(voterOcrNameStatus ? { ocrNameStatus: voterOcrNameStatus } : {}),
         };
       }
 
@@ -1052,7 +1570,9 @@ export default function SkeapApplicationWizard({
       if (!enrollmentFileUrl || !reportCardFileUrl) {
         setMessage(
           isIncomingFreshman
-            ? "Please upload your Notice of Admission / SHS Report Card and latest grade report before submitting."
+            ? isTechVoc
+              ? "Please upload your Tech-Voc admission or registration document and latest grade report before submitting."
+              : "Please upload your Notice of Admission / SHS Report Card and latest grade report before submitting."
             : "Please upload the required enrollment and grade report files before submitting."
         );
         setSubmitting(false);
@@ -1071,7 +1591,6 @@ export default function SkeapApplicationWizard({
           enrollmentFileUrl: enrollmentFileUrl || doneUrls[0],
           reportCardFileUrl: reportCardFileUrl || doneUrls[1],
           photoFileUrl,
-          signatureUrl,
           // Send the structured name fields so the API can require and format the full legal name.
           applicantName,
           lastName,
@@ -1092,10 +1611,10 @@ export default function SkeapApplicationWizard({
           contactNumber,
           emailAddress,
           registeredVoter,
-          parentGuardianRegisteredVoter: Number(age) < 18 && registeredVoter === false
+          parentGuardianRegisteredVoter: isMinorApplicant && registeredVoter === false
             ? parentGuardianRegisteredVoter
             : false,
-          parentGuardianVoterFullName: Number(age) < 18 && registeredVoter === false
+          parentGuardianVoterFullName: isMinorApplicant && registeredVoter === false
             ? parentGuardianVoterFullName.trim()
             : "",
           voterCertificateFileUrl: doneUrls.find((u, idx) => files.findIndex((f) => f.requirement === "voter_certificate" && f.url === u) >= 0) || null,
@@ -1230,9 +1749,13 @@ export default function SkeapApplicationWizard({
             </label>
             )}
             <SchoolCombobox
+              label="School / Institution"
               value={schoolName}
               onChange={setSchoolName}
+              groups={getSchoolPresetGroups(educationLevel)}
               onValid={() => markFieldValid("schoolName")}
+              required
+              dataRequired="profile"
               invalid={invalidFields.has("schoolName")}
               error={validationErrors.schoolName}
             />
@@ -1416,9 +1939,21 @@ export default function SkeapApplicationWizard({
                     View verified photo
                   </a>
                 ) : loadingIdentityDocuments ? (
-                  <p className="mt-2 text-xs text-slate-500">Loading verified photo…</p>
+                  <p
+                    className="mt-2 text-xs text-slate-500"
+                    aria-invalid={invalidFields.has("photoFile")}
+                    tabIndex={invalidFields.has("photoFile") ? -1 : undefined}
+                  >
+                    Loading verified photo…
+                  </p>
                 ) : (
-                  <p className="mt-2 text-xs text-rose-700">{identityDocumentsError || "Verified photo is unavailable."}</p>
+                  <p
+                    className="mt-2 text-xs text-rose-700"
+                    aria-invalid={invalidFields.has("photoFile")}
+                    tabIndex={invalidFields.has("photoFile") ? -1 : undefined}
+                  >
+                    {identityDocumentsError || "Verified photo is unavailable."}
+                  </p>
                 )}
               </div>
             </div>
@@ -1432,12 +1967,17 @@ export default function SkeapApplicationWizard({
                     value="yes"
                     required
                     checked={registeredVoter === true}
+                    data-focus-invalid={invalidFields.has("registeredVoter") ? "true" : undefined}
                     aria-describedby={
                       validationErrors.registeredVoter
                         ? "registered-voter-error"
-                        : isVotingAge && registeredVoter === false
-                          ? "section-3-6-voter-blocker"
-                          : undefined
+                        : registeredVoter === true
+                          ? "voter-certificate-guidance"
+                          : isVotingAge && registeredVoter === false
+                            ? "section-3-6-voter-blocker"
+                            : isMinorApplicant && registeredVoter === false
+                              ? "parent-voter-guidance"
+                              : undefined
                     }
                     onChange={() => {
                       setRegisteredVoter(true);
@@ -1455,12 +1995,17 @@ export default function SkeapApplicationWizard({
                     value="no"
                     required
                     checked={registeredVoter === false}
+                    data-focus-invalid={invalidFields.has("registeredVoter") ? "true" : undefined}
                     aria-describedby={
                       validationErrors.registeredVoter
                         ? "registered-voter-error"
-                        : isVotingAge && registeredVoter === false
-                          ? "section-3-6-voter-blocker"
-                          : undefined
+                        : registeredVoter === true
+                          ? "voter-certificate-guidance"
+                          : isVotingAge && registeredVoter === false
+                            ? "section-3-6-voter-blocker"
+                            : isMinorApplicant && registeredVoter === false
+                              ? "parent-voter-guidance"
+                              : undefined
                     }
                     onChange={() => {
                       setRegisteredVoter(false);
@@ -1473,17 +2018,34 @@ export default function SkeapApplicationWizard({
                 </label>
               </div>
               {isVotingAge && registeredVoter === false ? (
-                <p id="section-3-6-voter-blocker" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm leading-relaxed text-rose-700" role="alert">
+                <p id="section-3-6-voter-blocker" className="mt-3 flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50/80 px-3.5 py-3 text-xs text-rose-800" role="alert">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                   Ineligible under Section 3(6): Applicants who have reached voting age (18+) must be duly registered voters of Barangay Pico to qualify for SKEAP.
                 </p>
+              ) : null}
+              {registeredVoter === true ? (
+                <div
+                  id="voter-certificate-guidance"
+                  role="note"
+                  className="mt-3 flex items-start gap-2.5 rounded-xl border border-sky-200/80 bg-sky-50/70 px-3.5 py-2.5 text-xs text-slate-700"
+                >
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" aria-hidden="true" />
+                  <p>
+                    <span className="font-semibold">Voter Verification Required:</span>{" "}
+                    Please upload your Barangay Pico COMELEC Voter&apos;s Certificate in the Uploads step and bring the original/CTC during in-person verification.
+                  </p>
+                </div>
               ) : null}
               {validationErrors.registeredVoter && !(isVotingAge && registeredVoter === false) ? (
                 <p id="registered-voter-error" className="text-xs text-rose-600" role="alert">
                   {validationErrors.registeredVoter}
                 </p>
               ) : null}
-              {Number(age) < 18 && registeredVoter === false ? (
-                <div className="mt-2 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              {isMinorApplicant && registeredVoter === false ? (
+                <div className="mt-3 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-4">
+                  <p id="parent-voter-guidance" className="text-sm leading-relaxed text-slate-700">
+                    Under Section 3(6), applicants under 18 who are not yet registered voters may qualify through a parent or legal guardian who is a duly registered voter of Barangay Pico.
+                  </p>
                   <label className="flex items-start gap-2 text-sm text-slate-700">
                     <input
                       data-required="profile"
@@ -1497,18 +2059,26 @@ export default function SkeapApplicationWizard({
                       }}
                       className="mt-0.5 h-4 w-4 shrink-0"
                     />
-                    <span>My parent or legal guardian is a duly registered voter of Barangay Pico</span>
+                    <span>I confirm that my parent or legal guardian is a duly registered voter of Barangay Pico.</span>
                   </label>
                   {validationErrors.parentGuardianRegisteredVoter ? (
                     <p className="text-xs text-rose-600" role="alert">{validationErrors.parentGuardianRegisteredVoter}</p>
                   ) : null}
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-sm font-medium text-slate-800">Parent / Guardian Registered Voter Full Name <span className="text-rose-600" aria-hidden="true">*</span></span>
+                    <span className="text-sm font-medium text-slate-800">Parent / Legal Guardian Registered Voter Full Name <span className="text-rose-600" aria-hidden="true">*</span></span>
                     <input
                       data-required="profile"
+                      name="parentGuardianVoterFullName"
+                      type="text"
                       required
+                      minLength={3}
                       value={parentGuardianVoterFullName}
                       aria-invalid={invalidFields.has("parentGuardianVoterFullName")}
+                      aria-describedby={
+                        validationErrors.parentGuardianVoterFullName
+                          ? "parent-guardian-voter-name-error"
+                          : "parent-voter-guidance"
+                      }
                       onChange={(event) => {
                         setParentGuardianVoterFullName(event.target.value);
                         markFieldValid("parentGuardianVoterFullName");
@@ -1516,7 +2086,7 @@ export default function SkeapApplicationWizard({
                       className={`rounded-lg border px-3 py-2 text-slate-900 ${invalidFields.has("parentGuardianVoterFullName") ? "border-rose-300 bg-rose-50/30" : "border-slate-300 bg-white"}`}
                     />
                     {validationErrors.parentGuardianVoterFullName ? (
-                      <span className="text-xs text-rose-600" role="alert">{validationErrors.parentGuardianVoterFullName}</span>
+                      <span id="parent-guardian-voter-name-error" className="text-xs text-rose-600" role="alert">{validationErrors.parentGuardianVoterFullName}</span>
                     ) : null}
                   </label>
                 </div>
@@ -1550,7 +2120,8 @@ export default function SkeapApplicationWizard({
                     const value = event.currentTarget.value as SkeapEducationLevel | "";
                     onEducationLevelChange(value);
                     onYearLevelChange("");
-                    setCourse("");
+                    setCourse(value === "Junior High School" ? "General Secondary Curriculum" : "");
+                    setIsManualCourse(false);
                     markFieldValid("educationLevel");
                     markFieldValid("yearLevel");
                     markFieldValid("course");
@@ -1559,7 +2130,7 @@ export default function SkeapApplicationWizard({
                   className={`w-full appearance-none rounded-xl border py-2 pl-3 pr-10 text-sm text-slate-900 ${invalidFields.has("educationLevel") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
                 >
                   <option value="">Select education level</option>
-                  {SKEAP_APPLICATION_EDUCATION_LEVELS.map((level) => (
+                  {educationLevelOptions.map((level) => (
                     <option key={level} value={level}>{level}</option>
                   ))}
                 </select>
@@ -1568,23 +2139,113 @@ export default function SkeapApplicationWizard({
                   aria-hidden="true"
                 />
               </div>
-              {educationLevel === "Technical and Vocational (Tech-Voc)" ? (
+              <span className="mt-1 text-xs leading-relaxed text-slate-500">
+                Showing education categories opened by the Barangay Pico SK Council for the current SKEAP cycle.
+              </span>
+              {isTechVoc ? (
                 <span className="mt-1 text-xs leading-relaxed text-slate-500">
                   Must be equivalent to at least one (1) semester or five (5) months.
                 </span>
               ) : null}
             </label>
             {!isJuniorHighSchool ? (
-              <EditableField
-                label={isSeniorHighSchool ? "Academic / TVL Strand" : "Current / Intended Course"}
-                value={course}
-                onChange={(value) => { setCourse(value); markFieldValid("course"); }}
-                placeholder={isSeniorHighSchool ? "e.g., STEM, HUMSS" : "e.g., BS Information Technology"}
-                dataRequired="scholarship"
-                required
-                invalid={invalidFields.has("course")}
-              />
-            ) : null}
+              <div className="flex flex-col">
+                <div className="flex min-h-5 items-center justify-between gap-3">
+                  <label
+                    htmlFor={courseFieldId}
+                    className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500"
+                  >
+                    {isSeniorHighSchool ? "Academic / TVL Strand" : "Current / Intended Course"}
+                    <span className="ml-1 text-black" aria-hidden="true">*</span>
+                  </label>
+                  {courseSelectValue === "__OTHER__" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCourse("");
+                        setIsManualCourse(false);
+                        markFieldValid("course");
+                      }}
+                      className="shrink-0 text-xs font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 transition-colors hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                    >
+                      Choose a preset
+                    </button>
+                  ) : null}
+                </div>
+                {courseSelectValue === "__OTHER__" ? (
+                  <input
+                    id={courseFieldId}
+                    ref={manualCourseInputRef}
+                    autoFocus
+                    data-required="scholarship"
+                    required
+                    aria-required="true"
+                    aria-invalid={invalidFields.has("course")}
+                    value={course}
+                    onChange={(event) => {
+                      setCourse(event.target.value);
+                      setIsManualCourse(true);
+                      markFieldValid("course");
+                    }}
+                    placeholder="Enter full official course or strand name"
+                    className={`mt-1 w-full min-w-0 rounded-xl border px-3 py-2 text-sm text-slate-900 ${invalidFields.has("course") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
+                  />
+                ) : (
+                  <div className="relative mt-1">
+                    <select
+                      id={courseFieldId}
+                      data-required="scholarship"
+                      required
+                      aria-required="true"
+                      aria-invalid={invalidFields.has("course")}
+                      value={courseSelectValue}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        if (value === "__OTHER__") {
+                          setCourse("");
+                          setIsManualCourse(true);
+                        } else {
+                          setCourse(value);
+                          setIsManualCourse(false);
+                        }
+                        markFieldValid("course");
+                      }}
+                      className={`w-full appearance-none rounded-xl border py-2 pl-3 pr-10 text-sm text-slate-900 ${invalidFields.has("course") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
+                    >
+                      <option value="">Select a course or track</option>
+                      {coursePresetGroups.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.options.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                      <option value="__OTHER__">Other — Enter course/strand manually</option>
+                    </select>
+                    <ChevronDown
+                      className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                      aria-hidden="true"
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <label className="flex flex-col">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Current / Intended Course
+                  <span className="ml-1 text-black" aria-hidden="true">*</span>
+                </span>
+                <input
+                  data-required="scholarship"
+                  readOnly
+                  value={course || "General Secondary Curriculum"}
+                  className="mt-1 w-full min-w-0 rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600"
+                />
+                <span className="mt-1 text-xs text-slate-500">
+                  Standard Junior High School curriculum.
+                </span>
+              </label>
+            )}
             <label className="flex flex-col">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Year level <span className="text-black" aria-hidden="true">*</span></span>
               <div className="relative mt-1">
@@ -1634,20 +2295,20 @@ export default function SkeapApplicationWizard({
                   className={`mt-1 rounded-xl border px-3 py-2 text-slate-900 ${invalidFields.has("fathersName") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
                 />
               </label>
-              <label className="flex flex-col">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Father's occupation <span className="text-black" aria-hidden="true">*</span></span>
-                <input
-                  data-required="scholarship"
-                  required
-                  value={fathersOccupation}
-                  onChange={(e) => {
-                    setFathersOccupation(e.target.value);
-                    markFieldValid("fathersOccupation");
-                  }}
-                  aria-invalid={invalidFields.has("fathersOccupation")}
-                  className={`mt-1 rounded-xl border px-3 py-2 text-slate-900 ${invalidFields.has("fathersOccupation") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
-                />
-              </label>
+              <OccupationCombobox
+                label="Father's occupation"
+                value={fathersOccupation}
+                onChange={(value) => {
+                  setFathersOccupation(value);
+                  markFieldValid("fathersOccupation");
+                }}
+                onValid={() => markFieldValid("fathersOccupation")}
+                invalid={invalidFields.has("fathersOccupation")}
+                error={validationErrors.fathersOccupation}
+                required
+                dataRequired="scholarship"
+                disabled={fathersContact === "N/A"}
+              />
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <label className="flex flex-col">
@@ -1672,8 +2333,14 @@ export default function SkeapApplicationWizard({
                     type="checkbox"
                     checked={fathersContact === "N/A"}
                     onChange={(e) => {
-                      setFathersContact(e.target.checked ? "N/A" : "");
+                      const notApplicable = e.target.checked;
+                      setFathersContact(notApplicable ? "N/A" : "");
+                      setFathersOccupation((current) => {
+                        if (notApplicable) return current.trim() ? current : "N/A";
+                        return current === "N/A" ? "" : current;
+                      });
                       markFieldValid("fathersContact");
+                      if (e.target.checked) markFieldValid("fathersOccupation");
                     }}
                     className="rounded border-slate-300"
                   />
@@ -1696,20 +2363,20 @@ export default function SkeapApplicationWizard({
               </label>
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
-              <label className="flex flex-col">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mother's occupation <span className="text-black" aria-hidden="true">*</span></span>
-                <input
-                  data-required="scholarship"
-                  required
-                  value={mothersOccupation}
-                  onChange={(e) => {
-                    setMothersOccupation(e.target.value);
-                    markFieldValid("mothersOccupation");
-                  }}
-                  aria-invalid={invalidFields.has("mothersOccupation")}
-                  className={`mt-1 rounded-xl border px-3 py-2 text-slate-900 ${invalidFields.has("mothersOccupation") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
-                />
-              </label>
+              <OccupationCombobox
+                label="Mother's occupation"
+                value={mothersOccupation}
+                onChange={(value) => {
+                  setMothersOccupation(value);
+                  markFieldValid("mothersOccupation");
+                }}
+                onValid={() => markFieldValid("mothersOccupation")}
+                invalid={invalidFields.has("mothersOccupation")}
+                error={validationErrors.mothersOccupation}
+                required
+                dataRequired="scholarship"
+                disabled={mothersContact === "N/A"}
+              />
               <label className="flex flex-col">
                 <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mother's contact <span className="text-black" aria-hidden="true">*</span></span>
                 <input
@@ -1732,8 +2399,14 @@ export default function SkeapApplicationWizard({
                     type="checkbox"
                     checked={mothersContact === "N/A"}
                     onChange={(e) => {
-                      setMothersContact(e.target.checked ? "N/A" : "");
+                      const notApplicable = e.target.checked;
+                      setMothersContact(notApplicable ? "N/A" : "");
+                      setMothersOccupation((current) => {
+                        if (notApplicable) return current.trim() ? current : "N/A";
+                        return current === "N/A" ? "" : current;
+                      });
                       markFieldValid("mothersContact");
+                      if (e.target.checked) markFieldValid("mothersOccupation");
                     }}
                     className="rounded border-slate-300"
                   />
@@ -1769,14 +2442,15 @@ export default function SkeapApplicationWizard({
             </div>
             <div className="grid gap-3">
               <div className="grid sm:grid-cols-2 gap-4">
-                <label className="flex flex-col">
-                  <span className="text-sm font-semibold">Elementary</span>
-                  <input
-                    value={elementarySchool}
-                    onChange={(e) => { setElementarySchool(e.target.value); markFieldValid("elementarySchool"); }}
-                    className="mt-1 rounded-xl border border-slate-300 px-3 py-2"
-                  />
-                </label>
+                <SchoolCombobox
+                  label="Elementary"
+                  placeholder="Select or type elementary school"
+                  value={elementarySchool}
+                  onChange={setElementarySchool}
+                  onClear={() => setElementaryYearGraduated("")}
+                  groups={SKEAP_SCHOOL_PRESETS.ELEMENTARY}
+                  onValid={() => markFieldValid("elementarySchool")}
+                />
                 <label className="flex flex-col">
                   <span className="text-sm font-semibold">Year Graduated</span>
                   <input
@@ -1788,14 +2462,15 @@ export default function SkeapApplicationWizard({
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
-                <label className="flex flex-col">
-                  <span className="text-sm font-semibold">High School</span>
-                  <input
-                    value={highSchool}
-                    onChange={(e) => { setHighSchool(e.target.value); markFieldValid("highSchool"); }}
-                    className="mt-1 rounded-xl border border-slate-300 px-3 py-2"
-                  />
-                </label>
+                <SchoolCombobox
+                  label="High School"
+                  placeholder="Select or type high school"
+                  value={highSchool}
+                  onChange={setHighSchool}
+                  onClear={() => setHighSchoolYearGraduated("")}
+                  groups={SKEAP_SCHOOL_PRESETS.HIGH_SCHOOL}
+                  onValid={() => markFieldValid("highSchool")}
+                />
                 <label className="flex flex-col">
                   <span className="text-sm font-semibold">Year Graduated</span>
                   <input
@@ -1807,14 +2482,15 @@ export default function SkeapApplicationWizard({
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
-                <label className="flex flex-col">
-                  <span className="text-sm font-semibold">College</span>
-                  <input
-                    value={college}
-                    onChange={(e) => { setCollege(e.target.value); markFieldValid("college"); }}
-                    className="mt-1 rounded-xl border border-slate-300 px-3 py-2"
-                  />
-                </label>
+                <SchoolCombobox
+                  label="College"
+                  placeholder="Select or type college"
+                  value={college}
+                  onChange={setCollege}
+                  onClear={() => setCollegeYearGraduated("")}
+                  groups={SKEAP_SCHOOL_PRESETS.COLLEGE}
+                  onValid={() => markFieldValid("college")}
+                />
                 <label className="flex flex-col">
                   <span className="text-sm font-semibold">Year Graduated</span>
                   <input
@@ -1826,14 +2502,15 @@ export default function SkeapApplicationWizard({
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
-                <label className="flex flex-col">
-                  <span className="text-sm font-semibold">Vocational</span>
-                  <input
-                    value={vocational}
-                    onChange={(e) => { setVocational(e.target.value); markFieldValid("vocational"); }}
-                    className="mt-1 rounded-xl border border-slate-300 px-3 py-2"
-                  />
-                </label>
+                <SchoolCombobox
+                  label="Vocational"
+                  placeholder="Select or type vocational school"
+                  value={vocational}
+                  onChange={setVocational}
+                  onClear={() => setVocationalYearGraduated("")}
+                  groups={SKEAP_SCHOOL_PRESETS.VOCATIONAL}
+                  onValid={() => markFieldValid("vocational")}
+                />
                 <label className="flex flex-col">
                   <span className="text-sm font-semibold">Year Graduated</span>
                   <input
@@ -1849,6 +2526,14 @@ export default function SkeapApplicationWizard({
 
         {step === 3 ? (
         <div className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-6">
+          {hasPriorRevocation ? (
+            <div
+              role="note"
+              className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-900"
+            >
+              <span className="font-semibold">Reapplication Cycle:</span> Static identity records from your KK Profile remain linked, but you must upload newly issued documents (Certificate of Low-Income, current Certificate of Enrollment, latest Grades/Form 138, and Barangay Pico Voter&apos;s Certificate) for fresh screening and physical CTC verification.
+            </div>
+          ) : null}
           <section aria-labelledby="verified-identity-documents-title" className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
             <h3 id="verified-identity-documents-title" className="text-base font-bold text-slate-900">
               Section A — Already on File via KK Profile (No Upload Needed)
@@ -1912,6 +2597,15 @@ export default function SkeapApplicationWizard({
               const { key, label, helperText } = requiredDocument;
               const inputId = `file-input-${key}`;
               const matchingFile = findUploadFileForKey(files, key);
+              const isNameVerificationDocument =
+                key === SKEAP_UPLOAD_KEY.FAMILY_INCOME ||
+                key === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT ||
+                key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE;
+              const ocrNameStatus = isNameVerificationDocument
+                ? key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+                  ? getVoterCertificateNameVerification(matchingFile)?.status ?? matchingFile?.ocrNameStatus
+                  : matchingFile?.ocrNameStatus
+                : undefined;
               const isReady = matchingFile?.status === "done" && Boolean(matchingFile.url);
               const matchingFileUrl = matchingFile?.status === "done" ? matchingFile.url : undefined;
               const statusLabel = matchingFile?.status === "error"
@@ -1961,7 +2655,7 @@ export default function SkeapApplicationWizard({
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">{helperText}</p>
                     ) : null}
                     <p className="mt-0.5 text-xs text-slate-500">
-                      Supports PDF, JPG, PNG, and WebP (Max 15MB).
+                      Supports PDF, JPG/JFIF, PNG, and WebP (Max 15MB).
                     </p>
                   </div>
 
@@ -2103,13 +2797,59 @@ export default function SkeapApplicationWizard({
                       )}
                     </div>
                   ) : null}
+                  {ocrNameStatus === "MATCHED_APPLICANT" ? (
+                    <p className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800" role="status">
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      {key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+                        ? "Verified: Applicant name matched the voter certificate"
+                        : "Verified: Applicant name and document details matched"}
+                    </p>
+                  ) : null}
+                  {ocrNameStatus === "MATCHED_PARENT" && (
+                    key === SKEAP_UPLOAD_KEY.FAMILY_INCOME ||
+                    key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+                  ) ? (
+                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-900" role="status">
+                      {key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
+                        ? "Parent or guardian name matched — admins will verify the registered voter details"
+                        : "Parent name matched — admins will cross-check against your Family Background"}
+                    </p>
+                  ) : null}
+                  {ocrNameStatus === "LOW_READABILITY" ? (
+                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-900" role="status">
+                      Low text clarity — ensure the scan is readable or admins will verify manually
+                    </p>
+                  ) : null}
+                  {ocrNameStatus === "NAME_MISMATCH" ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2.5" role="alert">
+                      <p className="min-w-0 flex-1 text-xs leading-relaxed text-rose-800">
+                        {key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE &&
+                        Number(age) < 18 &&
+                        registeredVoter === false
+                          ? "Name Mismatch: This document does not appear to match the registered parent or guardian. Please verify you uploaded the right file."
+                          : `Name Mismatch: This document does not appear to match ${applicantDisplayName || "the applicant"}. Please verify you uploaded the right file.`}
+                      </p>
+                      <label
+                        htmlFor={inputId}
+                        className="shrink-0 cursor-pointer rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100"
+                      >
+                        Replace File
+                      </label>
+                    </div>
+                  ) : null}
                   {isReady ? (
+                    !isNameVerificationDocument ? (
                     <p className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700" role="status">
                       <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                       {matchingFile.manualReview
                         ? "Uploaded for administrator review"
                         : "Document verified and uploaded successfully"}
                     </p>
+                    ) : !ocrNameStatus ? (
+                      <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-900" role="status">
+                        Uploaded; administrators will verify the document name.
+                      </p>
+                    ) : null
                   ) : null}
                 </div>
               );
@@ -2143,25 +2883,6 @@ export default function SkeapApplicationWizard({
         </div>
       ) : null}
 
-      {step === 4 ? (
-        <div className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-6">
-          <div>
-            <h4 className="text-sm font-semibold text-slate-900">Applicant E-Signature</h4>
-            <p className="mt-1 text-sm text-slate-600">
-              Sign below using your finger, stylus, or mouse. Your signature will appear on the application form.
-            </p>
-          </div>
-          <SignaturePad
-            value={signatureUrl}
-            onChange={(signature) => {
-              setSignatureUrl(signature);
-              if (signature) markFieldValid("applicantSignature");
-            }}
-            invalid={invalidFields.has("applicantSignature")}
-          />
-        </div>
-      ) : null}
-
       {/* validation messages removed per request */}
 
       {footerActionsTarget ? createPortal(
@@ -2170,7 +2891,7 @@ export default function SkeapApplicationWizard({
             type="button"
             onClick={goBack}
             disabled={step === 0 || submitting}
-            className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 hover:shadow-md active:translate-y-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
           >
             Back
           </button>
@@ -2179,7 +2900,7 @@ export default function SkeapApplicationWizard({
               type="button"
               onClick={goNext}
               disabled={submitting || (step === 0 && isVotingAge && registeredVoter === false)}
-              className="rounded-lg bg-[#0F3D5C] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0a2f47] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-[#0F3D5C] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#0a2f47] hover:shadow-md active:translate-y-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
             >
               Next
             </button>
@@ -2250,8 +2971,11 @@ function UpdatablePhotoDocumentCard({
   async function handleFileChange(file: File | null) {
     setError(null);
     if (!file) return;
-    if (!["image/jpeg", "image/png"].includes(file.type)) {
-      setError("Choose a JPG or PNG image.");
+    const fileType = file.type.toLowerCase();
+    const isJfif = /\.jfif$/i.test(file.name) &&
+      (!fileType || fileType === "application/octet-stream" || fileType === "image/jfif" || fileType === "image/jpeg");
+    if (!["image/jpeg", "image/png", "image/jfif"].includes(fileType) && !isJfif) {
+      setError("Choose a JPG, JFIF, or PNG image.");
       return;
     }
     if (file.size === 0 || file.size > 10 * 1024 * 1024) {
@@ -2286,7 +3010,7 @@ function UpdatablePhotoDocumentCard({
           <input
             ref={inputRef}
             type="file"
-            accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+            accept="image/jpeg,image/jfif,.jpg,.jpeg,.jfif,.png,image/png"
             className="hidden"
             aria-label="Upload a new 2x2 ID picture"
             onChange={(event) => {
@@ -2329,110 +3053,6 @@ function ValidationHint({ show }: { show: boolean }) {
       </svg>
       <span>Please complete the highlighted required fields below to proceed.</span>
     </p>
-  );
-}
-
-function SignaturePad({
-  value,
-  onChange,
-  invalid,
-}: {
-  value: string | null;
-  onChange: (signature: string | null) => void;
-  invalid: boolean;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const drawingRef = useRef(false);
-  const hasInkRef = useRef(false);
-
-  function getPoint(event: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const bounds = canvas.getBoundingClientRect();
-    return {
-      x: ((event.clientX - bounds.left) / bounds.width) * canvas.width,
-      y: ((event.clientY - bounds.top) / bounds.height) * canvas.height,
-    };
-  }
-
-  function startDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    const point = getPoint(event);
-    if (!canvas || !point) return;
-    event.preventDefault();
-    canvas.setPointerCapture(event.pointerId);
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    drawingRef.current = true;
-    hasInkRef.current = true;
-    context.beginPath();
-    context.moveTo(point.x, point.y);
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.lineWidth = 5;
-    context.strokeStyle = "#0f172a";
-    context.lineTo(point.x + 0.1, point.y + 0.1);
-    context.stroke();
-  }
-
-  function continueDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawingRef.current) return;
-    event.preventDefault();
-    const point = getPoint(event);
-    const context = canvasRef.current?.getContext("2d");
-    if (!point || !context) return;
-    context.lineTo(point.x, point.y);
-    context.stroke();
-  }
-
-  function finishDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawingRef.current) return;
-    drawingRef.current = false;
-    if (canvasRef.current?.hasPointerCapture(event.pointerId)) {
-      canvasRef.current.releasePointerCapture(event.pointerId);
-    }
-    const canvas = canvasRef.current;
-    if (canvas && hasInkRef.current) onChange(canvas.toDataURL("image/png"));
-  }
-
-  function clearSignature() {
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
-    drawingRef.current = false;
-    hasInkRef.current = false;
-    onChange(null);
-  }
-
-  return (
-    <div id="applicant-signature" className="grid gap-2">
-      <canvas
-        ref={canvasRef}
-        width={1200}
-        height={320}
-        tabIndex={0}
-        aria-label="Draw your applicant signature"
-        aria-invalid={invalid}
-        className={`aspect-[15/4] w-full touch-none rounded-xl border ${invalid ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white"}`}
-        onPointerDown={startDrawing}
-        onPointerMove={continueDrawing}
-        onPointerUp={finishDrawing}
-        onPointerCancel={finishDrawing}
-      />
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-slate-500" aria-live="polite">
-          {value ? "Signature captured." : "Signature is required to submit."}
-        </p>
-        <button
-          type="button"
-          onClick={clearSignature}
-          disabled={!value}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Clear Signature
-        </button>
-      </div>
-    </div>
   );
 }
 

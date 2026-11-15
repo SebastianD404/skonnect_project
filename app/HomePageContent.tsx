@@ -19,7 +19,7 @@ export default function HomePageContent() {
   const searchQuery = searchParams.toString();
   const { user, loading: authLoading } = useAuth();
   const [activeLink, setActiveLink] = useState<string>(pathname);
-  const [youthCount, setYouthCount] = useState<number | null>(null);
+  const [approvedKkProfileCount, setApprovedKkProfileCount] = useState<number | null>(null);
   const [activeScholarCount, setActiveScholarCount] = useState<number | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -154,12 +154,14 @@ export default function HomePageContent() {
         }
 
         const data = await response.json();
-        setYouthCount(typeof data.youthCount === "number" ? data.youthCount : null);
+        setApprovedKkProfileCount(
+          typeof data.approvedKkProfileCount === "number" ? data.approvedKkProfileCount : null,
+        );
         setActiveScholarCount(typeof data.activeScholarCount === "number" ? data.activeScholarCount : null);
       })
       .catch(() => {
         if (mounted) {
-          setYouthCount(null);
+          setApprovedKkProfileCount(null);
           setActiveScholarCount(null);
         }
       })
@@ -297,9 +299,9 @@ export default function HomePageContent() {
               <div className="mt-8 grid grid-cols-3 gap-6 max-w-md text-sm">
                 <div className="text-center">
                   <div className="text-2xl font-extrabold text-[#0F3D5C]">
-                    {loadingMetrics ? "..." : youthCount !== null ? youthCount.toLocaleString() : "N/A"}
+                    {loadingMetrics ? "..." : approvedKkProfileCount !== null ? approvedKkProfileCount.toLocaleString() : "N/A"}
                   </div>
-                  <div className="text-xs text-[#555555] uppercase tracking-wider mt-1">Youth registered</div>
+                  <div className="text-xs text-[#555555] uppercase tracking-wider mt-1">Approved KK profiles</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-extrabold text-[#0F3D5C]">

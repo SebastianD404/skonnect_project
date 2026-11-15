@@ -11,7 +11,7 @@ import { formatSexLabel } from "../lib/sex";
 const DEMO_EMAIL_SUFFIX = "@demo.skonnect.invalid";
 const DEMO_SEED = 20261112;
 const ACTIVE_SCHOLAR_COUNT = 55;
-const KK_ONLY_PROFILE_COUNT = 800;
+const KK_ONLY_PROFILE_COUNT = 900;
 const PENDING_KK_APPLICATION_COUNT = 40;
 const WAITLISTED_SKEAP_APPLICATION_COUNT = 50;
 const PENDING_SKEAP_APPLICATION_COUNT = 30;

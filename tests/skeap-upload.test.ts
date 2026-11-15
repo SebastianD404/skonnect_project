@@ -7,6 +7,7 @@ import {
   getLatestSkeapResubmissionUploadKeys,
   getLatestSkeapResubmissionReplacements,
   getUnpersistedSkeapResubmissionReplacements,
+  getSkeapApplicationResumeFiles,
   getSkeapRequiredDocuments,
   getUploadGroups,
   getSupportedSkeapDocumentType,
@@ -33,7 +34,8 @@ describe("SKEAP required document labels", () => {
       { key: SKEAP_UPLOAD_KEY.GRADE_REPORT, label: "Grades Issued by School Registrar" },
       {
         key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
-        label: "COMELEC Voter's Certificate (Barangay Pico)",
+        label: "COMELEC Voter's Certificate (Barangay Pico) *",
+        helperText: "Upload a clear photo or PDF of the appropriate Barangay Pico COMELEC Voter's Certificate.",
       },
     ]);
   });
@@ -43,12 +45,18 @@ describe("SKEAP required document labels", () => {
 
     expect(highSchoolDocs[2].label).toBe("Certified True Copy of Report Card / Form 138");
     expect(highSchoolDocs[3].label).toBe(
-      "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico)",
+      "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico) *",
+    );
+    expect(highSchoolDocs[3].helperText).toBe(
+      "Upload the Barangay Pico COMELEC Voter's Certificate of your parent or legal guardian.",
     );
 
     const registeredApplicantDocs = getSkeapRequiredDocuments("College", "1st Year", 18, true);
     expect(registeredApplicantDocs[3].label).toBe(
-      "Applicant's COMELEC Voter's Certificate (Barangay Pico)",
+      "Applicant's COMELEC Voter's Certificate (Barangay Pico) *",
+    );
+    expect(registeredApplicantDocs[3].helperText).toBe(
+      "Upload a clear photo or PDF of your Barangay Pico COMELEC Voter's Certificate.",
     );
     expect(
       getSkeapRequiredDocuments("Technical and Vocational (Tech-Voc)", "1st Semester")[2].label,
@@ -61,6 +69,9 @@ describe("SKEAP document file types", () => {
     [{ name: "certificate.pdf", type: "application/pdf" }, "application/pdf"],
     [{ name: "photo.jpg", type: "image/jpeg" }, "image/jpeg"],
     [{ name: "photo.jpeg", type: "image/jpeg" }, "image/jpeg"],
+    [{ name: "photo.jfif", type: "image/jpeg" }, "image/jpeg"],
+    [{ name: "photo.jfif", type: "image/jfif" }, "image/jpeg"],
+    [{ name: "photo.jfif", type: "application/octet-stream" }, "image/jpeg"],
     [{ name: "photo.png", type: "image/png" }, "image/png"],
     [{ name: "photo.webp", type: "image/webp" }, "image/webp"],
     [{ name: "photo.png", type: "application/octet-stream" }, "image/png"],
@@ -72,6 +83,7 @@ describe("SKEAP document file types", () => {
     { name: "certificate.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
     { name: "photo.webp", type: "image/png" },
     { name: "photo.jpg", type: "image/png" },
+    { name: "photo.jfif", type: "image/png" },
     { name: "photo.png", type: "image/svg+xml" },
   ])("rejects unsupported file $name", (file) => {
     expect(getSupportedSkeapDocumentType(file)).toBeNull();
@@ -86,6 +98,43 @@ describe("KK identity document mapping", () => {
 });
 
 describe("SKEAP upload verification state", () => {
+  it("restores only term-specific files for resumable applications", () => {
+    const uploads = {
+      incomeCertificate: {
+        url: "https://example.com/income.pdf",
+        name: "income.pdf",
+        adminRemark: "Private review note",
+      },
+      enrollmentCertificate: {
+        url: "https://example.com/enrollment.pdf",
+        name: "enrollment.pdf",
+      },
+      birthCertificate: { url: "https://example.com/birth-certificate.pdf" },
+      kkIdFront: { url: "https://example.com/id-front.png" },
+    };
+
+    expect(getSkeapApplicationResumeFiles("RETURNED_FOR_EDIT", uploads)).toEqual({
+      incomeCertificate: {
+        url: "https://example.com/income.pdf",
+        name: "income.pdf",
+      },
+      enrollmentCertificate: {
+        url: "https://example.com/enrollment.pdf",
+        name: "enrollment.pdf",
+      },
+    });
+    expect(getSkeapApplicationResumeFiles("DRAFT", uploads).incomeCertificate?.url).toBe(
+      "https://example.com/income.pdf",
+    );
+    expect(getSkeapApplicationResumeFiles("RETURNED", uploads).incomeCertificate?.url).toBe(
+      "https://example.com/income.pdf",
+    );
+    expect(getSkeapApplicationResumeFiles("APPROVED", uploads)).toEqual({});
+    expect(getSkeapApplicationResumeFiles("REVOKED", uploads)).toEqual({});
+    expect(getSkeapApplicationResumeFiles("GRADUATED", uploads)).toEqual({});
+    expect(getSkeapApplicationResumeFiles("REJECTED", uploads)).toEqual({});
+  });
+
   it("requires the mandatory online documents to be pre-screened before pre-qualification", () => {
     const uploads = {
       enrollmentCertificate: { url: "https://example.com/enrollment.pdf", verified: true },
@@ -118,6 +167,51 @@ describe("SKEAP upload verification state", () => {
         verificationStatus: "AUTO_VERIFIED",
       },
     });
+  });
+
+  it("preserves OCR name status through normalization, applicant drafts, and admin groups", () => {
+    const uploads = {
+      incomeCertificate: {
+        url: "https://example.com/income.pdf",
+        name: "income.pdf",
+        ocrNameStatus: "NAME_MISMATCH",
+      },
+    };
+
+    expect(normalizeUploadedFiles(uploads)?.incomeCertificate?.ocrNameStatus).toBe("NAME_MISMATCH");
+    expect(getApplicantUploadedFiles(uploads)?.incomeCertificate?.ocrNameStatus).toBe("NAME_MISMATCH");
+    expect(getUploadGroups(uploads)).toContainEqual(expect.objectContaining({
+      key: SKEAP_UPLOAD_KEY.FAMILY_INCOME,
+      ocrNameStatus: "NAME_MISMATCH",
+    }));
+  });
+
+  it("preserves voter-certificate OCR name status across drafts and admin groups", () => {
+    const uploads = {
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.pdf",
+        name: "voter-certificate.pdf",
+        verificationStatus: "PENDING_ADMIN_REVIEW",
+        ocrNameStatus: "NAME_MISMATCH",
+      },
+    };
+
+    expect(normalizeUploadedFiles(uploads)?.voterCertificate?.ocrNameStatus).toBe("NAME_MISMATCH");
+    expect(getSkeapApplicationResumeFiles("DRAFT", uploads).voterCertificate?.ocrNameStatus)
+      .toBe("NAME_MISMATCH");
+    expect(getUploadGroups(uploads)).toContainEqual(expect.objectContaining({
+      key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+      ocrNameStatus: "NAME_MISMATCH",
+    }));
+  });
+
+  it("rejects unknown OCR name statuses", () => {
+    expect(normalizeUploadedFiles({
+      incomeCertificate: {
+        url: "https://example.com/income.pdf",
+        ocrNameStatus: "LIKELY_MATCH",
+      },
+    })).toBeNull();
   });
 
   it("exposes persisted OCR verification state on upload groups", () => {

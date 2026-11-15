@@ -6,6 +6,7 @@ import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { createClient } from "@/lib/supabase/server";
 import { mapInquiryToApplication, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { normalizeUploadedFiles, SKEAP_UPLOAD_ORDER } from "@/lib/skeap-upload";
+import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,8 @@ export async function GET(
     });
     if (!inquiry) return NextResponse.json({ error: "Application not found." }, { status: 404 });
 
-    const application = mapInquiryToApplication(inquiry);
+    const permanentRecords = await getPermanentlyDisqualifiedSkeapRecords();
+    const application = mapInquiryToApplication(inquiry, permanentRecords);
     return NextResponse.json({
       profile: {
         applicantName: application.applicantName,
@@ -42,6 +44,7 @@ export async function GET(
         applicantPhoneNumber: application.applicantPhoneNumber,
         school: normalizeSkeapSchoolName(application.school),
         yearLevel: application.yearLevel,
+        banWatchlistMatch: application.banWatchlistMatch,
       },
     });
   } catch (error) {

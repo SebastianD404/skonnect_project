@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CornerUpLeft, Download, Eye, FileText, Loader2, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, Clock, CornerUpLeft, Download, Eye, FileText, Loader2, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
+import AdminPaginationControls from "../AdminPaginationControls";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import {
   CORE_UPLOAD_KEYS,
@@ -13,6 +14,7 @@ import {
   SKEAP_UPLOAD_KEY,
   SKEAP_UPLOAD_LABELS,
   SKEAP_UPLOAD_ORDER,
+  type SkeapOcrNameStatus,
 } from "@/lib/skeap-upload";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatActivityTimestamp } from "@/lib/utils";
@@ -28,6 +30,7 @@ interface DocumentItem {
   fileName?: string;
   updated?: boolean;
   verificationStatus?: "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
+  ocrNameStatus?: SkeapOcrNameStatus;
   status?: "Pending" | "Returned" | "Digitally Screened" | string;
 }
 
@@ -67,6 +70,7 @@ interface UploadGroup {
   verified?: boolean;
   manualReview?: boolean;
   verificationStatus?: "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
+  ocrNameStatus?: SkeapOcrNameStatus;
   adminRemark?: string;
 }
 
@@ -79,6 +83,16 @@ interface ApplicationRecord {
   school: string;
   submittedAt: string;
   status: string;
+  priorRevocation?: {
+    revokedAt: string | null;
+    reason: string | null;
+  };
+  banWatchlistMatch?: {
+    id: string;
+    fullName: string;
+    revokedAt: string | null;
+    reason: string | null;
+  };
   documents: DocumentItem[];
   uploadGroups?: UploadGroup[];
   application?: {
@@ -244,7 +258,7 @@ function isSubmissionSystemMessage(text: string) {
 }
 
 function isImageUrl(url: string) {
-  return /(\.jpg|\.jpeg|\.png|\.gif|\.webp|\.avif|\.svg)(\?|$)/i.test(url);
+  return /(\.jpg|\.jpeg|\.jfif|\.png|\.gif|\.webp|\.avif|\.svg)(\?|$)/i.test(url);
 }
 
 function isPdfUrl(url: string) {
@@ -355,6 +369,7 @@ function findDocumentByReviewKey(application: ApplicationRecord, reviewKey: stri
         verified: groupMatch.verified ?? false,
         comment: "",
         isImage: groupMatch.isImage,
+        ocrNameStatus: groupMatch.ocrNameStatus,
       };
     }
 
@@ -379,6 +394,7 @@ function findDocumentByReviewKey(application: ApplicationRecord, reviewKey: stri
     verified: group.verified ?? false,
     comment: "",
     isImage: group.isImage,
+    ocrNameStatus: group.ocrNameStatus,
   };
 }
 
@@ -646,7 +662,7 @@ export default function SkeapApplicationsClient({
         if (!response.ok) throw new Error("Failed to refresh applicant profile.");
 
         const result = await response.json() as {
-          profile: Pick<ApplicationRecord, "applicantName" | "applicantEmail" | "applicantPhoneNumber" | "school" | "yearLevel">;
+          profile: Pick<ApplicationRecord, "applicantName" | "applicantEmail" | "applicantPhoneNumber" | "school" | "yearLevel" | "banWatchlistMatch">;
         };
         if (!isActive) return;
 
@@ -743,6 +759,7 @@ export default function SkeapApplicationsClient({
           fileName: group?.name,
           updated: updatedUploadKeys.has(key),
           verificationStatus: group?.verificationStatus,
+          ocrNameStatus: group?.ocrNameStatus,
         };
       });
     }
@@ -758,6 +775,7 @@ export default function SkeapApplicationsClient({
         comment: doc?.comment ?? "",
         isImage: doc?.isImage ?? false,
         verificationStatus: undefined,
+        ocrNameStatus: undefined,
       };
     });
   }, [verifyUploadGroups, selectedApplication, documentMapByUrl, selectedStatus]);
@@ -1012,11 +1030,14 @@ export default function SkeapApplicationsClient({
     visiblePage,
   ]);
 
-  async function handleNextQueuePage() {
-    const nextPage = Math.min(totalPages, visiblePage + 1);
-    if (nextPage <= visiblePage) return;
+  async function handleQueuePageChange(targetPage: number) {
+    const nextPage = Math.min(totalPages, Math.max(1, targetPage));
+    if (nextPage <= visiblePage) {
+      setCurrentPage(nextPage);
+      return;
+    }
 
-    const minimumVisibleCount = nextPage * itemsPerPage;
+    const minimumVisibleCount = Math.min(nextPage * itemsPerPage, totalApplicantCount);
     if (
       displayedApplications.length < minimumVisibleCount &&
       hasNextPage &&
@@ -1587,29 +1608,20 @@ export default function SkeapApplicationsClient({
                   )}
               </div>
               <div className="mt-auto shrink-0 border-t border-slate-200 bg-white p-3">
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(Math.max(1, visiblePage - 1))}
-                    disabled={visiblePage === 1 || isQueueLoading}
-                    aria-label="Previous applicant page"
-                    className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                  <span className="text-xs font-semibold text-slate-600">
-                    Page {totalPages === 0 ? 0 : visiblePage} of {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void handleNextQueuePage()}
-                    disabled={visiblePage >= totalPages || isQueueLoading}
-                    aria-label="Next applicant page"
-                    className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </button>
-                </div>
+                {totalPages > 0 ? (
+                  <div className="flex justify-center">
+                    <AdminPaginationControls
+                      page={visiblePage}
+                      totalPages={totalPages}
+                      onPageChange={(nextPage) => void handleQueuePageChange(nextPage)}
+                      disabled={isQueueLoading || isFetchingNextPage}
+                    />
+                  </div>
+                ) : (
+                  <div className="py-2 text-center text-xs font-medium tabular-nums text-slate-600">
+                    Page 0 of 0
+                  </div>
+                )}
               </div>
             </aside>
 
@@ -1693,12 +1705,55 @@ export default function SkeapApplicationsClient({
                   }`}>
                     {activeTab === "overview" && (
                       <div id="application-panel-overview" role="tabpanel" aria-labelledby="application-tab-overview" className="flex flex-col space-y-6">
-                    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                      <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
+                    <section className="overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      {selectedApplication.banWatchlistMatch ? (
+                        <div
+                          role="alert"
+                          className="border-b border-rose-200 bg-rose-50 px-6 py-4 text-rose-950"
+                        >
+                          <p className="text-sm font-bold">
+                            Ban Watchlist Match — verify before screening
+                          </p>
+                          <p className="mt-1 text-sm">
+                            Potential identity match with {selectedApplication.banWatchlistMatch.fullName}
+                            {selectedApplication.banWatchlistMatch.revokedAt
+                              ? `, revoked ${formatDate(selectedApplication.banWatchlistMatch.revokedAt)}`
+                              : ", revocation date not recorded"}
+                            . Verify against the applicant’s uploaded PSA Birth Certificate before screening.
+                          </p>
+                          <p className="mt-1 text-xs text-rose-800">
+                            Prior reason: {selectedApplication.banWatchlistMatch.reason || "No reason recorded"}
+                          </p>
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
                         <h3 className="text-base font-semibold text-slate-900">Applicant profile</h3>
-                        <span className={`shrink-0 ${applicantStatusBadgeClass}`}>
-                          {applicantStatusLabel}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {selectedApplication.priorRevocation ? (
+                            <details className="group relative z-20">
+                              <summary
+                                title="View previous revocation details"
+                                className="cursor-pointer list-none rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-600/20 marker:hidden"
+                              >
+                                Prior Revocation
+                              </summary>
+                              <div className="absolute right-0 top-full z-20 mt-2 w-72 rounded-xl border border-amber-200 bg-white p-3 text-left shadow-lg">
+                                <p className="text-xs font-semibold text-slate-900">Previous revocation</p>
+                                <p className="mt-1 text-xs text-slate-600">
+                                  Date: {selectedApplication.priorRevocation.revokedAt
+                                    ? formatDate(selectedApplication.priorRevocation.revokedAt)
+                                    : "Not recorded"}
+                                </p>
+                                <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-600">
+                                  Reason: {selectedApplication.priorRevocation.reason || "No reason recorded"}
+                                </p>
+                              </div>
+                            </details>
+                          ) : null}
+                          <span className={`shrink-0 ${applicantStatusBadgeClass}`}>
+                            {applicantStatusLabel}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex flex-col gap-6 p-6">
                         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -1994,6 +2049,14 @@ export default function SkeapApplicationsClient({
                                       {doc.updated ? (
                                         <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-cyan-700 ring-1 ring-inset ring-cyan-200">
                                           Updated
+                                        </span>
+                                      ) : null}
+                                      {doc.ocrNameStatus === "NAME_MISMATCH" &&
+                                      (doc.id === SKEAP_UPLOAD_KEY.FAMILY_INCOME ||
+                                        doc.id === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT ||
+                                        doc.id === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE) ? (
+                                        <span className="shrink-0 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-700">
+                                          OCR Name Mismatch
                                         </span>
                                       ) : null}
                                       {needsManualReview ? (

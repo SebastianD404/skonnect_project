@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Info } from "lucide-react";
-import { listenForSkeapApplyToasts } from "@/lib/skeap-application-guard";
+import { listenForSkeapApplyToasts } from "@/lib/skeap-application-client";
 
 type Toast = {
   title: string;

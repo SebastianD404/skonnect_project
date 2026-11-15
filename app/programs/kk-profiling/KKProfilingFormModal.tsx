@@ -172,11 +172,14 @@ function UnifiedDocumentDropzone({
 
   const scanSelectedFile = async (file: File | null) => {
     const scanAttempt = ++scanAttemptRef.current;
-    if (file && !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    const fileType = file?.type.toLowerCase() ?? "";
+    const isJfif = Boolean(file && /\.jfif$/i.test(file.name)) &&
+      (!fileType || fileType === "application/octet-stream" || fileType === "image/jfif" || fileType === "image/jpeg");
+    if (file && !["image/jpeg", "image/jfif", "image/png", "image/webp"].includes(fileType) && !isJfif) {
       if (inputRef.current) inputRef.current.value = "";
       onFileChange(null);
       setValidationStatus("error");
-      setValidationMessage("Please upload a JPG, PNG, or WebP image.");
+      setValidationMessage("Please upload a JPG/JFIF, PNG, or WebP image.");
       return;
     }
 
@@ -985,16 +988,16 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 title="2x2 ID Picture"
                 existingUrl={registration.photoFileUrl}
                 selectedFile={selectedFiles.photo}
-                accept="image/jpeg,image/png,image/webp"
-                helper="JPG, PNG, or WebP (max. 10MB)"
+                accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
+                helper="JPG/JFIF, PNG, or WebP (max. 10MB)"
                 onFileChange={(file) => handleFileChange("photo", file)}
               />
               <SimpleDocumentReplacement
                 title="Birth Certificate"
                 existingUrl={registration.birthCertificateFileUrl}
                 selectedFile={selectedFiles.birthCertificate}
-                accept="application/pdf,image/jpeg,image/png,image/webp"
-                helper="PDF, JPG, PNG, or WebP (max. 10MB)"
+                accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
+                helper="PDF, JPG/JFIF, PNG, or WebP (max. 10MB)"
                 onFileChange={(file) => handleFileChange("birthCertificate", file)}
               />
             </div>
@@ -1005,8 +1008,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 documentType="front_id"
                 existingUrl={registration.idFrontFileUrl}
                 selectedFile={selectedFiles.front}
-                accept="image/jpeg,image/png,image/webp"
-                helper="JPG, PNG, or WebP (max. 10MB)"
+                accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
+                helper="JPG/JFIF, PNG, or WebP (max. 10MB)"
                 firstName={form.firstName}
                 lastName={form.lastName}
                 middleInitial={form.middleName}
@@ -1017,8 +1020,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 documentType="back_id"
                 existingUrl={registration.idBackFileUrl}
                 selectedFile={selectedFiles.back}
-                accept="image/jpeg,image/png,image/webp"
-                helper="JPG, PNG, or WebP (max. 10MB)"
+                accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
+                helper="JPG/JFIF, PNG, or WebP (max. 10MB)"
                 profileBirthDate={form.birthDate}
                 onFileChange={(file) => handleFileChange("back", file)}
               />
@@ -1027,8 +1030,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
                 documentType="certificate"
                 existingUrl={registration.idSingleFileUrl}
                 selectedFile={selectedFiles.single}
-                accept="image/jpeg,image/png,image/webp"
-                helper="JPG, PNG, or WebP (max. 10MB)"
+                accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
+                helper="JPG/JFIF, PNG, or WebP (max. 10MB)"
                 firstName={form.firstName}
                 lastName={form.lastName}
                 onFileChange={(file) => handleFileChange("single", file)}

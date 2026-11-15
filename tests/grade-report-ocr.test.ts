@@ -33,6 +33,12 @@ describe("grade report OCR", () => {
         "image/png"
       )
     ).toBe(false);
+    expect(
+      hasGradeReportSignature(
+        new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+        "image/jfif"
+      )
+    ).toBe(true);
     expect(MAX_GRADE_REPORT_BYTES).toBe(10 * 1024 * 1024);
   });
 
@@ -44,6 +50,7 @@ describe("grade report OCR", () => {
       )
     ).toBe(false);
     expect(COE_MIME_TYPES.has("application/msword")).toBe(false);
+    expect(GRADE_REPORT_MIME_TYPES.has("image/jfif")).toBe(true);
     expect(
       COE_MIME_TYPES.has(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

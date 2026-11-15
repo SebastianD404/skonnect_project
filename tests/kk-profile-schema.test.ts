@@ -30,6 +30,20 @@ describe("KKProfileSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts JFIF images for profile photos and supporting documents", () => {
+    const result = KKProfileSchema.safeParse({
+      profilePicture: makeFile("profile.jfif", "image/jfif"),
+      birthCertificate: makeFile("birth.jfif", "image/jpeg"),
+      validId: {
+        front: makeFile("front.jfif", "application/octet-stream"),
+        back: makeFile("back.png", "image/png"),
+      },
+      certificateOfResidency: makeFile("residency.pdf", "application/pdf"),
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it("rejects PDFs for the profile picture", () => {
     const result = KKProfileSchema.safeParse({
       profilePicture: makeFile("profile.pdf", "application/pdf"),

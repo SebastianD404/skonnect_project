@@ -3,6 +3,7 @@ export const MAX_GRADE_REPORT_BYTES = 10 * 1024 * 1024;
 export const GRADE_REPORT_MIME_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
+  "image/jfif",
   "image/png",
   "image/webp",
 ]);
@@ -14,7 +15,7 @@ export function hasGradeReportSignature(bytes: Uint8Array, contentType: string) 
     return bytes.length >= 5 && new TextDecoder().decode(bytes.subarray(0, 5)) === "%PDF-";
   }
 
-  if (contentType === "image/jpeg" || contentType === "image/jpg") {
+  if (contentType === "image/jpeg" || contentType === "image/jpg" || contentType === "image/jfif") {
     return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   }
 

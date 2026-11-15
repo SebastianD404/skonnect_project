@@ -9,6 +9,7 @@ import { KKProfileSchema } from "@/lib/kk-profile-schema";
 import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
 import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 import { formatSexLabel, parseSex } from "@/lib/sex";
+import { buildIdentityFingerprint } from "@/lib/skeap-application-guard";
 import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
@@ -49,7 +50,13 @@ function isEmailUniqueConstraintError(error: unknown) {
 }
 
 async function uploadFile(userId: string, file: File, suffix: string) {
-  return uploadPrivateDocument(userId, file, "kk-verification", suffix);
+  const fileType = file.type.toLowerCase();
+  const isGenericJfif = /\.jfif$/i.test(file.name) &&
+    (!fileType || fileType === "application/octet-stream");
+  const normalizedFile = fileType === "image/jfif" || isGenericJfif
+    ? new File([file], file.name, { type: "image/jpeg", lastModified: file.lastModified })
+    : file;
+  return uploadPrivateDocument(userId, normalizedFile, "kk-verification", suffix);
 }
 
 function parseAddress(address: string) {
@@ -104,6 +111,29 @@ function parseAddress(address: string) {
     addressLine: addressLine || "Address pending verification",
     barangay,
   };
+}
+
+function getUtcDateRange(date: Date) {
+  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return { gte: start, lt: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+function hasDuplicateKkIdentity(
+  profiles: Array<{
+    id: string;
+    firstName: string;
+    middleName: string | null;
+    lastName: string;
+    birthDate: Date;
+  }>,
+  fingerprint: string,
+  currentProfileId: string | null,
+) {
+  return profiles.some((profile) => {
+    if (profile.id === currentProfileId) return false;
+
+    return buildIdentityFingerprint(profile)?.exact === fingerprint;
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -249,6 +279,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const identityFingerprint = buildIdentityFingerprint({
+      firstName: names.firstName,
+      middleName: names.middleName,
+      lastName: names.lastName,
+      dateOfBirth: birthDate,
+    });
+    if (!identityFingerprint) {
+      return NextResponse.json({ error: "Enter a valid name and date of birth." }, { status: 400 });
+    }
+
+    const matchingBirthDateProfiles = await prisma.kKProfile.findMany({
+      where: { birthDate: getUtcDateRange(birthDate) },
+      select: {
+        id: true,
+        firstName: true,
+        middleName: true,
+        lastName: true,
+        birthDate: true,
+      },
+    });
+    if (hasDuplicateKkIdentity(
+      matchingBirthDateProfiles,
+      identityFingerprint.exact,
+      appUser.kkProfileId,
+    )) {
+      return NextResponse.json(
+        { error: "A KK profile with these details already exists. Please sign in to your existing registered account." },
+        { status: 409 },
+      );
+    }
+
     const { purok, addressLine } = parseAddress(String(body.address || ""));
     const submittedSitio = normalizeSitio(String(body.sitio || "").trim());
     const resolvedSite = submittedSitio || purok;
@@ -351,6 +412,24 @@ export async function POST(req: NextRequest) {
     }
 
     const created = await prisma.$transaction(async (tx) => {
+      const profilesForBirthDate = await tx.kKProfile.findMany({
+        where: { birthDate: getUtcDateRange(birthDate) },
+        select: {
+          id: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          birthDate: true,
+        },
+      });
+      if (hasDuplicateKkIdentity(
+        profilesForBirthDate,
+        identityFingerprint.exact,
+        appUser.kkProfileId,
+      )) {
+        throw new Error("KK_PROFILE_DUPLICATE_IDENTITY");
+      }
+
       let kkProfile = await tx.kKProfile.findUnique({ where: { email } });
       if (kkProfile) {
         const linkedUser = await tx.user.findFirst({
@@ -477,6 +556,13 @@ export async function POST(req: NextRequest) {
     if (err instanceof Error && err.message === "KK_PROFILE_ALREADY_LINKED") {
       return NextResponse.json(
         { error: "This KK profile is already linked to another account." },
+        { status: 409 }
+      );
+    }
+
+    if (err instanceof Error && err.message === "KK_PROFILE_DUPLICATE_IDENTITY") {
+      return NextResponse.json(
+        { error: "A KK profile with these details already exists. Please sign in to your existing registered account." },
         { status: 409 }
       );
     }

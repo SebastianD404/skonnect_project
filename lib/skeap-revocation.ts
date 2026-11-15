@@ -9,10 +9,28 @@ export const SKEAP_REVOCATION_REASONS = [
   { value: "OTHER_SCHOLARSHIP", label: "Became a grantee of another scholarship agency" },
 ] as const;
 
+export const PERMANENTLY_BARRED_SKEAP_REVOCATION_REASONS = [
+  "TAMPERED_DOCUMENTS",
+  "UNBECOMING_ACTS",
+] as const;
+const permanentlyBarredReasonSet = new Set<string>(PERMANENTLY_BARRED_SKEAP_REVOCATION_REASONS);
+
 export type SkeapRevocationReason = (typeof SKEAP_REVOCATION_REASONS)[number]["value"];
 
 export function isSkeapRevocationReason(value: string): value is SkeapRevocationReason {
   return SKEAP_REVOCATION_REASONS.some((reason) => reason.value === value);
+}
+
+export function isSkeapReapplicationPermanentlyBarred(reasonValue: string | null | undefined) {
+  const primaryReason = reasonValue?.split(/Additional Notes:/i, 1)[0].trim();
+  if (!primaryReason) return false;
+
+  const reason = SKEAP_REVOCATION_REASONS.find(
+    (option) =>
+      option.value === primaryReason.toUpperCase().replace(/[\s-]+/g, "_") ||
+      option.label.toLowerCase() === primaryReason.toLowerCase(),
+  );
+  return Boolean(reason && permanentlyBarredReasonSet.has(reason.value));
 }
 
 export function getSkeapRevocationReasonLabel(value: SkeapRevocationReason): string {

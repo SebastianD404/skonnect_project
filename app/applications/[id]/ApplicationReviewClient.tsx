@@ -8,7 +8,10 @@ import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inb
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { getCoreUploadGroups, getPhotoUploadGroup, CORE_UPLOAD_KEYS, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
-import { isSkeapApplicationReturned, isSkeapUploadMarkedForCorrection } from "@/lib/skeap-applications";
+import {
+  isSkeapApplicationReturned,
+  isSkeapUploadMarkedForCorrection,
+} from "@/lib/skeap-application-status";
 import { formatActivityTimestamp } from "@/lib/utils";
 
 type ReviewAttachment = {
@@ -41,6 +44,12 @@ type ApplicationReviewProps = {
     resubmittedAt: string | null;
     lastUpdatedBy: string | null;
     reviewThread: ReviewMessage[];
+    waitlistStatus?: {
+      isWaitlisted: boolean;
+      queuePosition: number | null;
+      totalWaitlisted: number;
+      isCycleClosedAndFull: boolean;
+    };
     application?: {
       id: string;
       school?: string;
@@ -724,6 +733,30 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           </div>
 
           <div className="flex flex-1 flex-col gap-5 p-5">
+            {application.waitlistStatus?.isWaitlisted ? (
+              application.waitlistStatus.isCycleClosedAndFull ? (
+                <section aria-label="Final SKEAP waitlist status" className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <span className="inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-slate-700">
+                    Final Queue Position: #{application.waitlistStatus.queuePosition ?? "—"}
+                  </span>
+                  <p className="mt-3 text-sm font-semibold text-slate-800">
+                    Thank you for applying. The slots are already full and closed.
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    Your final position in the waitlist queue was #{application.waitlistStatus.queuePosition ?? "—"} of {application.waitlistStatus.totalWaitlisted}.
+                  </p>
+                </section>
+              ) : (
+                <section aria-label="SKEAP waitlist status" className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <span className="inline-flex rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-amber-800">
+                    Queue Position: #{application.waitlistStatus.queuePosition ?? "—"}
+                  </span>
+                  <p className="mt-3 text-sm leading-relaxed text-amber-900">
+                    All slots are currently filled. You are <strong>#{application.waitlistStatus.queuePosition ?? "—"}</strong> in the waitlist queue, and we will notify you if a slot opens up.
+                  </p>
+                </section>
+              )
+            ) : null}
             <section aria-label="Applicant context" className="flex items-start gap-4">
                 {application.application?.photoFileUrl ? (
                   <img

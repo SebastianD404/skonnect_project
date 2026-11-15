@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
-import { handleSkeapApply } from "@/lib/skeap-application-guard";
+import { handleSkeapApply } from "@/lib/skeap-application-client";
 import VerificationModal from "@/app/components/VerificationModal";
 
 type Props = {

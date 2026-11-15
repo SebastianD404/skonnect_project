@@ -365,6 +365,7 @@ export async function PATCH(
                         url: upload.url,
                         ...(upload.name !== undefined ? { name: upload.name } : {}),
                         ...(upload.verified !== undefined ? { verified: upload.verified } : {}),
+                        ...(upload.ocrNameStatus !== undefined ? { ocrNameStatus: upload.ocrNameStatus } : {}),
                       },
                     ])
                   ),

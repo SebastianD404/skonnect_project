@@ -73,6 +73,7 @@ let grantee: {
   dateRemoved: Date | null;
   revocationReason: string | null;
   revocationNotes: string | null;
+  isPermanentlyDisqualified: boolean;
   revocationNotificationStatus: string;
   revocationNotificationAttempts: number;
   revocationNotificationError: string | null;
@@ -118,16 +119,20 @@ function createTransactionClient() {
   };
 }
 
-function createRequest(reason = validReason, notes = additionalNotes) {
+function createRequest(
+  reason = validReason,
+  notes = additionalNotes,
+  isPermanentlyDisqualified = false,
+) {
   return new NextRequest("http://localhost/api/admin/grantees/grantee-1", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: "REVOKED", reason, additionalNotes: notes }),
+    body: JSON.stringify({ status: "REVOKED", reason, additionalNotes: notes, isPermanentlyDisqualified }),
   });
 }
 
-async function revoke(reason = validReason, notes = additionalNotes) {
-  return PATCH(createRequest(reason, notes), {
+async function revoke(reason = validReason, notes = additionalNotes, isPermanentlyDisqualified = false) {
+  return PATCH(createRequest(reason, notes, isPermanentlyDisqualified), {
     params: Promise.resolve({ id: "grantee-1" }),
   });
 }
@@ -143,6 +148,7 @@ describe("active grantee revocation", () => {
       dateRemoved: null,
       revocationReason: null,
       revocationNotes: null,
+      isPermanentlyDisqualified: false,
       revocationNotificationStatus: "NOT_REQUIRED",
       revocationNotificationAttempts: 0,
       revocationNotificationError: null,
@@ -198,6 +204,7 @@ describe("active grantee revocation", () => {
       notificationStatus: "SENT",
       archiveRefreshStatus: "REFRESHED",
     });
+
     expect(grantee).toMatchObject({
       status: "REVOKED",
       revocationReason: validReasonLabel,
@@ -209,8 +216,24 @@ describe("active grantee revocation", () => {
     expect(mocks.refreshView).toHaveBeenCalledOnce();
   });
 
+  it("persists an explicit permanent disqualification", async () => {
+    const response = await revoke(validReason, additionalNotes, true);
+
+    expect(response.status).toBe(200);
+    expect(grantee.isPermanentlyDisqualified).toBe(true);
+  });
+
   it("rejects human-readable reason labels instead of enum keys", async () => {
     const response = await revoke(validReasonLabel);
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe("Select a valid reason for revocation.");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing or too-short revocation reason", async () => {
+    const response = await revoke(" ");
     const payload = await response.json();
 
     expect(response.status).toBe(400);

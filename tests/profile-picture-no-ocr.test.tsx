@@ -22,14 +22,14 @@ describe("KK profile picture uploads", () => {
 
     const onUpload = vi.fn();
     const onOcrStateChange = vi.fn();
-    const photo = new File(["portrait image"], "profile-picture.png", {
-      type: "image/png",
+    const photo = new File(["portrait image"], "profile-picture.jfif", {
+      type: "image/jfif",
     });
     const { container } = render(
       <DocumentUploadCard
         title="Profile Picture (2x2)"
-        acceptedFormats="JPG, PNG, WebP"
-        accept="image/jpeg,image/png,image/webp"
+        acceptedFormats="JPG/JFIF, PNG, WebP"
+        accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
         maxSize={10 * 1024 * 1024}
         ocrStrategy="none"
         onUpload={onUpload}

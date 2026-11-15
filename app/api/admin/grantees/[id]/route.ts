@@ -12,6 +12,10 @@ import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
+import {
+  buildIdentityFingerprint,
+  parseSkeapApplicantName,
+} from "@/lib/skeap-application-guard";
 
 async function authorizeUser() {
   const supabase = await createClient();
@@ -56,6 +60,14 @@ export async function PATCH(
   const nextStatus = typeof body?.status === "string" ? body.status.trim().toUpperCase() : undefined;
   const revocationReasonValue = typeof body?.reason === "string" ? body.reason.trim() : "";
   const revocationNotes = typeof body?.additionalNotes === "string" ? body.additionalNotes.trim() : "";
+  if (
+    nextStatus === "REVOKED" &&
+    body?.isPermanentlyDisqualified !== undefined &&
+    typeof body.isPermanentlyDisqualified !== "boolean"
+  ) {
+    return NextResponse.json({ error: "Permanent disqualification must be a boolean value." }, { status: 400 });
+  }
+  const isPermanentlyDisqualified = body?.isPermanentlyDisqualified === true;
   if (nextStatus === "GRADUATED") {
     return NextResponse.json(
       { error: "Use the graduation endpoint to timestamp graduation and reclaim the scholarship slot." },
@@ -65,7 +77,10 @@ export async function PATCH(
   if (nextStatus !== "ACTIVE" && nextStatus !== "REVOKED") {
     return NextResponse.json({ error: "Invalid grantee status" }, { status: 400 });
   }
-  if (nextStatus === "REVOKED" && !isSkeapRevocationReason(revocationReasonValue)) {
+  if (
+    nextStatus === "REVOKED" &&
+    (revocationReasonValue.length < 5 || !isSkeapRevocationReason(revocationReasonValue))
+  ) {
     return NextResponse.json({ error: "Select a valid reason for revocation." }, { status: 400 });
   }
   const revocationReason = isSkeapRevocationReason(revocationReasonValue)
@@ -93,6 +108,7 @@ export async function PATCH(
           dateRemoved: Date | null;
           revocationReason: string | null;
           revocationNotes: string | null;
+          isPermanentlyDisqualified: boolean;
           revocationNotificationStatus: "NOT_REQUIRED" | "PENDING" | "SENDING" | "FAILED" | "SENT";
         };
         recipient: { id: string; email: string; fullName: string; role: string };
@@ -110,9 +126,29 @@ export async function PATCH(
           dateRemoved: true,
           revocationReason: true,
           revocationNotes: true,
+          isPermanentlyDisqualified: true,
           revocationNotificationStatus: true,
           user: {
-            select: { id: true, email: true, fullName: true, role: true },
+            select: {
+              id: true,
+              email: true,
+              fullName: true,
+              role: true,
+              kkProfileId: true,
+              kkProfile: {
+                select: {
+                  firstName: true,
+                  middleName: true,
+                  lastName: true,
+                  birthDate: true,
+                },
+              },
+              skeapApplications: {
+                orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+                take: 1,
+                select: { applicantName: true, dateOfBirth: true },
+              },
+            },
           },
         },
       });
@@ -122,7 +158,8 @@ export async function PATCH(
       if (nextStatus === "REVOKED" && current.status === "REVOKED") {
         if (
           current.revocationReason !== revocationReason ||
-          (current.revocationNotes ?? "") !== revocationNotes
+          (current.revocationNotes ?? "") !== revocationNotes ||
+          current.isPermanentlyDisqualified !== isPermanentlyDisqualified
         ) {
           throw new Error("GRANTEE_ALREADY_REVOKED");
         }
@@ -136,6 +173,7 @@ export async function PATCH(
             dateRemoved: current.dateRemoved,
             revocationReason: current.revocationReason,
             revocationNotes: current.revocationNotes,
+            isPermanentlyDisqualified: current.isPermanentlyDisqualified,
             revocationNotificationStatus: current.revocationNotificationStatus,
           },
           recipient: current.user,
@@ -144,6 +182,27 @@ export async function PATCH(
       if (nextStatus === "REVOKED" && current.status === "REMOVED") {
         throw new Error("GRANTEE_ALREADY_REVOKED");
       }
+
+      const latestApplication = current.user.skeapApplications?.[0];
+      const applicationName = parseSkeapApplicantName(latestApplication?.applicantName);
+      const profileName = parseSkeapApplicantName(current.user.fullName);
+      const identityFingerprint = buildIdentityFingerprint({
+        firstName:
+          current.user.kkProfile?.firstName ??
+          applicationName?.firstName ??
+          profileName?.firstName,
+        middleName:
+          current.user.kkProfile?.middleName ??
+          applicationName?.middleName ??
+          profileName?.middleName,
+        lastName:
+          current.user.kkProfile?.lastName ??
+          applicationName?.lastName ??
+          profileName?.lastName,
+        dateOfBirth:
+          current.user.kkProfile?.birthDate ??
+          latestApplication?.dateOfBirth,
+      })?.exact ?? null;
 
       if (
         nextStatus === "ACTIVE" &&
@@ -204,6 +263,8 @@ export async function PATCH(
                 dateRemoved: new Date(),
                 revocationReason,
                 revocationNotes: revocationNotes || null,
+                isPermanentlyDisqualified,
+                identityFingerprint,
                 remarks: revocationRemarks,
                 revocationNotificationStatus: "PENDING",
                 revocationNotificationAttempts: 0,
@@ -224,6 +285,7 @@ export async function PATCH(
           dateRemoved: true,
           revocationReason: true,
           revocationNotes: true,
+          isPermanentlyDisqualified: true,
           revocationNotificationStatus: true,
         },
       });
@@ -244,6 +306,7 @@ export async function PATCH(
           dateRemoved: saved.dateRemoved,
           revocationReason: saved.revocationReason,
           revocationNotes: saved.revocationNotes,
+          isPermanentlyDisqualified: saved.isPermanentlyDisqualified,
         },
         metadata: {
           target: current.userId,
@@ -385,6 +448,7 @@ export async function PATCH(
       dateRemoved: updated.grantee.dateRemoved,
       revocationReason: updated.grantee.revocationReason,
       revocationNotes: updated.grantee.revocationNotes,
+      isPermanentlyDisqualified: updated.grantee.isPermanentlyDisqualified,
       revocationNotificationStatus: notificationStatus,
     },
     ...(errors.length > 0 ? { error: errors.join(" ") } : {}),

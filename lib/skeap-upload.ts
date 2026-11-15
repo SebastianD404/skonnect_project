@@ -13,6 +13,11 @@ export const SKEAP_UPLOAD_KEY = {
 
 export type SkeapUploadKey = (typeof SKEAP_UPLOAD_KEY)[keyof typeof SKEAP_UPLOAD_KEY];
 export type SkeapVerificationStatus = "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
+export type SkeapOcrNameStatus =
+  | "MATCHED_APPLICANT"
+  | "MATCHED_PARENT"
+  | "LOW_READABILITY"
+  | "NAME_MISMATCH";
 
 export type SkeapRequiredDocument = {
   key: SkeapUploadKey;
@@ -26,6 +31,7 @@ export type SkeapUploadValue = {
   verified?: boolean;
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
+  ocrNameStatus?: SkeapOcrNameStatus;
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
@@ -41,6 +47,7 @@ export type SkeapUploadGroup = {
   verified?: boolean;
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
+  ocrNameStatus?: SkeapOcrNameStatus;
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
@@ -53,7 +60,7 @@ export function getSupportedSkeapDocumentType(
   const type = file.type.toLowerCase();
   const extensionType = extension === "pdf"
     ? "application/pdf"
-    : extension === "jpg" || extension === "jpeg"
+    : extension === "jpg" || extension === "jpeg" || extension === "jfif"
       ? "image/jpeg"
       : extension === "png"
         ? "image/png"
@@ -62,7 +69,13 @@ export function getSupportedSkeapDocumentType(
           : null;
 
   if (!extensionType) return null;
-  if (type && type !== "application/octet-stream" && type !== extensionType) return null;
+  const isJfifMime = type === "image/jfif";
+  if (
+    type &&
+    type !== "application/octet-stream" &&
+    type !== extensionType &&
+    !(extensionType === "image/jpeg" && isJfifMime)
+  ) return null;
   return extensionType;
 }
 
@@ -232,10 +245,15 @@ export function getSkeapRequiredDocuments(
 ): SkeapRequiredDocument[] {
   const isHighSchool = educationLevel === "Junior High School" || educationLevel === "Senior High School";
   const voterCertificateLabel = isRegisteredVoter === true
-    ? "Applicant's COMELEC Voter's Certificate (Barangay Pico)"
-    : applicantAge < 18 && isRegisteredVoter === false
-      ? "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico)"
-      : "COMELEC Voter's Certificate (Barangay Pico)";
+    ? "Applicant's COMELEC Voter's Certificate (Barangay Pico) *"
+    : applicantAge >= 15 && applicantAge < 18 && isRegisteredVoter === false
+      ? "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico) *"
+      : "COMELEC Voter's Certificate (Barangay Pico) *";
+  const voterCertificateHelperText = isRegisteredVoter === true
+    ? "Upload a clear photo or PDF of your Barangay Pico COMELEC Voter's Certificate."
+    : applicantAge >= 15 && applicantAge < 18 && isRegisteredVoter === false
+      ? "Upload the Barangay Pico COMELEC Voter's Certificate of your parent or legal guardian."
+      : "Upload a clear photo or PDF of the appropriate Barangay Pico COMELEC Voter's Certificate.";
 
   return [
     {
@@ -257,6 +275,7 @@ export function getSkeapRequiredDocuments(
     {
       key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
       label: voterCertificateLabel,
+      helperText: voterCertificateHelperText,
     },
   ];
 }
@@ -267,6 +286,13 @@ export const CORE_UPLOAD_KEYS: SkeapUploadKey[] = [
   SKEAP_UPLOAD_KEY.FAMILY_INCOME,
 ];
 
+export const SKEAP_TERM_UPLOAD_KEYS: readonly SkeapUploadKey[] = [
+  SKEAP_UPLOAD_KEY.FAMILY_INCOME,
+  SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
+  SKEAP_UPLOAD_KEY.GRADE_REPORT,
+  SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+];
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -275,12 +301,20 @@ function isSkeapVerificationStatus(value: unknown): value is SkeapVerificationSt
   return value === "AUTO_VERIFIED" || value === "PENDING_ADMIN_REVIEW";
 }
 
+function isSkeapOcrNameStatus(value: unknown): value is SkeapOcrNameStatus {
+  return value === "MATCHED_APPLICANT" ||
+    value === "MATCHED_PARENT" ||
+    value === "LOW_READABILITY" ||
+    value === "NAME_MISMATCH";
+}
+
 function isValidUploadEntry(value: unknown): value is {
   url: string;
   name?: string;
   verified?: boolean;
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
+  ocrNameStatus?: SkeapOcrNameStatus;
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
@@ -293,6 +327,7 @@ function isValidUploadEntry(value: unknown): value is {
     (value.verified === undefined || typeof value.verified === "boolean") &&
     (value.manualReview === undefined || typeof value.manualReview === "boolean") &&
     (value.verificationStatus === undefined || isSkeapVerificationStatus(value.verificationStatus)) &&
+    (value.ocrNameStatus === undefined || isSkeapOcrNameStatus(value.ocrNameStatus)) &&
     (value.adminRemark === undefined || typeof value.adminRemark === "string") &&
     (value.pendingResubmission === undefined || typeof value.pendingResubmission === "boolean") &&
     (value.fileType === undefined || typeof value.fileType === "string")
@@ -325,6 +360,7 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         verified: typeof item.verified === "boolean" ? item.verified : undefined,
         manualReview: typeof item.manualReview === "boolean" ? item.manualReview : undefined,
         verificationStatus: isSkeapVerificationStatus(item.verificationStatus) ? item.verificationStatus : undefined,
+        ocrNameStatus: isSkeapOcrNameStatus(item.ocrNameStatus) ? item.ocrNameStatus : undefined,
         adminRemark: typeof item.adminRemark === "string" ? item.adminRemark : undefined,
         pendingResubmission: typeof item.pendingResubmission === "boolean" ? item.pendingResubmission : undefined,
         fileType: typeof item.fileType === "string" ? item.fileType : undefined,
@@ -346,6 +382,7 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         verified?: unknown;
         manualReview?: unknown;
         verificationStatus?: unknown;
+        ocrNameStatus?: unknown;
         adminRemark?: unknown;
         pendingResubmission?: unknown;
         fileType?: unknown;
@@ -367,6 +404,7 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         verified: typeof value.verified === "boolean" ? value.verified : undefined,
         manualReview: typeof value.manualReview === "boolean" ? value.manualReview : undefined,
         verificationStatus: isSkeapVerificationStatus(value.verificationStatus) ? value.verificationStatus : undefined,
+        ocrNameStatus: isSkeapOcrNameStatus(value.ocrNameStatus) ? value.ocrNameStatus : undefined,
         adminRemark: typeof value.adminRemark === "string" ? value.adminRemark : undefined,
         pendingResubmission:
           typeof value.pendingResubmission === "boolean" ? value.pendingResubmission : undefined,
@@ -402,7 +440,7 @@ function parseUploadedFiles(raw: unknown): Record<string, SkeapUploadValue> | nu
 }
 
 export function isImageUrl(url: string) {
-  return /\.(jpe?g|png|gif|webp|avif|svg)(\?|$)/i.test(url);
+  return /\.(jpe?g|jfif|png|gif|webp|avif|svg)(\?|$)/i.test(url);
 }
 
 export function getFileTypeLabel(url: string) {
@@ -446,6 +484,7 @@ export function getUploadGroups(uploadedFiles: unknown): SkeapUploadGroup[] {
         verified: item.verified ?? false,
         manualReview: item.manualReview,
         verificationStatus: item.verificationStatus,
+        ocrNameStatus: item.ocrNameStatus,
         adminRemark: item.adminRemark,
         pendingResubmission: item.pendingResubmission,
         fileType: item.fileType,
@@ -478,10 +517,28 @@ export function getApplicantUploadedFiles(uploadedFiles: unknown) {
         ...(upload.name !== undefined ? { name: upload.name } : {}),
         ...(upload.manualReview !== undefined ? { manualReview: upload.manualReview } : {}),
         ...(upload.verificationStatus !== undefined ? { verificationStatus: upload.verificationStatus } : {}),
+        ...(upload.ocrNameStatus !== undefined ? { ocrNameStatus: upload.ocrNameStatus } : {}),
         ...(upload.pendingResubmission !== undefined ? { pendingResubmission: upload.pendingResubmission } : {}),
         ...(upload.fileType !== undefined ? { fileType: upload.fileType } : {}),
       },
     ])
+  );
+}
+
+export function getSkeapApplicationResumeFiles(status: string | null | undefined, uploadedFiles: unknown) {
+  const normalizedStatus = String(status ?? "").trim().toUpperCase();
+  if (!["DRAFT", "RETURNED", "RETURNED_FOR_EDIT"].includes(normalizedStatus)) return {};
+
+  const applicantFiles = getApplicantUploadedFiles(uploadedFiles);
+  if (!applicantFiles) return {};
+
+  return SKEAP_TERM_UPLOAD_KEYS.reduce<Partial<Record<SkeapUploadKey, SkeapUploadValue>>>(
+    (resumableFiles, key) => {
+      const upload = applicantFiles[key];
+      if (upload?.url.trim()) resumableFiles[key] = upload;
+      return resumableFiles;
+    },
+    {},
   );
 }
 

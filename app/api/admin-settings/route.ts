@@ -8,6 +8,17 @@ import { writeAuditLog } from "../../../lib/audit/logger";
 import { getAcademicTermScheduleState, parseManilaDateTime } from "@/lib/academic-term-schedule";
 import { MAX_SCHEDULED_TERMS } from "@/lib/academic-term-schedule-constants";
 import { isAllowedAcademicSemester } from "@/lib/semester-progress";
+import {
+  parseSkeapEducationLevelCodes,
+  type SkeapEducationLevelCode,
+} from "@/lib/skeap-education";
+import {
+  getActiveSkeapEducationLevels,
+  setActiveSkeapEducationLevels,
+} from "@/lib/skeap-program-config";
+import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
+import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 
 const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
@@ -80,20 +91,44 @@ export async function GET() {
     }
 
     const reminderSettings = await getReminderSettings();
+    const activeSkeapEducationLevels = await getActiveSkeapEducationLevels();
     const { schedules: academicTermSchedules, window: academicTermWindow } =
       await getAcademicTermScheduleState();
+    const cycle = getCurrentAcademicYear();
+    const cycleRange = getAcademicYearDateRange(cycle);
+    if (!cycleRange) throw new Error("Unable to determine the active SKEAP cycle.");
+    const [waitlistCycleState, totalWaitlisted, activeCount, maxSlots] = await Promise.all([
+      getSkeapWaitlistCycleState(cycle),
+      prisma.skeapApplication.count({
+        where: {
+          status: "WAITLISTED",
+          submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
+        },
+      }),
+      getSkeapCapacityCount(),
+      getSkeapMaxSlots(),
+    ]);
 
     return NextResponse.json({
       fullName: appUser.fullName ?? "",
       email: appUser.email,
       settings: appUser.settings ?? DEFAULT_SETTINGS,
       reminderSettings,
+      activeSkeapEducationLevels,
       academicTermSchedules: academicTermSchedules.map((schedule) => ({
         ...schedule,
         opensAt: schedule.opensAt.toISOString(),
         closesAt: schedule.closesAt.toISOString(),
       })),
       academicTermWindow,
+      skeapWaitlistState: {
+        cycle,
+        isClosed: waitlistCycleState.isClosed,
+        totalWaitlisted: waitlistCycleState.isClosed
+          ? waitlistCycleState.totalWaitlisted
+          : totalWaitlisted,
+        isFull: activeCount >= maxSlots,
+      },
     });
   } catch (error) {
     console.error("Failed to load admin and academic term settings:", error);
@@ -128,9 +163,22 @@ export async function POST(request: Request) {
     inquiryAlerts,
     submissionAlerts,
     skeapReminderOffsets,
+    activeSkeapEducationLevels: rawActiveSkeapEducationLevels,
     academicTermSchedules,
     deletedAcademicTermScheduleIds,
   } = payload;
+
+  let parsedActiveSkeapEducationLevels: SkeapEducationLevelCode[] | undefined;
+  if (rawActiveSkeapEducationLevels !== undefined) {
+    const parsedLevels = parseSkeapEducationLevelCodes(rawActiveSkeapEducationLevels);
+    if (!parsedLevels?.length) {
+      return NextResponse.json(
+        { error: "Select at least one valid education category for the current SKEAP cycle." },
+        { status: 400 }
+      );
+    }
+    parsedActiveSkeapEducationLevels = parsedLevels;
+  }
 
   let parsedAcademicTermSchedules:
     | Array<{ id?: string; semester: string; opensAt: Date; closesAt: Date }>
@@ -278,6 +326,28 @@ export async function POST(request: Request) {
         parseReminderOffsets(String(skeapReminderOffsets ?? ""))
       );
 
+      if (parsedActiveSkeapEducationLevels) {
+        const previousLevels = await getActiveSkeapEducationLevels(tx);
+        const educationLevelsChanged =
+          parsedActiveSkeapEducationLevels.length !== previousLevels.length ||
+          parsedActiveSkeapEducationLevels.some((level) => !previousLevels.includes(level));
+        if (educationLevelsChanged) {
+          const savedSetting = await setActiveSkeapEducationLevels(
+            parsedActiveSkeapEducationLevels,
+            tx,
+          );
+          await writeAuditLog(tx, {
+            action: "UPDATE_SKEAP_EDUCATION_LEVELS",
+            actorId: appUser.id,
+            targetTable: "system_settings",
+            targetId: savedSetting.key,
+            beforeData: { activeEducationLevels: previousLevels },
+            afterData: { activeEducationLevels: parsedActiveSkeapEducationLevels },
+            metadata: { activeEducationLevels: parsedActiveSkeapEducationLevels },
+          });
+        }
+      }
+
       if (parsedAcademicTermSchedules) {
         const deletedScheduleIds = deletedAcademicTermScheduleIds as string[] | undefined;
         const deletedScheduleIdSet = new Set(deletedScheduleIds ?? []);
@@ -376,8 +446,10 @@ export async function POST(request: Request) {
 
     const { schedules: savedSchedules, window: academicTermWindow } =
       await getAcademicTermScheduleState();
+    const savedActiveSkeapEducationLevels = await getActiveSkeapEducationLevels();
     return NextResponse.json({
       success: true,
+      activeSkeapEducationLevels: savedActiveSkeapEducationLevels,
       academicTermSchedules: savedSchedules.map((schedule) => ({
         ...schedule,
         opensAt: schedule.opensAt.toISOString(),

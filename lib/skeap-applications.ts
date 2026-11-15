@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import {
   getLatestSkeapResubmissionReplacements,
   getUploadGroups,
@@ -8,6 +9,17 @@ import {
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
+import { getAcademicYearDateRange } from "@/lib/semester";
+import { getSkeapWaitlistCycle, getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
+import {
+  findBanWatchlistMatch,
+  type PermanentSkeapRevocationRecord,
+} from "@/lib/skeap-application-guard";
+export {
+  isSkeapApplicationRejected,
+  isSkeapApplicationReturned,
+  isSkeapUploadMarkedForCorrection,
+} from "@/lib/skeap-application-status";
 
 interface ApplicationMessage {
   id: string;
@@ -41,14 +53,18 @@ export const SKEAP_APPLICATION_SELECT = {
   reviewThread: true,
   user: {
     select: {
+      id: true,
       fullName: true,
       email: true,
       phoneNumber: true,
+      kkProfileId: true,
       kkProfile: {
         select: {
+          id: true,
           firstName: true,
           middleName: true,
           lastName: true,
+          birthDate: true,
           purok: true,
           addressLine: true,
           barangay: true,
@@ -64,6 +80,10 @@ export const SKEAP_APPLICATION_SELECT = {
         select: {
           yearLevel: true,
           school: true,
+          status: true,
+          dateRemoved: true,
+          revocationReason: true,
+          isPermanentlyDisqualified: true,
         },
       },
     },
@@ -106,6 +126,35 @@ export function skeapStatusWhere(patterns: readonly string[]): Prisma.InquiryWhe
   };
 }
 
+export async function getWaitlistQueuePosition(
+  applicationId: string,
+  programIdOrCycle?: string,
+  client: WaitlistPositionClient = prisma,
+): Promise<{ position: number; totalWaitlisted: number } | null> {
+  const cycle = getSkeapWaitlistCycle(programIdOrCycle);
+  const range = getAcademicYearDateRange(cycle);
+  if (!range) throw new Error(`Invalid SKEAP waitlist cycle: ${cycle}`);
+
+  const [applications, cycleState] = await Promise.all([
+    client.skeapApplication.findMany({
+      where: {
+        status: "WAITLISTED",
+        submittedAt: { gte: range.start, lt: range.end },
+      },
+      orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+      select: { id: true, waitlistFinalPosition: true },
+    }),
+    getSkeapWaitlistCycleState(cycle, client),
+  ]);
+  const index = applications.findIndex((application) => application.id === applicationId);
+  if (index < 0) return null;
+
+  return {
+    position: applications[index].waitlistFinalPosition ?? index + 1,
+    totalWaitlisted: cycleState.isClosed ? cycleState.totalWaitlisted : applications.length,
+  };
+}
+
 export function skeapPendingApplicationsWhere(academicYearRange: { start: Date; end: Date }): Prisma.InquiryWhereInput {
   return {
     ...skeapApplicationInquiryWhere,
@@ -120,16 +169,8 @@ export function skeapPendingApplicationsWhere(academicYearRange: { start: Date; 
   };
 }
 
-export function isSkeapApplicationRejected(reviewStatus: string | null | undefined): boolean {
-  return /reject/i.test(reviewStatus?.trim() ?? "");
-}
-
-export function isSkeapApplicationReturned(reviewStatus: string | null | undefined): boolean {
-  const normalized = (reviewStatus?.trim() ?? "").toUpperCase().replace(/[\s-]+/g, "_");
-  return ["RETURNED", "NEEDS_REVISION", "RETURNED_FOR_EDIT"].includes(normalized);
-}
-
 type SkeapInquiry = Prisma.InquiryGetPayload<{ select: typeof SKEAP_APPLICATION_SELECT }>;
+type WaitlistPositionClient = Pick<Prisma.TransactionClient, "skeapApplication" | "systemSetting">;
 
 function isImageUrl(url: string) {
   return IMAGE_REGEX.test(url);
@@ -214,34 +255,10 @@ function isValidReviewThreadItem(item: unknown): item is ApplicationMessage {
   );
 }
 
-export function isSkeapUploadMarkedForCorrection(
-  reviewThread: Array<{
-    role: string;
-    action?: string;
-    attachments?: Array<{ fileId?: string; fileUrl?: string }>;
-  }>,
-  file: { slotId: string; originalUrl: string }
+export function mapInquiryToApplication(
+  inquiry: SkeapInquiry,
+  permanentRecords: readonly PermanentSkeapRevocationRecord[] = [],
 ) {
-  const latestReturn = reviewThread.find(
-    (message) => message.role === "admin" && message.action === "return"
-  );
-  const returnMessage =
-    latestReturn ??
-    reviewThread.find(
-      (message) => message.role === "admin" && (message.attachments?.length ?? 0) > 0
-    );
-  if (!returnMessage) return false;
-
-  return Boolean(
-    returnMessage.attachments?.some(
-      (attachment) =>
-        (Boolean(file.slotId) && attachment.fileId === file.slotId) ||
-        (Boolean(file.originalUrl) && attachment.fileUrl === file.originalUrl)
-    )
-  );
-}
-
-export function mapInquiryToApplication(inquiry: SkeapInquiry) {
   const profileName = [
     inquiry.user?.kkProfile?.firstName,
     inquiry.user?.kkProfile?.middleName,
@@ -253,6 +270,15 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
     inquiry.application?.applicantName ||
     inquiry.user?.email ||
     "Unknown applicant";
+  const banWatchlistMatch = findBanWatchlistMatch(permanentRecords, {
+    userId: inquiry.user.id,
+    kkProfileId: inquiry.user.kkProfileId,
+    firstName: inquiry.user.kkProfile?.firstName,
+    middleName: inquiry.user.kkProfile?.middleName,
+    lastName: inquiry.user.kkProfile?.lastName,
+    dateOfBirth: inquiry.user.kkProfile?.birthDate ?? inquiry.application?.dateOfBirth,
+    applicantName: inquiry.application?.applicantName ?? applicantName,
+  });
   const urls = getUniqueUrls(inquiry.message || "");
   const persistedMessages = (Array.isArray(inquiry.reviewThread)
     ? inquiry.reviewThread.filter(isValidReviewThreadItem)
@@ -347,6 +373,13 @@ export function mapInquiryToApplication(inquiry: SkeapInquiry) {
     ),
     submittedAt: inquiry.createdAt.toISOString(),
     status,
+    banWatchlistMatch: banWatchlistMatch ?? undefined,
+    priorRevocation: inquiry.user?.grantee?.status === "REVOKED"
+      ? {
+          revokedAt: inquiry.user.grantee.dateRemoved?.toISOString() ?? null,
+          reason: inquiry.user.grantee.revocationReason,
+        }
+      : undefined,
     documents,
     uploadGroups,
     application: inquiry.application

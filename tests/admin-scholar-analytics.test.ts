@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   profilingCount: vi.fn(),
   capacityCount: vi.fn(),
   maxSlots: vi.fn(),
+  approvedKkProfileCount: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -21,6 +22,10 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/skeap-capacity", () => ({
   getSkeapCapacityCount: mocks.capacityCount,
   getSkeapMaxSlots: mocks.maxSlots,
+}));
+
+vi.mock("@/lib/approved-kk-profile-count", () => ({
+  getApprovedKkProfileCount: mocks.approvedKkProfileCount,
 }));
 
 import {
@@ -43,8 +48,8 @@ describe("admin scholar demographics", () => {
     mocks.maxSlots.mockResolvedValue(20);
     mocks.inquiryCount.mockResolvedValue(1);
     mocks.profilingCount.mockResolvedValue(7);
+    mocks.approvedKkProfileCount.mockResolvedValue(943);
     mocks.queryRaw
-      .mockResolvedValueOnce([{ count: 943 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -80,6 +85,7 @@ describe("admin scholar demographics", () => {
     const analytics = await getScholarDistributionAnalytics();
 
     expect(analytics.totalRegisteredYouth).toBe(943);
+    expect(mocks.approvedKkProfileCount).toHaveBeenCalledOnce();
     expect(analytics.pendingApplications).toBe(1);
     expect(mocks.inquiryCount).toHaveBeenCalledWith({
       where: expect.objectContaining({
@@ -95,7 +101,7 @@ describe("admin scholar demographics", () => {
         ]),
       }),
     });
-    expect(analytics.genderDistribution).toEqual({
+    expect(analytics.activeGranteeGenderDistribution).toEqual({
       male: 8,
       female: 9,
       notSpecified: 2,
@@ -110,21 +116,20 @@ describe("admin scholar demographics", () => {
       analytics.youthGenderDistribution.female +
       analytics.youthGenderDistribution.notSpecified,
     ).toBe(analytics.totalRegisteredYouth);
-    const youthSexQuery = (mocks.queryRaw.mock.calls[3][0] as TemplateStringsArray).join("");
+    const youthSexQuery = (mocks.queryRaw.mock.calls[2][0] as TemplateStringsArray).join("");
     expect(youthSexQuery).toContain('registration."reviewStatus" = \'Approved\'');
     expect(youthSexQuery).toContain("identity_rank = 1");
     expect(youthSexQuery).toContain('public."kk_profiling_registrations"');
     expect(youthSexQuery).not.toContain('public."grantees"');
-    const totalYouthQuery = (mocks.queryRaw.mock.calls[0][0] as TemplateStringsArray).join("");
-    expect(totalYouthQuery).toContain('registration."reviewStatus" = \'Approved\'');
-    expect(totalYouthQuery).toContain("identity_rank = 1");
-    const granteeSexQuery = (mocks.queryRaw.mock.calls[4][0] as TemplateStringsArray).join("");
+    const granteeSexQuery = (mocks.queryRaw.mock.calls[3][0] as TemplateStringsArray).join("");
     expect(granteeSexQuery).toContain(`profile."sex"::text IN ('MALE', 'FEMALE')`);
     expect(granteeSexQuery).toContain('public."kk_profiling_registrations"');
     expect(granteeSexQuery).toContain('registration."userId" = grantee."userId"');
     expect(granteeSexQuery).toContain('public."skeap_applications"');
     expect(granteeSexQuery).toContain('application."userId" = grantee."userId"');
-    const yearLevelQuery = (mocks.queryRaw.mock.calls[5][0] as TemplateStringsArray).join("");
+    expect(granteeSexQuery).toContain(`grantee."status" IN ('ACTIVE', 'PROBATIONARY')`);
+    expect(granteeSexQuery).not.toContain("GRADUATED");
+    const yearLevelQuery = (mocks.queryRaw.mock.calls[4][0] as TemplateStringsArray).join("");
     expect(yearLevelQuery).toContain(`grantee."status" = 'ACTIVE'`);
     expect(yearLevelQuery).toContain(`application."status" = 'APPROVED'`);
     expect(analytics.yearLevelDistribution).toEqual([

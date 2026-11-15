@@ -65,15 +65,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const contentType = file.type.toLowerCase();
+    const submittedContentType = file.type.toLowerCase();
+    const isGenericJfif = /\.jfif$/i.test(file.name) &&
+      (!submittedContentType || submittedContentType === "application/octet-stream");
+    const contentType = submittedContentType === "image/jfif" || isGenericJfif
+      ? "image/jpeg"
+      : submittedContentType;
     const allowedTypes = kind === "grade" ? GRADE_REPORT_MIME_TYPES : COE_MIME_TYPES;
-    if (!allowedTypes.has(contentType)) {
+    if (!allowedTypes.has(submittedContentType) && !isGenericJfif) {
       return NextResponse.json(
         {
           error:
             kind === "grade"
-              ? "Grade reports must be PDF, JPG, PNG, or WEBP files."
-              : "Certificates of Enrollment must be PDF, JPG, PNG, or WEBP files.",
+              ? "Grade reports must be PDF, JPG/JFIF, PNG, or WEBP files."
+              : "Certificates of Enrollment must be PDF, JPG/JFIF, PNG, or WEBP files.",
         },
         { status: 400 }
       );

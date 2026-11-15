@@ -28,7 +28,7 @@ export default function UploadedImageGallery({ imageUrls }: UploadedImageGallery
   }
 
   function isImageUrl(url: string) {
-    return /\.(jpg|jpeg|png|gif|webp|avif|svg)(\?|$)/i.test(url);
+    return /\.(jpg|jpeg|jfif|png|gif|webp|avif|svg)(\?|$)/i.test(url);
   }
 
   function getExtension(url: string) {

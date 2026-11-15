@@ -99,6 +99,7 @@ export default function AdminGranteesPageClient({
     granteeId: string,
     reason: string,
     additionalNotes: string,
+    isPermanentlyDisqualified: boolean,
   ) => {
     if (!scholarshipCandidate || scholarshipCandidate.id !== granteeId) return;
     setIsRevokingGrantee(true);
@@ -109,7 +110,7 @@ export default function AdminGranteesPageClient({
       const response = await fetch(`/api/admin/grantees/${granteeId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "REVOKED", reason, additionalNotes }),
+        body: JSON.stringify({ status: "REVOKED", reason, additionalNotes, isPermanentlyDisqualified }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -190,8 +191,8 @@ export default function AdminGranteesPageClient({
           archiveRefreshFailed={archiveRefreshFailed}
           notice={revocationNotice}
           onClose={closeRevokeGranteeModal}
-          onConfirm={(granteeId, reason, additionalNotes) => {
-            void confirmRevokeGrantee(granteeId, reason, additionalNotes);
+          onConfirm={(granteeId, reason, additionalNotes, isPermanentlyDisqualified) => {
+            void confirmRevokeGrantee(granteeId, reason, additionalNotes, isPermanentlyDisqualified);
           }}
         />
       ) : null}

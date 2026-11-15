@@ -69,7 +69,6 @@ type SkeapApplicationTemplateInput = {
   mothersOccupation?: string | null;
   mothersContact?: string | null;
   totalFamilyMonthlyIncome?: string | number | null;
-  signatureUrl?: string | null;
   schoolHistory?: unknown;
   elementarySchool?: string | null;
   elementaryYearGraduated?: string | number | null;
@@ -271,7 +270,6 @@ export function buildSkeapApplicationTemplateData(
     voterYes: voterStatus === true ? "[✓]" : voterStatus === null ? "[?]" : "[ ]",
     voterNo: voterStatus === false ? "[✓]" : voterStatus === null ? "[?]" : "[ ]",
     profileImage: profilePhoto,
-    applicantSignature: application.signatureUrl || null,
   };
 }
 
@@ -325,45 +323,6 @@ async function fetchProfilePhoto(urls: string[]) {
   return null;
 }
 
-function signatureDataUrlToBuffer(value: string) {
-  const match = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
-  if (!match) {
-    throw new Error("Stored SKEAP applicant signature is not a valid PNG data URL.");
-  }
-  const buffer = Buffer.from(match[1], "base64");
-  if (
-    buffer.length > 512_000 ||
-    buffer.length < 8 ||
-    !buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-  ) {
-    throw new Error("Stored SKEAP applicant signature is not a valid PNG image.");
-  }
-  return buffer;
-}
-
-async function fetchSignatureImage(value: string) {
-  return value.startsWith("data:image/png;base64,")
-    ? signatureDataUrlToBuffer(value)
-    : (await fetchProfilePhoto([value]))?.buffer ?? null;
-}
-
-async function prepSignature(
-  buf: Buffer,
-  maxW = 160,
-  maxH = 45
-): Promise<{ buf: Buffer; size: [number, number] }> {
-  const { data, info } = await sharp(buf)
-    .flatten({ background: "#ffffff" })
-    .trim({ threshold: 10 })
-    .png()
-    .toBuffer({ resolveWithObject: true });
-  const scale = Math.min(maxW / info.width, maxH / info.height);
-  return {
-    buf: data,
-    size: [Math.round(info.width * scale), Math.round(info.height * scale)],
-  };
-}
-
 async function prepPhoto(buf: Buffer) {
   return sharp(buf)
     .resize(380, 380, { fit: "cover", position: "centre" })
@@ -376,22 +335,14 @@ export async function generateSkeapApplicationDocx(
   context: ApplicantTemplateContext = {}
 ) {
   const profilePhoto = await fetchProfilePhoto(getSkeapProfilePhotoCandidates(application, context));
-  const signatureBuffer = application.signatureUrl
-    ? await fetchSignatureImage(application.signatureUrl)
-    : null;
   const photo = profilePhoto ? await prepPhoto(profilePhoto.buffer) : null;
-  const sig: { buf: Buffer | null; size: [number, number] } = signatureBuffer
-    ? await prepSignature(signatureBuffer)
-    : { buf: null, size: [160, 45] };
   const data = buildSkeapApplicationTemplateData(application, context, profilePhoto?.url ?? "");
   const zip = new PizZip(readFileSync(TEMPLATE_PATH));
   const imageModule = new ImageModule({
     centered: false,
     fileType: "docx",
-    getImage: (_tagValue: string, key: string) =>
-      key === "applicantSignature" ? sig.buf : photo,
-    getSize: (_image: Buffer | null, _tagValue: string, key: string) =>
-      key === "applicantSignature" ? sig.size : [190, 190],
+    getImage: () => photo,
+    getSize: () => [190, 190],
   });
   const document = new Docxtemplater(zip, {
     modules: [imageModule],

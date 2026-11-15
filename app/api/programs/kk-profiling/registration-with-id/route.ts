@@ -8,7 +8,7 @@ import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-input
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 
-const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp"]);
+const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jfif", "image/jpg", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 type DocumentSuffix = "front" | "back" | "residency" | "photo" | "birth-certificate";
 
@@ -24,7 +24,13 @@ function getOptionalFile(formData: FormData, field: string): File | null {
 }
 
 async function uploadFile(userId: string, file: File, suffix: string) {
-  return (await uploadPrivateDocument(userId, file, "kk-verification", suffix)).url;
+  const fileType = file.type.toLowerCase();
+  const isGenericJfif = /\.jfif$/i.test(file.name) &&
+    (!fileType || fileType === "application/octet-stream");
+  const normalizedFile = fileType === "image/jfif" || isGenericJfif
+    ? new File([file], file.name, { type: "image/jpeg", lastModified: file.lastModified })
+    : file;
+  return (await uploadPrivateDocument(userId, normalizedFile, "kk-verification", suffix)).url;
 }
 
 export async function PUT(request: NextRequest) {
@@ -95,14 +101,17 @@ export async function PUT(request: NextRequest) {
 
     for (const { field, file } of files) {
       const allowedTypes = field === "photoFile"
-        ? new Set(["image/png", "image/jpeg", "image/webp"])
+        ? new Set(["image/png", "image/jpeg", "image/jfif", "image/webp"])
         : ALLOWED_TYPES;
-      if (!allowedTypes.has(file.type)) {
+      const fileType = file.type.toLowerCase();
+      const isGenericJfif = /\.jfif$/i.test(file.name) &&
+        (!fileType || fileType === "application/octet-stream");
+      if (!allowedTypes.has(fileType) && !isGenericJfif) {
         return NextResponse.json(
           {
             error: field === "photoFile"
-              ? "photoFile must be a JPG, PNG, or WEBP image."
-              : `${field} must be a PDF, JPG, PNG, or WEBP file.`,
+              ? "photoFile must be a JPG/JFIF, PNG, or WEBP image."
+              : `${field} must be a PDF, JPG/JFIF, PNG, or WEBP file.`,
           },
           { status: 400 },
         );

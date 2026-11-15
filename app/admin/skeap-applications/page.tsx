@@ -11,6 +11,11 @@ import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { getAcademicYearDateRange, getAcademicYears, getCurrentAcademicYear } from "@/lib/semester";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
+import {
+  findBanWatchlistMatch,
+  type PermanentSkeapRevocationRecord,
+} from "@/lib/skeap-application-guard";
+import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
 import SkeapApplicationsClient from "./SkeapApplicationsClient";
 
 interface ApplicationMessage {
@@ -125,10 +130,17 @@ function mapInquiryToApplication(inquiry: {
   isResolved: boolean;
   reviewThread: Prisma.JsonValue | null;
   user: {
+    id: string;
     fullName: string | null;
     email: string;
     phoneNumber: string | null;
+    kkProfileId: string | null;
     kkProfile?: {
+      id: string;
+      firstName: string;
+      middleName: string | null;
+      lastName: string;
+      birthDate: Date;
       purok: string;
       addressLine: string;
       barangay: string;
@@ -137,6 +149,10 @@ function mapInquiryToApplication(inquiry: {
     grantee: {
       yearLevel: string | null;
       school: string | null;
+      status: string;
+      dateRemoved: Date | null;
+      revocationReason: string | null;
+      isPermanentlyDisqualified: boolean;
     } | null;
   };
   application?: {
@@ -165,7 +181,7 @@ function mapInquiryToApplication(inquiry: {
     physicalDocumentsConfirmed?: boolean;
     uploadedFiles?: Prisma.JsonValue | null;
   } | null;
-}) {
+}, permanentRecords: readonly PermanentSkeapRevocationRecord[] = []) {
   const urls = getUniqueUrls(inquiry.message || "");
 
   const persistedMessages = (Array.isArray(inquiry.reviewThread)
@@ -277,6 +293,21 @@ function mapInquiryToApplication(inquiry: {
     ),
     submittedAt: inquiry.createdAt.toISOString(),
     status,
+    banWatchlistMatch: findBanWatchlistMatch(permanentRecords, {
+      userId: inquiry.user.id,
+      kkProfileId: inquiry.user.kkProfileId,
+      firstName: inquiry.user.kkProfile?.firstName,
+      middleName: inquiry.user.kkProfile?.middleName,
+      lastName: inquiry.user.kkProfile?.lastName,
+      dateOfBirth: inquiry.user.kkProfile?.birthDate ?? inquiry.application?.dateOfBirth,
+      applicantName: inquiry.application?.applicantName,
+    }) ?? undefined,
+    priorRevocation: inquiry.user?.grantee?.status === "REVOKED"
+      ? {
+          revokedAt: inquiry.user.grantee.dateRemoved?.toISOString() ?? null,
+          reason: inquiry.user.grantee.revocationReason,
+        }
+      : undefined,
     documents,
     uploadGroups,
     application: inquiry.application
@@ -396,7 +427,7 @@ export default async function SkeapApplicationsPage({
 
   // Fetch rows for queue using the same base filter but matching any visible statuses
   const visibleStatusPatterns = ["pending", "pre_qualified", "resubm", "respond", "approve"];
-  const [inquiries, focusedInquiry] = await Promise.all([
+  const [inquiries, focusedInquiry, permanentRecords] = await Promise.all([
     prisma.inquiry.findMany({
       where: {
         ...baseWhere,
@@ -424,10 +455,15 @@ export default async function SkeapApplicationsPage({
           select: SKEAP_APPLICATION_SELECT,
         })
       : Promise.resolve(null),
+    getPermanentlyDisqualifiedSkeapRecords(),
   ]);
 
-  const queueApplications = inquiries.slice(0, 15).map(mapInquiryToApplication);
-  const focusedApplication = focusedInquiry ? mapInquiryToApplication(focusedInquiry) : null;
+  const queueApplications = inquiries.slice(0, 15).map((inquiry) =>
+    mapInquiryToApplication(inquiry, permanentRecords)
+  );
+  const focusedApplication = focusedInquiry
+    ? mapInquiryToApplication(focusedInquiry, permanentRecords)
+    : null;
   const applications = focusedApplication
     ? [
         focusedApplication,

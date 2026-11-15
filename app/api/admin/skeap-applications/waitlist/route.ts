@@ -6,6 +6,12 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { getSkeapWaitlistSnapshot, reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { getAcademicYearDateRange } from "@/lib/semester";
+import {
+  getSkeapWaitlistCycle,
+  getSkeapWaitlistCycleState,
+} from "@/lib/skeap-waitlist-cycle";
+import { lockSkeapCapacity } from "@/lib/skeap-capacity";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -30,10 +36,14 @@ export async function GET(request: NextRequest) {
       if (query.length < 2) {
         return NextResponse.json({ applications: [] });
       }
+      const cycle = getSkeapWaitlistCycle();
+      const cycleRange = getAcademicYearDateRange(cycle);
+      if (!cycleRange) throw new Error("Unable to determine the active SKEAP cycle.");
 
       const candidates = await prisma.skeapApplication.findMany({
         where: {
           status: SubmissionStatus.PENDING,
+          submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
           OR: [
             { applicantName: { contains: query, mode: "insensitive" } },
             { emailAddress: { contains: query, mode: "insensitive" } },
@@ -99,7 +109,13 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      await reindexSkeapWaitlist(tx);
+      await lockSkeapCapacity(tx);
+      const cycle = getSkeapWaitlistCycle();
+      const cycleRange = getAcademicYearDateRange(cycle);
+      if (!cycleRange) throw new Error("Unable to determine the active SKEAP cycle.");
+      const cycleState = await getSkeapWaitlistCycleState(cycle, tx);
+      if (cycleState.isClosed) throw new Error("CYCLE_CLOSED");
+      await reindexSkeapWaitlist(tx, cycle);
       const application = await tx.skeapApplication.findUnique({
         where: { id: applicationId },
         select: {
@@ -114,7 +130,10 @@ export async function POST(request: NextRequest) {
       if (application.status !== SubmissionStatus.PENDING) throw new Error("NOT_PENDING");
 
       const position = (await tx.skeapApplication.count({
-        where: { status: SubmissionStatus.WAITLISTED },
+        where: {
+          status: SubmissionStatus.WAITLISTED,
+          submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
+        },
       })) + 1;
       await tx.skeapApplication.update({
         where: { id: application.id },
@@ -156,6 +175,7 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : "Unable to add application to the waitlist.";
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });
     if (message === "NOT_PENDING") return NextResponse.json({ error: "Only pending applications can be manually added to the waitlist." }, { status: 409 });
+    if (message === "CYCLE_CLOSED") return NextResponse.json({ error: "The SKEAP cycle is closed and the waitlist has been finalized." }, { status: 409 });
     console.error("Failed to manually add SKEAP application to waitlist:", error);
     return NextResponse.json({ error: "Unable to add application to the waitlist." }, { status: 500 });
   }

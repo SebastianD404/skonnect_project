@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVE_SKEAP_EDUCATION_LEVELS,
   SKEAP_APPLICATION_EDUCATION_LEVELS,
   SKEAP_EDUCATION_LEVELS,
   SKEAP_YEAR_LEVELS,
+  getSkeapEducationLevelLabels,
   isSkeapEducationLevel,
   isEligibleSkeapApplicantYearLevel,
   isValidSkeapYearLevel,
@@ -15,6 +17,19 @@ describe("SKEAP education options", () => {
       "Senior High School",
       "College",
       "Technical and Vocational (Tech-Voc)",
+    ]);
+  });
+
+  it("defaults the current cycle to Junior High, Senior High, and College", () => {
+    expect(ACTIVE_SKEAP_EDUCATION_LEVELS).toEqual([
+      "JUNIOR_HIGH",
+      "SENIOR_HIGH",
+      "COLLEGE",
+    ]);
+    expect(getSkeapEducationLevelLabels(ACTIVE_SKEAP_EDUCATION_LEVELS)).toEqual([
+      "Junior High School",
+      "Senior High School",
+      "College",
     ]);
   });
 
@@ -43,9 +58,11 @@ describe("SKEAP education options", () => {
       "6th Year",
     ]);
     expect(SKEAP_YEAR_LEVELS.Vocational).toEqual(SKEAP_YEAR_LEVELS.College);
-    expect(SKEAP_YEAR_LEVELS["Technical and Vocational (Tech-Voc)"]).toEqual(
-      SKEAP_YEAR_LEVELS.College,
-    );
+    expect(SKEAP_YEAR_LEVELS["Technical and Vocational (Tech-Voc)"]).toEqual([
+      "New Trainee / Incoming",
+      "1st Semester / Short Course (Min. 5 Months)",
+      "1st–3rd Year TVET",
+    ]);
   });
 
   it("validates education and year-level combinations", () => {
@@ -59,14 +76,18 @@ describe("SKEAP education options", () => {
     expect(isValidSkeapYearLevel("Senior High School", "Grade 7")).toBe(false);
     expect(isValidSkeapYearLevel("Vocational", "4th Year")).toBe(true);
     expect(isSkeapEducationLevel("Technical and Vocational (Tech-Voc)")).toBe(true);
-    expect(isValidSkeapYearLevel("Technical and Vocational (Tech-Voc)", "1st Year")).toBe(true);
+    expect(isValidSkeapYearLevel(
+      "Technical and Vocational (Tech-Voc)",
+      "1st Semester / Short Course (Min. 5 Months)",
+    )).toBe(true);
   });
 
-  it("allows college applicants through third year and rejects fourth year or above", () => {
+  it("allows college applicants through sixth year", () => {
     expect(isEligibleSkeapApplicantYearLevel("College", "Incoming Freshman")).toBe(true);
     expect(isEligibleSkeapApplicantYearLevel("College", "3rd Year")).toBe(true);
-    expect(isEligibleSkeapApplicantYearLevel("College", "4th Year")).toBe(false);
-    expect(isEligibleSkeapApplicantYearLevel("College", "5th Year")).toBe(false);
-    expect(isEligibleSkeapApplicantYearLevel("College", "6th Year")).toBe(false);
+    expect(isEligibleSkeapApplicantYearLevel("College", "4th Year")).toBe(true);
+    expect(isEligibleSkeapApplicantYearLevel("College", "5th Year")).toBe(true);
+    expect(isEligibleSkeapApplicantYearLevel("College", "6th Year")).toBe(true);
+    expect(isEligibleSkeapApplicantYearLevel("College", "Grade 12")).toBe(false);
   });
 });

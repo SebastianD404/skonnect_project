@@ -1,15 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma, Role, SubmissionStatus } from "@prisma/client";
+import { GranteeStatus, Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { normalizeUploadedFiles, SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
+import {
+  getSkeapApplicationResumeFiles,
+  normalizeUploadedFiles,
+  SKEAP_UPLOAD_KEY,
+} from "@/lib/skeap-upload";
 import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { isEligibleSkeapApplicantYearLevel, isSkeapEducationLevel } from "@/lib/skeap-education";
 import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
-import { getSkeapSubmissionGuardError } from "@/lib/skeap-application-guard";
+import {
+  getActiveSkeapEducationLevels,
+  getSkeapEducationLevelGuardError,
+  getSkeapReapplicationEligibility,
+  getSkeapSubmissionGuardError,
+} from "@/lib/skeap-application-guard";
+import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
+import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
+import {
+  getSkeapWaitlistCycleState,
+} from "@/lib/skeap-waitlist-cycle";
 
 const EDUCATION_LEVELS = ["elementary", "highSchool", "college", "vocational"] as const;
 const EDUCATION_FIELDS = [
@@ -43,6 +57,39 @@ function getAgeFromBirthDate(birthDate: Date) {
   return age;
 }
 
+type UserQueryClient = Pick<Prisma.TransactionClient, "user">;
+
+async function getSkeapIdentityCandidate(
+  userId: string,
+  client: UserQueryClient = prisma,
+) {
+  const user = await client.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      kkProfileId: true,
+      kkProfile: {
+        select: {
+          id: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          birthDate: true,
+        },
+      },
+    },
+  });
+
+  return {
+    userId,
+    kkProfileId: user?.kkProfile?.id ?? user?.kkProfileId,
+    firstName: user?.kkProfile?.firstName,
+    middleName: user?.kkProfile?.middleName,
+    lastName: user?.kkProfile?.lastName,
+    dateOfBirth: user?.kkProfile?.birthDate,
+  };
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -59,25 +106,54 @@ export async function GET() {
       return NextResponse.json({ hasApplication: false });
     }
 
-    const applicationInquiry = await prisma.inquiry.findFirst({
-      where: {
-        userId: appUser.id,
-        subject: { contains: "SKEAP application", mode: "insensitive" },
-        applicationId: { not: null },
-      },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        reviewStatus: true,
-        application: { select: { status: true } },
-      },
-    });
+    const currentCycle = getAcademicYearDateRange(getCurrentAcademicYear());
+    if (!currentCycle) throw new Error("Unable to determine the active SKEAP cycle.");
+
+    const [applicationInquiry, identityCandidate, permanentRecords, currentCycleApplications, priorRevocation] = await Promise.all([
+      prisma.inquiry.findFirst({
+        where: {
+          userId: appUser.id,
+          subject: { contains: "SKEAP application", mode: "insensitive" },
+          applicationId: { not: null },
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          reviewStatus: true,
+          application: { select: { status: true } },
+        },
+      }),
+      getSkeapIdentityCandidate(appUser.id),
+      getPermanentlyDisqualifiedSkeapRecords(),
+      prisma.$queryRaw<Array<{ status: string; uploadedFiles: Prisma.JsonValue | null }>>(Prisma.sql`
+        SELECT application."status"::text AS "status", application."uploadedFiles"
+        FROM "public"."skeap_applications" AS application
+        WHERE application."userId" = ${appUser.id}
+          AND application."submittedAt" >= ${currentCycle.start}
+          AND application."submittedAt" < ${currentCycle.end}
+        ORDER BY application."submittedAt" DESC, application."id" DESC
+        LIMIT 1
+      `),
+      prisma.grantee.findFirst({
+        where: { userId: appUser.id, status: GranteeStatus.REVOKED },
+        select: { id: true },
+      }),
+    ]);
+    const eligibility = getSkeapReapplicationEligibility(permanentRecords, identityCandidate);
+    const currentCycleApplication = currentCycleApplications[0];
+    const initialUploadedFiles = eligibility.eligible
+      ? getSkeapApplicationResumeFiles(currentCycleApplication?.status, currentCycleApplication?.uploadedFiles)
+      : {};
 
     return NextResponse.json(
       {
         hasApplication: Boolean(applicationInquiry),
         reviewStatus: applicationInquiry?.reviewStatus ?? null,
         applicationStatus: applicationInquiry?.application?.status ?? null,
+        eligibility,
+        isPermanentlyBarred: !eligibility.eligible,
+        hasPriorRevocation: Boolean(priorRevocation),
+        initialUploadedFiles,
       },
       { headers: { "Cache-Control": "no-store, max-age=0" } }
     );
@@ -239,6 +315,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User profile not found" }, { status: 401 });
     }
 
+    const [identityCandidate, permanentRecords] = await Promise.all([
+      getSkeapIdentityCandidate(appUser.id),
+      getPermanentlyDisqualifiedSkeapRecords(),
+    ]);
+    const eligibility = getSkeapReapplicationEligibility(permanentRecords, identityCandidate);
+    if (!eligibility.eligible) {
+      return NextResponse.json(
+        { ...eligibility, error: eligibility.message },
+        { status: 403 },
+      );
+    }
+
     const body = await request.json();
     const firstName = String(body.firstName ?? "").trim();
     const middleName = String(body.middleName ?? "").trim();
@@ -275,7 +363,6 @@ export async function POST(request: NextRequest) {
     const registeredVoter = body.registeredVoter;
     const parentGuardianRegisteredVoter = body.parentGuardianRegisteredVoter === true;
     const parentGuardianVoterFullName = String(body.parentGuardianVoterFullName ?? "").trim();
-    const signatureUrl = typeof body.signatureUrl === "string" ? body.signatureUrl : "";
 
     if (!firstName || !middleName || !lastName) {
       return NextResponse.json({ error: "Applicant first, middle, and last names are required." }, { status: 400 });
@@ -311,22 +398,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (signatureUrl.length > 1_000_000) {
-      return NextResponse.json({ error: "Signature is too large. Please clear it and sign again." }, { status: 413 });
-    }
-    const signatureMatch = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(signatureUrl);
-    if (!signatureMatch) {
-      return NextResponse.json({ error: "Please provide a valid PNG signature." }, { status: 400 });
-    }
-    const signatureBuffer = Buffer.from(signatureMatch[1], "base64");
-    if (
-      signatureBuffer.length > 512_000 ||
-      signatureBuffer.length < 8 ||
-      !signatureBuffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-    ) {
-      return NextResponse.json({ error: "Please provide a valid PNG signature under 512 KB." }, { status: 400 });
-    }
-
     const rawAppUploadedFiles = body.uploadedFiles ?? body.allUploadedFiles ?? body.documentUploads ?? null;
     const normalizedUploadedFiles = normalizeUploadedFiles(rawAppUploadedFiles);
     const uploadedFiles = normalizedUploadedFiles
@@ -339,6 +410,7 @@ export async function POST(request: NextRequest) {
               ...(upload.verified !== undefined ? { verified: upload.verified } : {}),
               ...(upload.manualReview !== undefined ? { manualReview: upload.manualReview } : {}),
               ...(upload.verificationStatus !== undefined ? { verificationStatus: upload.verificationStatus } : {}),
+              ...(upload.ocrNameStatus !== undefined ? { ocrNameStatus: upload.ocrNameStatus } : {}),
             },
           ])
         )
@@ -348,13 +420,15 @@ export async function POST(request: NextRequest) {
     if (!isSkeapEducationLevel(educationLevel)) {
       return NextResponse.json({ error: "Select a valid education level." }, { status: 400 });
     }
+    const activeEducationLevels = await getActiveSkeapEducationLevels();
+    const educationLevelGuardError = getSkeapEducationLevelGuardError(
+      educationLevel,
+      activeEducationLevels,
+    );
+    if (educationLevelGuardError) {
+      return NextResponse.json({ error: educationLevelGuardError }, { status: 400 });
+    }
     if (!isEligibleSkeapApplicantYearLevel(educationLevel, yearLevel)) {
-      if (educationLevel === "College" && ["4th Year", "5th Year", "6th Year"].includes(yearLevel)) {
-        return NextResponse.json(
-          { error: "Applicants must be in 3rd year college or below to apply." },
-          { status: 400 }
-        );
-      }
       return NextResponse.json(
         { error: "Select a valid year level for the selected education level." },
         { status: 400 }
@@ -503,7 +577,6 @@ export async function POST(request: NextRequest) {
         ? parentGuardianVoterFullName
         : undefined,
       totalFamilyMonthlyIncome: totalFamilyMonthlyIncome || undefined,
-      signatureUrl,
       gender,
       fathersName,
       fathersOccupation,
@@ -520,11 +593,40 @@ export async function POST(request: NextRequest) {
 
     const created = await prisma.$transaction(async (tx) => {
       await lockSkeapCapacity(tx);
+      const currentCycle = getAcademicYearDateRange(getCurrentAcademicYear());
+      if (!currentCycle) throw new Error("SKEAP_CYCLE_UNAVAILABLE");
+      const cycleState = await getSkeapWaitlistCycleState(getCurrentAcademicYear(), tx);
+      if (cycleState.isClosed) throw new Error("SKEAP_CYCLE_CLOSED");
+
+      const currentIdentity = await getSkeapIdentityCandidate(appUser.id, tx);
+      const currentPermanentRecords = await getPermanentlyDisqualifiedSkeapRecords(tx);
+      const currentEligibility = getSkeapReapplicationEligibility(
+        currentPermanentRecords,
+        currentIdentity,
+      );
+      if (!currentEligibility.eligible) {
+        throw new Error("SKEAP_PERMANENTLY_BARRED");
+      }
+
+      const activeApplication = await tx.skeapApplication.findFirst({
+        where: {
+          userId: appUser.id,
+          status: { in: ["PENDING", "PRE_QUALIFIED", "RETURNED_FOR_EDIT", "WAITLISTED"] },
+        },
+        select: { id: true },
+      });
+      if (activeApplication) throw new Error("SKEAP_APPLICATION_IN_PROGRESS");
+
       const maxSlots = await getSkeapMaxSlots(tx);
       const activeCount = await getSkeapCapacityCount(tx, appUser.id);
       const isWaitlisted = activeCount >= maxSlots;
       const waitlistPosition = isWaitlisted
-        ? (await tx.skeapApplication.count({ where: { status: "WAITLISTED" } })) + 1
+        ? (await tx.skeapApplication.count({
+            where: {
+              status: "WAITLISTED",
+              submittedAt: { gte: currentCycle.start, lt: currentCycle.end },
+            },
+          })) + 1
         : null;
       const createData = {
         ...baseCreateData,
@@ -578,6 +680,29 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to submit SKEAP application";
+    if (message === "SKEAP_PERMANENTLY_BARRED") {
+      return NextResponse.json(
+        {
+          eligible: false,
+          reason: "PERMANENTLY_DISQUALIFIED",
+          message: "You are permanently ineligible to reapply for SKEAP due to a prior conduct or disciplinary revocation.",
+          error: "You are permanently ineligible to reapply for SKEAP due to a prior conduct or disciplinary revocation.",
+        },
+        { status: 403 },
+      );
+    }
+    if (message === "SKEAP_APPLICATION_IN_PROGRESS") {
+      return NextResponse.json(
+        { error: "You already have a SKEAP application in progress." },
+        { status: 409 },
+      );
+    }
+    if (message === "SKEAP_CYCLE_CLOSED") {
+      return NextResponse.json(
+        { error: "The SKEAP application cycle is closed. Please check your application status for waitlist updates." },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -12,6 +12,7 @@ const ALLOWED_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/png",
   "image/jpeg",
+  "image/jfif",
   "image/jpg",
   "image/webp",
 ]);
@@ -75,9 +76,12 @@ export async function POST(
     if (!inquiry.applicationId) {
       return NextResponse.json({ error: "The linked application document record could not be found." }, { status: 409 });
     }
-    if (!ALLOWED_TYPES.has(file.type)) {
+    const fileType = file.type.toLowerCase();
+    const isGenericJfif = /\.jfif$/i.test(file.name) &&
+      (!fileType || fileType === "application/octet-stream");
+    if (!ALLOWED_TYPES.has(fileType) && !isGenericJfif) {
       return NextResponse.json(
-        { error: "Only PDF, DOC/DOCX, PNG, JPG, and WEBP files are allowed." },
+        { error: "Only PDF, DOC/DOCX, PNG, JPG/JFIF, and WEBP files are allowed." },
         { status: 400 }
       );
     }
@@ -88,9 +92,12 @@ export async function POST(
       return NextResponse.json({ error: "File size must not exceed 15MB." }, { status: 400 });
     }
 
+    const storedFile = fileType === "image/jfif" || isGenericJfif
+      ? new File([file], file.name, { type: "image/jpeg", lastModified: file.lastModified })
+      : file;
     const { path: filePath, url: fileUrl } = await uploadPrivateDocument(
       user.id,
-      file,
+      storedFile,
       "skeap-applications",
     );
 
@@ -122,7 +129,7 @@ export async function POST(
           slotId,
           fileUrl,
           fileName: file.name,
-          fileType: file.type,
+          fileType: storedFile.type,
         });
         await tx.skeapApplication.update({
           where: { id: inquiry.applicationId! },
@@ -150,7 +157,7 @@ export async function POST(
         : NextResponse.json({ error: "The application status changed. Refresh the page and try again." }, { status: 409 });
     }
 
-    return NextResponse.json({ success: true, url: fileUrl, fileName: file.name, fileType: file.type });
+    return NextResponse.json({ success: true, url: fileUrl, fileName: file.name, fileType: storedFile.type });
   } catch (error) {
     console.error("SKEAP replacement upload failed:", error);
     const message = error instanceof Error ? error.message : "Upload failed.";

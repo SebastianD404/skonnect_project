@@ -4,7 +4,7 @@ import { SKEAP_APPLICATION_DOCX_BASE_SELECT } from "@/lib/docx/skeap-application
 
 export async function getSkeapApplicationDocxSelect() {
   const [columns] = await prisma.$queryRaw<
-    Array<{ hasRegisteredVoter: boolean; hasFamilyIncome: boolean; hasSignature: boolean }>
+    Array<{ hasRegisteredVoter: boolean; hasFamilyIncome: boolean }>
   >`
     SELECT
       EXISTS (
@@ -20,20 +20,12 @@ export async function getSkeapApplicationDocxSelect() {
         WHERE table_schema = current_schema()
           AND table_name = 'skeap_applications'
           AND column_name = 'totalFamilyMonthlyIncome'
-      ) AS "hasFamilyIncome",
-      EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'skeap_applications'
-          AND column_name = 'signatureUrl'
-      ) AS "hasSignature"
+      ) AS "hasFamilyIncome"
   `;
 
   return {
     ...SKEAP_APPLICATION_DOCX_BASE_SELECT,
     ...(columns?.hasRegisteredVoter ? { registeredVoter: true } : {}),
     ...(columns?.hasFamilyIncome ? { totalFamilyMonthlyIncome: true } : {}),
-    ...(columns?.hasSignature ? { signatureUrl: true } : {}),
   } satisfies Prisma.SkeapApplicationSelect;
 }

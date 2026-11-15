@@ -10,7 +10,7 @@ describe("SKEAP demo seed capacity", () => {
     const pendingSkeapCount = records.filter((record) => record.cohort === "PENDING_APPLICATION").length;
     const pendingKkCount = records.filter((record) => record.cohort === "KK_PENDING_APPLICATION").length;
 
-    expect(records).toHaveLength(920 + availableSlots);
+    expect(records).toHaveLength(1020 + availableSlots);
     expect(activeScholarCount).toBe(availableSlots);
     expect(waitlistedCount).toBe(50);
     expect(pendingSkeapCount).toBe(30);
@@ -22,7 +22,16 @@ describe("SKEAP demo seed capacity", () => {
     const records = generateDemoRecords(0, reservedEmails);
 
     expect(records.some(({ email }) => reservedEmails.has(email))).toBe(false);
-    expect(records).toHaveLength(920);
+    expect(records).toHaveLength(1020);
+  });
+
+  it("generates at least 1,000 approved KK profile records", () => {
+    const records = generateDemoRecords();
+    const approvedKkProfileCount = records.filter(
+      (record) => record.cohort !== "KK_PENDING_APPLICATION",
+    ).length;
+
+    expect(approvedKkProfileCount).toBeGreaterThanOrEqual(1_000);
   });
 
   it("uses HUC-safe demo birthplaces", () => {

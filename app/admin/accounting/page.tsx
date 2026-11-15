@@ -10,6 +10,8 @@ import {
 } from "@/lib/accounting-submission";
 import { matchesAccountingNameQuery } from "@/lib/accounting-name-search";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
+import { ADMIN_TABLE_PAGE_SIZES } from "@/lib/admin-pagination";
+import AdminPaginationControls from "../AdminPaginationControls";
 // If you have shadcn/ui components installed, replace the native select below
 // with shadcn's `Select` imports, e.g.:
 // import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -174,14 +176,14 @@ export default function AdminAccountingPage() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const rowsPerPage = 10;
+  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
   const totalPages = Math.max(1, Math.ceil(filteredWithSubmission.length / rowsPerPage));
   const displayPage = Math.min(currentPage, totalPages);
 
   const pagedRows = useMemo(() => {
     const start = (displayPage - 1) * rowsPerPage;
     return filteredWithSubmission.slice(start, start + rowsPerPage);
-  }, [filteredWithSubmission, displayPage]);
+  }, [filteredWithSubmission, displayPage, rowsPerPage]);
 
   const budgetSemesterParam = useMemo(() => {
     const cleanedSemester = String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim();
@@ -965,30 +967,41 @@ export default function AdminAccountingPage() {
                   </table>
                   </div>
 
-                  {filteredWithSubmission.length > 0 ? <div className="flex flex-col items-stretch gap-3 border-t border-slate-100 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-3 sm:text-sm">
-                    <div>
-                      Showing {(displayPage - 1) * rowsPerPage + 1} - {Math.min(displayPage * rowsPerPage, filteredWithSubmission.length)} of {filteredWithSubmission.length}
+                  {filteredWithSubmission.length > 0 ? (
+                    <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-200/80 px-5 py-3.5">
+                      <p className="inline-flex h-8 items-center gap-1.5 text-xs text-slate-500 tabular-nums">
+                        <span>Showing</span>
+                        <span className="font-semibold text-slate-900">
+                          {(displayPage - 1) * rowsPerPage + 1}–{Math.min(displayPage * rowsPerPage, filteredWithSubmission.length)}
+                        </span>
+                        <span>of</span>
+                        <span className="font-semibold text-slate-900">{filteredWithSubmission.length.toLocaleString()}</span>
+                      </p>
+                      <div className="flex flex-wrap items-center gap-4">
+                        <label className="inline-flex h-8 items-center gap-2 border-l border-slate-200 pl-4">
+                          <span className="text-xs font-medium text-slate-500">Rows per page</span>
+                          <select
+                            aria-label="Rows per page"
+                            value={rowsPerPage}
+                            onChange={(event) => {
+                              setRowsPerPage(Number(event.target.value));
+                              setCurrentPage(1);
+                            }}
+                            className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none transition-colors focus:border-slate-400"
+                          >
+                            {ADMIN_TABLE_PAGE_SIZES.map((size) => (
+                              <option key={size} value={size}>{size} rows</option>
+                            ))}
+                          </select>
+                        </label>
+                        <AdminPaginationControls
+                          page={displayPage}
+                          totalPages={totalPages}
+                          onPageChange={setCurrentPage}
+                        />
+                      </div>
                     </div>
-                    <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage((p) => Math.max(1, Math.min(p, totalPages) - 1))}
-                        disabled={filteredWithSubmission.length === 0 || displayPage === 1}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:text-sm"
-                      >
-                        Prev
-                      </button>
-                      <div className="whitespace-nowrap px-1 font-medium text-slate-600">Page {displayPage} of {totalPages}</div>
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, Math.min(p, totalPages) + 1))}
-                        disabled={filteredWithSubmission.length === 0 || displayPage === totalPages}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:text-sm"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </div> : null}
+                  ) : null}
                 </>
               )}
             </div>

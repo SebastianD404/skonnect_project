@@ -12,7 +12,7 @@ function extractUrls(text: string) {
 }
 
 function isImageUrl(url: string) {
-  return /(\.jpg|\.jpeg|\.png|\.gif|\.webp|\.avif|\.svg)(\?|$)/i.test(url);
+  return /(\.jpg|\.jpeg|\.jfif|\.png|\.gif|\.webp|\.avif|\.svg)(\?|$)/i.test(url);
 }
 
 interface InquiryThreadMessage {

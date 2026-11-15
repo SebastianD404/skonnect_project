@@ -5,6 +5,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import ApplicationReviewClient from "./ApplicationReviewClient";
 import { getApplicantUploadedFiles } from "@/lib/skeap-upload";
+import { getWaitlistQueuePosition } from "@/lib/skeap-applications";
+import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
+import { getCurrentAcademicYear } from "@/lib/semester";
 
 type Props = { params: Promise<{ id?: string }> };
 
@@ -71,6 +74,9 @@ export default async function ApplicationPage({ params }: Props) {
       application: {
         select: {
           id: true,
+          status: true,
+          submittedAt: true,
+          waitlistFinalPosition: true,
           school: true,
           educationLevel: true,
           currentCourse: true,
@@ -150,6 +156,31 @@ export default async function ApplicationPage({ params }: Props) {
     );
   }
 
+  let waitlistStatus: {
+    isWaitlisted: boolean;
+    queuePosition: number | null;
+    totalWaitlisted: number;
+    isCycleClosedAndFull: boolean;
+  } = {
+    isWaitlisted: false,
+    queuePosition: null,
+    totalWaitlisted: 0,
+    isCycleClosedAndFull: false,
+  };
+  if (application.application?.status === "WAITLISTED") {
+    const cycle = getCurrentAcademicYear(application.application.submittedAt);
+    const [queue, cycleState] = await Promise.all([
+      getWaitlistQueuePosition(application.application.id, cycle),
+      getSkeapWaitlistCycleState(cycle),
+    ]);
+    waitlistStatus = {
+      isWaitlisted: true,
+      queuePosition: application.application.waitlistFinalPosition ?? queue?.position ?? null,
+      totalWaitlisted: queue?.totalWaitlisted ?? cycleState.totalWaitlisted,
+      isCycleClosedAndFull: cycleState.isClosed,
+    };
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -164,6 +195,7 @@ export default async function ApplicationPage({ params }: Props) {
             reviewStatus: application.reviewStatus ?? "Pending review",
             resubmittedAt: application.resubmittedAt?.toISOString() ?? null,
             lastUpdatedBy: application.lastUpdatedBy,
+            waitlistStatus,
             application: application.application
               ? {
                   id: application.application.id,

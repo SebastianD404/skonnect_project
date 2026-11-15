@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { Role } from "@prisma/client";
+import { getApprovedKkProfileCount } from "@/lib/approved-kk-profile-count";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const [youthCount, activeScholarCount] = await Promise.all([
-      prisma.user.count({
-        where: {
-          role: { in: [Role.YOUTH, Role.GRANTEE] },
-          isActive: true,
-        },
-      }),
+    const [approvedKkProfileCount, activeScholarCount] = await Promise.all([
+      getApprovedKkProfileCount(),
       prisma.grantee.count({
         where: {
           status: "ACTIVE",
@@ -18,7 +15,10 @@ export async function GET() {
       }),
     ]);
 
-    return NextResponse.json({ youthCount, activeScholarCount });
+    return NextResponse.json(
+      { approvedKkProfileCount, activeScholarCount },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load homepage metrics";
     return NextResponse.json({ error: message }, { status: 500 });

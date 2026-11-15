@@ -2,18 +2,10 @@
 
 import { useState, useTransition, type FormEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search } from "lucide-react";
+import { Eye, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import AdminTablePaginationFooter from "../../AdminTablePaginationFooter";
-
-export type RevokedGranteeRow = {
-  id: string;
-  fullName: string;
-  email: string | null;
-  sitio: string | null;
-  dateRevoked: Date;
-  reason: string | null;
-};
+import RevokedScholarInspectionModal, { type RevokedGranteeRecord } from "./RevokedScholarInspectionModal";
 
 export default function RevokedGranteesTable({
   records,
@@ -22,7 +14,7 @@ export default function RevokedGranteesTable({
   pageSize,
   totalCount,
 }: {
-  records: RevokedGranteeRow[];
+  records: RevokedGranteeRecord[];
   query: string;
   page: number;
   pageSize: number;
@@ -33,6 +25,7 @@ export default function RevokedGranteesTable({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [selectedRecord, setSelectedRecord] = useState<RevokedGranteeRecord | null>(null);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,6 +35,12 @@ export default function RevokedGranteesTable({
     else params.delete("q");
     params.set("page", "1");
     startTransition(() => router.push(`${pathname}?${params.toString()}`, { scroll: false }));
+  }
+
+  function getInitials(name: string) {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "—";
+    return `${parts[0][0]}${parts.length > 1 ? parts[parts.length - 1][0] : ""}`.toUpperCase();
   }
 
   return (
@@ -61,24 +60,29 @@ export default function RevokedGranteesTable({
             className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
           />
         </label>
-        <button
-          type="submit"
-          disabled={isPending}
-          className="inline-flex min-h-9 items-center justify-center rounded-xl bg-[#0F3D5C] px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-60"
-        >
-          Search
-        </button>
       </form>
 
       <div className="flex flex-col gap-3 p-3 md:hidden">
         {records.map((record) => (
           <article key={record.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
-              <h2 className="min-w-0 truncate text-sm font-bold text-slate-900" title={record.fullName}>
-                {record.fullName}
-              </h2>
-              <span className="shrink-0 rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200">
-                Revoked
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700">
+                  {getInitials(record.fullName)}
+                </span>
+                <div className="min-w-0">
+                  <h2 className="truncate text-sm font-bold text-slate-900" title={record.fullName}>
+                    {record.fullName}
+                  </h2>
+                  {record.email ? <p className="mt-0.5 truncate text-xs text-slate-500">{record.email}</p> : null}
+                </div>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ring-1 ring-inset ${
+                record.isPermanentlyBarred
+                  ? "bg-rose-50 text-rose-700 ring-rose-600/20"
+                  : "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
+              }`}>
+                {record.isPermanentlyBarred ? "Permanently Barred" : "Eligible to Reapply"}
               </span>
             </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs">
@@ -88,13 +92,23 @@ export default function RevokedGranteesTable({
               </div>
               <div>
                 <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Date revoked</dt>
-                <dd className="mt-0.5 font-medium text-slate-700">{formatDate(record.dateRevoked)}</dd>
+                <dd className="mt-0.5 font-medium text-slate-700">{formatDate(record.revokedAt)}</dd>
               </div>
               <div className="col-span-2">
                 <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Reason</dt>
-                <dd className="mt-0.5 break-words text-slate-600">{record.reason || "No reason recorded"}</dd>
+                <dd className="mt-0.5 line-clamp-2 max-w-md text-sm text-slate-600">{record.reason || "No reason recorded"}</dd>
               </div>
             </dl>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedRecord(record)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-xs transition-colors hover:bg-slate-50 hover:text-slate-900"
+              >
+                <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                Inspect
+              </button>
+            </div>
           </article>
         ))}
         {records.length === 0 ? (
@@ -105,30 +119,72 @@ export default function RevokedGranteesTable({
       </div>
 
       <div className={`hidden w-full overflow-x-auto md:block ${isPending ? "opacity-60" : ""}`}>
-        <table className="w-full min-w-[760px] table-fixed border-collapse text-left text-sm">
-          <thead className="bg-gradient-to-r from-slate-900 to-cyan-900 text-cyan-50">
-            <tr className="text-[11px] font-bold uppercase tracking-wider">
-              <th scope="col" className="w-[25%] px-4 py-3.5">Name</th>
-              <th scope="col" className="w-[16%] px-4 py-3.5">Sitio</th>
-              <th scope="col" className="w-[18%] px-4 py-3.5">Date Revoked</th>
-              <th scope="col" className="w-[41%] px-4 py-3.5">Reason for Revocation</th>
+        <table className="w-full min-w-[1040px] table-fixed border-collapse text-left text-sm">
+          <thead className="border-y border-slate-200/80 bg-slate-50/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <tr>
+              <th scope="col" className="w-[21%] px-4 py-3.5">Name</th>
+              <th scope="col" className="w-[11%] px-4 py-3.5">Sitio</th>
+              <th scope="col" className="w-[15%] px-4 py-3.5">Date Revoked</th>
+              <th scope="col" className="w-[29%] px-4 py-3.5">Reason for Revocation</th>
+              <th scope="col" className="w-[14%] px-4 py-3.5">Reapplication</th>
+              <th scope="col" className="w-[10%] px-4 py-3.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700">
             {records.map((record) => (
-              <tr key={record.id} className="align-top transition-colors hover:bg-slate-50/70">
+              <tr
+                key={record.id}
+                onClick={() => setSelectedRecord(record)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedRecord(record);
+                  }
+                }}
+                tabIndex={0}
+                aria-label={`Inspect revoked scholar record for ${record.fullName}`}
+                className="cursor-pointer align-middle transition-colors hover:bg-slate-50/70 focus-visible:bg-slate-50 focus-visible:outline-none"
+              >
                 <td className="px-4 py-4">
-                  <div className="font-semibold text-slate-900">{record.fullName}</div>
-                  {record.email ? <div className="mt-0.5 truncate text-xs text-slate-500">{record.email}</div> : null}
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700">
+                      {getInitials(record.fullName)}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-slate-900">{record.fullName}</div>
+                      {record.email ? <div className="mt-0.5 truncate text-xs text-slate-500">{record.email}</div> : null}
+                    </div>
+                  </div>
                 </td>
                 <td className="px-4 py-4">{record.sitio || "—"}</td>
-                <td className="whitespace-nowrap px-4 py-4 text-slate-600">{formatDate(record.dateRevoked)}</td>
-                <td className="whitespace-normal px-4 py-4 text-slate-600">{record.reason || "No reason recorded"}</td>
+                <td className="whitespace-nowrap px-4 py-4 text-slate-600">{formatDate(record.revokedAt)}</td>
+                <td className="px-4 py-4">
+                  <p className="line-clamp-2 max-w-md text-sm text-slate-600">{record.reason || "No reason recorded"}</p>
+                </td>
+                <td className="px-4 py-4">
+                  <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ring-inset ${
+                    record.isPermanentlyBarred
+                      ? "bg-rose-50 text-rose-700 ring-rose-600/20"
+                      : "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
+                  }`}>
+                    {record.isPermanentlyBarred ? "Permanently Barred" : "Eligible to Reapply"}
+                  </span>
+                </td>
+                <td className="px-4 py-4 text-right">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRecord(record)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-xs transition-colors hover:bg-slate-50 hover:text-slate-900"
+                  >
+                    <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                    Inspect
+                  </button>
+                </td>
               </tr>
             ))}
             {records.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-6 py-12 text-center text-sm text-slate-500">
+                <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
                   No revoked grantees match your search.
                 </td>
               </tr>
@@ -143,6 +199,11 @@ export default function RevokedGranteesTable({
         pageSize={pageSize}
         basePath="/admin/skeap/revoked"
         startNavigation={startTransition}
+      />
+      <RevokedScholarInspectionModal
+        key={selectedRecord?.id ?? "closed"}
+        record={selectedRecord}
+        onClose={() => setSelectedRecord(null)}
       />
     </>
   );

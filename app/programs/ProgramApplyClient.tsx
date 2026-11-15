@@ -3,20 +3,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, X } from "lucide-react";
+import { CheckCircle2, LoaderCircle, X } from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
 import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-profile-client";
 import { useAuth } from "@/app/components/AuthProvider";
 import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 import { createBrowserClient } from "@/lib/supabase/browser";
 import { getSkeapRequiredDocuments } from "@/lib/skeap-upload";
-import type { SkeapEducationLevel } from "@/lib/skeap-education";
+import type { SkeapUploadKey, SkeapUploadValue } from "@/lib/skeap-upload";
+import type { SkeapEducationLevel, SkeapEducationLevelCode } from "@/lib/skeap-education";
 import AccountRequiredModal from "@/app/components/AccountRequiredModal";
-import { handleSkeapApply } from "@/lib/skeap-application-guard";
+import { handleSkeapApply } from "@/lib/skeap-application-client";
 import VerificationModal from "@/app/components/VerificationModal";
 
 type Props = {
   slug: string;
+  initialActiveEducationLevels: readonly SkeapEducationLevelCode[];
+  waitlistStatus?: {
+    isWaitlisted: boolean;
+    queuePosition: number | null;
+    totalWaitlisted: number;
+    isCycleClosedAndFull: boolean;
+  };
 };
 
 type ProgramStatus = {
@@ -27,6 +35,7 @@ type ProgramStatus = {
   activeScholarsCount?: number;
   maxSlots?: number | null;
   remainingSlots?: number;
+  isCycleClosedAndFull?: boolean;
 };
 
 const PROGRAM_STATUS_CACHE_TTL = 5 * 60 * 1000;
@@ -69,7 +78,16 @@ function prefetchProgramStatus(slug: string) {
   void fetchProgramStatus(slug).catch(() => undefined);
 }
 
-export default function ProgramApplyClient({ slug }: Props) {
+export default function ProgramApplyClient({
+  slug,
+  initialActiveEducationLevels,
+  waitlistStatus = {
+    isWaitlisted: false,
+    queuePosition: null,
+    totalWaitlisted: 0,
+    isCycleClosedAndFull: false,
+  },
+}: Props) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [open, setOpen] = useState(false);
@@ -84,11 +102,23 @@ export default function ProgramApplyClient({ slug }: Props) {
   const [applyError, setApplyError] = useState<string | null>(null);
   const [status, setStatus] = useState<ProgramStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const [skeapEligibility, setSkeapEligibility] = useState<
+    "unchecked" | "eligible" | "barred" | "unavailable"
+  >("unchecked");
+  const [eligibilityEmail, setEligibilityEmail] = useState<string | null>(null);
+  const [skeapEligibilityMessage, setSkeapEligibilityMessage] = useState<string | null>(null);
+  const [hasPriorRevocation, setHasPriorRevocation] = useState(false);
+  const [initialUploadedFiles, setInitialUploadedFiles] = useState<
+    Partial<Record<SkeapUploadKey, SkeapUploadValue>>
+  >({});
   const [footerActionsTarget, setFooterActionsTarget] = useState<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [submittedReference, setSubmittedReference] = useState<string | null>(null);
   const [educationLevel, setEducationLevel] = useState<SkeapEducationLevel | "">("");
   const [yearLevel, setYearLevel] = useState("");
+  const isAuthenticated = Boolean(user);
+  const currentSkeapEligibility =
+    user?.email && user.email === eligibilityEmail ? skeapEligibility : "unchecked";
   const [applicantEligibility, setApplicantEligibility] = useState<{
     age: number;
     registeredVoter: boolean | null;
@@ -121,6 +151,12 @@ export default function ProgramApplyClient({ slug }: Props) {
   }
 
   async function openApplyFlow(skipKkCheck = false) {
+    if (currentSkeapEligibility === "barred") return;
+    if (currentSkeapEligibility === "unavailable") {
+      setApplyError("Unable to verify SKEAP eligibility. Please refresh the page and try again.");
+      return;
+    }
+
     try {
       const supabase = createBrowserClient();
       const {
@@ -209,6 +245,11 @@ export default function ProgramApplyClient({ slug }: Props) {
 
   async function handleApplyClick() {
     if (isApplying) return;
+    if (currentSkeapEligibility === "barred") return;
+    if (currentSkeapEligibility !== "eligible" && user) {
+      setApplyError("SKEAP eligibility is still being verified. Please try again shortly.");
+      return;
+    }
 
     setIsApplying(true);
     setApplyError(null);
@@ -233,7 +274,54 @@ export default function ProgramApplyClient({ slug }: Props) {
   }, [authLoading, slug, user?.email]);
 
   useEffect(() => {
-    if (authLoading || autoApplyHandled.current) return;
+    if (authLoading) return;
+    const userEmail = user?.email;
+    if (!userEmail) return;
+
+    let active = true;
+    fetch("/api/skeap/applications", { cache: "no-store", credentials: "same-origin" })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result?.error || "Unable to verify SKEAP eligibility.");
+        if (typeof result?.eligibility?.eligible !== "boolean") {
+          throw new Error("SKEAP eligibility response is incomplete.");
+        }
+        if (active) {
+          setEligibilityEmail(userEmail);
+          setSkeapEligibility(result.eligibility.eligible ? "eligible" : "barred");
+          setSkeapEligibilityMessage(
+            result.eligibility.eligible ? null : result.eligibility.message,
+          );
+          setHasPriorRevocation(result.hasPriorRevocation === true);
+          setInitialUploadedFiles(
+            result.initialUploadedFiles && typeof result.initialUploadedFiles === "object"
+              ? result.initialUploadedFiles
+              : {},
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("Unable to verify SKEAP reapplication eligibility:", error);
+        if (active) {
+          setEligibilityEmail(userEmail);
+          setSkeapEligibility("unavailable");
+          setSkeapEligibilityMessage(null);
+          setHasPriorRevocation(false);
+          setInitialUploadedFiles({});
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, user?.email]);
+
+  useEffect(() => {
+    if (
+      authLoading ||
+      autoApplyHandled.current ||
+      (isAuthenticated && currentSkeapEligibility === "unchecked")
+    ) return;
 
     let autoApplyTimer: number | undefined;
     try {
@@ -255,7 +343,7 @@ export default function ProgramApplyClient({ slug }: Props) {
     };
   // The auth-ready guard and handled ref ensure the URL action runs once for the resolved user.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user?.email]);
+  }, [authLoading, currentSkeapEligibility, isAuthenticated]);
 
   useEffect(() => {
     if (!open) return;
@@ -291,25 +379,92 @@ export default function ProgramApplyClient({ slug }: Props) {
   const isOpen =
     (status?.label || "").toLowerCase().includes("open") ||
     (status?.badge || "").toLowerCase().includes("open");
-  const isWaitlisted = status?.remainingSlots === 0;
+  const isWaitlisted = waitlistStatus.isWaitlisted;
+  const areSlotsFull = status?.remainingSlots === 0;
+  const isCheckingSkeapEligibility =
+    Boolean(user) && currentSkeapEligibility === "unchecked";
+  const isApplyButtonBusy =
+    authLoading || checkingKkProfile || isApplying || isCheckingSkeapEligibility;
+  const applyButtonLabel = checkingKkProfile
+    ? "Checking KK profile..."
+    : isApplying
+      ? "Opening application..."
+      : authLoading
+        ? "Checking account..."
+        : isCheckingSkeapEligibility
+          ? "Checking SKEAP eligibility..."
+        : waitlistStatus.isCycleClosedAndFull
+          ? "SKEAP cycle closed"
+          : currentSkeapEligibility === "barred"
+            ? "Not eligible for SKEAP"
+            : waitlistStatus.isWaitlisted
+              ? "Already on the waitlist"
+            : currentSkeapEligibility === "unavailable"
+              ? "Eligibility unavailable"
+              : "Apply for SKEAP →";
   return (
     <>
       <div className="flex flex-col items-start gap-2">
         <button
+          type="button"
           onMouseEnter={() => {
             prefetchProgramStatus(slug);
             if (!authLoading && !isSkeapTestAccount(user?.email)) prefetchKKProfile();
           }}
           onClick={() => void handleApplyClick()}
-          disabled={checkingKkProfile || isApplying || authLoading}
-          className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
+          aria-busy={isApplyButtonBusy}
+          disabled={
+            checkingKkProfile ||
+            isApplying ||
+            authLoading ||
+            isWaitlisted ||
+            waitlistStatus.isCycleClosedAndFull ||
+            (Boolean(user) && currentSkeapEligibility !== "eligible")
+          }
+          className="inline-flex min-w-[220px] items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
         >
-          {checkingKkProfile
-            ? "Checking KK profile..."
-            : isApplying
-              ? "Opening application..."
-              : "Apply for SKEAP →"}
+          {isApplyButtonBusy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+          {applyButtonLabel}
         </button>
+        {currentSkeapEligibility === "barred" ? (
+          <p role="alert" className="max-w-sm rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            {skeapEligibilityMessage ||
+              "You are permanently ineligible to reapply for SKEAP due to a prior conduct or disciplinary revocation."}
+          </p>
+        ) : null}
+        {isWaitlisted ? (
+          waitlistStatus.isCycleClosedAndFull ? (
+            <section aria-label="Final SKEAP waitlist status" className="w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+              <span className="inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-slate-700">
+                Final Queue Position: #{waitlistStatus.queuePosition ?? "—"}
+              </span>
+              <p className="mt-3 text-sm font-semibold text-slate-800">
+                Thank you for applying. The slots are already full and closed.
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                Your final position in the waitlist queue was #{waitlistStatus.queuePosition ?? "—"} of {waitlistStatus.totalWaitlisted}.
+              </p>
+            </section>
+          ) : (
+            <section aria-label="SKEAP waitlist status" className="w-full max-w-sm rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+              <span className="inline-flex rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-amber-800">
+                Queue Position: #{waitlistStatus.queuePosition ?? "—"}
+              </span>
+              <p className="mt-3 text-sm leading-relaxed text-amber-900">
+                All slots are currently filled. You are <strong>#{waitlistStatus.queuePosition ?? "—"}</strong> in the waitlist queue, and we will notify you if a slot opens up.
+              </p>
+            </section>
+          )
+        ) : waitlistStatus.isCycleClosedAndFull ? (
+          <p role="status" className="max-w-sm rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            The slots are already full and closed for this SKEAP cycle. Please check Application Status for updates.
+          </p>
+        ) : null}
+        {currentSkeapEligibility === "unavailable" ? (
+          <p role="alert" className="max-w-sm rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            We could not verify your SKEAP eligibility. Refresh the page to try again.
+          </p>
+        ) : null}
         {applyError ? (
           <p role="alert" className="max-w-[220px] text-sm text-rose-700">
             {applyError}
@@ -469,16 +624,19 @@ export default function ProgramApplyClient({ slug }: Props) {
                 </span>
                 <h2 className="mb-2 text-xl font-black text-slate-900 sm:text-2xl">Application Submitted Successfully</h2>
                 <p className="mb-5 max-w-md text-sm leading-relaxed text-slate-500">
-                  Your SKEAP application has been securely logged. You can now monitor your review status and track document verification on your dashboard.
+                  Your application is now awaiting administrative review. After an admin pre-qualifies your digital documents, you will be notified to bring the original documents or Certified True Copies (CTCs) to Barangay Pico Hall for in-person verification. Check Application Status regularly—this is where you will receive review decisions, requests, and other updates.
                 </p>
                 <div className="flex w-full justify-center">
-                  <Link
-                    href={`/applications/${encodeURIComponent(submittedReference)}`}
-                    onClick={() => setOpen(false)}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      router.push(`/applications/${encodeURIComponent(submittedReference)}`);
+                      setOpen(false);
+                    }}
                     className="mx-auto rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700"
                   >
-                    View application status
-                  </Link>
+                    View Application Status
+                  </button>
                 </div>
               </div>
             ) : (
@@ -503,12 +661,16 @@ export default function ProgramApplyClient({ slug }: Props) {
                       </div>
                     ) : typeof status?.maxSlots === "number" &&
                       typeof status.remainingSlots === "number" ? (
-                      isWaitlisted ? (
-                        <p>
-                          All <strong className="font-bold text-slate-900">{status.maxSlots}</strong> slots are currently
-                          filled. You can still apply to be placed on the waitlist, and we will contact you if new slots
-                          open up.
-                        </p>
+                      areSlotsFull ? (
+                        status.isCycleClosedAndFull ? (
+                          <p>The SKEAP application cycle is closed. New waitlist applications are no longer being accepted.</p>
+                        ) : (
+                          <p>
+                            All <strong className="font-bold text-slate-900">{status.maxSlots}</strong> slots are currently
+                            filled. You can still apply to be placed on the waitlist, and we will contact you if new slots
+                            open up.
+                          </p>
+                        )
                       ) : (
                         <p>
                           <strong className="font-bold text-slate-900">{status.remainingSlots}</strong>{" "}
@@ -600,12 +762,15 @@ export default function ProgramApplyClient({ slug }: Props) {
                   <SkeapApplicationWizard
                     educationLevel={educationLevel}
                     onEducationLevelChange={setEducationLevel}
+                    initialActiveEducationLevels={initialActiveEducationLevels}
                     yearLevel={yearLevel}
                     onYearLevelChange={setYearLevel}
                     requiredDocuments={requiredDocuments}
                     footerActionsTarget={footerActionsTarget}
                     scrollContainerRef={scrollContainerRef}
                     userProfile={userProfile}
+                    hasPriorRevocation={hasPriorRevocation}
+                    initialUploadedFiles={initialUploadedFiles}
                     onEligibilityChange={handleEligibilityChange}
                     allowManualProfileDetails={isSkeapTestAccount(user?.email)}
                     onSubmitted={setSubmittedReference}

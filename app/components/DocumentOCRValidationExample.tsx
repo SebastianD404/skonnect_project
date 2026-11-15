@@ -228,7 +228,10 @@ export function DocumentUploadCard({
       .split(",")
       .map((type) => type.trim().toLowerCase())
       .filter((type) => type.startsWith("image/") || type.startsWith("application/"));
-    if (!acceptedTypes.includes(file.type.toLowerCase())) {
+    const fileType = file.type.toLowerCase();
+    const isGenericJfif = /\.jfif$/i.test(file.name) &&
+      (!fileType || fileType === "application/octet-stream");
+    if (!acceptedTypes.includes(fileType) && !isGenericJfif) {
       setSelectedFile(null);
       onUpload(null);
       setFileError(`Choose a file in these formats: ${acceptedFormats}.`);

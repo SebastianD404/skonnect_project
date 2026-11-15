@@ -125,6 +125,7 @@ export async function GET(
 
 function getInlineContentType(contentType: string | null, extension: string) {
   const normalizedType = contentType?.split(";")[0].toLowerCase();
+  if (normalizedType === "image/jfif") return "image/jpeg";
   if (
     normalizedType &&
     ["application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp"].includes(normalizedType)
@@ -134,7 +135,7 @@ function getInlineContentType(contentType: string | null, extension: string) {
 
   if (extension === "pdf") return "application/pdf";
   if (extension === "gif") return "image/gif";
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "jpg" || extension === "jpeg" || extension === "jfif") return "image/jpeg";
   if (extension === "png") return "image/png";
   if (extension === "webp") return "image/webp";
   return null;

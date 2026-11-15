@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     const contentType = getSupportedSkeapDocumentType(file);
     if (!contentType) {
       return NextResponse.json(
-        { error: "Only PDF, JPG, PNG, and WebP files are allowed." },
+        { error: "Only PDF, JPG/JFIF, PNG, and WebP files are allowed." },
         { status: 400 }
       );
     }
@@ -77,7 +77,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File size must not exceed 15MB" }, { status: 400 });
     }
 
-    const { path, url } = await uploadPrivateDocument(user.id, file, "skeap-applications");
+    const uploadFile = file.type === contentType
+      ? file
+      : new File([file], file.name, { type: contentType, lastModified: file.lastModified });
+    const { path, url } = await uploadPrivateDocument(user.id, uploadFile, "skeap-applications");
 
     return NextResponse.json({ success: true, url, path });
   } catch (error) {

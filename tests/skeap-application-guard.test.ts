@@ -1,13 +1,142 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildIdentityFingerprint,
+  findBanWatchlistMatch,
+  DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS,
+  getActiveSkeapEducationLevels,
+  getSkeapEducationLevelGuardError,
+  getSkeapReapplicationEligibility,
   getSkeapSubmissionGuardError,
-  handleSkeapApply,
+  isPermanentlyBarredFromSkeap,
 } from "@/lib/skeap-application-guard";
+import { handleSkeapApply } from "@/lib/skeap-application-client";
 import { SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
+
+describe("getSkeapEducationLevelGuardError", () => {
+  it("allows categories enabled for the cycle and rejects inactive Tech-Voc", () => {
+    expect(getSkeapEducationLevelGuardError("College")).toBeNull();
+    expect(getSkeapEducationLevelGuardError("Technical and Vocational (Tech-Voc)"))
+      .toContain("not open for the current SKEAP cycle");
+    expect(getSkeapEducationLevelGuardError(
+      "Technical and Vocational (Tech-Voc)",
+      ["JUNIOR_HIGH", "TECH_VOC"],
+    )).toBeNull();
+  });
+});
+
+describe("getActiveSkeapEducationLevels", () => {
+  it("normalizes configured enum keys and display labels", async () => {
+    await expect(getActiveSkeapEducationLevels(async () => [
+      "COLLEGE",
+      "Technical and Vocational (Tech-Voc)",
+      "COLLEGE",
+    ])).resolves.toEqual(["COLLEGE", "TECH_VOC"]);
+  });
+
+  it("uses the default categories when lookup is empty or fails", async () => {
+    await expect(getActiveSkeapEducationLevels(async () => [])).resolves.toEqual(
+      DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS,
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(getActiveSkeapEducationLevels(async () => {
+      throw new Error("config unavailable");
+    })).resolves.toEqual(DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS);
+    expect(errorSpy).toHaveBeenCalledOnce();
+    errorSpy.mockRestore();
+  });
+});
 
 describe("handleSkeapApply", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  describe("SKEAP identity disqualification matching", () => {
+    const barredRecord = {
+      id: "revoked-1",
+      userId: "previous-user",
+      kkProfileId: "previous-profile",
+      identityFingerprint: null,
+      isPermanentlyDisqualified: true,
+      reason: "Acts unbecoming",
+      fullName: "Doe, Jane Marie",
+      revokedAt: "2025-06-01T00:00:00.000Z",
+      firstName: "Jane",
+      middleName: "Marie",
+      lastName: "Doe",
+      dateOfBirth: new Date("2008-07-14T00:00:00.000Z"),
+    };
+
+    it("normalizes the exact civil-registry key and loose last-name/date key", () => {
+      expect(buildIdentityFingerprint({
+        firstName: " Jane-Anne ",
+        middleName: "M. Marie",
+        lastName: " D'oe ",
+        dateOfBirth: new Date("2008-07-14T00:00:00.000Z"),
+      })).toEqual({
+        exact: "DOE|JANEANNE|MMARIE|2008-07-14",
+        loose: "DOE|2008-07-14",
+      });
+    });
+
+    it("blocks direct, linked-profile, and exact-identity matches", () => {
+      expect(getSkeapReapplicationEligibility([barredRecord], {
+        userId: "previous-user",
+      })).toMatchObject({ eligible: false, reason: "PERMANENTLY_DISQUALIFIED" });
+      expect(getSkeapReapplicationEligibility([barredRecord], {
+        userId: "new-user",
+        kkProfileId: "previous-profile",
+      })).toMatchObject({ eligible: false, reason: "PERMANENTLY_DISQUALIFIED" });
+      expect(getSkeapReapplicationEligibility([barredRecord], {
+        userId: "new-user",
+        firstName: "Jane",
+        middleName: "Marie",
+        lastName: "Doe",
+        dateOfBirth: "2008-07-14",
+      })).toMatchObject({
+        eligible: false,
+        reason: "PERMANENTLY_DISQUALIFIED",
+        message: expect.stringContaining("permanently ineligible"),
+      });
+      expect(getSkeapReapplicationEligibility([barredRecord], {
+        userId: "another-user",
+        firstName: "John",
+        lastName: "Smith",
+        dateOfBirth: "2008-07-14",
+      })).toEqual({ eligible: true });
+    });
+
+    it("returns a watchlist record for last-name/date or first-and-last near matches only", () => {
+      expect(findBanWatchlistMatch([barredRecord], {
+        userId: "new-user",
+        firstName: "Janet",
+        lastName: "Doe",
+        dateOfBirth: "2008-07-14",
+      })).toMatchObject({ id: "revoked-1", fullName: "Doe, Jane Marie" });
+      expect(findBanWatchlistMatch([barredRecord], {
+        userId: "new-user",
+        firstName: "Jane",
+        lastName: "Doe",
+        dateOfBirth: "2009-01-01",
+      })).toMatchObject({ id: "revoked-1" });
+      expect(findBanWatchlistMatch([barredRecord], {
+        userId: "new-user",
+        firstName: "Jane",
+        middleName: "Marie",
+        lastName: "Doe",
+        dateOfBirth: "2008-07-14",
+      })).toBeNull();
+    });
+  });
+
+  describe("isPermanentlyBarredFromSkeap", () => {
+    it("uses the explicit disqualification flag and legacy reason text", () => {
+      expect(isPermanentlyBarredFromSkeap({ isPermanentlyDisqualified: true, reason: "Low GWA" })).toBe(true);
+      expect(isPermanentlyBarredFromSkeap({ isPermanentlyDisqualified: false, reason: "Act unbecoming of a student" })).toBe(true);
+      expect(isPermanentlyBarredFromSkeap({ isPermanentlyDisqualified: false, reason: "Criminal act" })).toBe(true);
+      expect(isPermanentlyBarredFromSkeap({ isPermanentlyDisqualified: false, reason: "Tampered or falsified documents" })).toBe(true);
+      expect(isPermanentlyBarredFromSkeap({ isPermanentlyDisqualified: false, reason: "Failed to maintain minimum GWA" })).toBe(false);
+    });
   });
 
   describe("getSkeapSubmissionGuardError", () => {
@@ -38,6 +167,16 @@ describe("handleSkeapApply", () => {
       })).toContain("full name");
     });
 
+    it("requires a parent or guardian voter name with at least three trimmed characters", () => {
+      expect(getSkeapSubmissionGuardError({
+        age: 17,
+        registeredVoter: false,
+        parentGuardianRegisteredVoter: true,
+        parentGuardianVoterFullName: " A ",
+        uploadedFiles: requiredUploads,
+      })).toContain("at least 3 characters");
+    });
+
     it.each([
       SKEAP_UPLOAD_KEY.FAMILY_INCOME,
       SKEAP_UPLOAD_KEY.ENROLLMENT_CERT,
@@ -54,6 +193,19 @@ describe("handleSkeapApply", () => {
         parentGuardianVoterFullName: "",
         uploadedFiles: uploadsMissingDocument,
       })).toContain(missingKey);
+    });
+
+    it("requires a voter certificate from a minor applicant using the guardian route", () => {
+      const uploadsMissingVoterCertificate: Record<string, { url: string }> = { ...requiredUploads };
+      delete uploadsMissingVoterCertificate[SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE];
+
+      expect(getSkeapSubmissionGuardError({
+        age: 17,
+        registeredVoter: false,
+        parentGuardianRegisteredVoter: true,
+        parentGuardianVoterFullName: "Parent Guardian",
+        uploadedFiles: uploadsMissingVoterCertificate,
+      })).toContain(SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE);
     });
 
     it("allows eligible submissions with all required uploads", () => {

@@ -5,7 +5,7 @@ import { Download, FileText, Loader2 } from "lucide-react";
 
 type PreviewType = "pdf" | "image" | "unsupported";
 
-const IMAGE_CONTENT_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
+const IMAGE_CONTENT_TYPES = new Set(["image/gif", "image/jpeg", "image/jfif", "image/png", "image/webp"]);
 
 export default function DocumentViewerClient({
   submissionId,
@@ -43,7 +43,7 @@ export default function DocumentViewerClient({
           type = "pdf";
         } else if (
           (contentType && IMAGE_CONTENT_TYPES.has(contentType)) ||
-          (!contentType && ["gif", "jpeg", "jpg", "png", "webp"].includes(extension))
+          (!contentType && ["gif", "jpeg", "jpg", "jfif", "png", "webp"].includes(extension))
         ) {
           type = "image";
         }

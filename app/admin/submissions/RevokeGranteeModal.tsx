@@ -21,7 +21,12 @@ interface RevokeGranteeModalProps {
   revocationSaved?: boolean;
   archiveRefreshFailed?: boolean;
   onClose: () => void;
-  onConfirm: (granteeId: string, reason: SkeapRevocationReason, additionalNotes: string) => void;
+  onConfirm: (
+    granteeId: string,
+    reason: SkeapRevocationReason,
+    additionalNotes: string,
+    isPermanentlyDisqualified: boolean,
+  ) => void;
 }
 
 export default function RevokeGranteeModal({
@@ -39,6 +44,7 @@ export default function RevokeGranteeModal({
 }: RevokeGranteeModalProps) {
   const [reason, setReason] = useState<SkeapRevocationReason | "">("");
   const [additionalNotes, setAdditionalNotes] = useState("");
+  const [isPermanentlyDisqualified, setIsPermanentlyDisqualified] = useState(false);
 
   if (!open) return null;
 
@@ -46,6 +52,7 @@ export default function RevokeGranteeModal({
     if (!submitting) {
       setReason("");
       setAdditionalNotes("");
+      setIsPermanentlyDisqualified(false);
       onClose();
     }
   };
@@ -155,6 +162,18 @@ export default function RevokeGranteeModal({
               className="w-full min-h-24 max-h-40 resize-y overflow-y-auto rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-50"
             />
           </label>
+          <label className="flex items-start gap-3 rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={isPermanentlyDisqualified}
+              onChange={(event) => setIsPermanentlyDisqualified(event.currentTarget.checked)}
+              disabled={submitting || revocationSaved}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+            />
+            <span className="leading-5">
+              Permanent Disqualification (Criminal act or act unbecoming of a student — permanently bars SKEAP reapplication)
+            </span>
+          </label>
         </div>
 
         <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 pt-4">
@@ -169,12 +188,13 @@ export default function RevokeGranteeModal({
           <button
             type="button"
             onClick={() => {
-              if (isSkeapRevocationReason(reason)) {
-                onConfirm(granteeId, reason, additionalNotes.trim());
+              if (reason.trim().length >= 5 && isSkeapRevocationReason(reason)) {
+                onConfirm(granteeId, reason, additionalNotes.trim(), isPermanentlyDisqualified);
               }
             }}
             disabled={
               submitting ||
+              reason.trim().length < 5 ||
               !isSkeapRevocationReason(reason) ||
               (revocationSaved &&
                 (notificationStatus === "SENT" || notificationStatus === "NOT_REQUIRED") &&

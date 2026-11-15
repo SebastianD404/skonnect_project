@@ -4,6 +4,7 @@ import { getProfilingRegistrationCountByStatus, prisma } from "@/lib/prisma";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { skeapPendingApplicationsWhere } from "@/lib/skeap-applications";
+import { getApprovedKkProfileCount } from "@/lib/approved-kk-profile-count";
 
 export type ScholarDistributionAnalytics = {
   totalRegisteredYouth: number;
@@ -12,7 +13,7 @@ export type ScholarDistributionAnalytics = {
   maxSlots: number;
   pendingApplications: number;
   pendingProfilingApplications: number;
-  genderDistribution: {
+  activeGranteeGenderDistribution: {
     male: number;
     female: number;
     notSpecified: number;
@@ -123,11 +124,11 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     " ",
   );
   const [
-    totalRegisteredYouthRows,
     granteeStatusRows,
     capacityUsed,
     maxSlots,
     pendingApplications,
+    totalRegisteredYouth,
     scholarRows,
     populationRows,
     pendingProfilingApplications,
@@ -136,28 +137,6 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     yearLevelRows,
   ] =
     await Promise.all([
-      prisma.$queryRaw<Array<{ count: number }>>`
-        WITH ranked_profiles AS (
-          SELECT
-            registration."id",
-            ROW_NUMBER() OVER (
-              PARTITION BY COALESCE(
-                NULLIF(LOWER(BTRIM(user_record."email")), ''),
-                NULLIF(LOWER(BTRIM(registration."email")), ''),
-                NULLIF(registration."userId", ''),
-                registration."id"
-              )
-              ORDER BY registration."submittedAt" DESC, registration."id" DESC
-            ) AS identity_rank
-          FROM public."kk_profiling_registrations" AS registration
-          LEFT JOIN public."users" AS user_record
-            ON user_record."id" = registration."userId"
-          WHERE registration."reviewStatus" = 'Approved'
-        )
-        SELECT COUNT(*)::int AS count
-        FROM ranked_profiles
-        WHERE identity_rank = 1
-      `,
       prisma.grantee.groupBy({
         by: ["status"],
         _count: { _all: true },
@@ -167,6 +146,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
       prisma.inquiry.count({
         where: skeapPendingApplicationsWhere(currentAcademicYearRange),
       }),
+      getApprovedKkProfileCount(),
       prisma.$queryRaw<Array<{ sitio: string | null; scholars: number }>>`
         WITH skeap_users AS (
           SELECT grantee."userId" AS "userId"
@@ -285,7 +265,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
           ON registration."userId" = grantee."userId"
         LEFT JOIN latest_skeap_application AS application
           ON application."userId" = grantee."userId"
-        WHERE grantee."status" IN ('ACTIVE', 'PROBATIONARY', 'GRADUATED', 'REMOVED', 'REVOKED')
+        WHERE grantee."status" IN ('ACTIVE', 'PROBATIONARY')
         GROUP BY 1
       `,
       prisma.$queryRaw<Array<{ yearLevel: string | null; count: number }>>`
@@ -317,7 +297,6 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
         GROUP BY "yearLevel"
       `,
     ]);
-  const totalRegisteredYouth = totalRegisteredYouthRows[0]?.count ?? 0;
 
   const scholarCountsBySitio = new Map(
     scholarRows.map((row) => [row.sitio?.trim().toLowerCase() ?? "", row.scholars]),
@@ -325,7 +304,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
   const populationCountsBySitio = new Map(
     populationRows.map((row) => [row.sitio?.trim().toLowerCase() ?? "", row.population]),
   );
-  const genderDistribution = normalizeSexDistribution(genderRows);
+  const activeGranteeGenderDistribution = normalizeSexDistribution(genderRows);
   const youthGenderDistribution = normalizeSexDistribution(youthGenderRows);
   const granteeCountsByStatus = new Map(
     granteeStatusRows.map((row) => [row.status, row._count._all]),
@@ -349,7 +328,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     maxSlots,
     pendingApplications,
     pendingProfilingApplications,
-    genderDistribution,
+    activeGranteeGenderDistribution,
     youthGenderDistribution,
     yearLevelDistribution,
     yearLevelBreakdowns,

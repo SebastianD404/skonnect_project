@@ -23,6 +23,7 @@ import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import type { AcademicTermWindow } from "@/lib/academic-term-schedule";
 import { ADMIN_TABLE_PAGE_SIZES, DEFAULT_ADMIN_TABLE_PAGE_SIZE } from "@/lib/admin-pagination";
+import AdminPaginationControls from "../AdminPaginationControls";
 
 interface SubmissionRow {
   id: string;
@@ -168,8 +169,8 @@ function DocumentCard({
         if (contentType === "application/pdf" || (!contentType && extension === "pdf")) {
           setPreviewType("pdf");
         } else if (
-          (contentType && ["image/gif", "image/jpeg", "image/png", "image/webp"].includes(contentType)) ||
-          (!contentType && ["gif", "jpeg", "jpg", "png", "webp"].includes(extension))
+          (contentType && ["image/gif", "image/jpeg", "image/jfif", "image/png", "image/webp"].includes(contentType)) ||
+          (!contentType && ["gif", "jpeg", "jpg", "jfif", "png", "webp"].includes(extension))
         ) {
           setPreviewType("image");
         } else {
@@ -715,6 +716,7 @@ export default function SubmissionReviewTable() {
     granteeId: string,
     reason: string,
     additionalNotes: string,
+    isPermanentlyDisqualified: boolean,
   ) {
     if (!selectedSubmission || selectedSubmission.grantee.id !== granteeId || isSaving || !reason) return;
 
@@ -726,7 +728,7 @@ export default function SubmissionReviewTable() {
       const response = await fetch(`/api/admin/submissions/${selectedSubmission.id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "REVOKE", reason, additionalNotes }),
+        body: JSON.stringify({ action: "REVOKE", reason, additionalNotes, isPermanentlyDisqualified }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -937,14 +939,18 @@ export default function SubmissionReviewTable() {
               </div>
             </div>
 
-            <div className="mt-auto flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 p-4">
-              <span className="text-xs font-medium text-slate-500">
-                Showing {pageRangeStart}–{pageRangeEnd} of {responseData.totalCount} {activeTabRecordLabel}
-              </span>
+            <div className="mt-auto flex shrink-0 flex-wrap items-center justify-between gap-4 border-t border-slate-200/80 px-5 py-3.5">
+              <p className="inline-flex h-8 items-center gap-1.5 text-xs text-slate-500 tabular-nums">
+                <span>Showing</span>
+                <span className="font-semibold text-slate-900">{pageRangeStart}–{pageRangeEnd}</span>
+                <span>of</span>
+                <span className="font-semibold text-slate-900">{responseData.totalCount.toLocaleString()}</span>
+                <span>{activeTabRecordLabel}</span>
+              </p>
               {responseData.totalPages > 1 ? (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <label className="flex items-center gap-2 text-[11px] text-slate-500">
-                    <span>Rows</span>
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="inline-flex h-8 items-center gap-2 border-l border-slate-200 pl-4 text-xs text-slate-500">
+                    <span>Rows per page</span>
                     <select
                       aria-label="Rows per page"
                       value={pageSize}
@@ -955,33 +961,25 @@ export default function SubmissionReviewTable() {
                         setIsMobileReviewOpen(false);
                         setIsLoading(true);
                       }}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-700"
+                      className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700"
                     >
                       {ADMIN_TABLE_PAGE_SIZES.map((size) => (
                         <option key={size} value={size}>{size}</option>
                       ))}
                     </select>
                   </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={isLoading || page <= 1}
-                      onClick={() => { setPage((current) => current - 1); setIsLoading(true); }}
-                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                    >
-                      Previous
-                    </button>
-                    <span className="whitespace-nowrap text-[10px] text-slate-500">{page} / {responseData.totalPages}</span>
-                    <button
-                      type="button"
-                      disabled={isLoading || page >= responseData.totalPages}
-                      onClick={() => { setPage((current) => current + 1); setIsLoading(true); }}
-                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                    >
-                      Next
-                    </button>
-                  </div>
                 </div>
+              ) : null}
+              {responseData.totalPages > 1 ? (
+                <AdminPaginationControls
+                  page={page}
+                  totalPages={responseData.totalPages}
+                  onPageChange={(nextPage) => {
+                    setPage(nextPage);
+                    setIsLoading(true);
+                  }}
+                  disabled={isLoading}
+                />
               ) : null}
             </div>
           </aside>
@@ -1133,8 +1131,8 @@ export default function SubmissionReviewTable() {
         submitting={isSaving}
         error={actionError}
         onClose={() => setIsRevokeModalOpen(false)}
-        onConfirm={(granteeId, reason, additionalNotes) => {
-          void revokeSelectedGrantee(granteeId, reason, additionalNotes);
+        onConfirm={(granteeId, reason, additionalNotes, isPermanentlyDisqualified) => {
+          void revokeSelectedGrantee(granteeId, reason, additionalNotes, isPermanentlyDisqualified);
         }}
       />
     </section>

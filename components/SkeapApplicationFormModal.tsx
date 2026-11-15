@@ -31,7 +31,11 @@ type ApplicationFormModalProps = {
     emailAddress?: string;
     photoFileUrl?: string;
     uploadedFiles?: unknown;
+    grades?: Array<{ subject?: string; grade?: string | number }>;
+    timeline?: { years?: number; semestersPerYear?: number[]; labels?: string[] } | null;
   };
+  statusBadge?: string;
+  embedded?: boolean;
 };
 
 function formatDateOfBirth(value: string) {
@@ -47,7 +51,14 @@ function formatDateOfBirth(value: string) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
-export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHref, application }: ApplicationFormModalProps) {
+export default function SkeapApplicationFormModal({
+  isOpen,
+  onClose,
+  downloadHref,
+  application,
+  statusBadge,
+  embedded = false,
+}: ApplicationFormModalProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -142,12 +153,17 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 px-4 py-6">
-      <div className="mx-auto w-full max-w-5xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+    <div className={embedded ? "w-full" : "fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 px-4 py-6"}>
+      <div className={embedded ? "w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" : "mx-auto w-full max-w-5xl overflow-hidden rounded-[2rem] bg-white shadow-2xl"}>
         <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-6 py-5">
           <div>
             <p className="text-xs uppercase tracking-[0.32em] text-slate-500">Application Form</p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-950">Full application overview</h2>
+            {statusBadge ? (
+              <span className="mt-2 inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-semibold text-rose-700">
+                {statusBadge}
+              </span>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             {downloadHref ? (
@@ -167,13 +183,15 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
                 )}
               </button>
             ) : null}
-            <button onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
-              <X className="h-5 w-5" />
-            </button>
+            {!embedded ? (
+              <button onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+                <X className="h-5 w-5" />
+              </button>
+            ) : null}
           </div>
         </div>
 
-        <div className="max-h-[calc(100vh-8rem)] space-y-6 overflow-y-auto bg-slate-50 px-6 py-6">
+        <div className={`space-y-6 overflow-y-auto bg-slate-50 px-4 py-4 sm:px-6 sm:py-6 ${embedded ? "" : "max-h-[calc(100vh-8rem)]"}`}>
           <div className="flex flex-col items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:gap-4">
             {photoUrl ? (
               <img src={photoUrl} alt="Applicant ID photo" className="h-24 w-24 shrink-0 rounded-full object-cover shadow-sm" />
@@ -218,7 +236,7 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
           </div>
 
             {/* Grades & GWA */}
-            {Array.isArray((application as any)?.grades) && (application as any).grades.length > 0 ? (
+            {application?.grades?.length ? (
               <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
                   <div>
@@ -226,13 +244,13 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
                     <p className="mt-1 text-sm text-slate-600">Subjects and manually entered grades</p>
                   </div>
                   <div className="text-sm font-semibold text-slate-700">
-                    GWA: {application?.gwa ?? computeAverageFromGrades((application as any).grades) ?? "—"}
+                    GWA: {application.gwa ?? computeAverageFromGrades(application.grades) ?? "—"}
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-2">
-                  {(application as any).grades.map((row: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between rounded-3xl border border-slate-100 p-3">
+                  {application.grades.map((row, idx) => (
+                    <div key={`${row.subject ?? "subject"}-${idx}`} className="flex items-center justify-between rounded-3xl border border-slate-100 p-3">
                       <div className="text-sm text-slate-900">{row?.subject ?? "—"}</div>
                       <div className="text-sm font-semibold text-slate-900">{row?.grade ?? "—"}</div>
                     </div>
@@ -242,13 +260,13 @@ export default function SkeapApplicationFormModal({ isOpen, onClose, downloadHre
             ) : null}
 
             {/* Course timeline */}
-            {(application as any)?.timeline ? (
+            {application?.timeline ? (
               <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="text-xs uppercase tracking-[0.32em] text-slate-500">Application timeline</p>
                 <p className="mt-1 text-sm text-slate-600">Course progress timeline submitted by the applicant.</p>
                 <div className="mt-4 grid gap-3">
                   {(() => {
-                    const tl = (application as any).timeline as { years?: number; semestersPerYear?: number[]; labels?: string[] };
+                    const tl = application.timeline;
                     const labels = Array.isArray(tl?.labels) ? tl.labels : Array.from({ length: tl?.years || 0 }).map((_, i) => `Year ${i + 1}`);
                     const sems = Array.isArray(tl?.semestersPerYear) ? tl.semestersPerYear : Array.from({ length: tl?.years || 0 }).map(() => 2);
                     return labels.map((label: string, i: number) => (

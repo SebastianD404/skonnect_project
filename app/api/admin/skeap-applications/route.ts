@@ -11,6 +11,7 @@ import {
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
+import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
 
 const PAGE_SIZE = 15;
 
@@ -102,7 +103,7 @@ export async function GET(request: NextRequest) {
           capacityFull: activeGranteeCount >= maxSlots,
         }));
 
-    const [inquiries, metrics] = await Promise.all([
+    const [inquiries, metrics, permanentRecords] = await Promise.all([
       prisma.inquiry.findMany({
         where: {
           ...baseWhere,
@@ -117,6 +118,7 @@ export async function GET(request: NextRequest) {
         select: SKEAP_APPLICATION_SELECT,
       }),
       metricsPromise,
+      getPermanentlyDisqualifiedSkeapRecords(),
     ]);
 
     const hasNextPage = inquiries.length > PAGE_SIZE;
@@ -124,7 +126,9 @@ export async function GET(request: NextRequest) {
     const lastInquiry = page[page.length - 1];
 
     return NextResponse.json({
-      applications: page.map(mapInquiryToApplication),
+      applications: page.map((inquiry) =>
+        mapInquiryToApplication(inquiry, permanentRecords)
+      ),
       counts: metrics?.counts,
       capacityFull: metrics?.capacityFull,
       hasNextPage,

@@ -6,9 +6,6 @@ import {
   generateSkeapApplicationDocx,
 } from "@/lib/docx/skeap-application-template";
 
-const signaturePng =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAIAAAACUFjqAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4QIJBywfp3IOswAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAAAkUlEQVQY052PMQqDQBREZ1f/d1kUm3SxkeAF/FdIjpOcw2vpKcRWCwsRPMFPsaIQSIoMr5pXDGNUFd9j8TOn7kRW71fvO5HTq6qqtnWtzh20IqE3YXtL0zyKwAROQLQ5l/c9gHjfKK6wMZjADE6s49Dver4/smEAc2CuqgwAYI5jU9NcxhHEy60sni986H9+vwG1yDHfK1jitgAAAABJRU5ErkJggg==";
-
 describe("SKEAP application DOCX", () => {
   it("prefers the uploaded 2x2 photo over the account avatar path", () => {
     expect(getSkeapProfilePhotoCandidates(
@@ -29,25 +26,20 @@ describe("SKEAP application DOCX", () => {
     ]);
   });
 
-  it("embeds the applicant signature PNG and renders the printed name", async () => {
+  it("keeps the printable applicant signature line blank", async () => {
     const output = await generateSkeapApplicationDocx({
       applicantName: "Applicant, First Middle",
-      signatureUrl: signaturePng,
     }, {
       fullName: "Profile Name Without Middle",
     });
     const document = new PizZip(output);
     const documentXml = document.file("word/document.xml")?.asText() ?? "";
-    const mediaFiles = Object.keys(document.files).filter((name) =>
-      name.startsWith("word/media/")
-    );
 
-    expect(documentXml).not.toContain("{%applicantSignature}");
+    expect(documentXml).toContain("____________________");
     expect(documentXml).toContain("Profile Name Without Middle");
-    expect(mediaFiles.some((name) => name.endsWith(".png"))).toBe(true);
   });
 
-  it("keeps the normal applicant name casing and exposes an uppercase signature name", () => {
+  it("keeps the normal applicant name casing and exposes an uppercase name", () => {
     const templateData = buildSkeapApplicationTemplateData(
       { applicantName: "Applicant, First Middle" },
       {},
@@ -56,7 +48,6 @@ describe("SKEAP application DOCX", () => {
 
     expect(templateData.applicantName).toBe("Applicant, First Middle");
     expect(templateData.applicantNameUpper).toBe("APPLICANT, FIRST MIDDLE");
-    expect(templateData.applicantSignature).toBeNull();
   });
 
   it("title-cases free-text fields while preserving email and exact-value casing", () => {

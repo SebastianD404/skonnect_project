@@ -19,6 +19,13 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
+import {
+  DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS,
+  getActiveSkeapEducationLevels,
+} from "@/lib/skeap-application-guard";
+import { getWaitlistQueuePosition } from "@/lib/skeap-applications";
+import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
+import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 
 const overviewIcons = [BarChart3, FileCheck2, Headset];
 const actionRowClass =
@@ -266,6 +273,9 @@ export default async function ProgramPage({ params }: Props) {
   const { slug: rawSlug } = await params;
   const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
   const data = slug ? PROGRAMS[slug] : undefined;
+  const activeEducationLevels = slug === "skeap-scholarship"
+    ? await getActiveSkeapEducationLevels()
+    : [...DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS];
 
   // Determine current user's role (server-side). If not signed in or role is
   // `YOUTH`, we will hide board-only program status details.
@@ -316,6 +326,39 @@ export default async function ProgramPage({ params }: Props) {
 
   const showStatusSection = Boolean(appUser && appUser.role !== Role.YOUTH);
   const status = slug && showStatusSection ? await getProgramStatus(slug) : null;
+  let waitlistStatus = {
+    isWaitlisted: false,
+    queuePosition: null as number | null,
+    totalWaitlisted: 0,
+    isCycleClosedAndFull: false,
+  };
+  if (slug === "skeap-scholarship") {
+    const cycle = getCurrentAcademicYear();
+    const cycleRange = getAcademicYearDateRange(cycle);
+    if (!cycleRange) throw new Error("Unable to determine the active SKEAP cycle.");
+    const cycleState = await getSkeapWaitlistCycleState(cycle);
+    waitlistStatus.isCycleClosedAndFull = cycleState.isClosed;
+    if (appUser) {
+      const waitlistedApplication = await prisma.skeapApplication.findFirst({
+        where: {
+          userId: appUser.id,
+          status: "WAITLISTED",
+          submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
+        },
+        orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+      if (waitlistedApplication) {
+        const queue = await getWaitlistQueuePosition(waitlistedApplication.id, cycle);
+        waitlistStatus = {
+          isWaitlisted: true,
+          queuePosition: queue?.position ?? null,
+          totalWaitlisted: queue?.totalWaitlisted ?? cycleState.totalWaitlisted,
+          isCycleClosedAndFull: cycleState.isClosed,
+        };
+      }
+    }
+  }
 
   if (!data) {
     return (
@@ -391,7 +434,11 @@ export default async function ProgramPage({ params }: Props) {
 
             {slug !== "kk-profiling" && (
               <div className="flex flex-wrap gap-3">
-                <ProgramApplyClient slug={slug} />
+                <ProgramApplyClient
+                  slug={slug}
+                  initialActiveEducationLevels={activeEducationLevels}
+                  waitlistStatus={waitlistStatus}
+                />
                 <ProgramActionButton
                   action="admin-inquiry"
                   className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
@@ -698,7 +745,11 @@ export default async function ProgramPage({ params }: Props) {
                     ) : cta.href === "/signup" ? (
                       supabaseUser ? (
                         <div key={cta.href} className={actionRowClass}>
-                          <ProgramApplyClient slug={slug} />
+                          <ProgramApplyClient
+                            slug={slug}
+                            initialActiveEducationLevels={activeEducationLevels}
+                            waitlistStatus={waitlistStatus}
+                          />
                         </div>
                       ) : (
                         <Link
