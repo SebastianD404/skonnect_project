@@ -147,12 +147,9 @@ export default async function SystemAdminDashboardPage() {
           </div>
         </Link>
 
-        <Link
-          href="/system-admin/reconcile"
-          className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md sm:rounded-3xl sm:p-5"
-        >
+        <div className="flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm sm:rounded-3xl sm:p-5">
           <div className="flex items-center justify-between">
-            <span className="min-w-0 truncate text-[10px] font-bold tracking-wider text-slate-400 uppercase transition-colors group-hover:text-emerald-600 sm:text-[11px] sm:tracking-widest">
+            <span className="min-w-0 truncate text-[10px] font-bold tracking-wider text-slate-400 uppercase sm:text-[11px] sm:tracking-widest">
               System Security
             </span>
             <div className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 sm:h-9 sm:w-9 sm:rounded-2xl">
@@ -161,9 +158,9 @@ export default async function SystemAdminDashboardPage() {
           </div>
           <div className="mt-3 text-2xl font-black tracking-tight text-slate-900 sm:mt-4 sm:text-3xl">Enforced</div>
           <div className="mt-2 flex items-center gap-1 truncate text-[11px] text-slate-500 sm:text-xs">
-            <span className="truncate">System Admin routes are role-gated</span> <ArrowRight className="h-3 w-3 shrink-0" />
+            <span className="truncate">System Admin routes are role-gated</span>
           </div>
-        </Link>
+        </div>
 
       </section>
 
@@ -219,7 +216,6 @@ export default async function SystemAdminDashboardPage() {
               {[
                 { label: "Manage User Roles", href: "/system-admin/users" },
                 { label: "View & Export Audit Logs", href: "/system-admin/audit" },
-                { label: "Reconcile Auth Users", href: "/system-admin/reconcile" },
               ].map((item) => (
                 <Link
                   key={item.label}

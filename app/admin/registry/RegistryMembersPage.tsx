@@ -65,6 +65,10 @@ export default async function RegistryMembersPage({
   const hasRequiredProfileColumns = (
     await Promise.all(requiredProfileColumns.map((column) => hasProfilingRegistrationColumn(column)))
   ).every(Boolean);
+  const hasArchivedAtColumn = await hasProfilingRegistrationColumn("archivedAt");
+  const archivedProfileFilter = hasArchivedAtColumn
+    ? Prisma.sql`AND registration."archivedAt" IS NULL`
+    : Prisma.empty;
   const filterConditions: Prisma.Sql[] = [];
   if (profileSearch) {
     const escapedSearch = profileSearch.replace(/[\\%_]/g, "\\$&");
@@ -106,6 +110,8 @@ export default async function RegistryMembersPage({
       LEFT JOIN public."grantees" AS grantee_record
         ON grantee_record."userId" = user_record."id"
       WHERE registration."reviewStatus" = 'Approved'
+        ${archivedProfileFilter}
+        AND user_record."isActive" = TRUE
         AND (
           ${!regularOnly}::boolean
           OR user_record."role"::text IS DISTINCT FROM 'GRANTEE'

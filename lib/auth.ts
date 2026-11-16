@@ -2,6 +2,7 @@ import { Prisma, Role } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 
 type SupabaseUser = {
   id?: string;
@@ -75,7 +76,7 @@ export async function ensureProfile(authUser: SupabaseUser) {
     }
 
     try {
-      return await prisma.user.create({
+      const createdProfile = await prisma.user.create({
         data: {
           authId,
           email,
@@ -84,6 +85,8 @@ export async function ensureProfile(authUser: SupabaseUser) {
         },
         select: selectFields,
       });
+      await refreshSystemUsersAdminView();
+      return createdProfile;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&

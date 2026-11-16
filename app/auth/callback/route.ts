@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
 
   if (confirmedUser?.email) {
     const confirmedEmail = confirmedUser.email.toLowerCase();
-    await prisma.$transaction(async (tx) => {
+    const profileUpdated = await prisma.$transaction(async (tx) => {
       const profile = await tx.user.updateMany({
         where: { authId: confirmedUser.id },
         data: { email: confirmedEmail },
@@ -81,7 +82,9 @@ export async function GET(request: Request) {
           });
         }
       }
+      return profile.count > 0;
     });
+    if (profileUpdated) await refreshSystemUsersAdminView();
   }
 
   return redirectToProfile(requestUrl, next, "success");

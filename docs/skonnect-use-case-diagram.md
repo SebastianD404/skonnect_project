@@ -281,7 +281,6 @@ rectangle "SKonnect System" {
     usecase "Activate/Deactivate User" as Activate
     usecase "Assign User Role" as Roles
     usecase "Provision Grantee Record" as ProvisionGrantee
-    usecase "Reconcile Auth Users" as Reconcile
     usecase "View Audit History" as Audit
     usecase "Export Audit Logs" as AuditExport
     usecase "Manage System Settings" as SystemSettings
@@ -427,7 +426,7 @@ end note
 | Youth Resident | Authenticate; manage profile; KK Profiling; OCR verification; SKEAP application; waitlisting; application tracking; inquiries; events; notifications | Public / Youth |
 | SKEAP Grantee | All Youth capabilities; dashboard; grantee profile; COE and grade uploads; compliance tracking; resubmission; payouts; support | Grantee |
 | SK Official | Admin dashboard; members; KK review; application review; waitlist promotion; slot configuration; grantee management; document review; inquiries; announcements; broadcasts; accounting | SK Official Admin |
-| Super Admin | User provisioning; role management; activation/deactivation; reconciliation; audit review/export; system settings | Super Admin |
+| Super Admin | User provisioning; role management; activation/deactivation; audit review/export; system settings | Super Admin |
 | Supabase Auth | Account creation; authentication; sessions; password security | Cross-cutting |
 | Supabase Storage | Store and retrieve uploaded documents and media | Cross-cutting |
 | OCR Worker | Validate IDs, residency documents, names, and birthdates | KK Profiling |

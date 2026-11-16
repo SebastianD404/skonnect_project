@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { ensureProfile } from "@/lib/auth";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 
 export async function POST(req: Request) {
   try {
@@ -75,8 +76,9 @@ export async function POST(req: Request) {
     // Store the storage path in DB
     try {
       await prisma.user.update({ where: { id: profile.id }, data: { avatarUrl: path } });
+      await refreshSystemUsersAdminView();
     } catch (e) {
-      console.error("Prisma update avatarUrl failed:", e);
+      console.error("Avatar record or system user view refresh failed:", e);
     }
 
     // Return a signed URL for immediate client use (7 days)
@@ -113,8 +115,9 @@ export async function DELETE(req: Request) {
   if (!profile || !profile.avatarUrl) {
     try {
       await prisma.user.update({ where: { id: linkedUser.id }, data: { avatarUrl: null } });
+      await refreshSystemUsersAdminView();
     } catch (e) {
-      console.error("Prisma clear avatarUrl failed:", e);
+      console.error("Avatar record or system user view refresh failed:", e);
     }
     return NextResponse.json({ ok: true });
   }
@@ -129,8 +132,9 @@ export async function DELETE(req: Request) {
 
   try {
     await prisma.user.update({ where: { id: linkedUser.id }, data: { avatarUrl: null } });
+    await refreshSystemUsersAdminView();
   } catch (e) {
-    console.error("Prisma clear avatarUrl failed:", e);
+    console.error("Avatar record or system user view refresh failed:", e);
   }
 
   return NextResponse.json({ ok: true });

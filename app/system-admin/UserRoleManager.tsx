@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import type { Role, SubmissionStatus } from "@prisma/client";
@@ -9,18 +9,27 @@ import {
   Eye,
   Filter,
   CheckCircle,
+  Archive,
+  BadgeCheck,
   GraduationCap,
+  Info,
   LoaderCircle,
   MoreHorizontal,
   Pencil,
   Search,
   UserX,
+  Users,
+  ShieldCheck,
   X,
   XCircle,
   Clock3,
 } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { Avatar } from "@/components/ui/Avatar";
+import type {
+  PlatformAccountMetricKey,
+  PlatformAccountMetrics,
+} from "@/lib/platform-metrics";
 
 type UserItem = {
   id: string;
@@ -29,7 +38,8 @@ type UserItem = {
   email: string;
   avatarUrl: string | null;
   role: Role;
-  skeapStatus: SubmissionStatus | null;
+  skeapStatus: "Active Scholar" | "Waitlisted" | "Revoked" | "N/A";
+  skeapApplicationStatus: SubmissionStatus | null;
   isActive: boolean;
   granteeStatus: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED" | null;
   username: string | null;
@@ -48,6 +58,10 @@ type UserItem = {
 
 type Props = {
   users: UserItem[];
+  metrics: PlatformAccountMetrics;
+  selectedMetric: PlatformAccountMetricKey;
+  selectedRole: RoleFilter;
+  searchQuery: string;
   totalCount: number;
   currentUserId: string | null;
 };
@@ -89,8 +103,7 @@ const SCHOLAR_STATUS_BADGES = {
   REMOVED: {
     label: "Removed",
     className: "bg-red-50 text-red-700 border-red-200",
-    Icon:     XCircle,
-    Clock3,
+    Icon: XCircle,
   },
   REVOKED: {
     label: "Revoked",
@@ -107,6 +120,24 @@ const ACCOUNT_STATUS_BADGES = {
   },
   INACTIVE: {
     label: "Inactive",
+    className: "bg-red-50 text-red-700 border-red-200",
+    Icon: XCircle,
+  },
+} as const;
+
+const SKEAP_STATUS_BADGES = {
+  "Active Scholar": {
+    label: "Active Scholar",
+    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    Icon: CheckCircle,
+  },
+  Waitlisted: {
+    label: "Waitlisted",
+    className: "bg-amber-50 text-amber-700 border-amber-200",
+    Icon: Clock3,
+  },
+  Revoked: {
+    label: "Revoked",
     className: "bg-red-50 text-red-700 border-red-200",
     Icon: XCircle,
   },
@@ -145,19 +176,33 @@ function DetailItem({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-export default function UserRoleManager({ users, totalCount, currentUserId }: Props) {
+export default function UserRoleManager({
+  users,
+  metrics,
+  selectedMetric,
+  selectedRole,
+  searchQuery,
+  totalCount,
+  currentUserId,
+}: Props) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
+  const [query, setQuery] = useState(searchQuery);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>(selectedRole);
+  const [optimisticSegment, setOptimisticSegment] = useState<PlatformAccountMetricKey | null>(
+    selectedRole === "ALL" ? selectedMetric : null,
+  );
   const [showRoleFilterMenu, setShowRoleFilterMenu] = useState(false);
   const [viewingUser, setViewingUser] = useState<UserItem | null>(null);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
   const [roleCandidate, setRoleCandidate] = useState<RoleChangeCandidate | null>(null);
   const [statusCandidate, setStatusCandidate] = useState<UserItem | null>(null);
   const [openActionsUserId, setOpenActionsUserId] = useState<string | null>(null);
+  const [openMobileRoleMenuUserId, setOpenMobileRoleMenuUserId] = useState<string | null>(null);
   const [actionsMenuPosition, setActionsMenuPosition] = useState({ top: 0, left: 0 });
   const actionsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+  const mobileRoleMenuRef = useRef<HTMLDivElement | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editFullName, setEditFullName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPhoneNumber, setEditPhoneNumber] = useState("");
@@ -165,19 +210,51 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
   const [isExporting, setIsExporting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [showDelayedSkeleton, setShowDelayedSkeleton] = useState(false);
 
   useEffect(() => {
-    if (!openActionsUserId) return;
+    setQuery(searchQuery);
+    setRoleFilter(selectedRole);
+    setOptimisticSegment(selectedRole === "ALL" ? selectedMetric : null);
+  }, [searchQuery, selectedMetric, selectedRole]);
+
+  useEffect(() => () => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!isPending) {
+      setShowDelayedSkeleton(false);
+      return;
+    }
+
+    setShowDelayedSkeleton(false);
+    const timeout = window.setTimeout(() => setShowDelayedSkeleton(true), 200);
+    return () => window.clearTimeout(timeout);
+  }, [isPending]);
+
+  useEffect(() => {
+    if (!openActionsUserId && !openMobileRoleMenuUserId) return;
 
     function closeOnOutsideClick(event: PointerEvent) {
       const target = event.target as Node;
-      if (!actionsMenuRef.current?.contains(target) && !actionsTriggerRef.current?.contains(target)) {
+      if (
+        openActionsUserId &&
+        !actionsMenuRef.current?.contains(target) &&
+        !actionsTriggerRef.current?.contains(target)
+      ) {
         setOpenActionsUserId(null);
+      }
+      if (openMobileRoleMenuUserId && !mobileRoleMenuRef.current?.contains(target)) {
+        setOpenMobileRoleMenuUserId(null);
       }
     }
 
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpenActionsUserId(null);
+      if (event.key === "Escape") {
+        setOpenActionsUserId(null);
+        setOpenMobileRoleMenuUserId(null);
+      }
     }
 
     document.addEventListener("pointerdown", closeOnOutsideClick);
@@ -186,7 +263,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
       document.removeEventListener("pointerdown", closeOnOutsideClick);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [openActionsUserId]);
+  }, [openActionsUserId, openMobileRoleMenuUserId]);
 
   useLayoutEffect(() => {
     if (!openActionsUserId) return;
@@ -196,7 +273,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
       if (!trigger) return;
       const rect = trigger.getBoundingClientRect();
       const menuWidth = 192;
-      const menuHeight = 150;
+      const menuHeight = 190;
       const top = rect.bottom + menuHeight + 8 <= window.innerHeight
         ? rect.bottom + 6
         : Math.max(8, rect.top - menuHeight - 6);
@@ -213,18 +290,88 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
     };
   }, [openActionsUserId]);
 
-  const filteredUsers = useMemo(() => {
-    const value = query.toLowerCase().trim();
+  const accountMetricCards = [
+    {
+      key: "all" as const,
+      label: "Total Platform Accounts",
+      caption: "100% of registered accounts",
+      value: metrics.totalAccounts,
+      Icon: Users,
+      tone: "text-slate-700",
+    },
+    {
+      key: "verified" as const,
+      label: "Verified KK Youth & Grantees",
+      caption: "Matches SK Admin Registry",
+      value: metrics.activeKkYouthAndGrantees,
+      Icon: BadgeCheck,
+      tone: "text-emerald-700",
+    },
+    {
+      key: "pending" as const,
+      label: "Pending / Unprofiled",
+      caption: "Awaiting KK approval",
+      value: metrics.unprofiledOrPending,
+      Icon: Clock3,
+      tone: "text-amber-700",
+    },
+    {
+      key: "adminStaff" as const,
+      label: "SK & System Admins",
+      caption: "SK Council & Super Admins",
+      value: metrics.adminStaff,
+      Icon: ShieldCheck,
+      tone: "text-blue-700",
+    },
+    {
+      key: "archived" as const,
+      label: "Archived / Inactive",
+      caption: "Aged out 31+ or archived",
+      value: metrics.archivedOrInactive,
+      Icon: Archive,
+      tone: "text-slate-500",
+    },
+  ];
+  const expectedSegmentCount =
+    accountMetricCards.find(({ key }) => key === optimisticSegment)?.value ?? totalCount;
+  const skeletonRowCount = Math.min(expectedSegmentCount || 8, 8);
+  const shouldShowSkeleton = isPending && showDelayedSkeleton;
+  const areRowsStale = isPending && !showDelayedSkeleton;
 
-    return users.filter((user) => {
-      const matchesQuery =
-        !value ||
-        user.fullName.toLowerCase().includes(value) ||
-        user.email.toLowerCase().includes(value);
-      const matchesRole = roleFilter === "ALL" || user.role === roleFilter;
-      return matchesQuery && matchesRole;
+  function navigateToList(metric: PlatformAccountMetricKey, role: RoleFilter, search: string) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("metric", metric);
+    if (role === "ALL") params.delete("role");
+    else params.set("role", role);
+    if (search.trim()) params.set("q", search.trim());
+    else params.delete("q");
+    params.set("page", "1");
+    startTransition(() => {
+      router.push(`/system-admin/users?${params.toString()}`, { scroll: false });
     });
-  }, [query, roleFilter, users]);
+  }
+
+  function filterByAccountMetric(metric: PlatformAccountMetricKey) {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    setOptimisticSegment(metric);
+    setRoleFilter("ALL");
+    navigateToList(metric, "ALL", query);
+  }
+
+  function filterByRole(role: RoleFilter) {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    setRoleFilter(role);
+    setOptimisticSegment(null);
+    navigateToList("all", role, query);
+  }
+
+  function handleSearchChange(value: string) {
+    setQuery(value);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      navigateToList(optimisticSegment ?? "all", roleFilter, value);
+    }, 250);
+  }
 
   function updateRole(userId: string, role: Role) {
     const user = users.find((item) => item.id === userId);
@@ -257,70 +404,107 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
     });
   }
 
-  function renderRoleControl(user: UserItem, compact = false) {
-    const busy = isPending && pendingUserId === user.id;
-    const isCurrentAccount = user.id === currentUserId;
-    const isActiveScholar = user.granteeStatus
+  function isActiveScholar(user: UserItem) {
+    return user.granteeStatus
       ? user.granteeStatus === "ACTIVE" || user.granteeStatus === "PROBATIONARY"
-      : user.skeapStatus === "APPROVED";
+      : user.skeapApplicationStatus === "APPROVED";
+  }
 
-    if (user.role === "SUPER_ADMIN" || isCurrentAccount) {
-      return (
-        <div className="flex flex-col items-start gap-1">
-          <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-800">
-            {user.role === "SUPER_ADMIN" ? "System Admin" : "Current Account"}
-          </span>
-          {isCurrentAccount ? (
-            <span className="text-[10px] font-medium text-slate-500">Current Account</span>
-          ) : null}
-        </div>
-      );
-    }
-
-    if (user.role === "GRANTEE" || isActiveScholar) {
-      return (
-        <div className="flex flex-col items-start gap-1" title="Managed via SKEAP">
-          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-            Grantee
-          </span>
-          <span className="text-[10px] font-medium text-slate-500">Managed via SKEAP</span>
-        </div>
-      );
-    }
-
-    if (user.role === "YOUTH") {
-      return (
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() => setRoleCandidate({ user, nextRole: "SK_OFFICIAL" })}
-          className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "w-full" : ""}`}
-        >
-          {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-          {busy ? "Updating..." : "Appoint as SK Admin"}
-        </button>
-      );
-    }
-
-    if (user.role === "SK_OFFICIAL") {
-      return (
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() => setRoleCandidate({ user, nextRole: "YOUTH" })}
-          className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "w-full" : ""}`}
-        >
-          {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-          {busy ? "Updating..." : "Remove SK Admin"}
-        </button>
-      );
-    }
+  function renderRoleBadge(user: UserItem) {
+    const roleBadge: Record<Role, { label: string; className: string }> = {
+      YOUTH: {
+        label: "Youth",
+        className: "border border-slate-200 bg-slate-100 text-slate-700",
+      },
+      GRANTEE: {
+        label: "Grantee",
+        className: "border border-sky-200 bg-sky-50 text-sky-700",
+      },
+      SK_OFFICIAL: {
+        label: "SK Admin",
+        className: "border border-blue-200 bg-blue-50 text-blue-700",
+      },
+      SUPER_ADMIN: {
+        label: "System Admin",
+        className: "bg-slate-900 text-white",
+      },
+    };
+    const badge = roleBadge[user.role];
 
     return (
-      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-        {user.role}
+      <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${badge.className}`}>
+        {badge.label}
       </span>
     );
+  }
+
+  function getRoleChangeTarget(user: UserItem): Role | null {
+    if (user.role === "SUPER_ADMIN" || user.id === currentUserId) return null;
+    if (user.role === "SK_OFFICIAL") return "YOUTH";
+    if (
+      user.role === "YOUTH" &&
+      !user.granteeStatus &&
+      user.skeapApplicationStatus !== "APPROVED"
+    ) {
+      return "SK_OFFICIAL";
+    }
+
+    return null;
+  }
+
+  function hasRoleGovernanceMenu(user: UserItem) {
+    if (user.role === "SUPER_ADMIN" || user.id === currentUserId) return false;
+    return Boolean(
+      getRoleChangeTarget(user) ||
+      user.role === "GRANTEE" ||
+      isActiveScholar(user)
+    );
+  }
+
+  function renderRoleGovernanceMenuItem(user: UserItem) {
+    const nextRole = getRoleChangeTarget(user);
+    if (nextRole) {
+      const appointing = nextRole === "SK_OFFICIAL";
+      return (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setOpenActionsUserId(null);
+            setOpenMobileRoleMenuUserId(null);
+            setRoleCandidate({ user, nextRole });
+          }}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+            appointing
+              ? "text-slate-700 hover:bg-slate-50"
+              : "text-rose-700 hover:bg-rose-50"
+          }`}
+        >
+          {appointing
+            ? <CheckCircle className="h-4 w-4 text-slate-500" aria-hidden="true" />
+            : <UserX className="h-4 w-4 text-rose-600" aria-hidden="true" />}
+          {appointing ? "Appoint as SK Admin" : "Remove SK Admin"}
+        </button>
+      );
+    }
+
+    if (
+      user.id !== currentUserId &&
+      user.role !== "SUPER_ADMIN" &&
+      (user.role === "GRANTEE" || isActiveScholar(user))
+    ) {
+      return (
+        <div
+          role="menuitem"
+          aria-disabled="true"
+          className="cursor-not-allowed rounded-lg px-3 py-2 text-xs font-medium text-slate-400"
+        >
+          Role managed via SKEAP
+        </div>
+      );
+    }
+
+    return null;
   }
 
   function confirmRoleChange() {
@@ -332,7 +516,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
 
   function handleExportUsersExcel() {
     if (isExporting) return;
-    if (filteredUsers.length === 0) {
+    if (users.length === 0) {
       window.alert("No records found to export for the selected filter.");
       return;
     }
@@ -392,7 +576,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
         });
       };
 
-      worker.postMessage(filteredUsers);
+      worker.postMessage(users);
     } catch (error) {
       finishAfterMinimumDuration(() => {
         setMessage({
@@ -506,7 +690,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => handleSearchChange(event.target.value)}
             placeholder="Search by name or email..."
             className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
           />
@@ -529,7 +713,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
                   type="button"
                   className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                   onClick={() => {
-                    setRoleFilter("ALL");
+                    filterByRole("ALL");
                     setShowRoleFilterMenu(false);
                   }}
                 >
@@ -541,7 +725,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
                     type="button"
                     className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                     onClick={() => {
-                      setRoleFilter(option.value);
+                      filterByRole(option.value);
                       setShowRoleFilterMenu(false);
                     }}
                   >
@@ -568,72 +752,163 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
             {isExporting ? "Exporting..." : "Export Current View"}
           </button>
           <div className="hidden text-xs text-slate-500 sm:block">
-            <span className="font-semibold text-slate-900 tabular-nums">{filteredUsers.length}</span> of{" "}
-            <span className="tabular-nums">{users.length}</span> on this page
+            {isPending ? (
+              "Updating users..."
+            ) : (
+              <>
+                <span className="font-semibold text-slate-900 tabular-nums">{users.length}</span> shown
+                <span className="px-1.5">·</span>
+                <span className="tabular-nums">{totalCount}</span> matching
+              </>
+            )}
           </div>
         </div>
       </div>
 
       <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-6 sm:flex-row sm:items-center">
-          <div>
+        <div className="border-b border-slate-100">
+          <div className="p-6 pb-4">
             <h2 className="text-lg font-black text-slate-900">System Users &amp; Role Management</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Grant or revoke SK Admin workspace access for Barangay Pico SK Officials. Youth and Grantee statuses are assigned automatically through KK Profiling and SKEAP workflows.
-            </p>
+            <div className="mt-1 flex items-center gap-1.5">
+              <p className="text-xs text-slate-500">
+                Grant or revoke SK Admin workspace access for Barangay Pico SK Officials. Youth and Grantee statuses are assigned automatically through KK Profiling and SKEAP workflows.
+              </p>
+              <span
+                className="shrink-0 text-slate-400"
+                aria-label="About account metrics"
+                role="img"
+                title="Total Platform Accounts includes all login identities across roles and statuses, whereas the SK Admin Dashboard counts only active, approved KK Youth profiles."
+              >
+                <Info className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            </div>
           </div>
-          <span className="w-fit rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
-            Total Accounts: {totalCount}
-          </span>
+          <div className="grid grid-cols-2 gap-3 px-6 pb-6 sm:grid-cols-3 xl:grid-cols-5">
+            {accountMetricCards.map(({ key, label, caption, value, Icon, tone }) => {
+              const isSelected = optimisticSegment === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={isSelected}
+                  aria-label={`${label}: ${value.toLocaleString()}. Click to filter users.`}
+                  onClick={() => filterByAccountMetric(key)}
+                  className={`relative min-w-0 rounded-2xl p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                    isSelected
+                      ? "border border-blue-600 bg-white ring-2 ring-blue-600/20 shadow-sm transition-colors duration-150"
+                      : "border border-slate-200/80 bg-slate-50/80 hover:bg-white hover:border-slate-300 transition-colors duration-150"
+                  }`}
+                >
+                  {isSelected ? (
+                    <span className="absolute right-3 top-3 h-2 w-2 rounded-full bg-blue-600" aria-hidden="true" />
+                  ) : null}
+                  <Icon className={`h-4 w-4 shrink-0 ${tone}`} aria-hidden="true" />
+                  <span className="mt-2 block text-xl font-black leading-none text-slate-950 tabular-nums">
+                    {value.toLocaleString()}
+                  </span>
+                  <span className="mt-1.5 block text-[11px] font-semibold leading-snug text-slate-700">
+                    {label}
+                  </span>
+                  <span className="mt-1 block text-[10px] leading-snug text-slate-500">
+                    {caption}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-        {filteredUsers.length > 0 ? (
+        <div className="min-h-[540px]">
+        {isPending || users.length > 0 ? (
           <>
-            <div className="hidden w-full overflow-x-auto whitespace-nowrap md:block">
-            <table className="hidden w-full min-w-[1080px] text-sm md:table">
+            <div className="relative hidden w-full overflow-x-auto whitespace-nowrap md:block">
+            <table className="hidden w-full min-w-[1080px] table-fixed text-sm md:table" aria-busy={isPending}>
+              <colgroup>
+                <col className="w-[34%]" />
+                <col className="w-[15%]" />
+                <col className="w-[15%]" />
+                <col className="w-[15%]" />
+                <col className="w-[13%]" />
+                <col className="w-[8%]" />
+              </colgroup>
               <thead className="bg-slate-900 text-[11px] font-bold tracking-wider text-white uppercase">
                 <tr className="text-left">
                   <th className="py-4 pl-[72px] pr-6">User / Email</th>
                   <th className="px-6 py-4">Current Role</th>
                   <th className="px-6 py-4">Account Status</th>
                   <th className="px-6 py-4">SKEAP Status</th>
-                  <th className="px-6 py-4">Joined Date</th>
-                  <th className="px-6 py-4 text-center">Actions</th>
+                  <th className="whitespace-nowrap px-6 py-4">Joined Date</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+                <tr aria-hidden="true">
+                  <th colSpan={6} className="h-[2px] p-0">
+                    <div className="h-[2px] overflow-hidden bg-slate-900">
+                      <span
+                        className={`system-users-progress-bar block h-full w-1/3 bg-blue-400 transition-opacity duration-150 ${
+                          isPending ? "opacity-100" : "opacity-0"
+                        }`}
+                      />
+                    </div>
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredUsers.map((user) => {
+              <tbody
+                className={`divide-y divide-slate-100 transition-opacity duration-150 ${
+                  areRowsStale ? "pointer-events-none opacity-50" : ""
+                }`}
+              >
+                {shouldShowSkeleton ? Array.from({ length: skeletonRowCount }, (_, index) => (
+                  <tr key={`skeleton-${index}`} aria-hidden="true" className="h-[68px]">
+                    <td className="min-w-0 px-6 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="system-users-skeleton h-9 w-9 shrink-0 rounded-full" />
+                        <span className="min-w-0 flex-1 space-y-2">
+                          <span className="system-users-skeleton block h-3 w-36 rounded" />
+                          <span className="system-users-skeleton block h-2.5 w-48 rounded" />
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-3"><span className="system-users-skeleton block h-6 w-20 rounded-full" /></td>
+                    <td className="px-6 py-3"><span className="flex items-center gap-2"><span className="system-users-skeleton h-2 w-2 rounded-full" /><span className="system-users-skeleton h-3 w-14 rounded" /></span></td>
+                    <td className="px-6 py-3"><span className="system-users-skeleton block h-6 w-24 rounded-md" /></td>
+                    <td className="whitespace-nowrap px-6 py-3"><span className="system-users-skeleton block h-3 w-20 rounded" /></td>
+                    <td className="px-6 py-3 text-right"><span className="system-users-skeleton ml-auto block h-8 w-8 rounded-full" /></td>
+                  </tr>
+                )) : users.map((user) => {
                   const busy = isPending && pendingUserId === user.id;
-                  const scholarStatusBadge = user.skeapStatus === "WAITLISTED"
-                    ? SCHOLAR_STATUS_BADGES.WAITLISTED
-                    : user.granteeStatus
-                      ? SCHOLAR_STATUS_BADGES[user.granteeStatus]
-                    : null;
+                  const scholarStatusBadge = user.skeapStatus === "N/A"
+                    ? null
+                    : SKEAP_STATUS_BADGES[user.skeapStatus];
                   return (
-                    <tr key={user.id} className="transition hover:bg-slate-50/50">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
+                    <tr
+                      key={user.id}
+                      className={`h-[68px] transition-colors hover:bg-slate-50/50 ${
+                        isPending ? "" : "animate-in fade-in duration-150 system-users-row-enter"
+                      }`}
+                    >
+                      <td className="min-w-0 px-6 py-3">
+                        <div className="flex min-w-0 items-center gap-3">
                           <Avatar
                             src={user.avatarUrl}
                             alt={user.displayName || "User"}
                             size={36}
                             className="h-9 w-9"
                           />
-                          <div>
-                            <p className="font-bold text-slate-900">{user.displayName || "Unnamed User"}</p>
-                            <p className="mt-0.5 text-xs text-slate-500">{user.email}</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-bold text-slate-900">{user.displayName || "Unnamed User"}</p>
+                            <p className="mt-0.5 truncate text-xs text-slate-500">{user.email}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        {renderRoleControl(user)}
+                      <td className="px-6 py-3">
+                        {renderRoleBadge(user)}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-3">
                         <div className={`flex items-center gap-1.5 text-sm font-medium ${user.isActive ? "text-emerald-700" : "text-slate-500"}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
                           {user.isActive ? "Active" : "Inactive"}
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-3">
                         {scholarStatusBadge ? (
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold ${scholarStatusBadge.className}`}
@@ -647,11 +922,11 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-xs tabular-nums text-slate-500">
+                      <td className="whitespace-nowrap px-6 py-3 text-xs tabular-nums text-slate-500">
                         {new Date(user.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-center">
+                      <td className="whitespace-nowrap px-6 py-3 text-right">
+                        <div className="flex flex-nowrap items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => setOpenActionsUserId((current) => current === user.id ? null : user.id)}
@@ -696,6 +971,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
                                 <Pencil className="h-4 w-4 text-slate-500" aria-hidden="true" />
                                 Edit profile
                               </button>
+                              {renderRoleGovernanceMenuItem(user)}
                               <div className="my-1.5 border-t border-slate-100" role="separator" />
                               {(!user.isActive || user.role !== "SUPER_ADMIN") && (
                                 <button
@@ -732,19 +1008,32 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
             </table>
             </div>
 
-            <div className="flex flex-col gap-4 p-4 md:hidden">
-              {filteredUsers.map((user) => {
+            <div
+              className={`flex flex-col gap-4 p-4 transition-opacity duration-150 md:hidden ${
+                areRowsStale ? "pointer-events-none opacity-50" : ""
+              }`}
+              aria-busy={isPending}
+            >
+              {shouldShowSkeleton ? Array.from({ length: skeletonRowCount }, (_, index) => (
+                <div key={`mobile-skeleton-${index}`} aria-hidden="true" className="rounded-2xl border border-slate-200 p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="system-users-skeleton h-11 w-11 rounded-full" />
+                    <span className="space-y-2"><span className="system-users-skeleton block h-3 w-32 rounded" /><span className="system-users-skeleton block h-2.5 w-40 rounded" /></span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3"><span className="system-users-skeleton h-6 rounded-full" /><span className="system-users-skeleton h-6 rounded-full" /></div>
+                </div>
+              )) : users.map((user) => {
                 const busy = isPending && pendingUserId === user.id;
-                const scholarStatusBadge = user.skeapStatus === "WAITLISTED"
-                  ? SCHOLAR_STATUS_BADGES.WAITLISTED
-                  : user.granteeStatus
-                    ? SCHOLAR_STATUS_BADGES[user.granteeStatus]
-                    : null;
+                const scholarStatusBadge = user.skeapStatus === "N/A"
+                  ? null
+                  : SKEAP_STATUS_BADGES[user.skeapStatus];
 
                 return (
                   <article
                     key={user.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                    className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${
+                      isPending ? "" : "animate-in fade-in duration-150 system-users-row-enter"
+                    }`}
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar
@@ -766,7 +1055,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
                         <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                           Current Role
                         </dt>
-                        <dd className="mt-1">{renderRoleControl(user, true)}</dd>
+                        <dd className="mt-1">{renderRoleBadge(user)}</dd>
                       </div>
                       <div>
                         <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -838,6 +1127,35 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
                           {user.isActive ? "Deactivate account" : "Reactivate account"}
                         </button>
                       ) : null}
+                      {hasRoleGovernanceMenu(user) ? (
+                        <div
+                          ref={openMobileRoleMenuUserId === user.id ? mobileRoleMenuRef : null}
+                          className="relative ml-auto"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setOpenMobileRoleMenuUserId((current) =>
+                              current === user.id ? null : user.id
+                            )}
+                            title={`Role actions for ${user.displayName}`}
+                            aria-label={`Role actions for ${user.displayName}`}
+                            aria-haspopup="menu"
+                            aria-expanded={openMobileRoleMenuUserId === user.id}
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                          >
+                            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                          {openMobileRoleMenuUserId === user.id ? (
+                            <div
+                              role="menu"
+                              aria-label={`Role actions for ${user.displayName}`}
+                              className="absolute bottom-full right-0 z-30 mb-2 w-52 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
+                            >
+                              {renderRoleGovernanceMenuItem(user)}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </article>
                 );
@@ -852,6 +1170,7 @@ export default function UserRoleManager({ users, totalCount, currentUserId }: Pr
             </p>
           </div>
         )}
+        </div>
       </div>
 
       {roleCandidate ? (

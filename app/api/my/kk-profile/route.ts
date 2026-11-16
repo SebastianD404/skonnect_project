@@ -135,7 +135,10 @@ async function getKKProfile() {
     latestRegistration?.reviewStatus?.trim().toLowerCase() === "approved";
   const hasVerifiedKkProfile =
     Boolean(profile?.kkProfile?.isVerified) && hasApprovedRegistration;
-  if (!profile?.kkProfile || !hasVerifiedKkProfile) {
+  const hasAgeOutNotice =
+    Boolean(ageOutRegistration) &&
+    latestRegistration?.reviewStatus?.trim().toLowerCase() === "archived";
+  if (!profile?.kkProfile || (!hasVerifiedKkProfile && !hasAgeOutNotice)) {
     return NextResponse.json({
       profile: null,
       hasVerifiedKkProfile: false,
@@ -143,13 +146,15 @@ async function getKKProfile() {
     });
   }
 
-  const status = getKKProfilingReviewStatus(
-    latestRegistration?.reviewStatus,
-    profile.kkProfile.isVerified,
-  );
+  const status = hasAgeOutNotice
+    ? "Archived"
+    : getKKProfilingReviewStatus(
+        latestRegistration?.reviewStatus,
+        profile.kkProfile.isVerified,
+      );
 
   return NextResponse.json({
-    hasVerifiedKkProfile: true,
+    hasVerifiedKkProfile,
     requiresKkProfiling: false,
     profile: {
       id: profile.kkProfile.id,

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   profilingCount: vi.fn(),
   capacityCount: vi.fn(),
   maxSlots: vi.fn(),
-  approvedKkProfileCount: vi.fn(),
+  platformMetrics: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -24,8 +24,8 @@ vi.mock("@/lib/skeap-capacity", () => ({
   getSkeapMaxSlots: mocks.maxSlots,
 }));
 
-vi.mock("@/lib/approved-kk-profile-count", () => ({
-  getApprovedKkProfileCount: mocks.approvedKkProfileCount,
+vi.mock("@/lib/platform-metrics", () => ({
+  getPlatformAccountMetrics: mocks.platformMetrics,
 }));
 
 import {
@@ -48,7 +48,13 @@ describe("admin scholar demographics", () => {
     mocks.maxSlots.mockResolvedValue(20);
     mocks.inquiryCount.mockResolvedValue(1);
     mocks.profilingCount.mockResolvedValue(7);
-    mocks.approvedKkProfileCount.mockResolvedValue(943);
+    mocks.platformMetrics.mockResolvedValue({
+      totalAccounts: 1000,
+      activeKkYouthAndGrantees: 943,
+      unprofiledOrPending: 20,
+      adminStaff: 10,
+      archivedOrInactive: 27,
+    });
     mocks.queryRaw
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -85,7 +91,7 @@ describe("admin scholar demographics", () => {
     const analytics = await getScholarDistributionAnalytics();
 
     expect(analytics.totalRegisteredYouth).toBe(943);
-    expect(mocks.approvedKkProfileCount).toHaveBeenCalledOnce();
+    expect(mocks.platformMetrics).toHaveBeenCalledOnce();
     expect(analytics.pendingApplications).toBe(1);
     expect(mocks.inquiryCount).toHaveBeenCalledWith({
       where: expect.objectContaining({

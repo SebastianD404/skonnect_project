@@ -583,13 +583,13 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
         where: { id },
         create: recordToInput<PrismaTypes.GranteeUncheckedCreateInput>(
           row,
-          ["id", "userId", "status", "revocationReason", "revocationNotes", "isPermanentlyDisqualified", "identityFingerprint", "revocationNotificationStatus", "revocationNotificationAttempts", "revocationNotificationError", "revocationNotificationSentAt", "yearLevel", "journeyStart", "journeyEnd", "school", "generalAverage", "dateEnrolled", "dateRemoved", "remarks", "createdAt", "updatedAt", "graduatedAt", "retentionExpiresAt"],
-          ["revocationNotificationSentAt", "dateEnrolled", "dateRemoved", "createdAt", "updatedAt", "graduatedAt", "retentionExpiresAt"],
+          ["id", "userId", "status", "revocationReason", "revocationNotes", "isPermanentlyDisqualified", "identityFingerprint", "revocationNotificationStatus", "revocationNotificationAttempts", "revocationNotificationError", "revocationNotificationSentAt", "yearLevel", "journeyStart", "journeyEnd", "school", "generalAverage", "dateEnrolled", "dateRemoved", "remarks", "createdAt", "updatedAt", "graduatedAt", "graduatedBy", "graduationReadyAt", "exitClearanceStatus", "exitClearanceUrl", "schoolClearanceVerified", "skClearanceVerified", "graduationRemarks", "retentionExpiresAt"],
+          ["revocationNotificationSentAt", "dateEnrolled", "dateRemoved", "createdAt", "updatedAt", "graduatedAt", "graduationReadyAt", "retentionExpiresAt"],
         ),
         update: recordToInput<PrismaTypes.GranteeUncheckedUpdateInput>(
           row,
-          ["userId", "status", "revocationReason", "revocationNotes", "isPermanentlyDisqualified", "identityFingerprint", "revocationNotificationStatus", "revocationNotificationAttempts", "revocationNotificationError", "revocationNotificationSentAt", "yearLevel", "journeyStart", "journeyEnd", "school", "generalAverage", "dateEnrolled", "dateRemoved", "remarks", "createdAt", "updatedAt", "graduatedAt", "retentionExpiresAt"],
-          ["revocationNotificationSentAt", "dateEnrolled", "dateRemoved", "createdAt", "updatedAt", "graduatedAt", "retentionExpiresAt"],
+          ["userId", "status", "revocationReason", "revocationNotes", "isPermanentlyDisqualified", "identityFingerprint", "revocationNotificationStatus", "revocationNotificationAttempts", "revocationNotificationError", "revocationNotificationSentAt", "yearLevel", "journeyStart", "journeyEnd", "school", "generalAverage", "dateEnrolled", "dateRemoved", "remarks", "createdAt", "updatedAt", "graduatedAt", "graduatedBy", "graduationReadyAt", "exitClearanceStatus", "exitClearanceUrl", "schoolClearanceVerified", "skClearanceVerified", "graduationRemarks", "retentionExpiresAt"],
+          ["revocationNotificationSentAt", "dateEnrolled", "dateRemoved", "createdAt", "updatedAt", "graduatedAt", "graduationReadyAt", "retentionExpiresAt"],
         ),
       }),
     );
@@ -599,13 +599,13 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
         where: { id },
         create: recordToInput<PrismaTypes.SubmissionUncheckedCreateInput>(
           row,
-          ["id", "granteeId", "semester", "gradeFileUrl", "coeFileUrl", "generalAverage", "status", "reviewedById", "reviewNotes", "submittedAt", "reviewedAt", "flaggedFields", "coeStatus", "gradesStatus", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt", "gradeRows", "gradeReportSemester", "ocrConfidence", "ocrGwa", "ocrParsedRows", "ocrRawText", "ocrStatus", "ocrTotalUnits", "requiresStrictManualReview", "resubmittedFields"],
-          ["submittedAt", "reviewedAt", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt"],
+          ["id", "granteeId", "semester", "gradeFileUrl", "coeFileUrl", "generalAverage", "status", "reviewedById", "reviewNotes", "submittedAt", "reviewedAt", "physicalVerifiedBy", "physicalVerifiedAt", "flaggedFields", "coeStatus", "gradesStatus", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt", "gradeRows", "gradeReportSemester", "ocrConfidence", "ocrGwa", "ocrParsedRows", "ocrRawText", "ocrStatus", "ocrTotalUnits", "requiresStrictManualReview", "resubmittedFields"],
+          ["submittedAt", "reviewedAt", "physicalVerifiedAt", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt"],
         ),
         update: recordToInput<PrismaTypes.SubmissionUncheckedUpdateInput>(
           row,
-          ["granteeId", "semester", "gradeFileUrl", "coeFileUrl", "generalAverage", "status", "reviewedById", "reviewNotes", "submittedAt", "reviewedAt", "flaggedFields", "coeStatus", "gradesStatus", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt", "gradeRows", "gradeReportSemester", "ocrConfidence", "ocrGwa", "ocrParsedRows", "ocrRawText", "ocrStatus", "ocrTotalUnits", "requiresStrictManualReview", "resubmittedFields"],
-          ["submittedAt", "reviewedAt", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt"],
+          ["granteeId", "semester", "gradeFileUrl", "coeFileUrl", "generalAverage", "status", "reviewedById", "reviewNotes", "submittedAt", "reviewedAt", "physicalVerifiedBy", "physicalVerifiedAt", "flaggedFields", "coeStatus", "gradesStatus", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt", "gradeRows", "gradeReportSemester", "ocrConfidence", "ocrGwa", "ocrParsedRows", "ocrRawText", "ocrStatus", "ocrTotalUnits", "requiresStrictManualReview", "resubmittedFields"],
+          ["submittedAt", "reviewedAt", "physicalVerifiedAt", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt"],
         ),
       }),
     );
@@ -695,12 +695,12 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
         where: { id },
         create: recordToInput<PrismaTypes.AdminNotificationUncheckedCreateInput>(
           row,
-          ["id", "title", "message", "type", "createdAt"],
+          ["id", "sourceKey", "title", "message", "type", "createdAt"],
           ["createdAt"],
         ),
         update: recordToInput<PrismaTypes.AdminNotificationUncheckedUpdateInput>(
           row,
-          ["title", "message", "type", "createdAt"],
+          ["sourceKey", "title", "message", "type", "createdAt"],
           ["createdAt"],
         ),
       }),

@@ -1,6 +1,7 @@
 import { GranteeStatus, Role } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 import { createClient } from "@/lib/supabase/server";
 import YouthDashboardHeader from "./YouthDashboardHeader";
 
@@ -37,10 +38,11 @@ export default async function YouthDashboardLayout({ children }: Readonly<{ chil
 
   const isInactiveGrantee = INACTIVE_GRANTEE_STATUSES.has(user.grantee?.status ?? "");
   if (user.role === Role.GRANTEE && isInactiveGrantee) {
-    await prisma.user.updateMany({
+    const roleUpdate = await prisma.user.updateMany({
       where: { id: user.id, role: Role.GRANTEE },
       data: { role: Role.YOUTH },
     });
+    if (roleUpdate.count > 0) await refreshSystemUsersAdminView();
   } else if (user.role !== Role.YOUTH) {
     redirect(user.role === Role.GRANTEE ? "/grantee-dashboard" : "/");
   }

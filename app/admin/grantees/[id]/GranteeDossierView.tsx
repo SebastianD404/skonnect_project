@@ -50,6 +50,7 @@ type DossierGrantee = {
   dateEnrolled: string;
   dateRemoved: string | null;
   graduatedAt: string | null;
+  exitClearanceUrl: string | null;
   submissions: Array<{
     id: string;
     semester: string;
@@ -107,7 +108,11 @@ export default function GranteeDossierView({
             </a>
           ) : null}
           {grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY" ? (
-            <GraduationAction granteeId={grantee.id} granteeName={grantee.fullName} />
+            <GraduationAction
+              granteeId={grantee.id}
+              granteeName={grantee.fullName}
+              exitClearanceUrl={grantee.exitClearanceUrl}
+            />
           ) : null}
         </div>
       </header>

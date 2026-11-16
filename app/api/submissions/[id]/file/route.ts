@@ -100,9 +100,15 @@ export async function GET(
     }
 
     const safeExtension = extension && /^[a-z0-9]{1,10}$/.test(extension) ? `.${extension}` : "";
+    const requestedFilename = request.nextUrl.searchParams.get("filename");
+    const safeBaseName = (requestedFilename ?? (kind === "coe" ? "Certificate-of-Enrollment" : "Grade-Report"))
+      .replace(/\.[a-z0-9]{1,10}$/i, "")
+      .replace(/[^a-zA-Z0-9_-]/g, "")
+      .slice(0, 100);
+    const filename = `${safeBaseName || (kind === "coe" ? "Certificate-of-Enrollment" : "Grade-Report")}${safeExtension}`;
     const headers = new Headers({
       "Content-Type": contentType || "application/octet-stream",
-      "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${kind === "coe" ? "certificate-of-enrollment" : "grade-report"}${safeExtension}"`,
+      "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${filename}"`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
     });

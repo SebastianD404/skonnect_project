@@ -55,7 +55,7 @@ function PrintableDocumentCard({
 }
 
 export function AdminKKProfilingFormView({
-  registration,
+  registration: initialRegistration,
   onClose,
   onEdit,
   onReturn,
@@ -67,6 +67,9 @@ export function AdminKKProfilingFormView({
   onReturn?: (updatedRegistration: KKProfilingRegistration) => void;
   onStatusUpdate?: (status: "Approved" | "Returned" | "Rejected", registrationId: string) => void;
 }) {
+  const [registration, setRegistration] = useState(initialRegistration);
+  const [detailsLoading, setDetailsLoading] = useState(true);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
   const [correctionNotes, setCorrectionNotes] = useState("");
   const [isReturning, setIsReturning] = useState(false);
   const [isCorrectionOpen, setIsCorrectionOpen] = useState(false);
@@ -88,6 +91,35 @@ export function AdminKKProfilingFormView({
   const isWithdrawn = registration.reviewStatus?.toLowerCase() === "withdrawn";
   const isLocked = isApproved || isRejected || isWithdrawn;
   const canReturn = !isLocked;
+  const initialRegistrationId = initialRegistration.id;
+
+  useEffect(() => {
+    let active = true;
+
+    void fetch(`/api/admin/kk-profiling/${initialRegistrationId}`, { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || "Unable to load complete member details.");
+        }
+        if (active) {
+          setRegistration(data as KKProfilingRegistration);
+          setDetailsError(null);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setDetailsError(error instanceof Error ? error.message : "Unable to load complete member details.");
+        }
+      })
+      .finally(() => {
+        if (active) setDetailsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialRegistrationId]);
 
   useEffect(() => {
     if (!isRejectionOpen) return;
@@ -119,6 +151,23 @@ export function AdminKKProfilingFormView({
     resetCorrectionFlow();
     onClose();
   };
+
+  const familyBackground = registration.familyBackground;
+  const kkProfile = familyBackground?.kkProfile;
+  const skeapApplication = familyBackground?.skeapApplication;
+  const hasKkGuardianContact = Boolean(
+    kkProfile?.guardianOrEmergencyName ||
+    kkProfile?.guardianRelationship ||
+    kkProfile?.guardianContactNumber
+  );
+  const hasFamilyData = Boolean(skeapApplication || hasKkGuardianContact);
+  const kkSexLabel = kkProfile?.sex === "MALE"
+    ? "Male"
+    : kkProfile?.sex === "FEMALE"
+      ? "Female"
+      : kkProfile?.sex === "NOT_SPECIFIED"
+        ? "Not specified"
+        : registration.sex;
 
   const handleApprove = async () => {
     setApproveError(null);
@@ -344,25 +393,37 @@ export function AdminKKProfilingFormView({
             </div>
 
             <div className="col-span-full">
-              <ReadOnlyField label="Complete Name (Family, First, Middle)" value={registration.fullName} />
+              <ReadOnlyField label="Complete Name (Family, First, Middle)" value={kkProfile?.fullName || registration.fullName} />
             </div>
             <div className="col-span-full">
-              <ReadOnlyField label="Complete Address" value={registration.address} />
+              <ReadOnlyField
+                label="Complete Address"
+                value={registration.address}
+              />
             </div>
-
+            {kkProfile ? (
+              <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <ReadOnlyField label="Sitio / Purok" value={kkProfile.purok} />
+                <ReadOnlyField label="Barangay" value={kkProfile.barangay} />
+                <ReadOnlyField label="Place of Birth" value={kkProfile.placeOfBirth} />
+              </div>
+            ) : null}
             <div className="col-span-full grid grid-cols-1 gap-4 md:grid-cols-3">
-              <ReadOnlyField label="Sex" value={registration.sex} />
-              <ReadOnlyField label="Birth Date" value={new Date(registration.birthDate).toLocaleDateString()} />
+              <ReadOnlyField label="Sex" value={kkSexLabel} />
+              <ReadOnlyField
+                label="Birth Date"
+                value={new Date(kkProfile?.birthDate || registration.birthDate).toLocaleDateString()}
+              />
               <ReadOnlyField label="Age" value={registration.age} />
             </div>
 
             <div className="col-span-full grid grid-cols-1 gap-4 md:grid-cols-2">
-              <ReadOnlyField label="Email Address" value={registration.email} />
+              <ReadOnlyField label="Email Address" value={kkProfile?.email || registration.email} />
               <ReadOnlyField label="Facebook Account (Name)" value={registration.facebook} />
             </div>
 
             <div className="col-span-full">
-              <ReadOnlyField label="Contact Number" value={registration.contactNumber} />
+              <ReadOnlyField label="Contact Number" value={kkProfile?.contactNumber || registration.contactNumber} />
             </div>
 
             <h4 className="col-span-full mb-1 mt-6 break-words border-b border-slate-200 pb-2 text-left text-lg font-bold text-slate-800">
@@ -398,6 +459,103 @@ export function AdminKKProfilingFormView({
 
             {registration.attendedKKAssembly === "No" && (
               <ReadOnlyField label="If No, why?" value={registration.noAssemblyReason} />
+            )}
+
+            {detailsLoading ? (
+              <div
+                className="col-span-full animate-pulse rounded-2xl border border-slate-200 bg-slate-50 p-5"
+                aria-label="Loading family and household background"
+              >
+                <h4 className="text-base font-bold text-slate-900">Family &amp; Household Background</h4>
+                <div className="mt-2 h-3 w-56 rounded bg-slate-200" />
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="h-16 rounded-lg bg-slate-200" />
+                  <div className="h-16 rounded-lg bg-slate-200" />
+                </div>
+              </div>
+            ) : detailsError ? (
+              <div
+                className="col-span-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                role="alert"
+              >
+                {detailsError} Family details could not be verified.
+              </div>
+            ) : hasFamilyData ? (
+              <section className="col-span-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Family &amp; Household Background</h4>
+                    <p className="mt-1 text-xs text-slate-500">Only information provided in KK profiling or a linked SKEAP application is shown.</p>
+                  </div>
+                  {skeapApplication ? (
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                      Verified via SKEAP Record
+                    </span>
+                  ) : null}
+                </div>
+
+                {skeapApplication ? (
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500">
+                      Linked SKEAP application status: <span className="font-semibold text-slate-700">{skeapApplication.status}</span>
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <ReadOnlyField label="Father's Name" value={skeapApplication.fathersName} />
+                      <ReadOnlyField label="Father's Occupation" value={skeapApplication.fathersOccupation} />
+                      <ReadOnlyField label="Father's Contact Number" value={skeapApplication.fathersContact} />
+                      <ReadOnlyField label="Mother's Name" value={skeapApplication.mothersMaidenName} />
+                      <ReadOnlyField label="Mother's Occupation" value={skeapApplication.mothersOccupation} />
+                      <ReadOnlyField label="Mother's Contact Number" value={skeapApplication.mothersContact} />
+                      <ReadOnlyField
+                        label="SKEAP Parent / Guardian"
+                        value={skeapApplication.parentGuardianVoterFullName}
+                      />
+                      <ReadOnlyField
+                        label="Parent / Guardian Registered SK Voter?"
+                        value={
+                          skeapApplication.parentGuardianRegisteredVoter === null
+                            ? "Not recorded"
+                            : skeapApplication.parentGuardianRegisteredVoter ? "Yes" : "No"
+                        }
+                      />
+                      <ReadOnlyField
+                        label="Total Monthly Household Income"
+                        value={skeapApplication.totalFamilyMonthlyIncome}
+                      />
+                      <ReadOnlyField
+                        label="Household Size / Siblings"
+                        value="Not recorded in the current SKEAP application form"
+                      />
+                    </div>
+                    {hasKkGuardianContact ? (
+                      <div className="border-t border-slate-100 pt-4">
+                        <h5 className="mb-3 text-sm font-semibold text-slate-800">KK Parent / Guardian &amp; Emergency Contact</h5>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                          <ReadOnlyField label="Name" value={kkProfile?.guardianOrEmergencyName} />
+                          <ReadOnlyField label="Relationship" value={kkProfile?.guardianRelationship} />
+                          <ReadOnlyField label="Contact Number" value={kkProfile?.guardianContactNumber} />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <ReadOnlyField label="Name" value={kkProfile?.guardianOrEmergencyName} />
+                      <ReadOnlyField label="Relationship" value={kkProfile?.guardianRelationship} />
+                      <ReadOnlyField label="Contact Number" value={kkProfile?.guardianContactNumber} />
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-600">
+                      Full household and income details are recorded if the member applies for SKEAP.
+                    </p>
+                  </>
+                )}
+              </section>
+            ) : (
+              <div className="col-span-full flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-50/70 px-4 py-2.5 text-xs text-slate-500">
+                <span className="font-medium text-slate-600">Family &amp; Household Background</span>
+                <span>None on file · No linked SKEAP application</span>
+              </div>
             )}
 
             <div className="col-span-full mt-6 space-y-4">

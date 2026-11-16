@@ -80,7 +80,7 @@ export async function hasProfilingRegistrationColumn(columnName: string) {
   }
 }
 
-export async function hasGranteeRetentionColumn() {
+export async function hasGranteeColumn(columnName: string) {
   if (!(await hasTable("grantees"))) {
     return false;
   }
@@ -92,13 +92,18 @@ export async function hasGranteeRetentionColumn() {
         FROM information_schema.columns
         WHERE table_schema = 'public'
           AND table_name = 'grantees'
-          AND column_name = 'retentionExpiresAt'
-      ) AS exists`
+          AND column_name = $1
+      ) AS exists`,
+      columnName
     );
     return rows[0]?.exists ?? false;
   } catch {
     return false;
   }
+}
+
+export async function hasGranteeRetentionColumn() {
+  return hasGranteeColumn("retentionExpiresAt");
 }
 
 function isMissingTableError(error: unknown) {

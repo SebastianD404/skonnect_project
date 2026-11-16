@@ -65,6 +65,9 @@ model KKProfile {
   birthDate     DateTime
   placeOfBirth  String?
   contactNumber String
+  guardianOrEmergencyName    String?
+  guardianRelationship       String?
+  guardianContactNumber      String?
   sex           Sex      @default(NOT_SPECIFIED)
   email         String   @unique
   isVerified    Boolean  @default(true)
@@ -99,6 +102,13 @@ model Grantee {
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   graduatedAt        DateTime?
+  graduatedBy        String?
+  graduationReadyAt  DateTime?
+  exitClearanceStatus ExitClearanceStatus @default(NONE)
+  exitClearanceUrl   String?
+  schoolClearanceVerified Boolean       @default(false)
+  skClearanceVerified Boolean           @default(false)
+  graduationRemarks  String?
   retentionExpiresAt DateTime?
   payout             AccountingPayout?
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -137,6 +147,8 @@ model Submission {
   reviewNotes                String?
   submittedAt                DateTime            @default(now())
   reviewedAt                 DateTime?
+  physicalVerifiedBy         String?
+  physicalVerifiedAt         DateTime?
   flaggedFields              String[]            @default([])
   coeStatus                  SubmissionStatus    @default(PENDING)
   gradesStatus               SubmissionStatus    @default(PENDING)
@@ -348,6 +360,34 @@ view kk_profiling_applications_admin_mv {
   @@map("kk_profiling_applications_admin_mv")
 }
 
+view system_users_admin_mv {
+  userId                    String           @unique @map("user_id")
+  fullName                  String           @map("full_name")
+  displayName               String           @map("display_name")
+  email                     String
+  role                      Role
+  isActive                  Boolean          @map("is_active")
+  createdAt                 DateTime         @map("created_at")
+  updatedAt                 DateTime         @map("updated_at")
+  avatarUrl                 String?          @map("avatar_url")
+  username                  String?
+  phoneNumber               String?          @map("phone_number")
+  barangay                  String
+  languagePref              Language         @map("language_pref")
+  granteeStatus             GranteeStatus?   @map("grantee_status")
+  granteeSchool             String?          @map("grantee_school")
+  granteeYearLevel          String?          @map("grantee_year_level")
+  granteeGeneralAverage     Float?           @map("grantee_general_average")
+  granteeDateEnrolled       DateTime?        @map("grantee_date_enrolled")
+  granteeArchivedAt         DateTime?        @map("grantee_archived_at")
+  granteeRetentionExpiresAt DateTime?        @map("grantee_retention_expires_at")
+  skeapApplicationStatus    SubmissionStatus? @map("skeap_application_status")
+  skeapStatus               String           @map("skeap_status")
+  segment                   String
+
+  @@map("system_users_admin_mv")
+}
+
 model Announcement {
   id          String   @id @default(uuid())
   title       String
@@ -414,6 +454,7 @@ model Notification {
 
 model AdminNotification {
   id        String   @id @default(uuid())
+  sourceKey String?  @unique
   title     String
   message   String
   type      String
@@ -659,6 +700,12 @@ enum GranteeStatus {
   REVOKED
 }
 
+enum ExitClearanceStatus {
+  NONE
+  SUBMITTED
+  CLEARED
+}
+
 enum GranteeRevocationNotificationStatus {
   NOT_REQUIRED
   PENDING
@@ -677,6 +724,7 @@ enum EventStatus {
 enum SubmissionStatus {
   DRAFT
   PENDING
+  AWAITING_PHYSICAL_CTC
   PRE_QUALIFIED
   APPROVED
   REJECTED

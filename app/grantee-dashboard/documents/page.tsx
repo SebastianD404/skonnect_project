@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import GranteeDocumentsClient from "./GranteeDocumentsClient";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
+import { detectGranteeTargetTerm } from "@/lib/grantee-semester";
+import type { DetectedGranteeTargetTerm } from "@/lib/grantee-semester";
 import type { SubmissionStatus } from "@prisma/client";
 
 export default async function GranteeDocumentsPage() {
@@ -120,6 +122,9 @@ export default async function GranteeDocumentsPage() {
 
   const canSubmit = isGranteeProfileComplete(appUser.grantee);
   const { schedules, window: academicTermWindow } = await getAcademicTermScheduleState();
+  const detectedTerm: DetectedGranteeTargetTerm | null = appUser.grantee?.id
+    ? await detectGranteeTargetTerm(appUser.id)
+    : null;
   const serializedAcademicTermSchedules = schedules.map((schedule) => ({
     semester: schedule.semester,
     opensAt: schedule.opensAt.toISOString(),
@@ -130,11 +135,12 @@ export default async function GranteeDocumentsPage() {
     <main className="px-4 pb-20 pt-12 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
         <GranteeDocumentsClient
-          key={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}`}
+          key={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}:${detectedTerm?.termLabel ?? "none"}:${detectedTerm?.hasPendingSubmission ?? false}:${detectedTerm?.canReplacePendingSubmission ?? false}`}
           submissions={serialized}
           canSubmit={canSubmit}
           academicTermWindow={academicTermWindow}
           academicTermSchedules={serializedAcademicTermSchedules}
+          detectedTerm={detectedTerm}
         />
       </div>
     </main>

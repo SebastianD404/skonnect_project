@@ -33,6 +33,14 @@ export async function GET() {
         text: notification.message ?? "",
         isRead: notification.isRead,
         createdAt: notification.createdAt,
+        href: notification.sourceKey.startsWith("requirements-upload:")
+          ? "/grantee-dashboard/documents"
+          : notification.sourceKey.startsWith("kk-age-out:")
+            ? "/programs/kk-profiling/status"
+          : notification.sourceKey.startsWith("graduation-candidate-ready:") ||
+              notification.sourceKey.startsWith("graduation-exit-clearance:")
+            ? "/grantee-dashboard"
+          : undefined,
       })),
     });
   } catch (error) {

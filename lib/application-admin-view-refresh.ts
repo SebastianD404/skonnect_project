@@ -2,7 +2,10 @@ import { prisma } from "@/lib/prisma";
 
 type AdminMaterializedView =
   | "skeap_applications_admin_mv"
-  | "kk_profiling_applications_admin_mv";
+  | "kk_profiling_applications_admin_mv"
+  | "system_users_admin_mv";
+
+let systemUsersRefresh: Promise<void> | null = null;
 
 async function refreshAdminView(viewName: AdminMaterializedView) {
   try {
@@ -22,8 +25,22 @@ async function refreshAdminView(viewName: AdminMaterializedView) {
 
 export async function refreshSkeapApplicationsAdminView() {
   await refreshAdminView("skeap_applications_admin_mv");
+  await refreshSystemUsersAdminView();
 }
 
 export async function refreshKkProfilingApplicationsAdminView() {
   await refreshAdminView("kk_profiling_applications_admin_mv");
+  await refreshSystemUsersAdminView();
+}
+
+export async function refreshSystemUsersAdminView() {
+  if (!systemUsersRefresh) {
+    systemUsersRefresh = refreshAdminView("system_users_admin_mv");
+  }
+
+  try {
+    await systemUsersRefresh;
+  } finally {
+    systemUsersRefresh = null;
+  }
 }

@@ -17,7 +17,10 @@ function getStatusWhere(status: StatusFilter): Prisma.SubmissionWhereInput {
 
   switch (status) {
     case "pending":
-      return { ...hasBothDocuments, status: "PENDING" };
+      return {
+        ...hasBothDocuments,
+        status: { in: ["PENDING", "AWAITING_PHYSICAL_CTC"] },
+      };
     case "returned":
       return {
         ...hasBothDocuments,

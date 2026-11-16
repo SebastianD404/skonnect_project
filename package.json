@@ -16,8 +16,6 @@
     "db:seed:demo": "tsx prisma/seed.ts",
     "test:audit": "vitest run lib/audit/metadata.test.ts",
     "reminders": "npx tsx scripts/send-reminders.ts",
-    "reconcile:users": "node scripts/reconcile-auth-users.js",
-    "reconcile:users:apply": "node scripts/reconcile-auth-users.js --apply",
     "patch:averages": "node scripts/patch-missing-submission-averages.js",
     "storage:private-documents:setup": "node scripts/setup-private-documents-bucket.mjs",
     "storage:private-documents:migrate": "tsx scripts/migrate-public-sensitive-documents.ts",

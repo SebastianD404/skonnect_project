@@ -12,7 +12,6 @@ import {
 } from "@/lib/skeap-education";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import SkeapEducationLevelsSettings from "@/app/admin/settings/SkeapEducationLevelsSettings";
-import DataBackupSection from "@/app/admin/settings/DataBackupSection";
 
 type AcademicTermScheduleInput = {
   id?: string;
@@ -727,8 +726,6 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
             onToggle={handleEducationLevelToggle}
             disabled={loading || saving}
           />
-
-          <DataBackupSection />
 
           <footer className="sticky bottom-0 z-10 -mx-4 mt-8 border-t border-slate-200 bg-slate-50/90 px-4 py-4 backdrop-blur-md sm:-mx-6 sm:px-6">
             <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">

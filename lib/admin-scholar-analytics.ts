@@ -4,7 +4,7 @@ import { getProfilingRegistrationCountByStatus, prisma } from "@/lib/prisma";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { skeapPendingApplicationsWhere } from "@/lib/skeap-applications";
-import { getApprovedKkProfileCount } from "@/lib/approved-kk-profile-count";
+import { getPlatformAccountMetrics } from "@/lib/platform-metrics";
 
 export type ScholarDistributionAnalytics = {
   totalRegisteredYouth: number;
@@ -128,7 +128,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     capacityUsed,
     maxSlots,
     pendingApplications,
-    totalRegisteredYouth,
+    platformAccountMetrics,
     scholarRows,
     populationRows,
     pendingProfilingApplications,
@@ -146,7 +146,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
       prisma.inquiry.count({
         where: skeapPendingApplicationsWhere(currentAcademicYearRange),
       }),
-      getApprovedKkProfileCount(),
+      getPlatformAccountMetrics(),
       prisma.$queryRaw<Array<{ sitio: string | null; scholars: number }>>`
         WITH skeap_users AS (
           SELECT grantee."userId" AS "userId"
@@ -322,7 +322,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
   };
 
   return {
-    totalRegisteredYouth,
+    totalRegisteredYouth: platformAccountMetrics.activeKkYouthAndGrantees,
     activeScholars: granteeCountsByStatus.get(GranteeStatus.ACTIVE) ?? 0,
     capacityUsed,
     maxSlots,

@@ -9,6 +9,7 @@ import {
 import { getAcademicTermDeadlineTarget } from "@/lib/academic-term-schedule";
 import { getCurrentAcademicSemester, getPreviousAcademicSemester } from "@/lib/semester-progress";
 import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
+import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 
 const EMAIL_CHANNEL = "email";
 const IN_APP_CHANNEL = "in-app";
@@ -312,4 +313,46 @@ export async function processSkeapReminders(
 export async function runDeadlineReminders(now = new Date()) {
   const settings = await loadReminderSettings();
   return processSkeapReminders(settings, now);
+}
+
+export async function runGranteeUploadRequirementReminders(now = new Date()) {
+  const settings = await loadReminderSettings();
+  if (settings.skeapOffsets.length === 0) return EMPTY_RESULT;
+
+  const schedules = await prisma.academicTermSchedule.findMany({
+    orderBy: { opensAt: "asc" },
+    select: { id: true, semester: true, opensAt: true, closesAt: true },
+  }) as ReminderTerm[];
+  const targetTerm = getAcademicTermDeadlineTarget(schedules, now);
+  if (
+    !targetTerm ||
+    targetTerm.opensAt > now ||
+    targetTerm.closesAt < now
+  ) {
+    return EMPTY_RESULT;
+  }
+
+  const dueOffsets = getDueOffsets(settings.skeapOffsets, targetTerm.closesAt, now);
+  if (dueOffsets.length === 0) return EMPTY_RESULT;
+
+  const match = /^(\d{4}-\d{4})\s+(First Semester|Second Semester)$/.exec(targetTerm.semester);
+  if (!match) {
+    throw new Error(`The active academic schedule has an invalid term label: "${targetTerm.semester}".`);
+  }
+
+  const notificationResult = await notifyGranteesToUploadRequirements({
+    schoolYear: match[1],
+    semester: match[2],
+    deadline: targetTerm.closesAt,
+    trigger: "DEADLINE_REMINDER",
+  });
+
+  return {
+    dueOffsets: dueOffsets.map(({ offset }) => offset),
+    emailSent: notificationResult.emailSent,
+    emailFailed: notificationResult.errors.length,
+    emailSkipped: notificationResult.skipped,
+    inAppCreated: notificationResult.notified,
+    errors: notificationResult.errors,
+  };
 }

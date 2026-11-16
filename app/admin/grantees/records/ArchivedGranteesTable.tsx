@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Eye, Search } from "lucide-react";
+import { Eye, ExternalLink, FileCheck2, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { ADMIN_TABLE_PAGE_SIZES, DEFAULT_ADMIN_TABLE_PAGE_SIZE } from "@/lib/admin-pagination";
 import AdminPaginationControls from "../../AdminPaginationControls";
@@ -13,7 +13,10 @@ type HistoricalGranteeRecord = {
   school: string;
   dateEnrolled: Date;
   remarks: string | null;
+  graduationRemarks: string | null;
   graduatedAt: Date | null;
+  exitClearanceStatus: string;
+  exitClearanceUrl: string | null;
   fullName: string | null;
   email: string | null;
 };
@@ -32,7 +35,7 @@ export default function ArchivedGranteesTable({
     const normalizedQuery = searchQuery.trim().toLowerCase();
     return allRecords.filter((record) =>
       !normalizedQuery ||
-      [record.fullName, record.email, record.school, record.yearLevel, record.remarks]
+      [record.fullName, record.email, record.school, record.yearLevel, record.remarks, record.graduationRemarks]
         .some((value) => value?.toLowerCase().includes(normalizedQuery))
     );
   }, [allRecords, searchQuery]);
@@ -105,7 +108,16 @@ export default function ArchivedGranteesTable({
                 </div>
                 <div className="col-span-2 min-w-0">
                   <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Remarks</dt>
-                  <dd className="mt-0.5 break-words text-slate-600">{record.remarks || "—"}</dd>
+                  <dd className="mt-0.5 break-words text-slate-600">{record.graduationRemarks || record.remarks || "—"}</dd>
+                </div>
+                <div className="col-span-2 flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
+                  <div className="min-w-0">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Exit clearance</dt>
+                    <dd className="mt-1">
+                      <ClearanceBadge status={record.exitClearanceStatus} />
+                    </dd>
+                  </div>
+                  <ClearanceLink url={record.exitClearanceUrl} />
                 </div>
               </dl>
 
@@ -131,16 +143,17 @@ export default function ArchivedGranteesTable({
       </div>
 
       <div className="hidden w-full overflow-x-auto whitespace-nowrap md:block">
-        <table className="w-full min-w-[900px] table-fixed border-collapse text-left text-sm">
+        <table className="w-full min-w-[1120px] table-fixed border-collapse text-left text-sm">
           <thead className="bg-gradient-to-r from-slate-900 to-cyan-900 text-cyan-50">
             <tr className="text-[11px] font-bold uppercase tracking-wider">
-              <th className="w-[23%] px-4 py-3.5">Name</th>
-              <th className="w-[11%] px-4 py-3.5">Status</th>
-              <th className="w-[22%] px-4 py-3.5">School / year</th>
-              <th className="w-[14%] px-4 py-3.5">Enrolled</th>
-              <th className="w-[14%] px-4 py-3.5">End date</th>
-              <th className="w-[11%] px-4 py-3.5">Remarks</th>
-              <th className="w-[5%] px-4 py-3.5 text-right">View</th>
+              <th className="w-[20%] px-4 py-3.5">Name</th>
+              <th className="w-[10%] px-4 py-3.5">Status</th>
+              <th className="w-[20%] px-4 py-3.5">School / year</th>
+              <th className="w-[12%] px-4 py-3.5">Enrolled</th>
+              <th className="w-[12%] px-4 py-3.5">End date</th>
+              <th className="w-[10%] px-4 py-3.5">Remarks</th>
+              <th className="w-[12%] px-4 py-3.5">Exit clearance</th>
+              <th className="w-[4%] px-4 py-3.5 text-right">View</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -170,7 +183,15 @@ export default function ArchivedGranteesTable({
                     {endDate ? formatDate(endDate) : "—"}
                   </td>
                   <td className="px-4 py-3.5">
-                    <div className="truncate text-slate-600" title={record.remarks ?? ""}>{record.remarks || "—"}</div>
+                    <div className="truncate text-slate-600" title={record.graduationRemarks || record.remarks || ""}>
+                      {record.graduationRemarks || record.remarks || "—"}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <div className="flex flex-col items-start gap-2">
+                      <ClearanceBadge status={record.exitClearanceStatus} />
+                      <ClearanceLink url={record.exitClearanceUrl} />
+                    </div>
                   </td>
                   <td className="px-4 py-3.5 text-right">
                     <Link
@@ -187,7 +208,7 @@ export default function ArchivedGranteesTable({
             })}
             {pageRecords.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-sm text-slate-500">
+                <td colSpan={8} className="px-6 py-12 text-center text-sm text-slate-500">
                   No historical grantee records match your search.
                 </td>
               </tr>
@@ -235,5 +256,41 @@ export default function ArchivedGranteesTable({
         />
       </div>
     </>
+  );
+}
+
+function ClearanceBadge({ status }: { status: string }) {
+  const isCleared = status === "CLEARED";
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+      isCleared ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+    }`}>
+      {isCleared ? "Cleared" : "Not recorded"}
+    </span>
+  );
+}
+
+function ClearanceLink({ url }: { url: string | null }) {
+  return url ? (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800 transition-colors hover:bg-emerald-50"
+    >
+      <FileCheck2 className="h-3.5 w-3.5" aria-hidden="true" />
+      View Clearance
+      <ExternalLink className="h-3 w-3" aria-hidden="true" />
+    </a>
+  ) : (
+    <button
+      type="button"
+      disabled
+      title="No digital file is on record; on-site verification may have been recorded."
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-400"
+    >
+      <FileCheck2 className="h-3.5 w-3.5" aria-hidden="true" />
+      View Clearance
+    </button>
   );
 }

@@ -190,6 +190,9 @@ export async function POST(req: NextRequest) {
       email: formData.get("email"),
       facebook: formData.get("facebook"),
       contactNumber: formData.get("contactNumber"),
+      guardianOrEmergencyName: formData.get("guardianOrEmergencyName"),
+      guardianRelationship: formData.get("guardianRelationship"),
+      guardianContactNumber: formData.get("guardianContactNumber"),
       civilStatus: formData.get("civilStatus"),
       youthClassification: formData.get("youthClassification"),
       youthAgeGroup: formData.get("youthAgeGroup"),
@@ -276,6 +279,26 @@ export async function POST(req: NextRequest) {
     if (age < 15 || age > 30) {
       return NextResponse.json(
         { error: "Age must be between 15 and 30 years old" },
+        { status: 400 }
+      );
+    }
+    const guardianOrEmergencyName = String(body.guardianOrEmergencyName || "").trim();
+    const guardianRelationship = String(body.guardianRelationship || "").trim();
+    const guardianContactNumber = String(body.guardianContactNumber || "").trim();
+    if (age >= 15 && age <= 17 &&
+      (!guardianOrEmergencyName || !guardianRelationship || !guardianContactNumber)) {
+      return NextResponse.json(
+        { error: "Parent or guardian name, relationship, and contact number are required for registrants aged 15–17." },
+        { status: 400 }
+      );
+    }
+    if (
+      guardianOrEmergencyName.length > 120 ||
+      guardianRelationship.length > 80 ||
+      (guardianContactNumber && !isValidContactNumber(guardianContactNumber))
+    ) {
+      return NextResponse.json(
+        { error: "Enter valid parent or guardian contact details." },
         { status: 400 }
       );
     }
@@ -453,6 +476,9 @@ export async function POST(req: NextRequest) {
             birthDate,
             placeOfBirth,
             contactNumber,
+            guardianOrEmergencyName: guardianOrEmergencyName || null,
+            guardianRelationship: guardianRelationship || null,
+            guardianContactNumber: guardianContactNumber || null,
             sex,
             isVerified: false,
           },
@@ -470,6 +496,9 @@ export async function POST(req: NextRequest) {
             birthDate,
             placeOfBirth,
             contactNumber,
+            guardianOrEmergencyName: guardianOrEmergencyName || null,
+            guardianRelationship: guardianRelationship || null,
+            guardianContactNumber: guardianContactNumber || null,
             sex,
             email,
             isVerified: false,

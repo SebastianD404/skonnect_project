@@ -1,0 +1,284 @@
+import { GranteeStatus, Role } from "@prisma/client";
+import { NextRequest, NextResponse } from "next/server";
+import { ensureProfile } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit/logger";
+import { getRetentionExpiryDate } from "@/lib/grantee-retention";
+import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
+import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { GRADE_REPORT_MIME_TYPES, hasGradeReportSignature, MAX_GRADE_REPORT_BYTES } from "@/lib/ocr/grade-report-file";
+import { uploadPrivateDocument, removePrivateDocument } from "@/lib/private-documents";
+import { createClient } from "@/lib/supabase/server";
+import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
+
+type GraduationInput = {
+  schoolClearanceVerified: boolean;
+  skClearanceVerified: boolean;
+  remarks: string;
+  file: File | null;
+};
+
+async function parseGraduationInput(request: NextRequest): Promise<GraduationInput | null> {
+  if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    const file = formData.get("file");
+    return {
+      schoolClearanceVerified: formData.get("schoolClearanceVerified") === "true",
+      skClearanceVerified: formData.get("skClearanceVerified") === "true",
+      remarks: String(formData.get("remarks") ?? "").trim(),
+      file: file instanceof File ? file : null,
+    };
+  }
+
+  try {
+    const body = await request.json();
+    return {
+      schoolClearanceVerified: body?.schoolClearanceVerified === true,
+      skClearanceVerified: body?.skClearanceVerified === true,
+      remarks: typeof body?.remarks === "string" ? body.remarks.trim() : "",
+      file: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const admin = await ensureProfile(user);
+  if (!admin || (admin.role !== Role.SK_OFFICIAL && admin.role !== Role.SUPER_ADMIN)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id } = await params;
+  if (!id) {
+    return NextResponse.json({ error: "Missing grantee id." }, { status: 400 });
+  }
+
+  const input = await parseGraduationInput(request);
+  if (!input) {
+    return NextResponse.json({ error: "Submit the clearance checklist and optional clearance notes." }, { status: 400 });
+  }
+  if (input.schoolClearanceVerified !== true || input.skClearanceVerified !== true) {
+    return NextResponse.json({ error: "Both school and SK Office clearance checks are required before graduation." }, { status: 400 });
+  }
+  if (input.remarks.length > 1000) {
+    return NextResponse.json({ error: "Clearance notes must be 1,000 characters or fewer." }, { status: 400 });
+  }
+
+  if (input.file) {
+    const contentType = input.file.type.toLowerCase();
+    if (
+      !GRADE_REPORT_MIME_TYPES.has(contentType) ||
+      input.file.size === 0 ||
+      input.file.size > MAX_GRADE_REPORT_BYTES
+    ) {
+      return NextResponse.json({ error: "Clearance scans must be PDF, JPG, PNG, or WEBP files under 10MB." }, { status: 400 });
+    }
+    if (!hasGradeReportSignature(new Uint8Array(await input.file.arrayBuffer()), contentType)) {
+      return NextResponse.json({ error: "The uploaded clearance does not match its declared file type." }, { status: 400 });
+    }
+  }
+
+  let uploadedPath: string | null = null;
+  try {
+    const uploaded = input.file
+      ? await uploadPrivateDocument(user.id, input.file, "grantee-clearances", "exit-clearance")
+      : null;
+    uploadedPath = uploaded?.path ?? null;
+
+    const hasRetentionColumn = await hasGranteeRetentionColumn();
+    const graduation = await prisma.$transaction(async (tx) => {
+      const grantee = await tx.grantee.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          userId: true,
+          updatedAt: true,
+          graduatedAt: true,
+          exitClearanceStatus: true,
+          exitClearanceUrl: true,
+          graduationRemarks: true,
+          user: {
+            select: { fullName: true, role: true, email: true },
+          },
+        },
+      });
+
+      if (!grantee) throw new Error("GRANTEE_NOT_FOUND");
+      const restoredRows = grantee.status === GranteeStatus.REMOVED && grantee.user.role === Role.GRANTEE
+        ? await tx.$queryRaw<Array<{ restored: boolean }>>`
+            SELECT EXISTS (
+              SELECT 1
+              FROM "audit_logs" role_change
+              WHERE role_change."targetTable" = 'users'
+                AND role_change."targetId" = ${grantee.userId}
+                AND role_change."action" = 'UPDATE_USER_ROLE'
+                AND role_change."afterData"->>'role' = 'GRANTEE'
+                AND role_change."createdAt" >= ${grantee.updatedAt}
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM "audit_logs" newer_role_change
+                  WHERE newer_role_change."targetTable" = 'users'
+                    AND newer_role_change."targetId" = ${grantee.userId}
+                    AND newer_role_change."action" = 'UPDATE_USER_ROLE'
+                    AND newer_role_change."createdAt" > role_change."createdAt"
+                )
+            ) AS restored
+          `
+        : [];
+      const isRestored = restoredRows[0]?.restored === true;
+      const isActive = grantee.status === GranteeStatus.ACTIVE || grantee.status === GranteeStatus.PROBATIONARY;
+      const canRetainAdminRole = grantee.user.role === Role.SK_OFFICIAL || grantee.user.role === Role.SUPER_ADMIN;
+      if ((!isActive && !isRestored) || (grantee.user.role !== Role.GRANTEE && !canRetainAdminRole)) {
+        throw new Error("GRANTEE_NOT_ACTIVE");
+      }
+
+      const graduatedAt = new Date();
+      const retentionExpiresAt = getRetentionExpiryDate({ graduatedAt })!;
+      const updateResult = await tx.grantee.updateMany({
+        where: {
+          id,
+          status: isRestored
+            ? GranteeStatus.REMOVED
+            : { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+          user: {
+            is: {
+              role: { in: [Role.GRANTEE, Role.SK_OFFICIAL, Role.SUPER_ADMIN] },
+            },
+          },
+        },
+        data: {
+          status: GranteeStatus.GRADUATED,
+          graduatedAt,
+          graduatedBy: admin.id,
+          exitClearanceStatus: "CLEARED",
+          exitClearanceUrl: uploaded?.url ?? grantee.exitClearanceUrl,
+          schoolClearanceVerified: true,
+          skClearanceVerified: true,
+          graduationRemarks: [
+            grantee.graduationRemarks ? `Scholar note: ${grantee.graduationRemarks}` : "",
+            input.remarks ? `Clearance notes: ${input.remarks}` : "",
+          ].filter(Boolean).join("\n") || null,
+          ...(hasRetentionColumn ? { retentionExpiresAt } : {}),
+        },
+      });
+      if (updateResult.count !== 1) throw new Error("GRANTEE_NOT_ACTIVE");
+
+      await downgradeInactiveGranteeRole(tx, grantee.userId);
+
+      const messageTitle = "Congratulations, SKEAP Graduate! 🎓";
+      const messageBody = "Your Exit Clearance has been verified by the SK Council of Barangay Pico. Congratulations on completing your academic journey—we’re proud of your achievement!";
+      const sourceKey = `graduation-exit-clearance:${grantee.id}`;
+      const scholarMessage = await tx.granteeMessage.create({
+        data: {
+          userId: grantee.userId,
+          senderId: admin.id,
+          subject: messageTitle,
+          body: messageBody,
+        },
+        select: { id: true },
+      });
+      await tx.notification.upsert({
+        where: {
+          userId_sourceKey: {
+            userId: grantee.userId,
+            sourceKey,
+          },
+        },
+        create: {
+          userId: grantee.userId,
+          sourceKey,
+          message: `${messageTitle}\n${messageBody}`,
+        },
+        update: {
+          message: `${messageTitle}\n${messageBody}`,
+          isRead: false,
+          readAt: null,
+        },
+      });
+      await tx.adminNotification.create({
+        data: {
+          title: "Scholarship Slot Freed",
+          message: `${grantee.user.fullName} has graduated after exit clearance verification. 1 slot is available for administrator waitlist review.`,
+          type: "SLOT_RECLAIMED",
+        },
+      });
+      await writeAuditLog(tx, {
+        action: "GRANTEE_GRADUATED_AFTER_EXIT_CLEARANCE",
+        actorId: admin.id,
+        targetTable: "grantees",
+        targetId: grantee.id,
+        beforeData: {
+          status: grantee.status,
+          exitClearanceStatus: grantee.exitClearanceStatus,
+          exitClearanceUrl: grantee.exitClearanceUrl,
+        },
+        afterData: {
+          status: GranteeStatus.GRADUATED,
+          exitClearanceStatus: "CLEARED",
+          exitClearanceUrl: uploaded?.url ?? grantee.exitClearanceUrl,
+          graduatedAt: graduatedAt.toISOString(),
+          graduatedBy: admin.id,
+          schoolClearanceVerified: true,
+          skClearanceVerified: true,
+        },
+        metadata: {
+          granteeName: grantee.user.fullName,
+          messageId: scholarMessage.id,
+          clearanceRemarks: input.remarks || null,
+        },
+      });
+
+      return {
+        id: grantee.id,
+        status: GranteeStatus.GRADUATED,
+        exitClearanceStatus: "CLEARED",
+        graduatedAt,
+        graduatedBy: admin.id,
+        retentionExpiresAt,
+      };
+    });
+
+    try {
+      await Promise.all([
+        refreshInactiveGranteesView(),
+        refreshSkeapApplicationsAdminView(),
+      ]);
+    } catch (refreshError) {
+      console.error("Grantee was graduated, but an admin materialized view could not be refreshed:", refreshError);
+      return NextResponse.json(
+        { error: "Exit clearance was verified and graduation was recorded, but an admin report could not be refreshed." },
+        { status: 503 }
+      );
+    }
+
+    return NextResponse.json({ success: true, grantee: graduation });
+  } catch (error) {
+    if (uploadedPath) {
+      try {
+        await removePrivateDocument(uploadedPath);
+      } catch (cleanupError) {
+        console.error("Could not remove an uncommitted exit-clearance upload:", cleanupError);
+      }
+    }
+    const message = error instanceof Error ? error.message : "Unable to graduate grantee.";
+    if (message === "GRANTEE_NOT_FOUND") {
+      return NextResponse.json({ error: "Grantee not found." }, { status: 404 });
+    }
+    if (message === "GRANTEE_NOT_ACTIVE") {
+      return NextResponse.json({ error: "Only active grantees can be marked as graduated." }, { status: 409 });
+    }
+    console.error("Failed to graduate grantee after exit clearance verification:", error);
+    return NextResponse.json({ error: "Failed to verify clearance and graduate scholar." }, { status: 500 });
+  }
+}

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 
 async function getActor() {
   const supabase = await createClient();
@@ -165,6 +166,7 @@ export async function PATCH(
       return nextUser;
     });
 
+    await refreshSystemUsersAdminView();
     return NextResponse.json({ success: true, user: updated });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update user";

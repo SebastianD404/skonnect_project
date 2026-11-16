@@ -3,14 +3,15 @@ import type { NextRequest } from "next/server";
 
 // Mock prisma
 const mockFindUnique = vi.fn();
-const mockUpdate = vi.fn();
+const mockUpdateMany = vi.fn();
+const mockFindUniqueOrThrow = vi.fn();
 const mockAuditCreate = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     submission: {
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
-      update: (...args: unknown[]) => mockUpdate(...args),
+      updateMany: (...args: unknown[]) => mockUpdateMany(...args),
     },
     auditLog: { create: (...args: unknown[]) => mockAuditCreate(...args) },
     $transaction: async (cb: (tx: unknown) => unknown) => {
@@ -18,7 +19,8 @@ vi.mock('@/lib/prisma', () => ({
       return cb({
         submission: {
           findUnique: async () => ({ grantee: { status: "ACTIVE" } }),
-          update: (...args: unknown[]) => mockUpdate(...args),
+          updateMany: (...args: unknown[]) => mockUpdateMany(...args),
+          findUniqueOrThrow: (...args: unknown[]) => mockFindUniqueOrThrow(...args),
         },
         auditLog: { create: (...args: unknown[]) => mockAuditCreate(...args) },
       });
@@ -53,7 +55,8 @@ function createContext(id: string) {
 
 beforeEach(() => {
   mockFindUnique.mockReset();
-  mockUpdate.mockReset();
+  mockUpdateMany.mockReset();
+  mockFindUniqueOrThrow.mockReset();
   mockAuditCreate.mockReset();
 });
 
@@ -72,9 +75,10 @@ describe('admin review route', () => {
     };
 
     mockFindUnique.mockResolvedValue(submission);
-    mockUpdate.mockResolvedValue({
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    mockFindUniqueOrThrow.mockResolvedValue({
       ...submission,
-      status: 'APPROVED',
+      status: 'PENDING',
       gradesStatus: 'APPROVED',
     });
 
@@ -87,11 +91,16 @@ describe('admin review route', () => {
     const response = await POST(request, createContext('s1'));
 
     expect(response.status).toBe(200);
-    expect(mockUpdate).toHaveBeenCalled();
-    const callArg = mockUpdate.mock.calls[0][0];
+    expect(mockUpdateMany).toHaveBeenCalled();
+    const callArg = mockUpdateMany.mock.calls[0][0];
     expect(callArg).toBeDefined();
-    expect(callArg.where).toEqual({ id: 's1' });
-    expect(callArg.data.status).toBe('APPROVED');
+    expect(callArg.where).toMatchObject({
+      id: 's1',
+      status: 'PENDING',
+      coeStatus: 'APPROVED',
+      gradesStatus: 'PENDING',
+    });
+    expect(callArg.data.status).toBe('PENDING');
     expect(callArg.data).not.toHaveProperty('generalAverage');
     expect(callArg.data.requiresStrictManualReview).toBe(false);
   });
@@ -125,6 +134,6 @@ describe('admin review route', () => {
 
     expect(res.status).toBe(409);
     expect(payload.error).toContain('already been approved');
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 });

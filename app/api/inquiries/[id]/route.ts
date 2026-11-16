@@ -11,6 +11,7 @@ import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/li
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 
 interface AttachedFileNote {
   fileId: string;
@@ -446,6 +447,24 @@ export async function PATCH(
         ? Prisma.TransactionIsolationLevel.ReadCommitted
         : Prisma.TransactionIsolationLevel.Serializable,
     });
+
+    if (
+      action === "approve" &&
+      updatedInquiry.reviewStatus === "Approved" &&
+      inquiry.userId
+    ) {
+      try {
+        const notificationResult = await notifyGranteesToUploadRequirements({
+          targetUserIds: [inquiry.userId],
+          trigger: "GRANTEE_APPROVED",
+        });
+        if (notificationResult.errors.length > 0) {
+          console.error("SKEAP approval completed with requirement notification errors:", notificationResult.errors);
+        }
+      } catch (error) {
+        console.error("SKEAP approval completed, but requirement notifications failed:", error);
+      }
+    }
 
     if (action === "resolve") {
       logAuditEvent({

@@ -1,28 +1,16 @@
-import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
-import { ensureProfile } from "@/lib/auth";
 import { generateSystemBackupSnapshot } from "@/lib/data-backup";
-import { createClient } from "@/lib/supabase/server";
+import { getSystemBackupAdmin } from "@/lib/system-backup-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const admin = await ensureProfile(user);
-    if (!admin || (admin.role !== Role.SK_OFFICIAL && admin.role !== Role.SUPER_ADMIN)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const auth = await getSystemBackupAdmin();
+    if ("response" in auth) return auth.response;
 
     const backup = await generateSystemBackupSnapshot({
-      actorId: admin.id,
+      actorId: auth.admin.id,
       trigger: "MANUAL",
     });
     return new Response(backup.jsonString, {

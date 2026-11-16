@@ -36,6 +36,9 @@ const initialForm = {
   email: "",
   facebook: "",
   contactNumber: "",
+  guardianOrEmergencyName: "",
+  guardianRelationship: "",
+  guardianContactNumber: "",
   civilStatus: "",
   youthClassification: "",
   youthAgeGroup: "",
@@ -198,6 +201,7 @@ export default function KKProfilingForm() {
   const lastNameError = getNameFieldError("lastName");
   const firstNameError = getNameFieldError("firstName");
   const middleNameError = getNameFieldError("middleInitial");
+  const requiresGuardianContact = Number(form.age) >= 15 && Number(form.age) <= 17;
 
   useEffect(() => {
     const target = emailError
@@ -544,6 +548,13 @@ export default function KKProfilingForm() {
     if (!form.facebook.trim()) return "Facebook account name is required";
     if (!form.contactNumber.trim()) return "Contact number is required";
     if (!isValidContactNumber(form.contactNumber)) return "Contact number can contain numbers only.";
+    if (requiresGuardianContact) {
+      if (!form.guardianOrEmergencyName.trim()) return "Parent or guardian name is required for registrants aged 15–17.";
+      if (!form.guardianRelationship.trim()) return "Relationship to the parent or guardian is required for registrants aged 15–17.";
+      if (!form.guardianContactNumber.trim() || !isValidContactNumber(form.guardianContactNumber)) {
+        return "A valid parent or guardian contact number is required for registrants aged 15–17.";
+      }
+    }
     if (!form.civilStatus) return "Civil status is required";
     if (!form.youthClassification) return "Youth classification is required";
     if (!form.youthAgeGroup) return "Youth age group is required";
@@ -637,6 +648,9 @@ export default function KKProfilingForm() {
       formData.append("email", form.email);
       formData.append("facebook", form.facebook);
       formData.append("contactNumber", form.contactNumber);
+      formData.append("guardianOrEmergencyName", form.guardianOrEmergencyName);
+      formData.append("guardianRelationship", form.guardianRelationship);
+      formData.append("guardianContactNumber", form.guardianContactNumber);
       formData.append("civilStatus", form.civilStatus);
       formData.append("youthClassification", form.youthClassification);
       formData.append("youthAgeGroup", form.youthAgeGroup);
@@ -932,6 +946,53 @@ export default function KKProfilingForm() {
           <input value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} required className="w-full rounded-lg border px-3 py-2" />
         </label>
       </div>
+
+      <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold text-slate-900">
+            Parent / Guardian &amp; Emergency Contact
+            {requiresGuardianContact ? <span className="ml-1 text-rose-600" aria-hidden="true">*</span> : null}
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            {requiresGuardianContact
+              ? "Required for registrants aged 15–17 for minor verification and parental consent."
+              : "Optional for registrants aged 18–30."} Household income is not collected during general KK registration.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <label className="flex min-w-0 flex-col gap-1.5">
+            <FormFieldLabel required={requiresGuardianContact} className="text-sm font-medium">Name</FormFieldLabel>
+            <input
+              value={form.guardianOrEmergencyName}
+              onChange={(event) => setField("guardianOrEmergencyName", event.target.value)}
+              autoComplete="name"
+              required={requiresGuardianContact}
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1.5">
+            <FormFieldLabel required={requiresGuardianContact} className="text-sm font-medium">Relationship</FormFieldLabel>
+            <input
+              value={form.guardianRelationship}
+              onChange={(event) => setField("guardianRelationship", event.target.value)}
+              placeholder="e.g., Parent, Aunt/Uncle"
+              required={requiresGuardianContact}
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1.5">
+            <FormFieldLabel required={requiresGuardianContact} className="text-sm font-medium">Contact Number</FormFieldLabel>
+            <input
+              value={form.guardianContactNumber}
+              onChange={(event) => setField("guardianContactNumber", keepContactNumberDigits(event.target.value))}
+              inputMode="numeric"
+              autoComplete="tel"
+              required={requiresGuardianContact}
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </label>
+        </div>
+      </section>
 
         </div>
 

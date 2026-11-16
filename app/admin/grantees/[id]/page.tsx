@@ -41,6 +41,7 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
         dateEnrolled: true,
         dateRemoved: true,
         graduatedAt: true,
+        exitClearanceUrl: true,
         updatedAt: true,
         ...(hasRetentionColumn ? { retentionExpiresAt: true } : {}),
         user: {
@@ -260,6 +261,7 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
           dateEnrolled: grantee.dateEnrolled.toISOString(),
           dateRemoved: grantee.dateRemoved?.toISOString() ?? null,
           graduatedAt: grantee.graduatedAt?.toISOString() ?? null,
+          exitClearanceUrl: grantee.exitClearanceUrl,
           submissions: grantee.submissions.map((submission) => ({
             id: submission.id,
             semester: submission.semester,

@@ -10,7 +10,10 @@ type HistoricalGranteeRecord = {
   school: string;
   dateEnrolled: Date;
   remarks: string | null;
+  graduationRemarks: string | null;
   graduatedAt: Date | null;
+  exitClearanceStatus: string;
+  exitClearanceUrl: string | null;
   fullName: string | null;
   email: string | null;
 };
@@ -35,7 +38,10 @@ export default async function GranteeRecordsPage({ searchParams }: {
         grantee."school",
         grantee."dateEnrolled",
         grantee."remarks",
+        grantee."graduationRemarks",
         grantee."graduatedAt",
+        grantee."exitClearanceStatus"::text AS "exitClearanceStatus",
+        grantee."exitClearanceUrl",
         account."fullName",
         account."email"
       FROM "public"."grantees" AS grantee

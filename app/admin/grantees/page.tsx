@@ -1,4 +1,4 @@
-import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
+import { hasGranteeColumn, hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { formatDisplayName } from "@/lib/display-name";
 import { createClient } from "@/lib/supabase/server";
@@ -23,7 +23,10 @@ export default async function AdminGranteesPage({ searchParams }: {
   const requestedPageSize = Number(rawPageSize);
   const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const skip = (page - 1) * pageSize;
-  const hasRetentionColumn = await hasGranteeRetentionColumn();
+  const [hasRetentionColumn, hasGraduationReadyAtColumn] = await Promise.all([
+    hasGranteeRetentionColumn(),
+    hasGranteeColumn("graduationReadyAt"),
+  ]);
   const profileStatusSql = `AND profile_user."role"::text = 'GRANTEE' AND (
        g."status"::text = 'ACTIVE'
      )
@@ -107,6 +110,8 @@ export default async function AdminGranteesPage({ searchParams }: {
       select: {
         id: true,
         status: true,
+        ...(hasGraduationReadyAtColumn ? { graduationReadyAt: true } : {}),
+        exitClearanceStatus: true,
         yearLevel: true,
         school: true,
         dateEnrolled: true,
@@ -174,6 +179,15 @@ export default async function AdminGranteesPage({ searchParams }: {
       currentJourneySemesterIndex: journeyProgress.currentSemesterIndex,
       validatedJourneySemesterIndexes: journeyProgress.validatedSemesterIndexes,
       status: "ACTIVE",
+      graduationReadyAt:
+        "graduationReadyAt" in grantee
+          ? grantee.graduationReadyAt?.toISOString() ?? null
+          : null,
+      isReadyForGraduation:
+        ("graduationReadyAt" in grantee && Boolean(grantee.graduationReadyAt)) ||
+        (journeyProgress.nodes.length > 0 &&
+          journeyProgress.validatedSemesterIndexes.length >= journeyProgress.nodes.length),
+      exitClearanceStatus: grantee.exitClearanceStatus,
       dateEnrolled: grantee.dateEnrolled.toISOString(),
       graduatedAt: grantee.graduatedAt?.toISOString() ?? null,
       retentionExpiresAt: getRetentionExpiryDate(grantee)?.toISOString() ?? null,

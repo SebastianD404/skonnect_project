@@ -23,16 +23,19 @@ type BroadcastDraft = {
 };
 
 const BROADCAST_DRAFT_KEY = "skonnect.admin.broadcast.payout-assembly.draft.v2";
-const DEFAULT_BROADCAST_SUBJECT = "SK Educational Assistance Payout Notice";
-const DEFAULT_ASSEMBLY_LOCATION = "Barangay Pico Hall";
+const DEFAULT_BROADCAST_SUBJECT = "Your SKEAP Payout & KK Assembly Details — Barangay Pico";
+const PREVIOUS_DEFAULT_BROADCAST_SUBJECT = "SK Educational Assistance Payout Notice";
+const DEFAULT_ASSEMBLY_LOCATION = "Dap-ayan, Pico, La Trinidad, Benguet";
+const PREVIOUS_DEFAULT_ASSEMBLY_LOCATION = "Barangay Pico Hall";
 
 const PAYOUT_ASSEMBLY_COPY = {
-  greeting: "Greetings, SKEAP Scholars!",
+  greeting: "Hello, SKEAP Scholars!",
   announcement:
-    "We are pleased to announce the upcoming Katipunan ng Kabataan Assembly. Your educational assistance payout will be distributed during this event.",
+    "Good news! We’re excited to invite you to our upcoming Katipunan ng Kabataan (KK) Assembly, where we’ll also be releasing your educational assistance payout.",
+  reminderHeading: "Quick Reminder Before You Go:",
   reminder:
-    "To claim your payout, please bring a photocopy of your Student ID bearing three (3) signatures. Please ensure you have this ready, as we cannot release payouts without valid identification.",
-  closing: "We look forward to seeing you there!",
+    "Please bring a photocopy of your Student ID with three (3) specimen signatures so we can process and release your payout smoothly on-site.",
+  closing: "We’d love to see everyone there—come on time and catch up with your fellow scholars!",
   signature: "SK Council of Barangay Pico",
 } as const;
 
@@ -102,13 +105,25 @@ export default function BroadcastPage() {
 
       try {
         const draft = JSON.parse(savedDraft) as Partial<BroadcastDraft>;
-        if (typeof draft.subject === "string") setSubject(draft.subject);
+        if (typeof draft.subject === "string") {
+          setSubject(
+            draft.subject === PREVIOUS_DEFAULT_BROADCAST_SUBJECT && draft.messageType !== "CUSTOM"
+              ? DEFAULT_BROADCAST_SUBJECT
+              : draft.subject,
+          );
+        }
         if (draft.messageType === "PAYOUT_ASSEMBLY" || draft.messageType === "CUSTOM") {
           setMessageType(draft.messageType);
         }
         if (typeof draft.assemblyDate === "string") setAssemblyDate(draft.assemblyDate);
         if (typeof draft.assemblyTime === "string") setAssemblyTime(draft.assemblyTime);
-        if (typeof draft.location === "string") setLocation(draft.location);
+        if (typeof draft.location === "string") {
+          setLocation(
+            draft.location === PREVIOUS_DEFAULT_ASSEMBLY_LOCATION
+              ? DEFAULT_ASSEMBLY_LOCATION
+              : draft.location,
+          );
+        }
         if (typeof draft.customMessage === "string") setCustomMessage(draft.customMessage);
         if (draft.audienceType === "ALL" || draft.audienceType === "CUSTOM") {
           setAudienceType(draft.audienceType);
@@ -178,11 +193,12 @@ export default function BroadcastPage() {
     `When: ${formattedAssemblyDate} at ${formattedAssemblyTime}`,
     `Where: ${location.trim() || "Enter a location"}`,
     "",
-    `Important Reminder: ${PAYOUT_ASSEMBLY_COPY.reminder}`,
+    PAYOUT_ASSEMBLY_COPY.reminderHeading,
+    PAYOUT_ASSEMBLY_COPY.reminder,
     "",
     PAYOUT_ASSEMBLY_COPY.closing,
     "",
-    "Warm regards,",
+    "Warmly,",
     PAYOUT_ASSEMBLY_COPY.signature,
   ].join("\n");
   const finalMessage = messageType === "PAYOUT_ASSEMBLY" ? payoutAssemblyMessage : customMessage;
@@ -499,7 +515,10 @@ export default function BroadcastPage() {
                           name="messageType"
                           value={option}
                           checked={isSelected}
-                          onChange={() => setMessageType(option)}
+                          onChange={() => {
+                            setMessageType(option);
+                            setSubject(option === "CUSTOM" ? "" : DEFAULT_BROADCAST_SUBJECT);
+                          }}
                           className="peer sr-only"
                           disabled={submitting}
                         />
@@ -529,6 +548,7 @@ export default function BroadcastPage() {
                   type="text"
                   value={subject}
                   onChange={(event) => setSubject(event.target.value)}
+                  placeholder={messageType === "CUSTOM" ? "Enter a subject line..." : undefined}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 transition-all placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                   disabled={submitting}
                 />
@@ -600,12 +620,16 @@ export default function BroadcastPage() {
                         {location.trim() || "Enter a location"}
                       </p>
                       <p>
-                        <strong className="font-semibold text-slate-900">Important Reminder:</strong>{" "}
+                        <strong className="font-semibold text-slate-900">
+                          {PAYOUT_ASSEMBLY_COPY.reminderHeading}
+                        </strong>
+                      </p>
+                      <p>
                         {PAYOUT_ASSEMBLY_COPY.reminder}
                       </p>
                       <p>{PAYOUT_ASSEMBLY_COPY.closing}</p>
                       <p>
-                        Warm regards,
+                        Warmly,
                         <br />
                         {PAYOUT_ASSEMBLY_COPY.signature}
                       </p>

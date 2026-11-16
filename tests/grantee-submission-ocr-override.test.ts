@@ -6,7 +6,11 @@ const mocks = vi.hoisted(() => ({
   submissionFindFirst: vi.fn(),
   submissionCreate: vi.fn(),
   submissionUpdate: vi.fn(),
+  transactionSubmissionFindFirst: vi.fn(),
+  transaction: vi.fn(),
   academicTermScheduleFindMany: vi.fn(),
+  detectGranteeTargetTerm: vi.fn(),
+  getAcademicTermScheduleState: vi.fn(),
   processSubmissionGradeReportOcr: vi.fn(),
   after: vi.fn(),
 }));
@@ -20,6 +24,7 @@ vi.mock("@/lib/prisma", () => ({
       create: mocks.submissionCreate,
       update: mocks.submissionUpdate,
     },
+    $transaction: mocks.transaction,
   },
 }));
 
@@ -45,6 +50,15 @@ vi.mock("next/server", async (importOriginal) => {
 vi.mock("@/lib/semester-progress", () => ({
   getCurrentAcademicSemester: () => "2026-2027 First Semester",
   isAllowedAcademicSemester: () => true,
+}));
+
+vi.mock("@/lib/grantee-semester", () => ({
+  detectGranteeTargetTerm: mocks.detectGranteeTargetTerm,
+  getScheduleSemesterForTargetTerm: () => "2026-2027 First Semester",
+}));
+
+vi.mock("@/lib/academic-term-schedule", () => ({
+  getAcademicTermScheduleState: mocks.getAcademicTermScheduleState,
 }));
 
 import { NextRequest } from "next/server";
@@ -73,12 +87,35 @@ describe("grantee requirement submission", () => {
       grantee: { id: "grantee-1", status: "ACTIVE" },
     });
     mocks.submissionFindFirst.mockResolvedValue(null);
-    mocks.academicTermScheduleFindMany.mockResolvedValue([{
-      id: "schedule-1",
-      semester: "2026-2027 First Semester",
-      opensAt: new Date(Date.now() - 60_000),
-      closesAt: new Date(Date.now() + 60_000),
-    }]);
+    mocks.detectGranteeTargetTerm.mockResolvedValue({
+      schoolYear: "2026-2027",
+      semester: "First Semester",
+      termLabel: "2026-2027 First Semester",
+      isResubmission: false,
+      detectionSummary: "Detected next term",
+      previousApprovedTerm: null,
+      hasPendingSubmission: false,
+      hasApprovedSubmission: false,
+    });
+    mocks.getAcademicTermScheduleState.mockResolvedValue({
+      schedules: [],
+      window: {
+        status: "OPEN",
+        semester: "2026-2027 First Semester",
+        opensAt: new Date(Date.now() - 60_000),
+        closesAt: new Date(Date.now() + 60_000),
+      },
+    });
+    mocks.transactionSubmissionFindFirst.mockResolvedValue(null);
+    mocks.transaction.mockImplementation(async (callback) =>
+      callback({
+        submission: {
+          findFirst: mocks.transactionSubmissionFindFirst,
+          create: mocks.submissionCreate,
+          update: mocks.submissionUpdate,
+        },
+      })
+    );
     mocks.submissionCreate.mockImplementation(async ({ data }) => ({
       id: "submission-1",
       granteeId: data.granteeId,

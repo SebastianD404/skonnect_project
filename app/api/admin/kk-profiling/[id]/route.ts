@@ -35,6 +35,68 @@ async function authorizeUser() {
   return { user: appUser };
 }
 
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const auth = await authorizeUser();
+    if (auth.error) {
+      return auth.error;
+    }
+
+    const registration = await prisma.profilingRegistration.findUnique({
+      where: { id },
+      include: {
+        user: {
+          include: {
+            kkProfile: true,
+            skeapApplications: {
+              orderBy: [{ submittedAt: "desc" }, { updatedAt: "desc" }],
+              take: 1,
+              select: {
+                id: true,
+                status: true,
+                submittedAt: true,
+                updatedAt: true,
+                fathersName: true,
+                fathersOccupation: true,
+                fathersContact: true,
+                mothersMaidenName: true,
+                mothersOccupation: true,
+                mothersContact: true,
+                parentGuardianRegisteredVoter: true,
+                parentGuardianVoterFullName: true,
+                totalFamilyMonthlyIncome: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!registration) {
+      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+
+    const { user, ...registrationDetails } = registration;
+    return NextResponse.json({
+      ...registrationDetails,
+      familyBackground: {
+        kkProfile: user?.kkProfile ?? null,
+        skeapApplication: user?.skeapApplications[0] ?? null,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to load profiling registration details:", error);
+    return NextResponse.json(
+      { error: "Failed to load profiling registration details." },
+      { status: 500 }
+    );
+  }
+}
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

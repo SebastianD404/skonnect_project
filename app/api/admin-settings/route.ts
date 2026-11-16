@@ -19,6 +19,8 @@ import {
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
+import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 
 const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
@@ -444,9 +446,60 @@ export async function POST(request: Request) {
       });
     });
 
+    if (appUser.fullName !== fullName || appUser.email !== email) {
+      await refreshSystemUsersAdminView();
+    }
+
     const { schedules: savedSchedules, window: academicTermWindow } =
       await getAcademicTermScheduleState();
     const savedActiveSkeapEducationLevels = await getActiveSkeapEducationLevels();
+    const now = new Date();
+    const editedScheduleTerms = new Set(
+      (parsedAcademicTermSchedules ?? [])
+        .filter((schedule) => {
+          const previous = schedule.id
+            ? existingSchedules.find((item) => item.id === schedule.id)
+            : null;
+          return (
+            !previous ||
+            previous.opensAt.getTime() !== schedule.opensAt.getTime() ||
+            previous.closesAt.getTime() !== schedule.closesAt.getTime()
+          );
+        })
+        .map((schedule) => schedule.semester)
+    );
+    const activeEditedSchedules = savedSchedules.filter(
+      (schedule) =>
+        editedScheduleTerms.has(schedule.semester) &&
+        schedule.opensAt <= now &&
+        schedule.closesAt >= now
+    );
+    const uploadNotifications = {
+      notified: 0,
+      emailSent: 0,
+      skipped: 0,
+      errors: [] as string[],
+    };
+    for (const schedule of activeEditedSchedules) {
+      const match = /^(\d{4}-\d{4})\s+(First Semester|Second Semester)$/.exec(schedule.semester);
+      if (!match) continue;
+      try {
+        const notificationResult = await notifyGranteesToUploadRequirements({
+          schoolYear: match[1],
+          semester: match[2],
+          deadline: schedule.closesAt,
+          trigger: "ADMIN_SETTINGS",
+        });
+        uploadNotifications.notified += notificationResult.notified;
+        uploadNotifications.emailSent += notificationResult.emailSent;
+        uploadNotifications.skipped += notificationResult.skipped;
+        uploadNotifications.errors.push(...notificationResult.errors);
+      } catch (error) {
+        console.error(`Settings saved, but upload notifications failed for ${schedule.semester}:`, error);
+        uploadNotifications.errors.push(`Notifications failed for ${schedule.semester}.`);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       activeSkeapEducationLevels: savedActiveSkeapEducationLevels,
@@ -456,6 +509,7 @@ export async function POST(request: Request) {
         closesAt: schedule.closesAt.toISOString(),
       })),
       academicTermWindow,
+      uploadNotifications,
     });
   } catch (error) {
     console.error("Failed to update admin and academic term settings:", error);

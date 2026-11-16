@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Cable, Database, LayoutDashboard, Menu, ScrollText, Users, X } from "lucide-react";
+import { Cable, Database, LayoutDashboard, Menu, ScrollText, ShieldCheck, Users, X } from "lucide-react";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { SkLogo } from "@/app/components/SkLogo";
 import { Avatar } from "@/components/ui/Avatar";
@@ -81,8 +81,9 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
     countRequest.current = true;
     try {
       const lastViewed = window.localStorage.getItem(AUDIT_LAST_VIEWED_KEY);
-      const query = lastViewed ? `?since=${encodeURIComponent(lastViewed)}` : "";
-      const response = await fetch(`/api/system-admin/audit/unread-count${query}`, {
+      const params = new URLSearchParams({ view: "unread-count" });
+      if (lastViewed) params.set("since", lastViewed);
+      const response = await fetch(`/api/system-admin/audit?${params.toString()}`, {
         cache: "no-store",
       });
       if (response.status === 401 || response.status === 403) {
@@ -180,6 +181,7 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
   const navItems = [
     { label: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
     { label: "Users", href: "/system-admin/users", icon: Users },
+    { label: "Data Backup", href: "/system-admin/backups", icon: ShieldCheck },
     { label: "API Integrations", href: "/system-admin/integrations", icon: Cable },
     { label: "Audit Logs", href: "/system-admin/audit", icon: ScrollText, badge: unreadAuditCount },
   ];

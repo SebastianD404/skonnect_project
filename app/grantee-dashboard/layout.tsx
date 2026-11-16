@@ -37,13 +37,19 @@ export default async function GranteeDashboardLayout({
     return <AccessDeniedState reason={appUser.grantee?.remarks ?? null} title="Access Revoked" />;
   }
 
-  if (appUser.grantee?.status === "GRADUATED") {
+  if (
+    appUser.grantee?.status === "GRADUATED" &&
+    (appUser.role === "YOUTH" || appUser.role === "GRANTEE")
+  ) {
     return (
-      <AccessDeniedState
-        reason={appUser.grantee.remarks ?? null}
-        title="Scholarship Completed"
-      />
+      <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
+        {children}
+      </div>
     );
+  }
+
+  if (appUser.grantee?.status === "GRADUATED") {
+    redirect(getRoleHomePath(appUser.role) ?? "/applications");
   }
 
   if (appUser.role !== "GRANTEE") {

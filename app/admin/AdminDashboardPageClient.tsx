@@ -49,9 +49,9 @@ export default function AdminDashboardPageClient({
       {
         key: "totalYouth",
         href: "/admin/registry/masterlist",
-        label: "Total Youth",
+        label: "Verified KK Youth",
         value: analytics.totalRegisteredYouth,
-        subtitle: "approved KK profiles",
+        subtitle: "Active approved Barangay Pico profiles",
         icon: Users,
         featured: true,
       },

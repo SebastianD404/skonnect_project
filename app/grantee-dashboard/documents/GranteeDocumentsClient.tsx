@@ -16,6 +16,7 @@ import {
   Image as ImageIcon,
   Info,
   Loader2,
+  Lock,
   ShieldCheck,
   UploadCloud,
   X,
@@ -34,10 +35,10 @@ import { hasFailingGradeIndicators } from "@/lib/ocr/failing-grade-indicators";
 import {
   buildSemesterTracker,
   getCurrentAcademicSemester,
-  getDocumentSemesterOptions,
 } from "@/lib/semester-progress";
 import type { SubmissionStatus } from "@prisma/client";
 import type { AcademicTermWindow } from "@/lib/academic-term-schedule";
+import type { DetectedGranteeTargetTerm } from "@/lib/grantee-semester";
 
 type SubmissionItem = {
   id: string;
@@ -64,6 +65,7 @@ type Props = {
     opensAt: string;
     closesAt: string;
   }>;
+  detectedTerm: DetectedGranteeTargetTerm | null;
 };
 
 type UploadState = {
@@ -96,42 +98,6 @@ function formatTermWindowDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function getInitialSelectedSemester(
-  schedules: Props["academicTermSchedules"],
-  submissions: SubmissionItem[],
-  academicTermWindow: AcademicTermWindow
-) {
-  const now = Date.now();
-  if (academicTermWindow.status === "OPEN" && academicTermWindow.semester) {
-    return academicTermWindow.semester;
-  }
-
-  const currentAcademicSemester = getCurrentAcademicSemester(new Date(now));
-  if (
-    schedules.some((schedule) => schedule.semester === currentAcademicSemester) ||
-    submissions.some((submission) => submission.semester === currentAcademicSemester)
-  ) {
-    return currentAcademicSemester;
-  }
-
-  const openSchedule = schedules.find(
-    (schedule) => new Date(schedule.opensAt).getTime() <= now && new Date(schedule.closesAt).getTime() >= now
-  );
-  if (openSchedule) return openSchedule.semester;
-
-  const latestClosedSchedule = [...schedules]
-    .filter((schedule) => new Date(schedule.closesAt).getTime() < now)
-    .sort((a, b) => new Date(b.closesAt).getTime() - new Date(a.closesAt).getTime())[0];
-  if (latestClosedSchedule) return latestClosedSchedule.semester;
-
-  const earliestUpcomingSchedule = [...schedules]
-    .filter((schedule) => new Date(schedule.opensAt).getTime() > now)
-    .sort((a, b) => new Date(a.opensAt).getTime() - new Date(b.opensAt).getTime())[0];
-  if (earliestUpcomingSchedule) return earliestUpcomingSchedule.semester;
-
-  return submissions[0]?.semester ?? academicTermWindow.semester ?? "";
-}
-
 async function openSubmissionFile(viewerUrl: string) {
   const viewWindow = window.open("", "_blank");
   if (!viewWindow) {
@@ -162,6 +128,17 @@ function getSubmissionDisplayStatus(submission: SubmissionItem) {
   const hasCoe = Boolean(submission.coeFileUrl);
   const hasGradeReport = Boolean(submission.gradeFileUrl);
   const isFullyApproved = submission.status === "APPROVED" && hasCoe && hasGradeReport;
+
+  if (submission.status === "AWAITING_PHYSICAL_CTC") {
+    return {
+      label: "Awaiting Original / CTC",
+      tone: {
+        bar: "bg-amber-500/70",
+        chip: "bg-amber-50 text-amber-800 ring-1 ring-amber-200",
+        icon: <Clock className="h-3.5 w-3.5" />,
+      },
+    };
+  }
 
   if (submission.status === "REJECTED" || submission.status === "RETURNED_FOR_EDIT") {
     return {
@@ -290,12 +267,13 @@ export default function GranteeDocumentsClient({
   canSubmit,
   academicTermWindow,
   academicTermSchedules,
+  detectedTerm,
 }: Props) {
   const router = useRouter();
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [form, setForm] = useState<UploadState>(() => ({
     ...INITIAL_FORM,
-    semester: getInitialSelectedSemester(academicTermSchedules, submissions, academicTermWindow),
+    semester: detectedTerm?.termLabel ?? "",
   }));
   const [gradeOcrStatus, setGradeOcrStatus] = useState<OcrStatus>("IDLE");
   const [coeOcrStatus, setCoeOcrStatus] = useState<OcrStatus>("IDLE");
@@ -327,6 +305,16 @@ export default function GranteeDocumentsClient({
   }, []);
 
   useEffect(() => {
+    if (window.location.hash !== "#submit-requirements") return;
+    const frame = window.requestAnimationFrame(() => {
+      const section = document.getElementById("submit-requirements");
+      section?.scrollIntoView({ behavior: "smooth", block: "start" });
+      section?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
     if (
       academicTermWindow.status === "UNCONFIGURED" ||
       !academicTermWindow.opensAt ||
@@ -353,38 +341,10 @@ export default function GranteeDocumentsClient({
     };
   }, [academicTermWindow, router]);
 
-  const semesterOptions = useMemo(() => {
-    const calendarSemester = getCurrentAcademicSemester(new Date(currentTime));
-    const currentSemester = academicTermWindow.status === "OPEN"
-      ? academicTermWindow.semester ?? calendarSemester
-      : calendarSemester;
-    const options = getDocumentSemesterOptions(
-      [
-        ...submissions.map((submission) => submission.semester),
-        ...academicTermSchedules.map((schedule) => schedule.semester),
-        currentSemester,
-      ],
-      academicTermWindow.semester ?? undefined
-    );
-    const currentIndex = options.findIndex((option) => option.value === currentSemester);
-    const nextSemester = academicTermWindow.status === "UPCOMING"
-      ? academicTermWindow.semester
-      : currentIndex >= 0
-        ? options[currentIndex + 1]?.value
-        : undefined;
-
-    return options.map((option) => ({
-      ...option,
-      label: option.value === currentSemester
-        ? `${option.value} (Current)`
-        : option.value === nextSemester
-          ? `${option.value} (Next)`
-          : option.value,
-    }));
-  }, [submissions, academicTermSchedules, academicTermWindow, currentTime]);
-
   const stats = useMemo(() => {
-    const pending = submissions.filter((s) => s.status === "PENDING").length;
+    const pending = submissions.filter(
+      (s) => s.status === "PENDING" || s.status === "AWAITING_PHYSICAL_CTC"
+    ).length;
     const approved = submissions.filter((s) => s.status === "APPROVED").length;
     const needsEdit = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
     return { pending, approved, needsEdit };
@@ -421,23 +381,28 @@ export default function GranteeDocumentsClient({
     !isGradeReportFlagged &&
     !isCoeFlagged;
   const canResubmitReturned =
-    currentSubmission?.status === "RETURNED_FOR_EDIT" &&
-    (currentSubmission.flaggedFields?.length ?? 0) > 0;
-  const canSubmitForSelectedTerm =
-    (academicTermWindow.status === "OPEN" && form.semester === academicTermWindow.semester) ||
-    canResubmitReturned;
-
-  const termWindowMessage = canResubmitReturned
-    ? "SK admin requested a correction. Replace the flagged document to resubmit it."
-    : academicTermWindow.status === "UNCONFIGURED"
-      ? "The academic document submission schedule has not been set yet. Please check back later."
-      : academicTermWindow.status === "UPCOMING"
-        ? `Submissions for ${academicTermWindow.semester} open on ${formatTermWindowDate(academicTermWindow.opensAt)}.`
-        : academicTermWindow.status === "CLOSED"
-          ? `The submission window for ${form.semester || academicTermWindow.semester} is closed. You can still view previously submitted files.`
-          : form.semester === academicTermWindow.semester
-            ? `Submissions are open until ${formatTermWindowDate(academicTermWindow.closesAt)}.`
-            : `Uploads are open for ${academicTermWindow.semester}. Other terms are available for viewing only.`;
+    currentSubmission?.status === "RETURNED_FOR_EDIT";
+  const isAwaitingPhysicalCtc = currentSubmission?.status === "AWAITING_PHYSICAL_CTC";
+  const isPendingSubmissionLocked = Boolean(
+    detectedTerm?.hasPendingSubmission && !detectedTerm.canReplacePendingSubmission
+  );
+  const detectedScheduleSemester = detectedTerm
+    ? `${detectedTerm.schoolYear} ${
+        detectedTerm.semester === "Annual / School Year" ? "First Semester" : detectedTerm.semester
+      }`
+    : "";
+  const isSubmissionWindowOpen =
+    academicTermWindow.status === "OPEN" &&
+    detectedScheduleSemester === academicTermWindow.semester;
+  const canSubmitForSelectedTerm = isSubmissionWindowOpen || canResubmitReturned;
+  const isTermUploadAvailable = canSubmitForSelectedTerm;
+  const isSubmissionWindowClosed = Boolean(
+    detectedTerm &&
+      !isSubmissionWindowOpen &&
+      !canResubmitReturned &&
+    (!detectedTerm.hasPendingSubmission || detectedTerm.canReplacePendingSubmission) &&
+      academicTermWindow.status !== "UNCONFIGURED"
+  );
 
   // Semester filter for the "Fully Cleared" submissions view
   const [fullyClearedSemesterFilter, setFullyClearedSemesterFilter] = useState<string>("all");
@@ -488,7 +453,9 @@ export default function GranteeDocumentsClient({
       : { current: "Not scheduled", approved: 0, total: 2, pct: 0 },
     [submissions, form.semester]
   );
-  const selectedTermSchedule = academicTermSchedules.find((schedule) => schedule.semester === form.semester);
+  const selectedTermSchedule = academicTermSchedules.find(
+    (schedule) => schedule.semester === detectedScheduleSemester
+  );
   const selectedTermStatus: AcademicTermWindow["status"] = selectedTermSchedule
     ? currentTime < new Date(selectedTermSchedule.opensAt).getTime()
       ? "UPCOMING"
@@ -498,7 +465,7 @@ export default function GranteeDocumentsClient({
     : form.semester
       ? "CLOSED"
       : "UNCONFIGURED";
-  const isSelectedCurrentTerm = form.semester === (
+  const isSelectedCurrentTerm = detectedScheduleSemester === (
     academicTermWindow.status === "OPEN"
       ? academicTermWindow.semester
       : getCurrentAcademicSemester(new Date(currentTime))
@@ -512,7 +479,6 @@ export default function GranteeDocumentsClient({
     const formData = new FormData();
     formData.append("file", file);
     formData.append("kind", kind);
-    formData.append("semester", form.semester);
 
     const response = await fetch("/api/grantee/submissions/upload", {
       method: "POST",
@@ -591,6 +557,7 @@ export default function GranteeDocumentsClient({
   async function handleFileChange(file: File | null, kind: "grade" | "coe") {
     if (!file) return;
     setSubmitError(null);
+    setSubmitNotice(null);
     const runId = ++ocrRunIds.current[kind];
 
     const setFileError = kind === "grade" ? setGradeFileError : setCoeFileError;
@@ -738,7 +705,6 @@ export default function GranteeDocumentsClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          semester: form.semester,
           gradeFileUrl: finalGradeFileUrl,
           coeFileUrl: finalCoeFileUrl,
           forceSubmit: forceOverride || gradeOcrOverride || coeOcrOverride,
@@ -828,7 +794,11 @@ export default function GranteeDocumentsClient({
       />
 
       <div className="grid grid-cols-1 items-stretch overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm lg:grid-cols-12">
-        <section className="border-b border-slate-200/80 p-5 sm:p-8 lg:col-span-8 lg:border-b-0 lg:border-r">
+        <section
+          id="submit-requirements"
+          tabIndex={-1}
+          className="scroll-mt-24 border-b border-slate-200/80 p-5 sm:p-8 lg:col-span-8 lg:border-b-0 lg:border-r"
+        >
           <div className="mb-6 space-y-1 border-b border-slate-100 pb-6">
             <h2 className="text-xl font-bold tracking-tight text-slate-900">Submit Requirements</h2>
             <p className="text-xs text-slate-500">
@@ -844,35 +814,91 @@ export default function GranteeDocumentsClient({
 
             <form onSubmit={(event) => void handleSubmit(event)} className="space-y-0">
               {submitError ? <p role="alert" className="mb-4 text-sm font-medium text-rose-600">{submitError}</p> : null}
-              <div className="space-y-1.5">
-                <label htmlFor="submission-semester" className="block text-xs font-medium text-slate-700">
-                  Academic term
-                </label>
-                <div className="relative">
-                  <select
-                    id="submission-semester"
-                    value={form.semester}
-                    onChange={(event) => setForm((current) => ({ ...current, semester: event.target.value }))}
-                    disabled={submitting}
-                    className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 pr-10 text-sm font-medium text-slate-900 focus:border-[#0a1f33] focus:outline-none focus:ring-2 focus:ring-[#0a1f33]/10 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {!semesterOptions.some((option) => option.value === form.semester) ? (
-                      <option value="" disabled>Select academic term</option>
-                    ) : null}
-                    {semesterOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                  <ChevronDown
-                    className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
-                    aria-hidden="true"
-                  />
+              <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                    {isSubmissionWindowClosed ? "UPCOMING SUBMISSION TERM" : "SUBMISSION TERM"}
+                  </p>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                    isTermUploadAvailable
+                      ? "bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200"
+                      : "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200"
+                  }`}>
+                    {isTermUploadAvailable ? "Open" : "Submission Window Closed"}
+                  </span>
                 </div>
-                <p className="text-[11px] leading-relaxed text-slate-500">{termWindowMessage}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">
+                  {detectedTerm ? `${detectedTerm.schoolYear} · ${detectedTerm.semester}` : "Term unavailable"}
+                </p>
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
+                  {isSubmissionWindowClosed
+                    ? "Online uploads are currently closed. Please prepare the Original or Certified True Copy (CTC) of your Grade Report and Certificate of Enrollment so you can upload clear scans as soon as the window opens (and submit the physical copies at the SK Office for final approval)."
+                    : "Upload clear scans of the Original or Certified True Copy (CTC) of your Grade Report and Certificate of Enrollment for initial review. Physical copies will be verified at the SK Office before final approval."}
+                </p>
               </div>
 
+              {isAwaitingPhysicalCtc ? (
+                <div
+                  role="status"
+                  className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm"
+                >
+                  <div className="flex items-start gap-3">
+                    <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+                    <div>
+                      <h3 className="text-sm font-bold text-amber-950">
+                        Action Required: Submit Original / CTC at SK Office
+                      </h3>
+                      <p className="mt-2 text-xs leading-relaxed text-amber-900">
+                        Your digital upload for {currentSubmission?.semester} passed the initial pre-check.
+                        Full approval will be granted once you submit the physical Certified True Copy (CTC)
+                        or original Grade Report and Certificate of Enrollment to the Barangay Pico SK Council.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : isPendingSubmissionLocked ? (
+                <div
+                  role="status"
+                  className="mt-5 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4"
+                >
+                  <Clock className="h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-900">Under SK Admin Review</p>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-800">
+                      Your {detectedTerm?.termLabel ?? "current term"} submission is already in review. You can follow its progress in Recent Submissions.
+                    </p>
+                  </div>
+                </div>
+              ) : detectedTerm?.canReplacePendingSubmission ? (
+                <div
+                  role="status"
+                  className="mt-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-4"
+                >
+                  <p className="text-sm font-semibold text-sky-950">
+                    Submission received · Editable before review
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-sky-900">
+                    Your files are waiting for initial review. You may replace them while the submission window is open.
+                  </p>
+                </div>
+              ) : null}
+              {hasReturnedSubmission ? (
+                <div
+                  role="status"
+                  className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm"
+                >
+                  <p className="text-sm font-bold text-amber-950">
+                    Action Required · Resubmission Requested
+                  </p>
+                  <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-amber-900">
+                    {correctionNote || "Please replace the document(s) flagged by the SK Admin, then resubmit your requirements."}
+                  </p>
+                </div>
+              ) : null}
+              {detectedTerm ? (
+              <>
               <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2">
-                <Field label="Upload Grade Report" icon={<FileText className="h-4 w-4 text-slate-500" />}>
+                <Field label="Grade Report (Original / CTC)" icon={<FileText className="h-4 w-4 text-slate-500" />}>
                   <FileDrop
                     file={form.gradeFile}
                     existingFileName={hasExistingGradeReport && !form.gradeFile ? existingGradeReportName : undefined}
@@ -886,6 +912,7 @@ export default function GranteeDocumentsClient({
                     isResubmitted={Boolean(currentSubmission?.resubmittedFields?.includes("GRADE_REPORT")) && currentSubmission?.gradesStatus === "PENDING"}
                     correctionNote={correctionNote}
                     uploading={uploadingGrade}
+                    windowClosed={isSubmissionWindowClosed}
                     ocrStatus={gradeOcrStatus}
                     ocrWarning={gradeOcrWarning}
                     ocrOverridden={gradeOcrOverride}
@@ -907,7 +934,7 @@ export default function GranteeDocumentsClient({
                   />
                 </Field>
 
-                <Field label="Certificate of Enrollment" icon={<GraduationCap className="h-4 w-4 text-slate-500" />}>
+                <Field label="Certificate of Enrollment (Original / CTC)" icon={<GraduationCap className="h-4 w-4 text-slate-500" />}>
                   <FileDrop
                     file={form.coeFile}
                     existingFileName={hasExistingCoe && !form.coeFile && !coeFileError ? existingCoeName : undefined}
@@ -921,6 +948,7 @@ export default function GranteeDocumentsClient({
                     isResubmitted={Boolean(currentSubmission?.resubmittedFields?.includes("COE")) && currentSubmission?.coeStatus === "PENDING"}
                     correctionNote={correctionNote}
                     uploading={uploadingCoe}
+                    windowClosed={isSubmissionWindowClosed}
                     ocrStatus={coeOcrStatus}
                     ocrWarning={coeOcrWarning}
                     ocrOverridden={coeOcrOverride}
@@ -963,7 +991,7 @@ export default function GranteeDocumentsClient({
                 </div>
               )}
 
-              {ocrWarning ? (
+              {ocrWarning && !isPendingSubmissionLocked ? (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-2xs" role="alert">
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
@@ -996,11 +1024,28 @@ export default function GranteeDocumentsClient({
                   <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
                   Encrypted and securely stored
                 </div>
-                {isSubmissionClosed ? (
+                {isPendingSubmissionLocked ? (
+                  <span className="inline-flex h-9 items-center rounded-full bg-amber-50 px-3.5 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
+                    Under SK Admin Review
+                  </span>
+                ) : isSubmissionClosed ? (
                   <span className="inline-flex h-9 items-center gap-1.5 rounded-full bg-emerald-50 px-3.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                     Approved
                   </span>
+                ) : isSubmissionWindowClosed ? (
+                  <div className="flex flex-col items-center gap-1.5 sm:items-end">
+                    <button
+                      type="submit"
+                      disabled
+                      className="flex h-10 w-32 shrink-0 cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-200 text-xs font-bold text-slate-500"
+                    >
+                      Submit
+                    </button>
+                    <span className="text-[11px] font-medium text-slate-500">
+                      Submission window is closed
+                    </span>
+                  </div>
                 ) : (
                   <button
                     type="submit"
@@ -1021,6 +1066,12 @@ export default function GranteeDocumentsClient({
                   </button>
                 )}
               </div>
+              </>
+              ) : (
+                <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Uploads are unavailable until your requirement term can be confirmed.
+                </div>
+              )}
             </form>
           </div>
         </section>
@@ -1164,6 +1215,7 @@ function FileDrop({
   isResubmitted = false,
   correctionNote,
   uploading,
+  windowClosed = false,
   ocrStatus = "IDLE",
   ocrWarning,
   ocrOverridden = false,
@@ -1183,6 +1235,7 @@ function FileDrop({
   isResubmitted?: boolean;
   correctionNote?: string;
   uploading?: boolean;
+  windowClosed?: boolean;
   ocrStatus?: OcrStatus;
   ocrWarning?: string | null;
   ocrOverridden?: boolean;
@@ -1273,6 +1326,17 @@ function FileDrop({
     onChange(file);
   }
 
+  function openFilePicker() {
+    if (disabled) return;
+    if (inputRef.current) inputRef.current.value = "";
+    inputRef.current?.click();
+  }
+
+  function removeSelectedFile() {
+    if (inputRef.current) inputRef.current.value = "";
+    onRemoveFile();
+  }
+
   const hasFile = file !== null || Boolean(existingFileName);
   const isError = ocrStatus === "ERROR" || Boolean(errorText);
   const isWarning = ocrStatus === "WARNING" && !errorText;
@@ -1309,8 +1373,9 @@ function FileDrop({
         className="sr-only"
         disabled={disabled}
         onChange={(e) => {
-          onChange(e.target.files?.[0] ?? null);
+          const selectedFile = e.currentTarget.files?.[0] ?? null;
           e.currentTarget.value = "";
+          onChange(selectedFile);
         }}
       />
       {hasFile ? (
@@ -1392,7 +1457,7 @@ function FileDrop({
             {file ? (
               <button
                 type="button"
-                onClick={onRemoveFile}
+                onClick={removeSelectedFile}
                 disabled={disabled}
                 className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
                 title="Remove file"
@@ -1470,11 +1535,11 @@ function FileDrop({
               <>
                 <button
                   type="button"
-                  onClick={() => inputRef.current?.click()}
+                  onClick={openFilePicker}
                   disabled={disabled}
                   className="h-8 flex-1 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Change File
+                  Replace file
                 </button>
                 <button
                   type="button"
@@ -1515,11 +1580,11 @@ function FileDrop({
                 ) : null}
                 <button
                   type="button"
-                  onClick={() => inputRef.current?.click()}
+                  onClick={openFilePicker}
                   disabled={disabled}
                   className="h-8 flex-1 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Change File
+                  Replace file
                 </button>
               </>
             )}
@@ -1531,8 +1596,10 @@ function FileDrop({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={disabled}
-          className={`group flex h-[215px] w-full select-none flex-col items-center justify-center rounded-2xl border-2 border-dashed p-4 text-center shadow-2xs transition-all duration-150 ease-out active:scale-[0.98] active:bg-sky-100/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#0F3D5C]/10 ${
-            errorText
+          className={`group flex h-[215px] w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed p-4 text-center shadow-2xs transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#0F3D5C]/10 ${
+            windowClosed
+              ? "pointer-events-none select-none cursor-not-allowed border-slate-200 bg-slate-50/80 opacity-70"
+              : errorText
               ? "cursor-pointer border-rose-400 bg-rose-50/30 hover:bg-rose-50/50 active:bg-rose-100/40"
               : disabled
                 ? "cursor-not-allowed border-slate-200 bg-slate-100/80"
@@ -1542,25 +1609,43 @@ function FileDrop({
           }`}
         >
           <span className="pointer-events-none flex flex-col items-center justify-center gap-3">
-            <span className={`mb-1 flex h-10 w-10 items-center justify-center rounded-full transition-all duration-150 ease-out group-active:translate-y-0 group-active:scale-95 group-active:shadow-sm ${
-              errorText
+            <span className={`mb-1 flex h-10 w-10 items-center justify-center rounded-full transition-all duration-150 ease-out ${
+              windowClosed
+                ? "bg-slate-100 text-slate-400"
+                : errorText
                 ? "bg-rose-100/70 text-rose-600"
                 : "bg-sky-100/70 text-sky-600 group-hover:-translate-y-1.5 group-hover:bg-sky-500 group-hover:text-white group-hover:shadow-lg group-hover:shadow-sky-500/30"
             }`}>
-              <UploadCloud className="h-5 w-5" aria-hidden="true" />
+              {windowClosed
+                ? <Lock className="h-4 w-4" aria-hidden="true" />
+                : <UploadCloud className="h-5 w-5" aria-hidden="true" />}
             </span>
             <span>
               <span className={`block text-sm font-semibold transition-colors duration-300 ${
-                errorText ? "text-rose-700" : "text-slate-700 group-hover:text-sky-700"
+                windowClosed
+                  ? "text-slate-600"
+                  : errorText ? "text-rose-700" : "text-slate-700 group-hover:text-sky-700"
               }`}>
-                {isDragging ? "Drop file to upload" : <>Click to upload <span className={`font-normal transition-colors duration-300 ${errorText ? "text-rose-500" : "text-slate-500 group-hover:text-sky-600"}`}>or drag and drop</span></>}
+                {windowClosed
+                  ? "Uploads locked until window opens"
+                  : isDragging
+                    ? "Drop file to upload"
+                    : <>Click to upload <span className={`font-normal transition-colors duration-300 ${errorText ? "text-rose-500" : "text-slate-500 group-hover:text-sky-600"}`}>or drag and drop</span></>}
               </span>
-              <span className="mt-1.5 block text-[11px] text-slate-500">{subtitle}</span>
-              <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                Maximum file size: 10MB
-              </span>
+              {windowClosed ? (
+                <span className="mt-1.5 block text-[11px] font-medium text-slate-400">
+                  {subtitle} · Maximum file size: 10MB
+                </span>
+              ) : (
+                <>
+                  <span className="mt-1.5 block text-[11px] text-slate-500">{subtitle}</span>
+                  <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                    Maximum file size: 10MB
+                  </span>
+                </>
+              )}
             </span>
-            {errorText ? (
+            {errorText && !windowClosed ? (
               <span className="mt-2 flex w-full items-start justify-center gap-1.5 px-2 text-left" role="alert">
                 <AlertCircle className="mt-[1px] h-4 w-4 shrink-0 text-rose-600" aria-hidden="true" />
                 <span className="line-clamp-2 text-[11px] font-medium leading-snug text-rose-600">

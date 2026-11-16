@@ -20,6 +20,7 @@ import { getExactAge } from "@/lib/skeap-age";
 import { getSkeapMaxEligibleAge } from "@/lib/skeap-program-config";
 import { getAcademicYearDateRange } from "@/lib/semester";
 import { getSkeapWaitlistCycle, getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
+import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -214,6 +215,18 @@ export async function POST(
       emailSent = emailResult !== null;
     } catch (error) {
       console.error("SKEAP promotion completed, but the approval email could not be sent:", error);
+    }
+
+    try {
+      const notificationResult = await notifyGranteesToUploadRequirements({
+        targetUserIds: [promotedApplication.applicantId],
+        trigger: "GRANTEE_APPROVED",
+      });
+      if (notificationResult.errors.length > 0) {
+        console.error("SKEAP promotion completed with requirement notification errors:", notificationResult.errors);
+      }
+    } catch (error) {
+      console.error("SKEAP promotion completed, but requirement notifications failed:", error);
     }
 
     logAuditEvent({

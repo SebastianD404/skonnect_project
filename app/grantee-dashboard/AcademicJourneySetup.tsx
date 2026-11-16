@@ -90,12 +90,12 @@ export default function AcademicJourneySetup({
 
   return (
     <>
-      {configured ? (
+      {configured || mapProps.isGraduated ? (
         <AcademicJourneyMap
           {...mapProps}
           journeyStart={journeyStart}
           journeyEnd={journeyEnd}
-          onConfigureJourney={openDialog}
+          onConfigureJourney={mapProps.isGraduated ? undefined : openDialog}
         />
       ) : (
         <section className="relative flex min-h-[420px] flex-col items-center gap-10 overflow-hidden rounded-2xl border border-slate-100 bg-white p-8 shadow-[0_8px_32px_rgba(15,23,42,0.06)] lg:min-h-[390px] lg:flex-row lg:p-12">

@@ -81,9 +81,46 @@ export function getAcademicJourneyTermsForRange(start: string, end: string) {
 }
 
 export type AcademicJourneySubmission = {
+  id?: string;
   semester: string;
   status: string;
   submittedAt?: Date | string;
+  reviewedAt?: Date | string | null;
+  generalAverage?: number | null;
+  ocrGwa?: number | null;
+  reviewNotes?: string | null;
+  gradeFileUrl?: string | null;
+  coeFileUrl?: string | null;
+};
+
+export type AcademicJourneyNodeStatus =
+  | "VALIDATED"
+  | "PENDING"
+  | "UNDER_REVIEW"
+  | "RETURNED"
+  | "CURRENT"
+  | "LOCKED";
+
+export type AcademicJourneyInitialGrant = {
+  semester: string;
+  approvedAt?: Date | string | null;
+  gwa?: number | null;
+  gradeReportUrl?: string | null;
+  coeFileUrl?: string | null;
+};
+
+export type AcademicJourneyNode = {
+  index: number;
+  semester: string;
+  status: AcademicJourneyNodeStatus;
+  submissionId: string | null;
+  submittedAt: Date | string | null;
+  approvedAt: Date | string | null;
+  gwa: number | null;
+  remarks: string | null;
+  gradeReportUrl: string | null;
+  coeFileUrl: string | null;
+  isInitialGrant: boolean;
 };
 
 export type AcademicJourneyStepStatus =
@@ -110,10 +147,13 @@ export function normalizeAcademicJourneyStepStatus(status: unknown): AcademicJou
       return "open_for_submit";
     case "approved":
       return "validated";
+    case "RETURNED":
     case "REJECTED":
     case "RETURNED_FOR_EDIT":
       return "action_required";
     case "PENDING":
+    case "PRE_QUALIFIED":
+    case "UNDER_REVIEW":
       return "under_review";
     default:
       return "scheduled_locked";
@@ -148,53 +188,115 @@ export function getAcademicJourneyProgress(
   dateEnrolled: Date,
   now = new Date(),
   totalYears = 4,
-  activeSemester?: string,
+  initialGrant?: AcademicJourneyInitialGrant | null,
 ) {
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const termCount = years * 2;
   const startOrder = getSemesterOrder(getCurrentAcademicSemester(dateEnrolled));
-  const activeOrder = activeSemester ? getSemesterOrder(activeSemester) : null;
-  const currentOrder = activeOrder ?? getSemesterOrder(getCurrentAcademicSemester(now));
+  const calendarOrder = getSemesterOrder(getCurrentAcademicSemester(now));
 
-  if (startOrder === null || currentOrder === null) {
+  if (startOrder === null || calendarOrder === null) {
     throw new Error("Unable to determine academic journey semester order.");
   }
 
-  const currentStepSemester = getSemesterLabel(currentOrder);
-  const currentStepSubmission = submissions
-    .filter((submission) => submission.semester.trim() === currentStepSemester)
-    .reduce<AcademicJourneySubmission | null>((latest, submission) => {
-      if (!latest) return submission;
+  const submissionsByOrder = new Map<number, AcademicJourneySubmission>();
+  for (const submission of submissions) {
+    const order = getSemesterOrder(submission.semester.trim());
+    if (order === null || order < startOrder || order >= startOrder + termCount) continue;
 
-      const latestTime = latest.submittedAt
-        ? new Date(latest.submittedAt).getTime()
-        : 0;
-      const currentTime = submission.submittedAt
-        ? new Date(submission.submittedAt).getTime()
-        : 0;
-      return currentTime > latestTime ? submission : latest;
-    }, null);
-  const validatedSemesterIndexes = Array.from(new Set(
-    submissions
-      .filter((submission) => submission.status === "APPROVED")
-      .map((submission) => getSemesterOrder(submission.semester.trim()))
-      .filter((order): order is number => order !== null)
-      .map((order) => order - startOrder)
-      .filter((index) => index >= 0 && index < termCount)
-  )).sort((a, b) => a - b);
+    const previous = submissionsByOrder.get(order);
+    const submittedAt = submission.submittedAt
+      ? new Date(submission.submittedAt).getTime()
+      : 0;
+    const previousSubmittedAt = previous?.submittedAt
+      ? new Date(previous.submittedAt).getTime()
+      : 0;
+    if (!previous || submittedAt >= previousSubmittedAt) submissionsByOrder.set(order, submission);
+  }
+
+  const nodes: AcademicJourneyNode[] = [];
+  for (let index = 0; index < termCount; index += 1) {
+    const semester = getSemesterLabel(startOrder + index);
+    const submission = submissionsByOrder.get(startOrder + index) ?? null;
+    const isInitialGrant =
+      index === 0 &&
+      !submission &&
+      Boolean(initialGrant?.semester === semester);
+    let status: AcademicJourneyNodeStatus;
+
+    if (submission?.status === "APPROVED" || isInitialGrant) {
+      status = "VALIDATED";
+    } else if (submission?.status === "PENDING") {
+      status = "PENDING";
+    } else if (
+      submission?.status === "PRE_QUALIFIED" ||
+      submission?.status === "AWAITING_PHYSICAL_CTC"
+    ) {
+      status = "UNDER_REVIEW";
+    } else if (
+      submission?.status === "RETURNED_FOR_EDIT" ||
+      submission?.status === "REJECTED"
+    ) {
+      status = "RETURNED";
+    } else if (index === 0 || nodes[index - 1]?.status === "VALIDATED") {
+      status = "CURRENT";
+    } else {
+      status = "LOCKED";
+    }
+
+    nodes.push({
+      index,
+      semester,
+      status,
+      submissionId: submission?.id ?? null,
+      submittedAt: submission?.submittedAt ?? null,
+      approvedAt: submission?.status === "APPROVED"
+        ? submission.reviewedAt ?? null
+        : isInitialGrant
+          ? initialGrant?.approvedAt ?? null
+          : null,
+      gwa: submission?.generalAverage ??
+        submission?.ocrGwa ??
+        (isInitialGrant ? initialGrant?.gwa : null) ??
+        null,
+      remarks: submission?.reviewNotes ?? null,
+      gradeReportUrl:
+        submission?.gradeFileUrl ??
+        (isInitialGrant ? initialGrant?.gradeReportUrl : null) ??
+        null,
+      coeFileUrl:
+        submission?.coeFileUrl ??
+        (isInitialGrant ? initialGrant?.coeFileUrl : null) ??
+        null,
+      isInitialGrant,
+    });
+  }
+
+  const currentIndex = nodes.findIndex((node) =>
+    node.status === "CURRENT" ||
+    node.status === "PENDING" ||
+    node.status === "UNDER_REVIEW" ||
+    node.status === "RETURNED"
+  );
+  const activeIndex = currentIndex < 0 ? termCount : currentIndex;
+  const currentNode = nodes[activeIndex];
+  const validatedSemesterIndexes = nodes
+    .filter((node) => node.status === "VALIDATED")
+    .map((node) => node.index);
 
   return {
-    currentSemesterIndex: Math.max(0, Math.min(currentOrder - startOrder, termCount)),
-    currentStepSemester,
+    currentSemesterIndex: activeIndex,
+    currentStepSemester: currentNode?.semester ?? getSemesterLabel(startOrder + termCount - 1),
     validatedSemesterIndexes,
-    currentStepStatus: !currentStepSubmission
-      ? "open_for_submit" as const
-      : currentStepSubmission.status === "APPROVED"
-        ? "validated" as const
-        : currentStepSubmission.status === "REJECTED" ||
-            currentStepSubmission.status === "RETURNED_FOR_EDIT"
+    currentStepStatus: !currentNode || currentNode.status === "VALIDATED"
+      ? "validated" as const
+      : currentNode.status === "PENDING" || currentNode.status === "UNDER_REVIEW"
+        ? "under_review" as const
+        : currentNode.status === "RETURNED"
           ? "action_required" as const
-          : "under_review" as const,
+          : "open_for_submit" as const,
+    nodes,
+    calendarSemesterIndex: Math.max(0, Math.min(calendarOrder - startOrder, termCount)),
   };
 }
 

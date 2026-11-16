@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 
 const GRANTEE_ROLE_ERROR =
   "Grantee status is managed automatically through SKEAP Applications and Active Grantees and cannot be changed manually.";
@@ -149,6 +150,7 @@ export async function PATCH(
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
+    await refreshSystemUsersAdminView();
     return NextResponse.json({ success: true, user: result.user });
   } catch (error) {
     console.error("[PATCH /api/system-admin/users/[id]/role]", error);

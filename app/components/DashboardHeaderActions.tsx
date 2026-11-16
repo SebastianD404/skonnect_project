@@ -399,7 +399,13 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
             id: item.id,
             text: item.text,
             createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
-            href: item.id.startsWith("payout-disbursed:") ? "/grantee/payouts" : undefined,
+            href: typeof item.href === "string"
+              ? item.href
+              : item.id.startsWith("requirements-upload:")
+                ? "/grantee-dashboard/documents"
+                : item.id.startsWith("payout-disbursed:")
+                  ? "/grantee/payouts"
+                  : undefined,
           }];
         });
         const reminderPayload = asRecord(remindersData);
@@ -530,7 +536,10 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
             </svg>
           )}
           {liveUnreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#0F3D5C] text-[10px] font-bold text-white">
+            <span
+              aria-label={`${liveUnreadCount} unread notifications`}
+              className="absolute -top-1 -right-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold leading-none tabular-nums text-white ring-2 ring-white shadow-sm"
+            >
               {liveUnreadCount > 99 ? "99+" : liveUnreadCount}
             </span>
           )}
@@ -581,7 +590,16 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
                               {notification.createdAt ? formatRelativeTime(notification.createdAt) : null}
                             </span>
                             {notification.href ? (
-                              <span className="shrink-0 font-semibold text-[#0F3D5C]">Confirm receipt →</span>
+                              <span className="shrink-0 font-semibold text-[#0F3D5C]">
+                                {notification.id.startsWith("requirements-upload:")
+                                  ? "Upload requirements →"
+                                  : notification.id.startsWith("kk-age-out:")
+                                    ? "View KK profile update →"
+                                    : notification.id.startsWith("graduation-candidate-ready:") ||
+                                        notification.id.startsWith("graduation-exit-clearance:")
+                                      ? "View graduation record →"
+                                      : "View update →"}
+                              </span>
                             ) : null}
                           </span>
                         ) : null}
@@ -662,7 +680,10 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
       >
         <Inbox className="h-5 w-5" aria-hidden="true" />
         {inquiryReplyCount > 0 && (
-          <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white">
+          <span
+            aria-label={`${inquiryReplyCount} unread replies`}
+            className="absolute -top-1 -right-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold leading-none tabular-nums text-white ring-2 ring-white shadow-sm"
+          >
             {inquiryReplyCount > 99 ? "99+" : inquiryReplyCount}
           </span>
         )}

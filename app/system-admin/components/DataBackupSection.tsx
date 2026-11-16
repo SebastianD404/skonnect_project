@@ -32,7 +32,6 @@ type BackupOverview = {
   recentBackups: BackupHistoryItem[];
   lastSuccessfulBackupAt: string | null;
   liveRecordCounts: BackupCounts;
-  canRestore: boolean;
 };
 
 type VerifyResponse = {
@@ -324,19 +323,17 @@ export default function DataBackupSection() {
               {isDownloading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
               {isDownloading ? "Generating snapshot..." : "Download Full Backup (.JSON)"}
             </button>
-            {overview?.canRestore ? (
-              <button
-                type="button"
-                onClick={() => {
-                  resetRestore();
-                  setRestoreOpen(true);
-                }}
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                Verify &amp; Restore Snapshot
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                resetRestore();
+                setRestoreOpen(true);
+              }}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+              Verify &amp; Restore Snapshot
+            </button>
           </div>
           <p className="max-w-md text-xs leading-5 text-slate-500">
             Snapshots contain personal records. Store downloaded files securely. SHA-256 confirms integrity, not source authenticity; Supabase Auth credentials are not included.
@@ -350,16 +347,8 @@ export default function DataBackupSection() {
         ) : null}
 
         <div className="border-t border-slate-100 px-5 py-5 sm:px-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mb-3">
             <h3 className="text-sm font-bold text-slate-900">Recent Backup History</h3>
-            <button
-              type="button"
-              onClick={() => void loadOverview()}
-              disabled={loading}
-              className="text-xs font-semibold text-cyan-800 hover:text-cyan-950 disabled:opacity-50"
-            >
-              Refresh
-            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px] text-left text-xs">
@@ -429,7 +418,7 @@ export default function DataBackupSection() {
         </div>
       </article>
 
-      {restoreOpen && overview?.canRestore ? (
+      {restoreOpen ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 px-4 py-6">
           <section
             role="dialog"

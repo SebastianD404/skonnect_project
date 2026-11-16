@@ -7,6 +7,7 @@ import { writeAuditLog } from "@/lib/audit/logger";
 import { MAX_SCHEDULED_TERMS } from "@/lib/academic-term-schedule-constants";
 import { parseManilaDateTime } from "@/lib/academic-term-schedule";
 import { isAllowedAcademicSemester } from "@/lib/semester-progress";
+import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 
 export async function POST(request: Request) {
   try {
@@ -91,6 +92,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
+    const now = new Date();
+    const uploadNotifications = {
+      notified: 0,
+      emailSent: 0,
+      skipped: 0,
+      errors: [] as string[],
+    };
+    if (result.createdSchedule.opensAt <= now && result.createdSchedule.closesAt >= now) {
+      const match = /^(\d{4}-\d{4})\s+(First Semester|Second Semester)$/.exec(result.createdSchedule.semester);
+      if (match) {
+        try {
+          Object.assign(
+            uploadNotifications,
+            await notifyGranteesToUploadRequirements({
+              schoolYear: match[1],
+              semester: match[2],
+              deadline: result.createdSchedule.closesAt,
+              trigger: "ADMIN_SETTINGS",
+            })
+          );
+        } catch (error) {
+          console.error(
+            `Schedule saved, but upload notifications failed for ${result.createdSchedule.semester}:`,
+            error
+          );
+          uploadNotifications.errors.push(`Notifications failed for ${result.createdSchedule.semester}.`);
+        }
+      }
+    }
+
     return NextResponse.json({
       createdSchedule: {
         ...result.createdSchedule,
@@ -102,6 +133,7 @@ export async function POST(request: Request) {
         opensAt: schedule.opensAt.toISOString(),
         closesAt: schedule.closesAt.toISOString(),
       })),
+      uploadNotifications,
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {

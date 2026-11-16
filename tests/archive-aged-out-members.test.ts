@@ -176,6 +176,24 @@ describe("sweepAgedOutKkProfiles", () => {
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
+  it("archives the profile on its 31st birthday and includes the exact age in its notice", async () => {
+    const birthDate = new Date();
+    birthDate.setUTCFullYear(birthDate.getUTCFullYear() - 31);
+    mocks.findMany.mockResolvedValue([createProfile(birthDate)]);
+
+    await expect(sweepAgedOutKkProfiles("admin-id")).resolves.toEqual({
+      archivedCount: 1,
+      closedApplicationCount: 0,
+    });
+
+    expect(mocks.updateProfile).toHaveBeenCalledOnce();
+    expect(mocks.upsertNotification).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        message: expect.stringContaining("Your recorded age is 31."),
+      }),
+    }));
+  });
+
   it("does not refresh views or archive when no profiles are eligible", async () => {
     mocks.findMany.mockResolvedValue([]);
 

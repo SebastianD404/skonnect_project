@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const PRIVATE_DOCUMENT_BUCKET = "private-documents";
 
-export type PrivateDocumentCategory = "kk-verification" | "skeap-applications";
+export type PrivateDocumentCategory = "kk-verification" | "skeap-applications" | "grantee-clearances";
 
 export function getPrivateDocumentPath(fileUrl: string) {
   const prefix = "/api/private-documents/";
@@ -15,7 +15,7 @@ export function getPrivateDocumentPath(fileUrl: string) {
     const path = segments.map((segment) => decodeURIComponent(segment));
     if (
       path.length < 3 ||
-      !["kk-verification", "skeap-applications"].includes(path[0]) ||
+      !["kk-verification", "skeap-applications", "grantee-clearances"].includes(path[0]) ||
       path.some((part) => !part || part === "." || part === ".." || /[\\/]/.test(part))
     ) {
       return null;
@@ -53,7 +53,7 @@ export async function uploadPrivateDocument(
     .upload(path, await file.arrayBuffer(), {
       contentType: file.type || "application/octet-stream",
       cacheControl: "0",
-      upsert: false,
+      upsert: true,
     });
 
   if (error) throw error;

@@ -90,7 +90,7 @@ function formatWindowDate(value: string | null) {
   }).format(new Date(value));
 }
 const TABS: TabDef[] = [
-  { id: "pending", label: "Pending Review", description: "Complete submissions awaiting review" },
+  { id: "pending", label: "Pending Review", description: "Digital pre-check and physical verification" },
   { id: "returned", label: "Returned for Edits", description: "Submissions returned to grantees" },
   { id: "cleared", label: "Fully Cleared", description: "Submissions approved by an administrator" },
 ];
@@ -102,12 +102,14 @@ const QUEUE_TITLES: Record<TabType, string> = {
 
 function getStatusLabel(status: SubmissionStatus) {
   if (status === "APPROVED") return "Fully Cleared";
+  if (status === "AWAITING_PHYSICAL_CTC") return "Awaiting Original / CTC";
   if (status === "RETURNED_FOR_EDIT" || status === "REJECTED") return "Returned for Edits";
   return "Pending Review";
 }
 
 function getStatusClass(status: SubmissionStatus) {
   if (status === "APPROVED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "AWAITING_PHYSICAL_CTC") return "border-amber-200 bg-amber-50 text-amber-800";
   if (status === "RETURNED_FOR_EDIT" || status === "REJECTED") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-sky-200 bg-sky-50 text-sky-700";
 }
@@ -125,6 +127,7 @@ interface DocumentCardProps {
   onReturn: () => Promise<boolean>;
   disabled: boolean;
   approved: boolean;
+  reviewLocked?: boolean;
 }
 
 function DocumentCard({
@@ -140,6 +143,7 @@ function DocumentCard({
   onReturn,
   disabled,
   approved,
+  reviewLocked = false,
 }: DocumentCardProps) {
   const viewerUrl = `/api/submissions/${submissionId}/file?kind=${documentKind}`;
   const [previewType, setPreviewType] = useState<"pdf" | "image" | "unsupported" | "missing" | null>(null);
@@ -263,7 +267,11 @@ function DocumentCard({
       </div>
 
       <div className="review-card__notes flex min-h-0 flex-1 flex-col">
-        {approved ? (
+        {reviewLocked ? (
+          <p className="review-card__actions text-xs font-semibold text-amber-800">
+            Digital pre-check complete; awaiting physical Original / CTC verification.
+          </p>
+        ) : approved ? (
           reviewNotesValue.trim() ? (
             <>
               <label className="mt-4 mb-2 block text-sm font-semibold text-slate-800">{notesLabel}</label>
@@ -522,9 +530,15 @@ export default function SubmissionReviewTable() {
     selectedSubmission !== null &&
     selectedSubmission.status !== "APPROVED" &&
     (selectedSubmission.status === "PENDING" ||
+      selectedSubmission.status === "AWAITING_PHYSICAL_CTC" ||
       (selectedSubmission.flaggedFields?.length ?? 0) > 0);
   const gradeReportApproved =
     selectedSubmission?.gradesStatus === "APPROVED" || selectedSubmission?.status === "APPROVED";
+  const canVerifyDigital =
+    selectedSubmission?.status === "PENDING" &&
+    selectedSubmission.coeStatus === "APPROVED" &&
+    selectedSubmission.gradesStatus === "APPROVED" &&
+    (selectedSubmission.flaggedFields?.length ?? 0) === 0;
   const draft = selectedSubmission
     ? reviewDrafts[selectedSubmission.id] ?? EMPTY_REVIEW_DRAFT
     : EMPTY_REVIEW_DRAFT;
@@ -650,13 +664,6 @@ export default function SubmissionReviewTable() {
       );
       if (action === "RETURN_FOR_UPDATE") {
         changeTab("returned");
-      } else if (
-        (docType === "coe" && submission.gradesStatus === "APPROVED") ||
-        (docType === "grades" && submission.coeStatus === "APPROVED") ||
-        submission.status === "APPROVED"
-      ) {
-        setActionSuccess("Submission package fully cleared.");
-        changeTab("cleared", submission.id);
       } else {
         setIsLoading(true);
         setRefreshToken((current) => current + 1);
@@ -665,6 +672,26 @@ export default function SubmissionReviewTable() {
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Unable to process review action.");
       return false;
+    } finally {
+      setSavingSubmissionId(null);
+    }
+  }
+
+  async function confirmPhysicalCtc() {
+    if (!selectedSubmission || isSaving) return;
+
+    setSavingSubmissionId(selectedSubmission.id);
+    setActionError(null);
+    setValidationError(null);
+    setActionSuccess(null);
+    try {
+      await postSubmissionAction(selectedSubmission, "CONFIRM_PHYSICAL_CTC");
+      setActionSuccess("Physical Original / CTC verified. Submission fully approved.");
+      changeTab("cleared", selectedSubmission.id);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to confirm physical documents.");
+      setIsLoading(true);
+      setRefreshToken((current) => current + 1);
     } finally {
       setSavingSubmissionId(null);
     }
@@ -689,20 +716,37 @@ export default function SubmissionReviewTable() {
     return submitDocumentReview(submission, docType, "RETURN_FOR_UPDATE", notes);
   }
 
-  async function submitPackageReview() {
+  async function postSubmissionAction(
+    submission: SubmissionRow,
+    action: "VERIFY_DIGITAL" | "CONFIRM_PHYSICAL_CTC",
+  ) {
+    const response = await fetch(`/api/admin/submissions/${submission.id}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.error || "Unable to update submission verification status.");
+    }
+  }
+
+  async function verifyDigitalAndRequestPhysicalCtc() {
     if (!selectedSubmission || isSaving) return;
+    if (!canVerifyDigital) {
+      setValidationError("Approve both digital documents and clear all correction flags before requesting physical verification.");
+      return;
+    }
 
     setSavingSubmissionId(selectedSubmission.id);
     setActionError(null);
     setValidationError(null);
     setActionSuccess(null);
     try {
-      await postDocumentReview(selectedSubmission, "coe", "APPROVE", "");
-      if (selectedSubmission.gradeFileUrl) {
-        await postDocumentReview(selectedSubmission, "grades", "APPROVE", "");
-      }
-      setActionSuccess("Submission package fully cleared.");
-      changeTab("cleared", selectedSubmission.id);
+      await postSubmissionAction(selectedSubmission, "VERIFY_DIGITAL");
+      setActionSuccess("Digital pre-check complete. The grantee has been asked to submit the Original / CTC.");
+      setIsLoading(true);
+      setRefreshToken((current) => current + 1);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Unable to process submission review.");
       setIsLoading(true);
@@ -1017,18 +1061,33 @@ export default function SubmissionReviewTable() {
                           <CheckCircle2 className="h-4 w-4" />
                           Fully cleared
                         </span>
+                      ) : selectedSubmission.status === "AWAITING_PHYSICAL_CTC" ? (
+                        <>
+                          <span className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                            Awaiting Original / CTC
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void confirmPhysicalCtc()}
+                            disabled={isSaving}
+                            className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            Confirm Physical CTC &amp; Fully Approve
+                          </button>
+                        </>
                       ) : (
                         <>
-                          {selectedSubmission.coeStatus === "APPROVED" &&
-                          selectedSubmission.gradesStatus === "APPROVED" ? (
+                          {selectedSubmission.status === "PENDING" ? (
                             <button
                               type="button"
-                              onClick={() => void submitPackageReview()}
-                              disabled={isSaving}
+                              onClick={() => void verifyDigitalAndRequestPhysicalCtc()}
+                              disabled={isSaving || !canVerifyDigital}
+                              title={!canVerifyDigital ? "Approve both digital documents and clear all correction flags first." : undefined}
                               className="inline-flex items-center gap-2 rounded-xl bg-[#0a1f33] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#122e48] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <CheckCircle2 className="h-4 w-4" />
-                              Fully Clear
+                              Verify Digital &amp; Request Original/CTC
                             </button>
                           ) : null}
                         </>
@@ -1086,6 +1145,7 @@ export default function SubmissionReviewTable() {
                     onReturn={() => returnDocumentForUpdate(selectedSubmission, "coe")}
                     disabled={isSaving}
                     approved={selectedSubmission.coeStatus === "APPROVED" || selectedSubmission.status === "APPROVED"}
+                    reviewLocked={selectedSubmission.status === "AWAITING_PHYSICAL_CTC"}
                   />
 
                   <DocumentCard
@@ -1116,6 +1176,7 @@ export default function SubmissionReviewTable() {
                     onReturn={() => returnDocumentForUpdate(selectedSubmission, "grades")}
                     disabled={isSaving || !selectedSubmission.gradeFileUrl}
                     approved={gradeReportApproved}
+                    reviewLocked={selectedSubmission.status === "AWAITING_PHYSICAL_CTC"}
                   />
                 </div>
               </>

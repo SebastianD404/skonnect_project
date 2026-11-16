@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { runDeadlineReminders } from "@/lib/deadline-reminder-runner";
+import { runGranteeUploadRequirementReminders } from "@/lib/deadline-reminder-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await runDeadlineReminders();
+    const result = await runGranteeUploadRequirementReminders();
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("Scheduled deadline reminder run failed:", error);

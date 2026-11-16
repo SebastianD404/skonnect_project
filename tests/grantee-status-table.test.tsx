@@ -20,6 +20,8 @@ const grantee: GranteeTableRow = {
   currentJourneySemesterIndex: 0,
   validatedJourneySemesterIndexes: [],
   status: "ACTIVE",
+  graduationReadyAt: null,
+  exitClearanceStatus: "NONE",
   contactNumber: "09171234567",
   dateEnrolled: "2025-01-15T00:00:00.000Z",
   updatedAt: "2025-01-15T00:00:00.000Z",
@@ -29,14 +31,16 @@ function renderTable({
   isLoading = false,
   query = "",
   onQueryChange = vi.fn(),
+  granteeRow = grantee,
 }: {
   isLoading?: boolean;
   query?: string;
   onQueryChange?: (query: string) => void;
+  granteeRow?: GranteeTableRow;
 } = {}) {
   return render(
     <GranteeStatusTable
-      grantees={[grantee]}
+      grantees={[granteeRow]}
       page={1}
       pageSize={10}
       totalCount={1}
@@ -66,5 +70,29 @@ describe("GranteeStatusTable", () => {
     expect(onQueryChange).toHaveBeenCalledWith("09171234567");
     expect(screen.getByRole("status")).toHaveTextContent("Searching active grantees");
     expect(screen.queryByText("Mira Santos")).not.toBeInTheDocument();
+  });
+
+  it("shows clearance-submitted status ahead of the ready-to-graduate badge", () => {
+    renderTable({
+      granteeRow: {
+        ...grantee,
+        graduationReadyAt: "2026-11-17T00:00:00.000Z",
+        exitClearanceStatus: "SUBMITTED",
+      },
+    });
+
+    expect(screen.getAllByText("Clearance Submitted")).toHaveLength(2);
+    expect(screen.queryByText("Ready to Graduate")).not.toBeInTheDocument();
+  });
+
+  it("shows the ready-to-graduate status when clearance is not submitted", () => {
+    renderTable({
+      granteeRow: {
+        ...grantee,
+        graduationReadyAt: "2026-11-17T00:00:00.000Z",
+      },
+    });
+
+    expect(screen.getAllByText("Ready to Graduate")).toHaveLength(2);
   });
 });

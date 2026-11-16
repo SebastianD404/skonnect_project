@@ -1,0 +1,16 @@
+DO $$
+BEGIN
+  CREATE TYPE "ExitClearanceStatus" AS ENUM ('NONE', 'SUBMITTED', 'CLEARED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
+
+ALTER TABLE "grantees"
+  ADD COLUMN IF NOT EXISTS "exitClearanceStatus" "ExitClearanceStatus" NOT NULL DEFAULT 'NONE',
+  ADD COLUMN IF NOT EXISTS "exitClearanceUrl" TEXT,
+  ADD COLUMN IF NOT EXISTS "schoolClearanceVerified" BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS "skClearanceVerified" BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS "graduationRemarks" TEXT,
+  ADD COLUMN IF NOT EXISTS "graduatedAt" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "graduatedBy" TEXT;

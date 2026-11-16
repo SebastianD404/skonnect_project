@@ -12,11 +12,17 @@ const TERM_ORDER: Record<string, number> = {
 };
 
 function parseSemesterLabel(semester: string) {
-  const match = semester.match(/^(\d{4})-(\d{4})\s+(First Semester|Second Semester)$/i);
+  const match = semester.match(
+    /^(\d{4})-(\d{4})\s+(First Semester|Second Semester|Annual \/ School Year)$/i
+  );
   if (!match) return null;
 
   const startYear = Number(match[1]);
-  const term = match[3].toLowerCase() === "first semester" ? "First Semester" : "Second Semester";
+  const term = match[3].toLowerCase() === "first semester"
+    ? "First Semester"
+    : match[3].toLowerCase() === "second semester"
+      ? "Second Semester"
+      : "Annual / School Year";
   const termOrder = TERM_ORDER[term] ?? 0;
 
   return { startYear, endYear: Number(match[2]), term, termOrder };
@@ -39,7 +45,7 @@ export function getCurrentAcademicSemester(referenceDate = new Date()) {
 
 export function isAllowedAcademicSemester(semester: string) {
   const parsed = parseSemesterLabel(semester.trim());
-  if (!parsed) return false;
+  if (!parsed || parsed.term === "Annual / School Year") return false;
   return parsed.endYear === parsed.startYear + 1;
 }
 
@@ -57,7 +63,10 @@ export function getDocumentSemesterOptions(
   scheduledLabel = "Open"
 ) {
   return Array.from(new Set([...existingSemesters, ...(scheduledSemester ? [scheduledSemester] : [])]))
-    .filter((semester) => isAllowedAcademicSemester(semester))
+    .filter((semester) => {
+      const parsed = parseSemesterLabel(semester.trim());
+      return Boolean(parsed && parsed.endYear === parsed.startYear + 1);
+    })
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
     .map((value) => ({
       value,

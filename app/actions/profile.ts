@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { headers } from "next/headers";
@@ -232,6 +233,8 @@ export async function updateProfileName(
     console.error("Failed to synchronize profile and SKEAP applicant records:", error);
     return { error: "We could not update your profile and application records. Please try again." };
   }
+
+  await refreshSystemUsersAdminView();
 
   // Cookie refresh is best-effort: the profile and credentials are already saved.
   // The next request will re-authenticate from the updated Supabase user record.

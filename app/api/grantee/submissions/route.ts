@@ -1,11 +1,11 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { SubmissionOcrStatus, SubmissionStatus } from "@prisma/client";
+import { Prisma, SubmissionOcrStatus, SubmissionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
 import { processSubmissionGradeReportOcr } from "@/lib/ocr/process-submission";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
-import { isAllowedAcademicSemester } from "@/lib/semester-progress";
+import { detectGranteeTargetTerm, getScheduleSemesterForTargetTerm } from "@/lib/grantee-semester";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
     if (!appUser || appUser.role !== "GRANTEE" || !appUser.grantee) {
       return NextResponse.json({ error: "Only grantee accounts can submit documents" }, { status: 403 });
     }
+    const granteeId = appUser.grantee.id;
     if (appUser.grantee.status === "GRADUATED") {
       return NextResponse.json({ error: "Graduated scholar records are locked for statutory retention." }, { status: 409 });
     }
@@ -47,22 +48,23 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const semester = String(body.semester ?? "").trim();
     const gradeFileUrl = String(body.gradeFileUrl ?? "").trim();
     const coeFileUrl = String(body.coeFileUrl ?? "").trim();
     const forceSubmit = body.forceSubmit === true;
     const clientRequiresStrictManualReview = body.requiresStrictManualReview === true;
 
-    if (!isAllowedAcademicSemester(semester)) {
+    const detectedTerm = await detectGranteeTargetTerm(appUser.id);
+    if (!detectedTerm) {
       return NextResponse.json(
-        { error: "Select a valid academic semester." },
-        { status: 400 }
+        { error: "Your next requirement term could not be detected. Please contact SK admin." },
+        { status: 409 }
       );
     }
+    const semester = detectedTerm.termLabel;
 
     const existing = await prisma.submission.findFirst({
       where: {
-        granteeId: appUser.grantee.id,
+        granteeId,
         semester,
       },
       orderBy: { submittedAt: "desc" },
@@ -76,15 +78,47 @@ export async function POST(request: NextRequest) {
         resubmittedFields: true,
         reviewNotes: true,
         requiresStrictManualReview: true,
+        reviewedById: true,
+        reviewedAt: true,
       },
     });
 
+    if (
+      existing?.status === SubmissionStatus.AWAITING_PHYSICAL_CTC ||
+      existing?.status === SubmissionStatus.APPROVED
+    ) {
+      return NextResponse.json(
+        { error: "Your submission for this term has already passed initial review and cannot be overwritten." },
+        { status: 409 }
+      );
+    }
+    const canReplaceUnlockedPending =
+      existing?.status === SubmissionStatus.PENDING &&
+      !existing.reviewedById &&
+      !existing.reviewedAt;
+    if (detectedTerm.hasPendingSubmission && !canReplaceUnlockedPending) {
+      return NextResponse.json(
+        { error: "Your requirements for this term are already under SK Admin review." },
+        { status: 409 }
+      );
+    }
+
     const { window: termWindow } = await getAcademicTermScheduleState();
-    const canSubmitInOpenWindow = termWindow.status === "OPEN" && semester === termWindow.semester;
+    if (
+      existing?.status === SubmissionStatus.PRE_QUALIFIED ||
+      (existing?.status === SubmissionStatus.PENDING && !canReplaceUnlockedPending)
+    ) {
+      return NextResponse.json(
+        { error: "Your requirements for this term are already under SK Admin review." },
+        { status: 409 }
+      );
+    }
+    const canSubmitInOpenWindow =
+      termWindow.status === "OPEN" &&
+      getScheduleSemesterForTargetTerm(detectedTerm) === termWindow.semester;
     const canCorrectReturnedSubmission =
       existing?.semester === semester &&
-      existing.status === SubmissionStatus.RETURNED_FOR_EDIT &&
-      existing.flaggedFields.length > 0;
+      existing.status === SubmissionStatus.RETURNED_FOR_EDIT;
 
     if (!canSubmitInOpenWindow && !canCorrectReturnedSubmission) {
       const error =
@@ -105,14 +139,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Both a grade report and Certificate of Enrollment are required." },
         { status: 400 }
-      );
-    }
-
-    // Only block if submission is fully completed (both COE and grades approved)
-    if (existing?.status === "APPROVED" && existing?.gradeFileUrl) {
-      return NextResponse.json(
-        { error: "An approved submission for this semester cannot be modified." },
-        { status: 409 }
       );
     }
 
@@ -168,20 +194,50 @@ export async function POST(request: NextRequest) {
       ocrConfidence: null,
       requiresStrictManualReview,
       reviewedAt: null,
+      reviewedById: null,
       submittedAt: new Date(),
     };
 
-    const submission = existing
-      ? await prisma.submission.update({
-          where: { id: existing.id },
-          data: payload,
-        })
-      : await prisma.submission.create({
-          data: {
-            ...payload,
-            granteeId: appUser.grantee.id,
-          },
-        });
+    const submission = await prisma.$transaction(async (tx) => {
+      const current = await tx.submission.findFirst({
+        where: { granteeId, semester },
+        orderBy: { submittedAt: "desc" },
+        select: { id: true, status: true, reviewedById: true, reviewedAt: true },
+      });
+      if (
+        current?.status === SubmissionStatus.PRE_QUALIFIED ||
+        (current?.status === SubmissionStatus.PENDING &&
+          (current.reviewedById !== null || current.reviewedAt !== null))
+      ) {
+        throw new Error("TERM_ALREADY_SUBMITTED");
+      }
+      if (
+        current?.status === SubmissionStatus.AWAITING_PHYSICAL_CTC ||
+        current?.status === SubmissionStatus.APPROVED
+      ) {
+        throw new Error("TERM_ALREADY_APPROVED");
+      }
+      if (
+        (current?.id ?? null) !== (existing?.id ?? null) ||
+        (current?.status ?? null) !== (existing?.status ?? null) ||
+        (current?.reviewedById ?? null) !== (existing?.reviewedById ?? null) ||
+        (current?.reviewedAt?.getTime() ?? null) !== (existing?.reviewedAt?.getTime() ?? null)
+      ) {
+        throw new Error("TERM_SUBMISSION_CHANGED");
+      }
+
+      return existing
+        ? tx.submission.update({
+            where: { id: existing.id },
+            data: payload,
+          })
+        : tx.submission.create({
+            data: {
+              ...payload,
+              granteeId,
+            },
+          });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     after(async () => {
       await processSubmissionGradeReportOcr(submission.id, { manualReviewRequired: forceSubmit });
@@ -209,6 +265,39 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, submission: submissionForGrantee });
   } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2034"
+    ) {
+      return NextResponse.json(
+        { error: "Another submission for this term was saved. Refresh the page to check its status." },
+        { status: 409 }
+      );
+    }
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json(
+        { error: "A submission for this term was saved while you were uploading. Refresh to check its latest status." },
+        { status: 409 }
+      );
+    }
+    if (
+      error instanceof Error &&
+      ["TERM_ALREADY_SUBMITTED", "TERM_ALREADY_APPROVED", "TERM_SUBMISSION_CHANGED"].includes(error.message)
+    ) {
+      const conflictMessage =
+        error.message === "TERM_ALREADY_APPROVED"
+          ? "Your submission for this term has already passed initial review and cannot be overwritten."
+          : error.message === "TERM_SUBMISSION_CHANGED"
+            ? "Your submission changed while it was being saved. Refresh the page and try again."
+            : "Your requirements for this term are already under SK Admin review.";
+      return NextResponse.json(
+        { error: conflictMessage },
+        { status: 409 }
+      );
+    }
     console.error("Grantee document submission failed:", error);
     return NextResponse.json(
       { error: "We couldn't submit your requirements right now. Please try again." },

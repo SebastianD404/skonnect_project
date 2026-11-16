@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
@@ -10,6 +11,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SubmissionStatus } from "@prisma/client";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
+import { detectGranteeTargetTerm, getScheduleSemesterForTargetTerm } from "@/lib/grantee-semester";
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     const appUser = await prisma.user.findFirst({
       where: { authId: user.id, isActive: true },
-      select: { role: true, grantee: { select: { id: true, status: true } } },
+      select: { id: true, role: true, grantee: { select: { id: true, status: true } } },
     });
     if (!appUser || appUser.role !== "GRANTEE" || !appUser.grantee) {
       return NextResponse.json({ error: "Only grantee accounts can upload submission documents." }, { status: 403 });
@@ -36,7 +38,6 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const kind = formData.get("kind");
-    const semester = String(formData.get("semester") ?? "").trim();
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -46,18 +47,54 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Document kind must be grade or coe." }, { status: 400 });
     }
 
+    const detectedTerm = await detectGranteeTargetTerm(appUser.id);
+    if (!detectedTerm) {
+      return NextResponse.json(
+        { error: "Your next requirement term could not be detected. Please contact SK admin." },
+        { status: 409 }
+      );
+    }
     const [termState, existing] = await Promise.all([
       getAcademicTermScheduleState(),
       prisma.submission.findFirst({
-        where: { granteeId: appUser.grantee.id, semester },
-        select: { status: true, flaggedFields: true },
+        where: { granteeId: appUser.grantee.id, semester: detectedTerm.termLabel },
+        select: { status: true, flaggedFields: true, reviewedById: true, reviewedAt: true },
       }),
     ]);
+    if (
+      existing?.status === SubmissionStatus.AWAITING_PHYSICAL_CTC ||
+      existing?.status === SubmissionStatus.APPROVED
+    ) {
+      return NextResponse.json(
+        { error: "Your submission for this term has already passed initial review and cannot be overwritten." },
+        { status: 409 }
+      );
+    }
+    const canReplaceUnlockedPending =
+      existing?.status === SubmissionStatus.PENDING &&
+      !existing.reviewedById &&
+      !existing.reviewedAt;
+    if (detectedTerm.hasPendingSubmission && !canReplaceUnlockedPending) {
+      return NextResponse.json(
+        { error: "Your requirements for this term are already under SK Admin review." },
+        { status: 409 }
+      );
+    }
+    if (
+      existing?.status === SubmissionStatus.PRE_QUALIFIED ||
+      (existing?.status === SubmissionStatus.PENDING && !canReplaceUnlockedPending)
+    ) {
+      return NextResponse.json(
+        { error: "Your requirements for this term are already under SK Admin review." },
+        { status: 409 }
+      );
+    }
     const canUploadForOpenTerm =
-      termState.window.status === "OPEN" && semester === termState.window.semester;
+      termState.window.status === "OPEN" &&
+      getScheduleSemesterForTargetTerm(detectedTerm) === termState.window.semester;
     const canUploadReturnedCorrection =
-      existing?.status === SubmissionStatus.RETURNED_FOR_EDIT &&
-      existing.flaggedFields.length > 0;
+      detectedTerm.isResubmission &&
+      existing?.status === SubmissionStatus.RETURNED_FOR_EDIT;
     if (!canUploadForOpenTerm && !canUploadReturnedCorrection) {
       return NextResponse.json(
         { error: "Document uploads are only available during the scheduled submission window or for requested corrections." },
@@ -89,7 +126,7 @@ export async function POST(request: NextRequest) {
     }
 
     const safeName = file.name.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]/g, "");
-    const filePath = `grantee-submissions/${user.id}/${Date.now()}-${safeName}`;
+    const filePath = `grantee-submissions/${user.id}/${kind}-${Date.now()}-${randomUUID()}-${safeName}`;
     const buffer = await file.arrayBuffer();
     if (
       kind === "grade" &&
@@ -105,17 +142,29 @@ export async function POST(request: NextRequest) {
       .storage.from("grantee-submissions")
       .upload(filePath, buffer, {
         contentType: contentType === "image/jpg" ? "image/jpeg" : contentType,
-        cacheControl: "3600",
-        upsert: false,
+        cacheControl: "0",
+        upsert: true,
       });
 
     if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
+      console.error("Could not save grantee requirement document to storage.", uploadError);
+      return NextResponse.json(
+        { error: "We couldn't save this document securely. Please try uploading it again." },
+        { status: 503 }
+      );
     }
 
-    return NextResponse.json({ success: true, path: filePath, kind });
+    return NextResponse.json({
+      success: true,
+      path: filePath,
+      kind,
+      semester: detectedTerm.termLabel,
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Upload failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Grantee requirement file upload failed.", error);
+    return NextResponse.json(
+      { error: "We couldn't upload this document right now. Please try again." },
+      { status: 500 }
+    );
   }
 }

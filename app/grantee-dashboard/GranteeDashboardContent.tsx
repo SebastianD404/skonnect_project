@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { hasGranteeColumn, prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import {
@@ -19,13 +19,16 @@ import {
 import ReturnedForEditCard from "./ReturnedForEditCard";
 import GranteeWelcomeGate from "./GranteeWelcomeGate";
 import AcademicJourneySetup from "./AcademicJourneySetup";
-import { buildSemesterTracker } from "@/lib/semester-progress";
+import ExitClearanceSubmission from "./ExitClearanceSubmission";
+import GraduationCelebrationCard from "./GraduationCelebrationCard";
+import { buildSemesterTracker, getCurrentAcademicSemester } from "@/lib/semester-progress";
 import {
-  getAcademicJourneyProgress,
   resolveScheduledJourneyStepStatus,
 } from "@/lib/academic-journey";
-import { getAcademicTermScheduleState, getAcademicTermDeadlineTarget } from "@/lib/academic-term-schedule";
+import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
+import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import { buildGranteeActivity } from "@/lib/grantee-activity";
+import { detectGranteeTargetTerm, getScheduleSemesterForTargetTerm } from "@/lib/grantee-semester";
 
 export default async function GranteeDashboardContent() {
   const db = prisma;
@@ -38,14 +41,31 @@ export default async function GranteeDashboardContent() {
     redirect("/login");
   }
 
+  const hasGraduationReadyAtColumn = await hasGranteeColumn("graduationReadyAt");
   const appUser = await db.user.findFirst({
     where: {
       authId: user.id,
       isActive: true,
     },
-    include: {
+    select: {
+      id: true,
+      role: true,
+      fullName: true,
+      avatarUrl: true,
+      createdAt: true,
+      hasSeenOnboarding: true,
       grantee: {
-        include: {
+        select: {
+          id: true,
+          status: true,
+          yearLevel: true,
+          journeyStart: true,
+          journeyEnd: true,
+          dateEnrolled: true,
+          graduatedAt: true,
+          exitClearanceStatus: true,
+          exitClearanceUrl: true,
+          ...(hasGraduationReadyAtColumn ? { graduationReadyAt: true } : {}),
           submissions: {
             orderBy: { submittedAt: "desc" },
           },
@@ -60,14 +80,30 @@ export default async function GranteeDashboardContent() {
           },
         },
       },
+      skeapApplications: {
+        where: { status: "APPROVED" },
+        orderBy: { submittedAt: "asc" },
+        take: 1,
+        select: {
+          id: true,
+          submittedAt: true,
+          updatedAt: true,
+          gwa: true,
+          enrollmentFileUrl: true,
+          reportCardFileUrl: true,
+        },
+      },
     },
   });
 
+  const isGraduatedScholar = appUser?.grantee?.status === "GRADUATED";
+  const canViewGraduatedJourney =
+    isGraduatedScholar && (appUser?.role === "YOUTH" || appUser?.role === "GRANTEE");
   if (
     !appUser ||
-    appUser.role !== "GRANTEE" ||
     !appUser.grantee ||
-    !["ACTIVE", "PROBATIONARY"].includes(appUser.grantee.status)
+    (!canViewGraduatedJourney &&
+      (appUser.role !== "GRANTEE" || !["ACTIVE", "PROBATIONARY"].includes(appUser.grantee.status)))
   ) {
     redirect("/");
   }
@@ -92,21 +128,62 @@ export default async function GranteeDashboardContent() {
   const submissions = appUser.grantee?.submissions ?? [];
   const payout = appUser.grantee?.payout ?? null;
   const recentActivity = buildGranteeActivity(submissions, payout).slice(0, 4);
-  const pendingCount = submissions.filter((s) => s.status === "PENDING").length;
+  const awaitingPhysicalCtcSubmission = submissions.find(
+    (submission) => submission.status === "AWAITING_PHYSICAL_CTC",
+  ) ?? null;
+  const pendingCount = submissions.filter(
+    (s) => s.status === "PENDING" || s.status === "AWAITING_PHYSICAL_CTC",
+  ).length;
   const approvedCount = submissions.filter((s) => s.status === "APPROVED").length;
   const needsEditCount = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
 
   const tracker = buildSemesterTracker(submissions);
   const now = new Date();
   const { schedules } = await getAcademicTermScheduleState(now);
-  const targetTerm = getAcademicTermDeadlineTarget(schedules, now);
-  const journeyProgress = getAcademicJourneyProgress(
+  const detectedTerm = await detectGranteeTargetTerm(appUser.id);
+  const detectedSchedule = detectedTerm
+    ? schedules.find((schedule) => schedule.semester === getScheduleSemesterForTargetTerm(detectedTerm)) ?? null
+    : null;
+  const initialApplication = appUser.skeapApplications[0] ?? null;
+  const journeyStartDate = initialApplication?.submittedAt ?? appUser.grantee.dateEnrolled ?? appUser.createdAt;
+  const initialGrant = initialApplication
+    ? {
+        semester: getCurrentAcademicSemester(initialApplication.submittedAt),
+        approvedAt: initialApplication.updatedAt,
+        gwa: initialApplication.gwa,
+        gradeReportUrl: initialApplication.reportCardFileUrl,
+        coeFileUrl: initialApplication.enrollmentFileUrl,
+      }
+    : null;
+  const journeyProgress = getGranteeGraduationProgress({
     submissions,
-    appUser.grantee?.dateEnrolled ?? appUser.createdAt,
+    dateEnrolled: journeyStartDate,
+    journeyStart: appUser.grantee.journeyStart,
+    journeyEnd: appUser.grantee.journeyEnd,
     now,
-    4,
-    targetTerm?.semester ?? undefined,
-  );
+    initialGrant,
+  });
+  const graduationReadyAt =
+    "graduationReadyAt" in appUser.grantee
+      ? appUser.grantee.graduationReadyAt
+      : null;
+  const isReadyForGraduation =
+    !isGraduatedScholar && (Boolean(graduationReadyAt) || journeyProgress.isComplete);
+  const journeyNodes = journeyProgress.nodes.map((node) => ({
+    ...node,
+    submittedAt: node.submittedAt instanceof Date ? node.submittedAt.toISOString() : node.submittedAt,
+    approvedAt: node.approvedAt instanceof Date ? node.approvedAt.toISOString() : node.approvedAt,
+    gradeReportUrl: node.submissionId && node.gradeReportUrl
+      ? `/api/submissions/${node.submissionId}/file?kind=grade`
+      : node.isInitialGrant && initialApplication?.reportCardFileUrl
+        ? `/api/my/academic-journey-documents/${initialApplication.id}?kind=grade`
+        : null,
+    coeFileUrl: node.submissionId && node.coeFileUrl
+      ? `/api/submissions/${node.submissionId}/file?kind=coe`
+      : node.isInitialGrant && initialApplication?.enrollmentFileUrl
+        ? `/api/my/academic-journey-documents/${initialApplication.id}?kind=coe`
+        : null,
+  }));
   const currentStepSchedule = schedules.find(
     (schedule) => schedule.semester === journeyProgress.currentStepSemester,
   ) ?? null;
@@ -116,19 +193,69 @@ export default async function GranteeDashboardContent() {
     now,
   );
   const isTermOpen = Boolean(
-    targetTerm && targetTerm.opensAt <= now && targetTerm.closesAt >= now
+    detectedSchedule && detectedSchedule.opensAt <= now && detectedSchedule.closesAt >= now
   );
-  const targetDateLabel = targetTerm
-    ? new Intl.DateTimeFormat("en-PH", {
-        dateStyle: "long",
-        timeStyle: "short",
-        timeZone: "Asia/Manila",
-      }).format(isTermOpen ? targetTerm.closesAt : targetTerm.opensAt)
-    : "—";
+  const canReplacePendingSubmission = Boolean(detectedTerm?.canReplacePendingSubmission);
+  const isPendingSubmissionLocked = Boolean(
+    detectedTerm?.hasPendingSubmission && !canReplacePendingSubmission
+  );
+  const targetDateLabel = isPendingSubmissionLocked
+    ? "Under SK Admin Review"
+    : canReplacePendingSubmission
+      ? isTermOpen ? "Replace files before review starts" : "Submission window closed"
+    : detectedTerm?.isResubmission
+      ? "Corrections may be uploaded now"
+      : detectedSchedule
+        ? new Intl.DateTimeFormat("en-PH", {
+            dateStyle: "long",
+            timeStyle: "short",
+            timeZone: "Asia/Manila",
+          }).format(isTermOpen ? detectedSchedule.closesAt : detectedSchedule.opensAt)
+        : "—";
+  const needsAction = Boolean(
+    isReadyForGraduation || awaitingPhysicalCtcSubmission || (detectedTerm && (isTermOpen || detectedTerm.isResubmission)),
+  );
+  const requirementStatusLabel = isReadyForGraduation
+    ? "FINAL STEP · EXIT CLEARANCE"
+    : isGraduatedScholar
+      ? "SKEAP GRADUATE"
+      : awaitingPhysicalCtcSubmission
+    ? "PHYSICAL DOCUMENTS REQUIRED"
+    : detectedTerm?.hasPendingSubmission
+    ? canReplacePendingSubmission ? "SUBMITTED · EDITABLE" : "UNDER SK ADMIN REVIEW"
+    : detectedTerm?.isResubmission
+      ? "CORRECTION REQUIRED"
+      : isTermOpen
+        ? "ACTION REQUIRED"
+        : "NEXT UP";
+  const requirementPrompt = isReadyForGraduation
+    ? "All semesters are validated. Submit your Exit Clearance to complete final SK Council verification."
+    : isGraduatedScholar
+      ? "Your academic journey is complete. Your verified graduation record remains available below."
+      : awaitingPhysicalCtcSubmission
+    ? `Your digital documents for ${awaitingPhysicalCtcSubmission.semester} passed pre-check. Submit the physical Original / CTC at the SK Office for final approval.`
+    : detectedTerm?.hasPendingSubmission
+    ? canReplacePendingSubmission
+      ? `Your ${detectedTerm.termLabel} submission is waiting for initial review. You may replace files while the submission window is open.`
+      : `Your ${detectedTerm.termLabel} submission is under SK Admin review.`
+    : detectedTerm?.isResubmission
+      ? `Please upload the requested corrections for ${detectedTerm.termLabel}.`
+      : detectedTerm
+        ? isTermOpen
+          ? `Prepare and submit your requirements for ${detectedTerm.termLabel} before the deadline.`
+          : `Gather your requirements for ${detectedTerm.termLabel}. The submission window opens soon.`
+        : "There are currently no active or scheduled submission windows.";
+  const targetDateHeading = awaitingPhysicalCtcSubmission || detectedTerm?.hasPendingSubmission
+    ? "SUBMISSION STATUS"
+    : detectedTerm?.isResubmission
+      ? "CORRECTION STATUS"
+      : detectedSchedule && !isTermOpen
+        ? "SUBMISSIONS OPEN ON"
+        : "DEADLINE DATE & TIME";
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50/50 to-slate-100/50 text-slate-900">
-      <GranteeWelcomeGate initialShouldShow={!appUser.hasSeenOnboarding} />
+      <GranteeWelcomeGate initialShouldShow={!appUser.hasSeenOnboarding && !isGraduatedScholar} />
       <div className="mx-auto max-w-7xl px-6 py-10 lg:px-10 lg:py-14">
         <section className="grantee-dashboard-enter relative">
           <div className="pointer-events-none absolute -right-32 -top-32 h-80 w-80 rounded-full bg-gradient-to-br from-sky-400/30 via-cyan-300/20 to-transparent blur-3xl" />
@@ -145,31 +272,59 @@ export default async function GranteeDashboardContent() {
               </div>
 
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
-                Your semester{" "}
-                <span className="bg-gradient-to-r from-sky-600 via-cyan-600 to-indigo-600 bg-clip-text text-transparent">
-                  beautifully organized.
-                </span>
+                {isGraduatedScholar ? (
+                  <>Your academic journey, <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-amber-500 bg-clip-text text-transparent">celebrated.</span></>
+                ) : (
+                  <>Your semester{" "}
+                    <span className="bg-gradient-to-r from-sky-600 via-cyan-600 to-indigo-600 bg-clip-text text-transparent">
+                      beautifully organized.
+                    </span>
+                  </>
+                )}
               </h1>
 
               <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600">
-                Track approvals and return-for-edit requests, see your next required action, and stay informed on SK announcements.
+                {isGraduatedScholar
+                  ? "Revisit your completed SKEAP Academic Journey and verified graduation record."
+                  : "Track approvals and return-for-edit requests, see your next required action, and stay informed on SK announcements."}
               </p>
 
               <div className="mt-7 flex flex-wrap items-center gap-4">
-                <Link
-                  href="/grantee-dashboard/documents"
-                  className="group inline-flex items-center gap-2 rounded-full bg-[#0B132B] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-                >
-                  <ClipboardList className="h-4 w-4" />
-                  Open requirements
-                  <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                </Link>
-                <Link
-                  href="/grantee-dashboard/payouts"
-                  className="inline-flex items-center rounded-full border border-slate-300 bg-transparent px-6 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                >
-                  Check Payout Status
-                </Link>
+                {isReadyForGraduation ? (
+                  <a
+                    href="#exit-clearance-upload"
+                    className="group inline-flex items-center gap-2 rounded-full bg-emerald-800 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-900"
+                  >
+                    <ClipboardList className="h-4 w-4" />
+                    {appUser.grantee.exitClearanceStatus === "SUBMITTED"
+                      ? "Clearance Under Review"
+                      : appUser.grantee.exitClearanceStatus === "CLEARED"
+                        ? "Clearance Verified"
+                        : "Submit Exit Clearance"}
+                    <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                  </a>
+                ) : !isGraduatedScholar ? (
+                  <>
+                    <Link
+                      href="/grantee-dashboard/documents"
+                      className="group inline-flex items-center gap-2 rounded-full bg-[#0B132B] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+                    >
+                      <ClipboardList className="h-4 w-4" />
+                      {awaitingPhysicalCtcSubmission
+                        ? "Submit Original / CTC"
+                        : detectedTerm?.hasPendingSubmission
+                          ? canReplacePendingSubmission ? "Update requirements" : "Under SK Admin Review"
+                          : "Open requirements"}
+                      <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                    </Link>
+                    <Link
+                      href="/grantee-dashboard/payouts"
+                      className="inline-flex items-center rounded-full border border-slate-300 bg-transparent px-6 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                    >
+                      Check Payout Status
+                    </Link>
+                  </>
+                ) : null}
               </div>
 
             </div>
@@ -180,33 +335,35 @@ export default async function GranteeDashboardContent() {
                 <div className="absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl" />
                 <div className="relative">
                   <div className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wider border backdrop-blur-sm shadow-sm ${
-                    isTermOpen
+                    needsAction || detectedTerm?.hasPendingSubmission
                       ? "bg-amber-400/10 text-amber-300 border-amber-500/20"
                       : "border-white/15 bg-white/10 text-cyan-100"
                   }`}>
-                    <Sparkles className={`h-3 w-3 ${isTermOpen ? "text-amber-400" : "text-cyan-200"}`} />
-                    {targetTerm ? (isTermOpen ? "ACTION REQUIRED" : "NEXT UP") : "NEXT UP"}
+                    <Sparkles className={`h-3 w-3 ${needsAction || detectedTerm?.hasPendingSubmission ? "text-amber-400" : "text-cyan-200"}`} />
+                    {requirementStatusLabel}
                   </div>
                   <h3 className="mt-4 text-2xl font-semibold tracking-tight">
-                    {targetTerm
-                      ? `${targetTerm.semester} ${isTermOpen ? "Deadline" : "Upcoming"}`
+                    {isReadyForGraduation
+                      ? "Exit Clearance Required"
+                      : isGraduatedScholar
+                        ? "Academic Journey Complete"
+                        : detectedTerm
+                      ? `${detectedTerm.schoolYear} · ${detectedTerm.semester}`
                       : "No Upcoming Submissions"}
                   </h3>
                   <p className="mt-2 text-sm text-slate-300">
-                    {targetTerm
-                      ? isTermOpen
-                        ? `Prepare and submit your requirements for ${targetTerm.semester} before the deadline.`
-                        : `Gather your requirements for ${targetTerm.semester}. The submission window opens soon.`
-                      : "There are currently no active or scheduled submission windows."}
+                    {requirementPrompt}
                   </p>
 
                   <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur">
                     <div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {targetTerm && !isTermOpen ? "SUBMISSIONS OPEN ON" : "DEADLINE DATE & TIME"}
+                        {targetDateHeading}
                       </div>
                       <div className="mt-0.5 text-sm font-medium text-white">
-                        {targetDateLabel}
+                        {awaitingPhysicalCtcSubmission
+                          ? "Original / CTC required for final approval"
+                          : targetDateLabel}
                       </div>
                     </div>
                   </div>
@@ -216,6 +373,47 @@ export default async function GranteeDashboardContent() {
           </div>
         </section>
 
+        {awaitingPhysicalCtcSubmission ? (
+          <section
+            role="status"
+            className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm sm:p-6"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+                <div>
+                  <h2 className="text-sm font-bold text-amber-950 sm:text-base">
+                    Action Required: Submit Original / CTC at SK Office
+                  </h2>
+                  <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-amber-900">
+                    Your digital upload for {awaitingPhysicalCtcSubmission.semester} passed the initial pre-check.
+                    Full approval will be granted once you submit the physical Certified True Copy (CTC) or
+                    original documents to the SK Council at the Barangay Pico SK Office.
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/grantee-dashboard/documents"
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-700 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-amber-800"
+              >
+                View requirements
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </div>
+          </section>
+        ) : null}
+
+        {isReadyForGraduation ? (
+          <div id="exit-clearance-upload" className="mt-8 scroll-mt-8">
+            <ExitClearanceSubmission
+              initialStatus={appUser.grantee.exitClearanceStatus}
+              initialUrl={appUser.grantee.exitClearanceUrl}
+              isFinalStep
+            />
+          </div>
+        ) : null}
+
+        {!isGraduatedScholar ? (
         <section className="grantee-dashboard-enter grantee-dashboard-enter-stats mt-8 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="grid grid-cols-1 divide-y divide-slate-100 md:grid-cols-4 md:divide-x md:divide-y-0">
             <StatCard
@@ -242,8 +440,20 @@ export default async function GranteeDashboardContent() {
             <ReturnedForEditCard count={needsEditCount} className="h-full" />
           </div>
         </section>
+        ) : null}
 
-        <section className="grantee-dashboard-enter grantee-dashboard-enter-activity mt-8">
+        {isGraduatedScholar ? (
+          <div className="mt-8">
+            <GraduationCelebrationCard
+              granteeId={appUser.grantee.id}
+              fullName={appUser.fullName}
+              graduatedAt={appUser.grantee.graduatedAt?.toISOString() ?? null}
+              clearanceUrl={appUser.grantee.exitClearanceUrl}
+            />
+          </div>
+        ) : null}
+
+        <section id="academic-journey" className="grantee-dashboard-enter grantee-dashboard-enter-activity mt-8 scroll-mt-8">
           <AcademicJourneySetup
             journeyConfigured={Boolean(appUser.grantee?.journeyStart && appUser.grantee?.journeyEnd)}
             journeyStart={appUser.grantee?.journeyStart ?? null}
@@ -253,6 +463,8 @@ export default async function GranteeDashboardContent() {
               photoUrl: journeyPhotoUrl,
               currentSemesterIndex: journeyProgress.currentSemesterIndex,
               validatedSemesterIndexes: journeyProgress.validatedSemesterIndexes,
+              journeyNodes,
+              isGraduated: isGraduatedScholar,
               currentStepStatus,
               currentStepOpensAt:
                 currentStepSchedule && now < currentStepSchedule.opensAt
@@ -276,17 +488,29 @@ export default async function GranteeDashboardContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-4">
               <Link
                 className="flex items-start gap-3 p-3.5 border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all group"
-                href="/grantee-dashboard/documents"
+                href={isReadyForGraduation ? "#exit-clearance-upload" : isGraduatedScholar ? "#academic-journey" : "/grantee-dashboard/documents"}
               >
                 <div className="w-8 h-8 rounded-lg bg-sky-700 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
                   <FileText className="w-3.5 h-3.5" />
                 </div>
                 <div className="flex-1 min-w-0 text-left">
                   <div className="flex items-center justify-between mb-0.5">
-                    <h4 className="text-xs font-bold text-slate-900 truncate">Submit requirements</h4>
+                    <h4 className="text-xs font-bold text-slate-900 truncate">
+                      {isReadyForGraduation ? "Exit clearance" : isGraduatedScholar ? "Academic Journey" : "Submit requirements"}
+                    </h4>
                     <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 shrink-0" />
                   </div>
-                  <p className="text-[10px] text-slate-500 leading-tight line-clamp-2">Upload files and track approvals.</p>
+                  <p className="text-[10px] text-slate-500 leading-tight line-clamp-2">
+                    {isReadyForGraduation
+                      ? appUser.grantee.exitClearanceStatus === "SUBMITTED"
+                        ? "Exit Clearance Under Review"
+                        : "Complete your final graduation verification."
+                      : isGraduatedScholar
+                        ? "View your completed semesters and graduation record."
+                        : detectedTerm
+                      ? `${detectedTerm.schoolYear} · ${detectedTerm.semester}${isPendingSubmissionLocked ? " · Under SK Admin Review" : canReplacePendingSubmission ? " · Editable before review" : ""}`
+                      : "Upload files and track approvals."}
+                  </p>
                 </div>
               </Link>
 

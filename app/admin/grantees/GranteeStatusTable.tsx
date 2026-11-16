@@ -17,6 +17,9 @@ export interface GranteeTableRow {
   currentJourneySemesterIndex: number;
   validatedJourneySemesterIndexes: number[];
   status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED";
+  graduationReadyAt: string | null;
+  isReadyForGraduation?: boolean;
+  exitClearanceStatus: "NONE" | "SUBMITTED" | "CLEARED";
   contactNumber: string | null;
   dateEnrolled: string;
   graduatedAt?: string | null;
@@ -177,13 +180,24 @@ export function GranteeStatusTable({
                     </p>
                   </div>
                 </div>
-                <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                  grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : STATUS_CLASSES[grantee.status]
-                }`}>
-                  {STATUS_LABELS[grantee.status]}
-                </span>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                    grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : STATUS_CLASSES[grantee.status]
+                  }`}>
+                    {STATUS_LABELS[grantee.status]}
+                  </span>
+                  {grantee.exitClearanceStatus === "SUBMITTED" ? (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800">
+                      Clearance Submitted
+                    </span>
+                  ) : (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
+                    <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[9px] font-semibold text-teal-800">
+                      Ready to Graduate
+                    </span>
+                  ) : null}
+                </div>
               </div>
 
               <dl className="grid grid-cols-1 gap-x-3 gap-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs">
@@ -303,9 +317,20 @@ export function GranteeStatusTable({
                       <div className="truncate text-xs text-slate-500">{grantee.yearLevel}</div>
                     </td>
                     <td className="px-3 py-4 sm:px-4">
-                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
-                        {STATUS_LABELS[grantee.status]}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
+                          {STATUS_LABELS[grantee.status]}
+                        </span>
+                        {grantee.exitClearanceStatus === "SUBMITTED" ? (
+                          <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800">
+                            Clearance Submitted
+                          </span>
+                        ) : (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
+                          <span className="inline-flex rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[9px] font-semibold text-teal-800">
+                            Ready to Graduate
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="truncate px-3 py-4 sm:px-4" title={grantee.contactNumber ?? undefined}>
                       {grantee.contactNumber ? (

@@ -52,12 +52,15 @@ describe("admin backup restore authorization", () => {
     });
   });
 
-  it("denies SK Officials access to snapshot verification and restore", async () => {
+  it("denies SK Officials with the system-backup authorization error", async () => {
     mocks.ensureProfile.mockResolvedValueOnce({ id: "official-profile", role: "SK_OFFICIAL" });
 
     const response = await postRestore(makeRequest("verify"));
 
     expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Only System Administrators can access system backups and recovery.",
+    });
     expect(mocks.parseSnapshot).not.toHaveBeenCalled();
     expect(mocks.restoreSnapshot).not.toHaveBeenCalled();
   });

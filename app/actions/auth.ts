@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { ensureProfile, getRoleHomePath } from "@/lib/auth";
@@ -209,6 +210,7 @@ export async function signup(
         kkStatus: "UNPROFILED",
       },
     });
+    await refreshSystemUsersAdminView();
   } catch (error) {
     console.error("New account profile synchronization failed.", {
       authId: authData.user.id,

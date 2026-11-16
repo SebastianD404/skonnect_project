@@ -1,32 +1,15 @@
-import { BackupStatus, Role } from "@prisma/client";
+import { BackupStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
-import { ensureProfile } from "@/lib/auth";
+import { getSystemBackupAdmin } from "@/lib/system-backup-auth";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
 import { getLiveBackupRecordCounts } from "@/lib/data-backup";
 
 export const dynamic = "force-dynamic";
 
-async function getBackupAdmin() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthorized", status: 401 as const };
-
-  const admin = await ensureProfile(user);
-  if (!admin || (admin.role !== Role.SK_OFFICIAL && admin.role !== Role.SUPER_ADMIN)) {
-    return { error: "Forbidden", status: 403 as const };
-  }
-  return { admin };
-}
-
 export async function GET() {
   try {
-    const auth = await getBackupAdmin();
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const auth = await getSystemBackupAdmin();
+    if ("response" in auth) return auth.response;
 
     const [recentBackups, lastSuccessfulBackup, liveRecordCounts] = await Promise.all([
       prisma.backupLog.findMany({
@@ -57,7 +40,6 @@ export async function GET() {
       })),
       lastSuccessfulBackupAt: lastSuccessfulBackup?.createdAt ?? null,
       liveRecordCounts,
-      canRestore: auth.admin.role === Role.SUPER_ADMIN,
     });
   } catch (error) {
     console.error("Failed to load backup history:", error);

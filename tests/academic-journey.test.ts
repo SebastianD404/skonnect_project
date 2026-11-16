@@ -140,33 +140,49 @@ describe("getApprovedSemesterCount", () => {
 });
 
 describe("getAcademicJourneyProgress", () => {
-  it("tracks the current semester independently from validated semesters", () => {
-    expect(getAcademicJourneyProgress([
+  it("advances the current step to the first unvalidated semester", () => {
+    const progress = getAcademicJourneyProgress([
       { semester: "2024-2025 First Semester", status: "APPROVED" },
       { semester: "2024-2025 Second Semester", status: "PENDING" },
       { semester: "2025-2026 First Semester", status: "APPROVED" },
-    ], new Date(2024, 6, 1), new Date(2025, 9, 1))).toEqual({
-      currentSemesterIndex: 2,
-      currentStepSemester: "2025-2026 First Semester",
+    ], new Date(2024, 6, 1), new Date(2025, 9, 1));
+
+    expect(progress).toMatchObject({
+      currentSemesterIndex: 1,
+      currentStepSemester: "2024-2025 Second Semester",
       validatedSemesterIndexes: [0, 2],
-      currentStepStatus: "validated",
+      currentStepStatus: "under_review",
     });
+    expect(progress.nodes.filter((node) => node.status === "VALIDATED")).toHaveLength(2);
   });
 
-  it("uses the scheduled active semester as the journey target", () => {
+  it("uses initial approved application documents for the first validated node", () => {
     const progress = getAcademicJourneyProgress(
       [],
       new Date(2025, 6, 1),
       new Date(2025, 6, 1),
       4,
-      "2025-2026 Second Semester",
+      {
+        semester: "2025-2026 First Semester",
+        approvedAt: new Date("2025-08-01T00:00:00.000Z"),
+        gwa: 1.75,
+        gradeReportUrl: "/grade-report.pdf",
+        coeFileUrl: "/coe.pdf",
+      },
     );
 
     expect(progress.currentSemesterIndex).toBe(1);
-    expect(progress.currentStepSemester).toBe("2025-2026 Second Semester");
+    expect(progress.nodes[0]).toMatchObject({
+      status: "VALIDATED",
+      isInitialGrant: true,
+      gwa: 1.75,
+      gradeReportUrl: "/grade-report.pdf",
+      coeFileUrl: "/coe.pdf",
+    });
+    expect(progress.nodes[1].status).toBe("CURRENT");
   });
 
-  it("distinguishes unsubmitted, under-review, correction, and validated steps", () => {
+  it("distinguishes unsubmitted, pending, under-review, returned, and validated steps", () => {
     const dateEnrolled = new Date(2025, 6, 1);
     const now = new Date(2025, 6, 1);
 
@@ -175,10 +191,18 @@ describe("getAcademicJourneyProgress", () => {
       { semester: "2025-2026 First Semester", status: "PENDING" },
     ], dateEnrolled, now).currentStepStatus).toBe("under_review");
     expect(getAcademicJourneyProgress([
+      { semester: "2025-2026 First Semester", status: "PRE_QUALIFIED" },
+    ], dateEnrolled, now).nodes[0].status).toBe("UNDER_REVIEW");
+    const awaitingPhysicalCtc = getAcademicJourneyProgress([
+      { semester: "2025-2026 First Semester", status: "AWAITING_PHYSICAL_CTC" },
+    ], dateEnrolled, now);
+    expect(awaitingPhysicalCtc.nodes[0].status).toBe("UNDER_REVIEW");
+    expect(awaitingPhysicalCtc.validatedSemesterIndexes).toEqual([]);
+    expect(getAcademicJourneyProgress([
       { semester: "2025-2026 First Semester", status: "RETURNED_FOR_EDIT" },
     ], dateEnrolled, now).currentStepStatus).toBe("action_required");
     expect(getAcademicJourneyProgress([
       { semester: "2025-2026 First Semester", status: "APPROVED" },
-    ], dateEnrolled, now).currentStepStatus).toBe("validated");
+    ], dateEnrolled, now).currentStepStatus).toBe("open_for_submit");
   });
 });

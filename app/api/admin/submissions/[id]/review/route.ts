@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma, Role } from "@prisma/client";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
-import { prisma } from "@/lib/prisma";
+import { hasGranteeColumn, prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
@@ -11,12 +11,21 @@ import {
   isSkeapRevocationReason,
 } from "@/lib/skeap-revocation";
 import { sendSkeapRevocationEmail } from "@/lib/skeap-revocation-email";
+import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
+import { notifyGranteePhysicalCtcStatus } from "@/lib/grantee-submission-notifications";
+import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
+import { getCurrentAcademicSemester } from "@/lib/semester-progress";
 import {
   buildIdentityFingerprint,
   parseSkeapApplicantName,
 } from "@/lib/skeap-application-guard";
 
-type ReviewAction = "APPROVE" | "RETURN_FOR_UPDATE" | "REVOKE";
+type ReviewAction =
+  | "APPROVE"
+  | "RETURN_FOR_UPDATE"
+  | "REVOKE"
+  | "VERIFY_DIGITAL"
+  | "CONFIRM_PHYSICAL_CTC";
 type DocumentType = "coe" | "grades";
 
 type ReviewBody = {
@@ -68,11 +77,19 @@ export async function POST(
       ? `${revocationReasonOption}\nAdditional Notes: ${additionalNotes}`
       : revocationReasonOption;
 
-    if (action !== "APPROVE" && action !== "RETURN_FOR_UPDATE" && action !== "REVOKE") {
+    if (
+      action !== "APPROVE" &&
+      action !== "RETURN_FOR_UPDATE" &&
+      action !== "REVOKE" &&
+      action !== "VERIFY_DIGITAL" &&
+      action !== "CONFIRM_PHYSICAL_CTC"
+    ) {
       return NextResponse.json({ error: "Invalid review action" }, { status: 400 });
     }
 
-    if (action !== "REVOKE" && documentType !== "coe" && documentType !== "grades") {
+    const isPhysicalVerificationAction =
+      action === "VERIFY_DIGITAL" || action === "CONFIRM_PHYSICAL_CTC";
+    if (!isPhysicalVerificationAction && action !== "REVOKE" && documentType !== "coe" && documentType !== "grades") {
       return NextResponse.json({ error: "Invalid document type" }, { status: 400 });
     }
 
@@ -103,25 +120,23 @@ export async function POST(
       where: { id },
       select: {
         id: true,
+        semester: true,
         coeFileUrl: true,
         gradeFileUrl: true,
         flaggedFields: true,
         status: true,
         coeStatus: true,
         gradesStatus: true,
+        reviewNotes: true,
         grantee: {
           select: {
             id: true,
             status: true,
-            user: {
-              select: {
-                email: true,
-                fullName: true,
-              },
-            },
+            userId: true,
+            user: { select: { id: true, email: true, fullName: true } },
           },
         },
-      } as Prisma.SubmissionSelect,
+      },
     });
 
     if (!existing) {
@@ -129,6 +144,276 @@ export async function POST(
     }
     if (existing.grantee?.status === "GRADUATED") {
       return NextResponse.json({ error: "Graduated scholar submissions are locked for statutory retention." }, { status: 409 });
+    }
+    if (existing.status === "AWAITING_PHYSICAL_CTC" && action === "APPROVE") {
+      return NextResponse.json(
+        { error: "This submission is awaiting physical Original / CTC verification." },
+        { status: 409 }
+      );
+    }
+    if (action === "VERIFY_DIGITAL") {
+      if (existing.status !== "PENDING") {
+        return NextResponse.json({ error: "Only pending submissions can enter physical verification." }, { status: 409 });
+      }
+      if (
+        !existing.coeFileUrl ||
+        !existing.gradeFileUrl ||
+        existing.coeStatus !== "APPROVED" ||
+        existing.gradesStatus !== "APPROVED" ||
+        existing.flaggedFields.length > 0
+      ) {
+        return NextResponse.json(
+          { error: "Approve both digital documents and clear all correction flags before requesting physical verification." },
+          { status: 409 }
+        );
+      }
+
+      const reviewedAt = new Date();
+      const updated = await prisma.$transaction(async (tx) => {
+        const transition = await tx.submission.updateMany({
+          where: {
+            id,
+            status: "PENDING",
+            coeStatus: "APPROVED",
+            gradesStatus: "APPROVED",
+            flaggedFields: { isEmpty: true },
+          },
+          data: {
+            status: "AWAITING_PHYSICAL_CTC",
+            reviewedById: appUser.id,
+            reviewedAt,
+            physicalVerifiedBy: null,
+            physicalVerifiedAt: null,
+          },
+        });
+        if (transition.count !== 1) throw new Error("SUBMISSION_REVIEW_STATE_CHANGED");
+        const saved = await tx.submission.findUniqueOrThrow({ where: { id } });
+        await writeAuditLog(tx, {
+          action: "DOCUMENT_REVIEWED",
+          actorId: appUser.id,
+          targetTable: "submissions",
+          targetId: id,
+          beforeData: { status: existing.status },
+          afterData: { status: saved.status, reviewedById: appUser.id, reviewedAt },
+          metadata: { reviewResult: "VERIFY_DIGITAL", targetId: id },
+          meta: { reviewResult: "VERIFY_DIGITAL", targetId: id },
+        });
+        return saved;
+      });
+
+      const notificationErrors = await notifyGranteePhysicalCtcStatus({
+        stage: "requested",
+        submissionId: id,
+        userId: existing.grantee.user.id,
+        email: existing.grantee.user.email,
+        semester: existing.semester,
+      });
+      if (notificationErrors.length > 0) {
+        console.error("Digital pre-check completed with notification errors:", notificationErrors);
+      }
+      return NextResponse.json({ success: true, submission: updated });
+    }
+
+    if (action === "CONFIRM_PHYSICAL_CTC") {
+      if (existing.status !== "AWAITING_PHYSICAL_CTC") {
+        return NextResponse.json({ error: "This submission is not awaiting physical CTC verification." }, { status: 409 });
+      }
+
+      const physicalVerifiedAt = new Date();
+      const hasGraduationReadyAtColumn = await hasGranteeColumn("graduationReadyAt");
+      const approvalResult = await prisma.$transaction(async (tx) => {
+        const transition = await tx.submission.updateMany({
+          where: { id, status: "AWAITING_PHYSICAL_CTC" },
+          data: {
+            status: "APPROVED",
+            physicalVerifiedBy: appUser.id,
+            physicalVerifiedAt,
+            reviewedById: appUser.id,
+            reviewedAt: physicalVerifiedAt,
+          },
+        });
+        if (transition.count !== 1) throw new Error("SUBMISSION_REVIEW_STATE_CHANGED");
+        const saved = await tx.submission.findUniqueOrThrow({ where: { id } });
+        const grantee = await tx.grantee.findUniqueOrThrow({
+          where: { id: existing.grantee.id },
+          select: {
+            id: true,
+            status: true,
+            dateEnrolled: true,
+            journeyStart: true,
+            journeyEnd: true,
+            ...(hasGraduationReadyAtColumn ? { graduationReadyAt: true } : {}),
+            submissions: {
+              select: {
+                id: true,
+                semester: true,
+                status: true,
+                submittedAt: true,
+                reviewedAt: true,
+                generalAverage: true,
+                ocrGwa: true,
+                reviewNotes: true,
+                gradeFileUrl: true,
+                coeFileUrl: true,
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                skeapApplications: {
+                  where: { status: "APPROVED" },
+                  orderBy: { submittedAt: "asc" },
+                  take: 1,
+                  select: {
+                    submittedAt: true,
+                    updatedAt: true,
+                    gwa: true,
+                    reportCardFileUrl: true,
+                    enrollmentFileUrl: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+        const initialApplication = grantee.user.skeapApplications[0] ?? null;
+        const graduationProgress = getGranteeGraduationProgress({
+          submissions: grantee.submissions,
+          dateEnrolled: initialApplication?.submittedAt ?? grantee.dateEnrolled,
+          journeyStart: grantee.journeyStart,
+          journeyEnd: grantee.journeyEnd,
+          now: physicalVerifiedAt,
+          initialGrant: initialApplication
+            ? {
+                semester: getCurrentAcademicSemester(initialApplication.submittedAt),
+                approvedAt: initialApplication.updatedAt,
+                gwa: initialApplication.gwa,
+                gradeReportUrl: initialApplication.reportCardFileUrl,
+                coeFileUrl: initialApplication.enrollmentFileUrl,
+              }
+            : null,
+        });
+        let graduationCandidate: {
+          granteeId: string;
+          userId: string;
+          granteeName: string;
+          totalRequiredSemesters: number;
+        } | null = null;
+        if (
+          graduationProgress.isComplete &&
+          (grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY") &&
+          (!hasGraduationReadyAtColumn ||
+            !("graduationReadyAt" in grantee) ||
+            !grantee.graduationReadyAt)
+        ) {
+          const readinessTransition = hasGraduationReadyAtColumn
+            ? await tx.grantee.updateMany({
+                where: {
+                  id: grantee.id,
+                  status: { in: ["ACTIVE", "PROBATIONARY"] },
+                  graduationReadyAt: null,
+                },
+                data: { graduationReadyAt: physicalVerifiedAt },
+              })
+            : { count: 1 };
+          if (readinessTransition.count === 1) {
+            graduationCandidate = {
+              granteeId: grantee.id,
+              userId: grantee.user.id,
+              granteeName: grantee.user.fullName,
+              totalRequiredSemesters: graduationProgress.totalRequiredSemesters,
+            };
+          }
+        }
+
+        if (graduationCandidate) {
+          const sourceKey = `graduation-candidate-ready:${grantee.id}`;
+          const adminTitle = `Graduation Candidate Ready: ${grantee.user.fullName}`;
+          const adminMessage = `${grantee.user.fullName} has completed all ${graduationProgress.totalRequiredSemesters} semesters of their SKEAP Academic Journey and is now ready for Exit Clearance verification.`;
+          const scholarTitle = "Congratulations! All Semesters Validated — Submit Your Exit Clearance";
+          const scholarMessage = `You have completed all ${graduationProgress.totalRequiredSemesters} semesters of your SKEAP journey! Please upload your School Exit Clearance or Certificate of Graduation (or present it at the Barangay Pico SK Office) to finalize your graduation.`;
+
+          await tx.adminNotification.upsert({
+            where: { sourceKey },
+            create: {
+              sourceKey,
+              title: adminTitle,
+              message: adminMessage,
+              type: "GRADUATION_CANDIDATE_READY",
+            },
+            update: {
+              title: adminTitle,
+              message: adminMessage,
+            },
+          });
+          await tx.notification.upsert({
+            where: {
+              userId_sourceKey: {
+                userId: grantee.user.id,
+                sourceKey,
+              },
+            },
+            create: {
+              userId: grantee.user.id,
+              sourceKey,
+              message: `${scholarTitle}\n${scholarMessage}`,
+            },
+            update: {
+              message: `${scholarTitle}\n${scholarMessage}`,
+              isRead: false,
+              readAt: null,
+            },
+          });
+        }
+
+        await writeAuditLog(tx, {
+          action: "DOCUMENT_REVIEWED",
+          actorId: appUser.id,
+          targetTable: "submissions",
+          targetId: id,
+          beforeData: { status: existing.status },
+          afterData: {
+            status: saved.status,
+            physicalVerifiedBy: appUser.id,
+            physicalVerifiedAt,
+          },
+          metadata: { reviewResult: "CONFIRM_PHYSICAL_CTC", targetId: id },
+          meta: { reviewResult: "CONFIRM_PHYSICAL_CTC", targetId: id },
+        });
+        return { submission: saved, graduationCandidate };
+      });
+
+      const notificationErrors = await notifyGranteePhysicalCtcStatus({
+        stage: "approved",
+        submissionId: id,
+        userId: existing.grantee.user.id,
+        email: existing.grantee.user.email,
+        semester: existing.semester,
+      });
+      if (notificationErrors.length > 0) {
+        console.error("Physical CTC approval completed with notification errors:", notificationErrors);
+      }
+      if (!approvalResult.graduationCandidate) {
+        try {
+          const nextTermResult = await notifyGranteesToUploadRequirements({
+            targetUserIds: [existing.grantee.userId],
+            trigger: "REQUIREMENT_APPROVED",
+          });
+          if (nextTermResult.errors.length > 0) {
+            console.error("Physical CTC approval completed with next-term notification errors:", nextTermResult.errors);
+          }
+        } catch (error) {
+          console.error("Physical CTC approval completed, but next-term notifications failed:", error);
+        }
+      }
+      return NextResponse.json({
+        success: true,
+        submission: approvalResult.submission,
+        graduationCandidate: approvalResult.graduationCandidate
+          ? { ready: true, totalRequiredSemesters: approvalResult.graduationCandidate.totalRequiredSemesters }
+          : null,
+      });
     }
     if (action === "REVOKE") {
       const revokedAt = new Date();
@@ -302,11 +587,9 @@ export async function POST(
     }
 
     const newStatus: Prisma.SubmissionUpdateInput["status"] =
-      coeStatus === "APPROVED" && gradesStatus === "APPROVED"
-        ? "APPROVED"
-        : coeStatus === "RETURNED_FOR_EDIT" || gradesStatus === "RETURNED_FOR_EDIT"
-          ? "RETURNED_FOR_EDIT"
-          : "PENDING";
+      coeStatus === "RETURNED_FOR_EDIT" || gradesStatus === "RETURNED_FOR_EDIT"
+        ? "RETURNED_FOR_EDIT"
+        : "PENDING";
 
     const updateData: Prisma.SubmissionUpdateInput = {
       status: newStatus,
@@ -330,10 +613,18 @@ export async function POST(
       });
       if (current?.grantee.status === "GRADUATED") throw new Error("GRADUATED_SUBMISSION_ARCHIVED");
 
-      const saved = await tx.submission.update({
-        where: { id },
+      const transition = await tx.submission.updateMany({
+        where: {
+          id,
+          status: existing.status,
+          coeStatus: existing.coeStatus,
+          gradesStatus: existing.gradesStatus,
+          flaggedFields: { equals: existing.flaggedFields },
+        },
         data: updateData,
       });
+      if (transition.count !== 1) throw new Error("SUBMISSION_REVIEW_STATE_CHANGED");
+      const saved = await tx.submission.findUniqueOrThrow({ where: { id } });
       const flaggedField = documentType === "coe" ? "COE" : "GRADE_REPORT";
       const manualOverride =
         action === "APPROVE" &&
@@ -388,6 +679,12 @@ export async function POST(
     }
     if (message === "GRANTEE_ALREADY_REVOKED") {
       return NextResponse.json({ error: "This grantee has already been removed or revoked." }, { status: 409 });
+    }
+    if (message === "SUBMISSION_REVIEW_STATE_CHANGED") {
+      return NextResponse.json(
+        { error: "The submission status changed. Refresh the review queue and try again." },
+        { status: 409 }
+      );
     }
     if (/flaggedFields|does not exist/i.test(message)) {
       return NextResponse.json(

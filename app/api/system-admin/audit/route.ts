@@ -23,6 +23,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    if (request.nextUrl.searchParams.get("view") === "unread-count") {
+      const sinceValue = request.nextUrl.searchParams.get("since");
+      const since = sinceValue ? new Date(sinceValue) : null;
+      if (sinceValue && (!since || Number.isNaN(since.getTime()))) {
+        return NextResponse.json({ error: "Invalid audit viewed timestamp." }, { status: 400 });
+      }
+
+      const count = await prisma.auditLog.count({
+        where: {
+          action: { contains: "ROLE", mode: "insensitive" },
+          ...(since ? { createdAt: { gt: since } } : {}),
+        },
+      });
+
+      return NextResponse.json(
+        { count },
+        { headers: { "Cache-Control": "no-store, max-age=0" } },
+      );
+    }
+
     const requestedRange = request.nextUrl.searchParams.get("range") ?? "30d";
     if (!isAuditTimeRange(requestedRange)) {
       return NextResponse.json({ error: "Invalid audit time range." }, { status: 400 });

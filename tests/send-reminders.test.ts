@@ -9,6 +9,7 @@ type ReminderMocks = {
   mockAcademicTermScheduleFindMany: ReturnType<typeof vi.fn>;
   mockCreateGmailTransporter: ReturnType<typeof vi.fn>;
   mockSendTransactionalEmail: ReturnType<typeof vi.fn>;
+  mockNotifyGranteesToUploadRequirements: ReturnType<typeof vi.fn>;
 };
 
 vi.mock("../lib/prisma", () => {
@@ -21,6 +22,7 @@ vi.mock("../lib/prisma", () => {
     mockAcademicTermScheduleFindMany: vi.fn(),
     mockCreateGmailTransporter: vi.fn(),
     mockSendTransactionalEmail: vi.fn(),
+    mockNotifyGranteesToUploadRequirements: vi.fn(),
   };
   (globalThis as typeof globalThis & { __TEST_PRISMA_MOCKS?: ReminderMocks }).__TEST_PRISMA_MOCKS = mocks;
 
@@ -47,7 +49,18 @@ vi.mock("../lib/broadcast-email", () => {
   };
 });
 
-import { loadReminderSettings, processSkeapReminders } from "../lib/deadline-reminder-runner";
+vi.mock("../lib/grantee-notifications", () => {
+  const mocks = (globalThis as typeof globalThis & { __TEST_PRISMA_MOCKS: ReminderMocks }).__TEST_PRISMA_MOCKS;
+  return {
+    notifyGranteesToUploadRequirements: mocks.mockNotifyGranteesToUploadRequirements,
+  };
+});
+
+import {
+  loadReminderSettings,
+  processSkeapReminders,
+  runGranteeUploadRequirementReminders,
+} from "../lib/deadline-reminder-runner";
 
 const mocks = (globalThis as typeof globalThis & { __TEST_PRISMA_MOCKS: ReminderMocks }).__TEST_PRISMA_MOCKS;
 const {
@@ -59,6 +72,7 @@ const {
   mockAcademicTermScheduleFindMany,
   mockCreateGmailTransporter,
   mockSendTransactionalEmail,
+  mockNotifyGranteesToUploadRequirements,
 } = mocks;
 
 beforeEach(() => {
@@ -69,6 +83,12 @@ beforeEach(() => {
   );
   mockCreateGmailTransporter.mockReturnValue({});
   mockSendTransactionalEmail.mockResolvedValue({ messageId: "mail-1" });
+  mockNotifyGranteesToUploadRequirements.mockResolvedValue({
+    notified: 1,
+    emailSent: 1,
+    skipped: 0,
+    errors: [],
+  });
 });
 
 afterEach(() => {
@@ -139,5 +159,39 @@ describe("send-reminders scheduler", () => {
 
     expect(result.dueOffsets).toEqual([]);
     expect(mockUserFindMany).not.toHaveBeenCalled();
+  });
+
+  it("dispatches one upload reminder during an active term within the configured deadline window", async () => {
+    mockReminderSettingFindUnique.mockResolvedValueOnce(null);
+    mockAcademicTermScheduleFindMany.mockResolvedValueOnce([activeSchedule]);
+
+    await expect(
+      runGranteeUploadRequirementReminders(new Date("2026-07-24T00:00:00.000Z")),
+    ).resolves.toMatchObject({
+      dueOffsets: [7],
+      emailSent: 1,
+      inAppCreated: 1,
+    });
+    expect(mockNotifyGranteesToUploadRequirements).toHaveBeenCalledWith({
+      schoolYear: "2026-2027",
+      semester: "First Semester",
+      deadline: activeSchedule.closesAt,
+      trigger: "DEADLINE_REMINDER",
+    });
+  });
+
+  it("does not dispatch upload reminders before a term opens", async () => {
+    mockReminderSettingFindUnique.mockResolvedValueOnce(null);
+    mockAcademicTermScheduleFindMany.mockResolvedValueOnce([
+      {
+        ...activeSchedule,
+        opensAt: new Date("2026-07-25T00:00:00.000Z"),
+      },
+    ]);
+
+    await expect(
+      runGranteeUploadRequirementReminders(new Date("2026-07-24T00:00:00.000Z")),
+    ).resolves.toMatchObject({ dueOffsets: [], inAppCreated: 0 });
+    expect(mockNotifyGranteesToUploadRequirements).not.toHaveBeenCalled();
   });
 });

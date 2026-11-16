@@ -32,7 +32,7 @@ function getImageContentTypeFromPath(path: string[]) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ path: string[] }> },
 ) {
   const supabase = await createClient();
@@ -46,7 +46,7 @@ export async function GET(
   const { path } = await context.params;
   if (
     path.length < 3 ||
-    !["kk-verification", "skeap-applications"].includes(path[0]) ||
+    !["kk-verification", "skeap-applications", "grantee-clearances"].includes(path[0]) ||
     path.some((part) => !part || part === "." || part === ".." || /[\\/]/.test(part))
   ) {
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
@@ -81,10 +81,12 @@ export async function GET(
   const contentType = ALLOWED_CONTENT_TYPES.has(data.type)
     ? data.type
     : getImageContentTypeFromPath(path) ?? "application/octet-stream";
+  const download = new URL(request.url).searchParams.get("download") === "true";
+  const filename = (path.at(-1) ?? "document").replace(/[\r\n"\\]/g, "_");
   return new NextResponse(new Uint8Array(await data.arrayBuffer()), {
     headers: {
       "Cache-Control": "private, no-store",
-      "Content-Disposition": "inline",
+      "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${filename}"`,
       "Content-Type": contentType,
       "X-Content-Type-Options": "nosniff",
     },

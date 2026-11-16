@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
 import {
   BookOpen,
   CheckCircle2,
   Check,
   Clock3,
+  Download,
+  Eye,
   Flag,
   GraduationCap,
   Lock,
@@ -15,11 +19,13 @@ import {
   Star,
   Upload,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import {
   getAcademicJourneyTerms,
   getAcademicJourneyTermsForRange,
   normalizeAcademicJourneyStepStatus,
+  type AcademicJourneyNode,
   type AcademicJourneyStepStatus,
 } from "@/lib/academic-journey";
 import type { LucideIcon } from "lucide-react";
@@ -32,6 +38,8 @@ export type AcademicJourneyMapProps = {
   validatedSemesterIndexes: number[];
   currentStepStatus?: AcademicJourneyStepStatus;
   currentStepOpensAt?: string | null;
+  journeyNodes?: AcademicJourneyNode[];
+  isGraduated?: boolean;
   journeyStart?: string | null;
   journeyEnd?: string | null;
   onConfigureJourney?: () => void;
@@ -42,7 +50,25 @@ const STEP_WIDTH = 120;
 const START_X = 80;
 const END_PADDING = 128;
 const COMPACT_END_PADDING = 48;
-const NODE_Y_POSITIONS = [110, 174];
+const NODE_Y_POSITIONS = [100, 160];
+
+function formatJourneyDate(value: Date | string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "medium",
+    timeZone: "Asia/Manila",
+  }).format(date);
+}
+
+function getDownloadHref(url: string, filename: string) {
+  const parsed = new URL(url, "https://skonnect.local");
+  parsed.searchParams.set("download", "true");
+  parsed.searchParams.set("filename", filename);
+  return url.startsWith("/") ? `${parsed.pathname}${parsed.search}` : parsed.toString();
+}
+
 const STEP_STATUS_CONFIG: Record<
   AcademicJourneyStepStatus,
   {
@@ -161,13 +187,17 @@ export default function AcademicJourneyMap({
   validatedSemesterIndexes,
   currentStepStatus = "scheduled_locked",
   currentStepOpensAt,
+  journeyNodes,
+  isGraduated = false,
   journeyStart,
   journeyEnd,
   onConfigureJourney,
   compact = false,
 }: AcademicJourneyMapProps) {
+  const router = useRouter();
   const neonGlowId = `neon-glow-${useId().replace(/:/g, "")}`;
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [selectedNode, setSelectedNode] = useState<AcademicJourneyNode | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [hasMoreRight, setHasMoreRight] = useState(false);
@@ -203,6 +233,35 @@ export default function AcademicJourneyMap({
     )),
     [termCount, validatedSemesterIndexes]
   );
+  const semesterNodes = useMemo(() => terms.map((term, index) => {
+    const suppliedNode = journeyNodes?.[index];
+    if (suppliedNode) return suppliedNode;
+
+    const isValidated = validatedIndexes.has(index);
+    const isCurrent = index === currentIndex;
+    return {
+      index,
+      semester: term.label,
+      status: isValidated
+        ? "VALIDATED" as const
+        : isCurrent
+          ? normalizeAcademicJourneyStepStatus(currentStepStatus) === "under_review"
+            ? "UNDER_REVIEW" as const
+            : normalizeAcademicJourneyStepStatus(currentStepStatus) === "action_required"
+              ? "RETURNED" as const
+              : "CURRENT" as const
+          : "LOCKED" as const,
+      submissionId: null,
+      submittedAt: null,
+      approvedAt: null,
+      gwa: null,
+      remarks: null,
+      gradeReportUrl: null,
+      coeFileUrl: null,
+      isInitialGrant: false,
+    };
+  }), [currentIndex, currentStepStatus, journeyNodes, terms, validatedIndexes]);
+  const validatedCount = semesterNodes.filter((node) => node.status === "VALIDATED").length;
   const pathNodeCount = termCount + (compact ? 0 : 1);
   const focusedIndex = Math.min(currentIndex, pathNodeCount - 1);
   const trackWidth = START_X + (pathNodeCount - 1) * STEP_WIDTH + STEP_WIDTH / 2
@@ -233,6 +292,58 @@ export default function AcademicJourneyMap({
       }, "")
     : "";
   const totalTrackYears = `${journeyYears} year${journeyYears === 1 ? "" : "s"}`;
+  const selectedNodeIndex = selectedNode?.index ?? -1;
+  const selectedJourneyPosition = selectedNodeIndex >= 0 ? terms[selectedNodeIndex] : null;
+  const selectedNodeHistoricalTerm = selectedNode?.semester ?? null;
+  const selectedNodeYearNumber = selectedJourneyPosition?.year.match(/^(\d+)/)?.[1];
+  const selectedNodeYearLabel = selectedJourneyPosition?.year.startsWith("Grade")
+    ? selectedJourneyPosition.year
+    : selectedNodeYearNumber
+      ? `Year ${selectedNodeYearNumber}`
+      : `Year ${Math.floor(selectedNodeIndex / 2) + 1}`;
+  const selectedNodeSemesterNumber = (selectedNodeIndex % 2) + 1;
+  const selectedNodeTitle = selectedNode && selectedNodeHistoricalTerm
+    ? `${selectedNodeYearLabel} · Semester ${selectedNodeSemesterNumber} — ${selectedNodeHistoricalTerm}`
+    : "";
+  const selectedNodeStatusLabel = selectedNode?.status === "VALIDATED"
+    ? "Validated"
+    : selectedNode?.status === "PENDING" || selectedNode?.status === "UNDER_REVIEW"
+      ? "Under Review"
+      : selectedNode?.status === "CURRENT"
+        ? "Current Step"
+        : "Returned";
+  const selectedDocuments = selectedNode
+    ? [
+        { label: "Grade Report", url: selectedNode.gradeReportUrl },
+        { label: "Certificate of Enrollment", url: selectedNode.coeFileUrl },
+      ]
+    : [];
+  const selectedNodeDate = selectedNode
+    ? formatJourneyDate(selectedNode.status === "VALIDATED" ? selectedNode.approvedAt : selectedNode.submittedAt)
+    : null;
+  const selectedNodeStatusClass = selectedNode?.status === "VALIDATED"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : selectedNode?.status === "RETURNED"
+      ? "border-amber-200 bg-amber-50 text-amber-800"
+      : "border-indigo-200 bg-indigo-50 text-indigo-700";
+
+  function openCurrentRequirements() {
+    router.push("/grantee-dashboard/documents#submit-requirements");
+  }
+
+  useEffect(() => {
+    if (!selectedNode) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedNode(null);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [selectedNode]);
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.pointerType !== "mouse" || event.button !== 0) return;
@@ -321,7 +432,7 @@ export default function AcademicJourneyMap({
             Academic Journey
           </span>
           <span className="shrink-0 rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-            {validatedIndexes.size}/{termCount} Validated
+            {validatedCount}/{termCount} Validated
           </span>
         </div>
 
@@ -337,12 +448,16 @@ export default function AcademicJourneyMap({
           />
           <div className="relative z-10 flex w-full justify-between">
             {terms.map((term, index) => {
-              const isCompleted = validatedIndexes.has(index);
+              const isCompleted = semesterNodes[index].status === "VALIDATED";
               const isCurrent = index === currentIndex;
-              const isMissed = index < currentIndex && !isCompleted;
+              const isMissed = !journeyNodes && index < currentIndex && !isCompleted;
               const stateLabel = isCompleted
                 ? "validated"
-                : isCurrent
+                : semesterNodes[index].status === "PENDING" || semesterNodes[index].status === "UNDER_REVIEW"
+                  ? "under review"
+                  : semesterNodes[index].status === "RETURNED"
+                    ? "returned"
+                    : isCurrent
                   ? "current step"
                   : isMissed
                     ? "missed"
@@ -412,7 +527,7 @@ export default function AcademicJourneyMap({
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex self-start rounded-full border border-emerald-200/60 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 shadow-2xs md:self-auto">
-              {validatedIndexes.size} of {termCount} semesters validated
+              {validatedCount} of {termCount} semesters validated
             </span>
             {isExtendedCourse ? (
               <span className="hidden items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-400 sm:inline-flex">
@@ -440,7 +555,7 @@ export default function AcademicJourneyMap({
           style={{ touchAction: "pan-x" }}
         >
           <div
-            className={`relative ${compact ? "h-[74px]" : "min-w-[1150px] h-[240px] pl-12 pr-32 pt-24 pb-12 md:h-[260px]"}`}
+            className={`relative ${compact ? "h-[74px]" : "min-w-[1150px] h-[300px] pl-12 pr-32"}`}
             style={compact
               ? { width: `${trackWidth}px`, paddingLeft: "24px", paddingRight: `${COMPACT_END_PADDING}px` }
               : { width: `${trackWidth}px` }}
@@ -451,7 +566,7 @@ export default function AcademicJourneyMap({
                 className="pointer-events-none absolute inset-0 h-full w-full"
                 width="100%"
                 height="100%"
-                viewBox={`0 0 ${trackWidth} 230`}
+                viewBox={`0 0 ${trackWidth} 300`}
                 preserveAspectRatio="none"
                 aria-hidden="true"
               >
@@ -541,12 +656,24 @@ export default function AcademicJourneyMap({
             )}
 
             {terms.map((term, index) => {
-              const isCompleted = validatedIndexes.has(index);
+              const journeyNode = semesterNodes[index];
+              const isCompleted = journeyNode.status === "VALIDATED";
               const isCurrent = index === currentIndex;
-              const isMissed = index < currentIndex && !isCompleted;
+              const isMissed = !journeyNodes && index < currentIndex && !isCompleted;
+              const canOpenNode = Boolean(journeyNodes) && !compact && [
+                "VALIDATED",
+                "PENDING",
+                "UNDER_REVIEW",
+                "RETURNED",
+                "CURRENT",
+              ].includes(journeyNode.status);
               const stateLabel = isCompleted
                 ? "validated"
-                : isCurrent
+                : journeyNode.status === "PENDING" || journeyNode.status === "UNDER_REVIEW"
+                  ? "under review"
+                  : journeyNode.status === "RETURNED"
+                    ? "returned"
+                    : isCurrent
                   ? "current step"
                   : isMissed
                     ? "missed"
@@ -568,7 +695,7 @@ export default function AcademicJourneyMap({
                 <div
                   key={term.label}
                   ref={(node) => { nodeRefs.current[index] = node; }}
-                  className="absolute z-10 flex w-[120px] -translate-x-1/2 -translate-y-1/2 snap-center flex-col items-center"
+                  className="absolute z-10 flex w-[120px] -translate-x-1/2 snap-center flex-col items-center"
                   style={{
                     left: `${nodePoints[index].x}px`,
                     top: compact ? "8px" : `${nodePoints[index].y}px`,
@@ -596,11 +723,15 @@ export default function AcademicJourneyMap({
                           : "left-1/2 -translate-x-1/2 origin-bottom"
                     }`}>
                       <p className="text-[11px] font-bold">{`${term.year}, ${term.semester}`}</p>
-                      <p className={`mt-0.5 text-[10px] ${isMissed ? "text-rose-300" : "text-emerald-300"}`}>
-                        {isCompleted
-                          ? "Semester validated"
+                      <p className={`mt-0.5 text-[10px] ${isMissed || journeyNode.status === "RETURNED" ? "text-rose-300" : "text-emerald-300"}`}>
+                        {canOpenNode
+                          ? journeyNode.status === "CURRENT"
+                            ? "Click to upload requirements"
+                            : "Click to view"
+                          : isCompleted
+                            ? "Semester validated"
                           : isCurrent
-                            ? "Current step"
+                            ? stepStatusLabel
                             : isMissed
                               ? "Semester missed"
                               : `Unlocks after ${terms[index - 1]?.label ?? "the previous semester"}`}
@@ -631,20 +762,43 @@ export default function AcademicJourneyMap({
                     </div>
                   ) : null}
 
-                  <div
-                    tabIndex={0}
-                    aria-label={`${term.year}, ${term.semester}: ${stateLabel}`}
-                    className={`relative z-10 flex items-center justify-center rounded-full transition-all duration-300 ${
+                  <button
+                    type="button"
+                    tabIndex={canOpenNode ? 0 : -1}
+                    disabled={!canOpenNode}
+                    aria-label={`${term.year}, ${term.semester}: ${stateLabel}${canOpenNode ? journeyNode.status === "CURRENT" ? ", open requirements" : ", click to view" : ""}`}
+                    title={journeyNode.status === "LOCKED"
+                      ? `Unlocks after ${terms[index - 1]?.label ?? "the previous semester"} is validated`
+                      : canOpenNode
+                        ? journeyNode.status === "CURRENT" ? "Open Submit Requirements" : "Click to view"
+                        : undefined}
+                    onClick={() => {
+                      if (!canOpenNode) return;
+                      if (journeyNode.status === "CURRENT") {
+                        openCurrentRequirements();
+                      } else {
+                        setSelectedNode(journeyNode);
+                      }
+                    }}
+                    className={`relative z-10 flex -translate-y-1/2 items-center justify-center rounded-full transition-all duration-300 ${
                       compact ? "h-4 w-4 border-2" : "h-10 w-10 border-2"
                     } ${
                       isCompleted
                         ? compact
                           ? "border-emerald-500 bg-emerald-500 text-white"
-                          : "border-emerald-500 bg-emerald-50 text-emerald-600 shadow-sm hover:ring-4 focus-visible:ring-4 ring-emerald-500/10"
+                          : "border-emerald-500 bg-emerald-50 text-emerald-600 shadow-sm"
                         : isCurrent
                           ? compact
                             ? `${stepStatusConfig.compactActiveNodeClassName} h-4 w-4 border-2`
                             : `h-11 w-11 border-4 ${stepStatusConfig.activeNodeClassName}`
+                          : journeyNode.status === "PENDING" || journeyNode.status === "UNDER_REVIEW"
+                            ? compact
+                              ? "border-indigo-400 bg-indigo-400"
+                              : "h-10 w-10 border-2 border-indigo-300 bg-indigo-50 text-indigo-600"
+                            : journeyNode.status === "RETURNED"
+                              ? compact
+                                ? "border-amber-400 bg-amber-400"
+                                : "h-10 w-10 border-2 border-amber-300 bg-amber-50 text-amber-700"
                           : isMissed
                             ? compact
                               ? "border-rose-400 bg-rose-500"
@@ -652,6 +806,12 @@ export default function AcademicJourneyMap({
                             : compact
                               ? "border-slate-600 bg-slate-800"
                               : "h-9 w-9 border-2 border-dashed border-slate-300 bg-slate-50 text-slate-300"
+                    } ${
+                      canOpenNode
+                        ? "cursor-pointer hover:ring-4 hover:ring-sky-500/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-500/30"
+                        : journeyNode.status === "LOCKED"
+                          ? "cursor-not-allowed"
+                          : ""
                     }`}
                     onFocus={() => setHoveredIndex(index)}
                     onBlur={() => setHoveredIndex(null)}
@@ -662,12 +822,16 @@ export default function AcademicJourneyMap({
                       <span className={`rounded-full ${stepStatusConfig.activeNodeCoreClassName} ${compact ? "h-1.5 w-1.5" : "h-3.5 w-3.5 animate-pulse"}`} aria-hidden="true" />
                     ) : isMissed ? (
                       compact ? null : <span className="text-[10px] font-bold">N/A</span>
+                    ) : journeyNode.status === "PENDING" || journeyNode.status === "UNDER_REVIEW" ? (
+                      compact ? null : <Clock3 className="h-4 w-4" aria-hidden="true" />
+                    ) : journeyNode.status === "RETURNED" ? (
+                      compact ? null : <TriangleAlert className="h-4 w-4" aria-hidden="true" />
                     ) : compact ? null : (
                       <Lock className="h-4 w-4" aria-hidden="true" />
                     )}
-                  </div>
+                  </button>
 
-                  <span className={`mt-2.5 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider ${
+                  <span className={`${index % 2 === 1 ? "mt-5" : "mt-2.5"} whitespace-nowrap text-[10px] font-bold uppercase tracking-wider ${
                     isCurrent ? compact
                       ? stepStatusConfig.activeLabelClassName
                       : `font-extrabold ${stepStatusConfig.lightActiveLabelClassName}`
@@ -688,7 +852,19 @@ export default function AcademicJourneyMap({
                         {stepStatusLabel}
                       </span>
                     );
-                  })() : null}
+                  })() : !compact && journeyNode.status === "PENDING" ? (
+                    <span className="mt-1 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase text-indigo-700">
+                      Pending
+                    </span>
+                  ) : !compact && journeyNode.status === "UNDER_REVIEW" ? (
+                    <span className="mt-1 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase text-indigo-700">
+                      Under Review
+                    </span>
+                  ) : !compact && journeyNode.status === "RETURNED" ? (
+                    <span className="mt-1 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-800">
+                      Returned
+                    </span>
+                  ) : null}
 
                   {!compact && milestoneIcon && index !== 0 ? (
                     <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 shadow-2xs">
@@ -713,15 +889,21 @@ export default function AcademicJourneyMap({
                   <div className="pointer-events-none absolute -top-14 right-0 origin-right z-30 w-max rounded-xl bg-slate-900 px-3 py-2 text-center text-white shadow-xl animate-in fade-in zoom-in-95 duration-150">
                     <p className="text-[11px] font-bold">Graduation</p>
                     <p className="mt-0.5 text-[10px] text-emerald-300">
-                      {validatedIndexes.size === termCount ? "All semesters validated" : "Complete all semesters to unlock"}
+                      {isGraduated
+                        ? "Exit clearance verified"
+                        : validatedCount === termCount
+                          ? "All semesters validated"
+                          : "Complete all semesters to unlock"}
                     </p>
                   </div>
                 ) : null}
                 <div
                   tabIndex={0}
-                  aria-label={`Graduation: ${validatedIndexes.size === termCount ? "current milestone" : "locked"}`}
+                  aria-label={`Graduation: ${isGraduated ? "completed and verified" : validatedCount === termCount ? "current milestone" : "locked"}`}
                   className={`relative flex h-14 w-14 items-center justify-center rounded-2xl transition-all duration-300 ${
-                    validatedIndexes.size === termCount
+                    isGraduated
+                      ? "border border-amber-200/80 bg-gradient-to-tr from-emerald-500 via-teal-400 to-amber-300 text-slate-950 shadow-xl shadow-emerald-500/30 ring-4 ring-amber-300/20"
+                      : validatedCount === termCount
                       ? "bg-gradient-to-tr from-emerald-600 to-teal-400 text-white shadow-xl shadow-emerald-500/30"
                       : "border-2 border-slate-200 bg-white text-slate-300"
                   }`}
@@ -729,9 +911,9 @@ export default function AcademicJourneyMap({
                   <GraduationCap className="h-7 w-7" aria-hidden="true" />
                 </div>
                 <span className={`mt-2.5 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider ${
-                  currentIndex === termCount ? "text-emerald-700" : "text-slate-400"
+                  isGraduated ? "text-amber-700" : currentIndex === termCount ? "text-emerald-700" : "text-slate-400"
                 }`}>
-                  Graduation
+                  {isGraduated ? "Graduated" : "Graduation"}
                 </span>
               </div>
             ) : null}
@@ -750,14 +932,148 @@ export default function AcademicJourneyMap({
 
       {compact ? (
         <p className="mt-2 text-[10px] text-slate-400">
-          {validatedIndexes.size} of {termCount} semesters validated
+          {validatedCount} of {termCount} semesters validated
         </p>
       ) : (
         <div className="relative z-10 mt-2 flex items-center justify-center gap-1.5 px-6 pb-5 text-[11px] text-slate-400">
           <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{validatedIndexes.size} of {termCount} semesters validated</span>
+          <span>{validatedCount} of {termCount} semesters validated</span>
         </div>
       )}
+
+      {selectedNode && typeof document !== "undefined" ? createPortal(
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedNode(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="semester-submission-title"
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-7"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Semester Submission
+                </p>
+                <h2 id="semester-submission-title" className="mt-1 text-lg font-bold text-slate-900 sm:text-xl">
+                  {selectedNodeTitle}
+                </h2>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${selectedNodeStatusClass}`}>
+                    {selectedNodeStatusLabel}
+                  </span>
+                  {selectedNodeDate ? (
+                    <span className="text-xs text-slate-500">
+                      {selectedNode.status === "VALIDATED" ? "Approved" : "Submitted"} {selectedNodeDate}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close semester submission"
+                onClick={() => setSelectedNode(null)}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            {selectedNode.gwa !== null || selectedNode.remarks ? (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {selectedNode.gwa !== null ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Recorded GWA</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">{selectedNode.gwa.toFixed(2)}</p>
+                  </div>
+                ) : null}
+                {selectedNode.remarks ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Academic remarks</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{selectedNode.remarks}</p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold text-slate-900">Submitted documents</h3>
+              {selectedDocuments.length ? (
+                <div className="mt-3 space-y-3">
+                  {selectedDocuments.map((file) => (
+                    <div
+                      key={file.label}
+                      className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-800">{file.label}</p>
+                        {selectedNode.isInitialGrant ? (
+                          <p className="mt-0.5 text-xs text-slate-500">From your approved SKEAP application</p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        {file.url ? (
+                          <a
+                            href={file.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                          >
+                            <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                            Preview
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            title="File not available"
+                            className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-400"
+                          >
+                            <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                            Preview
+                          </button>
+                        )}
+                        {file.url ? (
+                          <a
+                            href={getDownloadHref(
+                              file.url,
+                              `${file.label === "Grade Report" ? "Grade-Report" : "Certificate-of-Enrollment"}-Y${Math.floor(selectedNodeIndex / 2) + 1}-S${(selectedNodeIndex % 2) + 1}`,
+                            )}
+                            download={`${file.label === "Grade Report" ? "Grade-Report" : "Certificate-of-Enrollment"}-Y${Math.floor(selectedNodeIndex / 2) + 1}-S${(selectedNodeIndex % 2) + 1}`}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700"
+                          >
+                            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                            Download
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            title="File not available"
+                            className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500"
+                          >
+                            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                            Download
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  No document links are available for this semester.
+                </p>
+              )}
+            </div>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }
