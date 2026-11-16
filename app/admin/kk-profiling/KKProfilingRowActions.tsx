@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Archive, FileText, X } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, Archive, FileText, LockKeyhole, X } from "lucide-react";
 import {
   KK_MEMBER_ARCHIVE_REASONS,
   type KKMemberArchiveReason,
@@ -22,6 +23,7 @@ interface RegistrationRowActionsProps {
 export function KKProfilingRowActions({ registration, onArchive, onUpdate, onStatusUpdate, compact = false, cardView = false }: RegistrationRowActionsProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [showActiveGranteeGuard, setShowActiveGranteeGuard] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"archive" | null>(null);
   const [archiveReason, setArchiveReason] = useState<KKMemberArchiveReason | "">("");
   const [isConfirmingAction, setIsConfirmingAction] = useState(false);
@@ -29,8 +31,8 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<KKProfilingRegistration>(registration);
-  const isActiveGrantee =
-    (registration.skeapStatus ?? registration.user?.grantee?.status)?.toUpperCase() === "ACTIVE";
+  const granteeStatus = (registration.user?.grantee?.status ?? registration.skeapStatus)?.toUpperCase();
+  const isActiveGrantee = granteeStatus === "ACTIVE" || granteeStatus === "PROBATIONARY";
 
   useEffect(() => {
     setEditForm(registration);
@@ -93,18 +95,30 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
         <span>View</span>
       </button>
       {onArchive ? (
-        <button
-          type="button"
-          onClick={() => {
-            setArchiveReason("");
-            setConfirmAction("archive");
-          }}
-          className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border border-amber-200 bg-amber-50 text-amber-700 transition hover:border-amber-300 hover:bg-amber-100`}
-          title="Archive profile"
-          aria-label="Archive profile"
-        >
-          <Archive className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} transition`} />
-        </button>
+        isActiveGrantee ? (
+          <button
+            type="button"
+            onClick={() => setShowActiveGranteeGuard(true)}
+            className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border border-slate-200 bg-slate-100 text-slate-500 transition hover:bg-slate-200`}
+            title="Active SKEAP grantees must be managed in Active Grantees first"
+            aria-label="Active SKEAP grantee archive restriction"
+          >
+            <LockKeyhole className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} transition`} aria-hidden="true" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setArchiveReason("");
+              setConfirmAction("archive");
+            }}
+            className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border border-amber-200 bg-amber-50 text-amber-700 transition hover:border-amber-300 hover:bg-amber-100`}
+            title="Archive profile"
+            aria-label="Archive profile"
+          >
+            <Archive className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} transition`} aria-hidden="true" />
+          </button>
+        )
       ) : null}
 
       {showDetails && (
@@ -356,6 +370,58 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
         </div>
       )}
 
+      {showActiveGranteeGuard && typeof document !== "undefined" ? createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="active-grantee-archive-title"
+            className="w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.24)]"
+          >
+            <div className="h-1 w-full bg-gradient-to-r from-cyan-500 to-slate-800" />
+            <div className="p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-cyan-700">
+                  <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 id="active-grantee-archive-title" className="text-lg font-bold tracking-tight text-slate-900">
+                    Manage this youth in Active Grantees
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    This youth is currently an <strong>Active SKEAP Grantee</strong>. To revoke their scholarship under Barangay Ordinance No. 1 - 2022 Section 6 or discontinue it due to residency transfer, manage them in <strong>Active Grantees</strong> first.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowActiveGranteeGuard(false)}
+                  className="shrink-0 rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Close Active Grantee notice"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+              <div className="mt-5 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowActiveGranteeGuard(false)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Close
+                </button>
+                <Link
+                  href="/admin/grantees"
+                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  Go to Active Grantees →
+                </Link>
+              </div>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
+
       {confirmAction && typeof document !== "undefined" ? createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
           <div
@@ -389,17 +455,6 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                       <X className="h-4 w-4" aria-hidden="true" />
                     </button>
                   </div>
-                  {isActiveGrantee ? (
-                    <div className="mt-3 flex gap-2.5 rounded-xl border border-amber-200/80 bg-amber-50/80 p-3 text-left">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
-                      <p className="text-sm leading-5 text-amber-950">
-                        <span className="font-semibold">Scholarship impact</span>
-                        <span className="mt-0.5 block text-amber-900">
-                          {registration.fullName} is an active SKEAP grantee. Archiving this profile will also revoke their active scholarship status.
-                        </span>
-                      </p>
-                    </div>
-                  ) : null}
                   <label className="mt-4 block text-left">
                     <span className="mb-1.5 block text-xs font-semibold text-slate-700">Archive reason</span>
                     <select
@@ -414,7 +469,11 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                     >
                       <option value="">Select a reason</option>
                       {KK_MEMBER_ARCHIVE_REASONS.map((reason) => (
-                        <option key={reason} value={reason}>{reason}</option>
+                        <option key={reason} value={reason}>
+                          {reason === "Transferred Residence"
+                            ? "Transferred Residence (No longer a resident of Barangay Pico)"
+                            : reason}
+                        </option>
                       ))}
                     </select>
                   </label>

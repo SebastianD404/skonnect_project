@@ -1,129 +1,108 @@
-const metricCards = Array.from({ length: 4 }, (_, index) => index);
-const applicants = Array.from({ length: 3 }, (_, index) => index);
-const profileFields = Array.from({ length: 8 }, (_, index) => index);
+import { SkeletonBar } from "../components/AdminSkeletonPrimitives";
+
+const applicantCards = [0, 1, 2, 3];
+const profileFields = [0, 1, 2, 3, 4, 5, 6, 7];
 
 export default function SkeapApplicationsSkeleton() {
   return (
-    <div
-      role="status"
-      aria-label="Loading SKEAP applications"
-      className="mx-auto flex min-h-screen w-full max-w-[1200px] flex-col gap-6 animate-pulse bg-slate-50 text-slate-900 sm:gap-8"
-    >
-      <div className="flex min-h-screen w-full">
-        <main className="flex w-full flex-col gap-6 pb-12 sm:gap-8">
-          <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-            <div className="space-y-2">
-              <div className="h-3 w-36 rounded bg-slate-200" />
-              <div className="h-8 w-72 max-w-full rounded bg-slate-200" />
-              <div className="h-4 w-[32rem] max-w-full rounded bg-slate-200" />
+    <main role="status" aria-label="Loading SKEAP applications" className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 pb-20 text-slate-900">
+      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div className="space-y-2">
+          <SkeletonBar width="w-36" height="h-3" className="rounded-full bg-cyan-900/10" />
+          <SkeletonBar width="w-72" height="h-8" className="max-w-full" />
+          <SkeletonBar width="w-[32rem]" height="h-4" className="max-w-full bg-slate-100" />
+        </div>
+      </header>
+
+      <section aria-label="Application status metrics" className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {applicantCards.map((card) => (
+          <div key={card} className="flex w-full flex-col gap-2 rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm sm:gap-3 sm:p-5">
+            <div className="flex items-center justify-between gap-2 sm:gap-3">
+              <SkeletonBar width="w-28" height="h-3" className="max-w-[75%] rounded-full" />
+              <SkeletonBar width="w-7 sm:w-10" height="h-7 sm:h-10" className="shrink-0 rounded-full bg-cyan-50" />
             </div>
-          </header>
+            <SkeletonBar width="w-12" height="h-6 sm:h-8" />
+            <SkeletonBar width="w-24" height="h-3" className="bg-slate-100" />
+          </div>
+        ))}
+      </section>
 
-          <section
-            aria-label="Application status metrics"
-            className="grid grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-4"
-          >
-            {metricCards.map((card) => (
-              <div
-                key={card}
-                className="flex h-28 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:h-32 sm:p-5"
-              >
+      <section className="flex min-h-[600px] w-full flex-col items-stretch overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm lg:h-[calc(100vh-200px)] lg:flex-row">
+        <aside className="flex min-h-[500px] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 lg:min-h-0 lg:h-full lg:w-96 lg:border-b-0 lg:border-r">
+          <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200 p-5">
+            <div className="space-y-3">
+              <SkeletonBar width="w-32" height="h-3" />
+              <SkeletonBar width="w-40" height="h-7" />
+            </div>
+            <div className="flex items-center gap-2">
+              <SkeletonBar width="w-full" height="h-9" className="rounded-lg bg-white" />
+              <SkeletonBar width="w-9" height="h-9" className="shrink-0 rounded-lg bg-white" />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 space-y-3 overflow-hidden p-4">
+            {applicantCards.map((applicant) => (
+              <article key={applicant} className="rounded-xl border border-slate-100 bg-white p-4">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <SkeletonBar width={applicant % 2 ? "w-36" : "w-40"} height="h-4" className="max-w-full" />
+                    <SkeletonBar width="w-32" height="h-3" className="max-w-full bg-slate-100" />
+                  </div>
+                  <SkeletonBar width="w-20" height="h-6" className="shrink-0 rounded-full bg-slate-100" />
+                </div>
                 <div className="flex items-center justify-between gap-3">
-                  <div className="h-3 w-28 rounded bg-slate-200" />
-                  <div className="h-7 w-7 rounded-full bg-slate-100 sm:h-10 sm:w-10" />
+                  <SkeletonBar width="w-24" height="h-3" className="bg-slate-100" />
+                  <SkeletonBar width="w-12" height="h-3" className="bg-slate-100" />
                 </div>
-                <div>
-                  <div className="h-6 w-12 rounded bg-slate-200 sm:h-8" />
-                  <div className="mt-2 h-3 w-24 rounded bg-slate-100" />
-                </div>
-              </div>
+              </article>
             ))}
-          </section>
+          </div>
+          <div className="flex shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 py-4">
+            <SkeletonBar width="w-24" height="h-3" />
+            <div className="flex gap-2">
+              <SkeletonBar width="w-8" height="h-8" className="rounded-lg" />
+              <SkeletonBar width="w-8" height="h-8" className="rounded-lg" />
+            </div>
+          </div>
+        </aside>
 
-          <section className="grid min-h-[600px] grid-cols-1 items-start overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm lg:h-[calc(100vh-280px)] lg:grid-cols-[24rem_minmax(0,1fr)]">
-            <aside className="flex min-h-[600px] flex-col border-b border-slate-200 bg-slate-50 lg:h-full lg:border-b-0 lg:border-r">
-              <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200 p-5">
-                <div>
-                  <div className="h-3 w-32 rounded bg-slate-200" />
-                  <div className="mt-3 h-7 w-40 rounded bg-slate-200" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-8 flex-1 rounded-lg border border-slate-200 bg-white" />
-                  <div className="h-9 w-9 rounded-lg border border-slate-200 bg-white" />
-                </div>
+        <div className="flex min-h-[600px] min-w-0 flex-1 flex-col bg-slate-50/50 lg:h-full lg:min-h-0">
+          <div className="shrink-0 border-b border-slate-200 bg-white px-5 pt-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-2">
+                <SkeletonBar width="w-36" height="h-3" />
+                <SkeletonBar width="w-56" height="h-7" className="max-w-full" />
+                <SkeletonBar width="w-48" height="h-4" className="max-w-full bg-slate-100" />
               </div>
-
-              <div className="flex-1 space-y-3 overflow-hidden p-4">
-                {applicants.map((applicant) => (
-                  <div
-                    key={applicant}
-                    className="h-28 rounded-xl border border-slate-100 bg-white p-5"
-                  >
-                    <div className="mb-4 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <div className="h-4 w-40 max-w-full rounded bg-slate-200" />
-                        <div className="h-3 w-32 max-w-full rounded bg-slate-100" />
-                      </div>
-                      <div className="h-6 w-20 rounded-full bg-slate-100" />
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="h-3 w-24 rounded bg-slate-100" />
-                      <div className="h-3 w-12 rounded bg-slate-100" />
-                    </div>
+              <SkeletonBar width="w-28" height="h-9" className="rounded-lg" />
+            </div>
+            <div className="mt-4 flex gap-6 border-b border-slate-100">
+              <SkeletonBar width="w-16" height="h-8" className="rounded-t border-b-2 border-slate-300 bg-slate-100" />
+              <SkeletonBar width="w-32" height="h-8" className="rounded-t bg-slate-100" />
+              <SkeletonBar width="w-24" height="h-8" className="rounded-t bg-slate-100" />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-hidden p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 px-5 py-4">
+                <SkeletonBar width="w-32" height="h-4" />
+              </div>
+              <div className="grid grid-cols-2 gap-px bg-slate-100 md:grid-cols-4">
+                {profileFields.map((field) => (
+                  <div key={field} className="space-y-2 bg-white p-4 md:p-5">
+                    <SkeletonBar width="w-20" height="h-3" className="bg-slate-100" />
+                    <SkeletonBar width="w-28" height="h-4" className="max-w-full" />
                   </div>
                 ))}
               </div>
-
-              <div className="flex shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 py-4">
-                <div className="h-3 w-24 rounded bg-slate-200" />
-                <div className="flex gap-2">
-                  <div className="h-8 w-8 rounded-lg bg-slate-100" />
-                  <div className="h-8 w-8 rounded-lg bg-slate-100" />
-                </div>
-              </div>
-            </aside>
-
-            <div className="flex min-h-[600px] min-w-0 flex-col bg-slate-50/50 lg:h-full">
-              <div className="shrink-0 border-b border-slate-200 bg-white px-5 pt-4">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="space-y-2">
-                    <div className="h-3 w-36 rounded bg-slate-200" />
-                    <div className="h-7 w-56 max-w-full rounded bg-slate-200" />
-                    <div className="h-4 w-48 max-w-full rounded bg-slate-100" />
-                  </div>
-                  <div className="h-9 w-28 rounded-lg bg-slate-200" />
-                </div>
-                <div className="mt-4 flex gap-6 border-b border-slate-100">
-                  <div className="h-8 w-16 rounded-t border-b-2 border-slate-300 bg-slate-100" />
-                  <div className="h-8 w-32 rounded-t bg-slate-100" />
-                  <div className="h-8 w-24 rounded-t bg-slate-100" />
-                </div>
-              </div>
-
-              <div className="flex-1 space-y-4 overflow-hidden p-5">
-                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                  <div className="border-b border-slate-100 px-5 py-4">
-                    <div className="h-4 w-32 rounded bg-slate-200" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-px bg-slate-100 md:grid-cols-4">
-                    {profileFields.map((field) => (
-                      <div key={field} className="space-y-2 bg-white p-4 md:p-5">
-                        <div className="h-3 w-20 rounded bg-slate-100" />
-                        <div className="h-4 w-28 max-w-full rounded bg-slate-200" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="h-12 rounded-3xl bg-slate-200" />
-                  <div className="h-12 rounded-lg bg-slate-100" />
-                </div>
-              </div>
+            </section>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SkeletonBar width="w-full" height="h-12" className="rounded-3xl" />
+              <SkeletonBar width="w-full" height="h-12" className="rounded-lg bg-slate-100" />
             </div>
-          </section>
-          <span className="sr-only">Loading SKEAP application records…</span>
-        </main>
-      </div>
-    </div>
+          </div>
+        </div>
+      </section>
+      <span className="sr-only">Loading SKEAP application records…</span>
+    </main>
   );
 }

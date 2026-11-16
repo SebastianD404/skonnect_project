@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 export async function PATCH(
   _request: Request,
@@ -34,6 +35,7 @@ export async function PATCH(
           reviewStatus: restoredStatus,
           archivedReason: null,
           archivedAt: null,
+          archivedBy: null,
           ...(restoredStatus === "Pending" ? { reviewNotes: null } : {}),
         },
       });
@@ -59,6 +61,7 @@ export async function PATCH(
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
+    await refreshKkProfilingApplicationsAdminView();
     return NextResponse.json({
       success: true,
       reviewStatus: result.registration.reviewStatus,

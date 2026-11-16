@@ -19,6 +19,7 @@ describe("SKEAP status filters", () => {
         contains: "SKEAP application",
         mode: "insensitive",
       },
+      applicationId: { not: null },
       NOT: [
         { reviewStatus: { contains: "cancel", mode: "insensitive" } },
         { reviewStatus: { contains: "approve", mode: "insensitive" } },

@@ -7,6 +7,7 @@ import { uploadPrivateDocument } from "@/lib/private-documents";
 import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jfif", "image/jpg", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -207,6 +208,7 @@ export async function PUT(request: NextRequest) {
       return saved;
     });
 
+    await refreshKkProfilingApplicationsAdminView();
     return NextResponse.json({
       ...updated,
       submittedAt: updated.submittedAt.toISOString(),

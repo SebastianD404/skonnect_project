@@ -27,6 +27,7 @@ export default function HomePageContent() {
   const [skeapApplicationState, setSkeapApplicationState] = useState<{
     userId: string;
     hasApplication: boolean;
+    hasCurrentApplication: boolean;
     reviewStatus: string | null;
     applicationStatus: string | null;
   } | null>(null);
@@ -75,6 +76,7 @@ export default function HomePageContent() {
           setSkeapApplicationState({
             userId,
             hasApplication: data.hasApplication === true,
+            hasCurrentApplication: data.hasCurrentApplication === true,
             reviewStatus: typeof data.reviewStatus === "string" ? data.reviewStatus : null,
             applicationStatus: typeof data.applicationStatus === "string" ? data.applicationStatus : null,
           });
@@ -193,6 +195,10 @@ export default function HomePageContent() {
     user?.role === "YOUTH" &&
     user.id === kkProfilingApplicationState?.userId &&
     kkProfilingApplicationState?.hasPendingApplication === true;
+  const hasCurrentSkeapApplication =
+    user?.role === "YOUTH" &&
+    user.id === skeapApplicationState?.userId &&
+    skeapApplicationState?.hasCurrentApplication === true;
 
   const handleStartKkProfiling = async () => {
     if (authLoading) return;
@@ -283,7 +289,7 @@ export default function HomePageContent() {
               </p>
               
               <div className="flex flex-wrap items-center gap-4 pt-4">
-                <HeroCtaButton />
+                <HeroCtaButton hasCurrentApplication={hasCurrentSkeapApplication} />
                 <Link
                   href={hasPendingKkProfilingApplication
                     ? "/applications"

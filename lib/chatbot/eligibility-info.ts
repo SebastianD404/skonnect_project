@@ -6,6 +6,12 @@ const OTHER_AWARD_TERMS =
 const SKEAP_SLOT_CONTEXT = /\b(skeap|scholarship|scholarships|slot|slots|capacity)\b/i;
 const FULL_CAPACITY_TERMS =
   /\b(full|filled|reached|reach|maximum|maxed|capacity|puno|napunon|naurnos)\b|punô/i;
+const SLOT_OPENING_TERMS =
+  /\b(open(?:s|ed|ing)?(?:\s+up)?|become\s+available|becomes\s+available|free(?:\s+up)?|vacant|vacancy|available|released|made\s+available|magkakaroon|mababakante|bakante|magbukas|mabuksan)\b|aglukat/i;
+const SLOT_OPENING_QUESTION_TERMS = /\b(how|when|why|kailan|paano|kaano|kasano)\b/i;
+const WAITLIST_SLOT_ACCESS_TERMS =
+  /\b(?:get|receive|claim|offered|promoted?|makakakuha|makakuha|maala\w*|mangala\w*|makaala\w*|maipaay)\b/i;
+const WAITLIST_TERMS = /\b(waitlist|wait-listed|waitlisted)\b/i;
 const SKEAP_SLOT_LIMIT_CONTEXT =
   /\b(skeap|scholarships?|slots?|capacity|quota|limit|skolar)\b/i;
 const SKEAP_SLOT_QUANTITY_TERMS =
@@ -23,6 +29,18 @@ export function isSkeapSlotsFullQuestion(question: string) {
   return SKEAP_SLOT_CONTEXT.test(question) && FULL_CAPACITY_TERMS.test(question);
 }
 
+export function isSkeapSlotOpeningQuestion(question: string) {
+  const hasSlotContext = /\b(slot|slots|capacity)\b/i.test(question) || WAITLIST_TERMS.test(question);
+  const asksHowSlotsOpen = SLOT_OPENING_TERMS.test(question);
+  const asksAboutWaitlistAccess =
+    WAITLIST_TERMS.test(question) && WAITLIST_SLOT_ACCESS_TERMS.test(question);
+  return hasSlotContext &&
+    !isSkeapSlotLimitQuestion(question) &&
+    !FULL_CAPACITY_TERMS.test(question) &&
+    ((SLOT_OPENING_QUESTION_TERMS.test(question) && asksHowSlotsOpen) ||
+      asksAboutWaitlistAccess);
+}
+
 export function isSkeapSlotLimitQuestion(question: string) {
   return SKEAP_SLOT_LIMIT_CONTEXT.test(question) && SKEAP_SLOT_QUANTITY_TERMS.test(question);
 }
@@ -38,13 +56,17 @@ export function formatSkeapSlotLimitAnswer(language: Language) {
 }
 
 export function formatSkeapSlotsFullAnswer(language: Language) {
+  return formatSkeapSlotOpeningAnswer(language);
+}
+
+export function formatSkeapSlotOpeningAnswer(language: Language) {
   if (language === "FILIPINO") {
-    return "Kapag punô na ang lahat ng available na scholarship slots, ang mga susunod na mag-a-apply ay ilalagay sa waitlist. Ang pagproseso sa mga nasa waitlist ay nakabatay sa strict first-come, first-served basis kung may mabubuksan na slot.";
+    return "Nagkakaroon ng bakanteng SKEAP scholarship slot kapag nagtapos na sa programa ang kasalukuyang grantee o inalis siya dahil sa diskuwalipikasyon o pag-withdraw. Kapag may bakanteng slot, iaalok ito sa mga aplikanteng nasa waitlist ayon sa mahigpit na first-come, first-served na pagkakasunod-sunod.";
   }
   if (language === "ILOCANO") {
-    return "Nu napunon dagiti amin a nakasagana a scholarship slots, maikabil iti waitlist dagiti sumaruno nga ag-apply. Maiturong ti panagproseso kadagiti adda iti waitlist babaen ti strict first-come, first-served basis nu adda agserra wenno aglukat a slot.";
+    return "Mabalin nga aglukat ti SKEAP scholarship slot no aggraduar dagiti agdama a grantee iti programa wenno maikkatda gapu iti diskwalipikasion wenno panag-withdraw. No adda slot a maluktan, maipaay daytoy kadagiti aplikante iti waitlist babaen iti nainget a first-come, first-served a panagsunod.";
   }
-  return "If all available scholarship slots are already filled, new applicants will be placed on a waitlist. Waitlisted applications are processed on a strict first-come, first-served basis should slots open up.";
+  return "SKEAP scholarship slots open up when current grantees graduate from the program or are removed due to disqualification or withdrawal. When a slot becomes available, it is offered to waitlisted applicants on a strict first-come, first-served basis.";
 }
 
 export function isKkProfilingInfoQuestion(question: string) {

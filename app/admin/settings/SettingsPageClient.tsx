@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BellRing, CalendarDays, CheckCircle2, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { CalendarDays, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { MAX_SCHEDULED_TERMS } from "@/lib/academic-term-schedule-constants";
 import {
   ACTIVE_SKEAP_EDUCATION_LEVELS,
@@ -46,15 +46,6 @@ type SettingsResponse = {
     opensAt: string;
     closesAt: string;
   };
-  skeapWaitlistState?: {
-    cycle: string;
-    isClosed: boolean;
-    totalWaitlisted: number;
-    isFull: boolean;
-  };
-  notifiedCount?: number;
-  alreadyClosed?: boolean;
-  emailFailures?: number;
 };
 
 const DEFAULT_STATE = {
@@ -144,8 +135,6 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
     ...ACTIVE_SKEAP_EDUCATION_LEVELS,
   ]);
   const [deletedAcademicTermScheduleIds, setDeletedAcademicTermScheduleIds] = useState<string[]>([]);
-  const [skeapWaitlistState, setSkeapWaitlistState] = useState<SettingsResponse["skeapWaitlistState"]>();
-  const [closingWaitlist, setClosingWaitlist] = useState(false);
   const [isAddingTerm, setIsAddingTerm] = useState(false);
   const [newSchedule, setNewSchedule] = useState<NewScheduleInput>({
     startYear: String(new Date().getFullYear()),
@@ -190,7 +179,6 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
         setSavedAcademicTermSchedules(loadedSchedules);
         setActiveSkeapEducationLevels(loadedEducationLevels);
         setSavedSkeapEducationLevels(loadedEducationLevels);
-        setSkeapWaitlistState(data.skeapWaitlistState);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Unable to load settings.");
       } finally {
@@ -310,49 +298,6 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
       setErrorMessage(error instanceof Error ? error.message : "Failed to save the academic term.");
     } finally {
       setIsSaving(false);
-    }
-  }
-
-  async function handleCloseWaitlist() {
-    const count = skeapWaitlistState?.totalWaitlisted ?? 0;
-    const cycle = skeapWaitlistState?.cycle ?? "current";
-    if (
-      !window.confirm(
-        `Close the ${cycle} SKEAP cycle and notify ${count} waitlisted applicant${count === 1 ? "" : "s"} with their final queue position? This cannot be undone.`,
-      )
-    ) return;
-
-    setClosingWaitlist(true);
-    setErrorMessage(null);
-    setStatusMessage(null);
-    try {
-      const response = await fetch("/api/admin/skeap-applications/waitlist/close", {
-        method: "POST",
-      });
-      const data = await readSettingsResponse(response);
-      if (!response.ok) throw new Error(data.error || "Unable to close the SKEAP waitlist.");
-      setSkeapWaitlistState((current) => current
-        ? {
-            ...current,
-            isClosed: true,
-            totalWaitlisted: Number(data.notifiedCount ?? current.totalWaitlisted),
-          }
-        : current);
-      if (Number(data.emailFailures) > 0) {
-        setErrorMessage(
-          `The waitlist was finalized and in-app notices were sent, but email delivery failed for ${String(data.emailFailures)} applicant${Number(data.emailFailures) === 1 ? "" : "s"}.`,
-        );
-      } else {
-        setStatusMessage(
-          data.alreadyClosed === true
-            ? `The ${cycle} SKEAP waitlist was already finalized.`
-            : `The ${cycle} SKEAP waitlist was finalized and ${String(data.notifiedCount ?? count)} applicants were notified.`,
-        );
-      }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Unable to close the SKEAP waitlist.");
-    } finally {
-      setClosingWaitlist(false);
     }
   }
 
@@ -781,53 +726,6 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
             onToggle={handleEducationLevelToggle}
             disabled={loading || saving}
           />
-
-          <section className="grid grid-cols-1 gap-8 border-t border-slate-200 py-8 md:grid-cols-3">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">SKEAP waitlist closure</h2>
-              <p className="mt-1 text-sm leading-6 text-slate-500">
-                Finalize a full cycle and notify every waitlisted applicant of their locked queue position.
-              </p>
-            </div>
-            <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 md:col-span-2">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">
-                  {skeapWaitlistState?.isClosed
-                    ? `${skeapWaitlistState.cycle} cycle finalized`
-                    : `${skeapWaitlistState?.cycle ?? "Current"} cycle`}
-                </p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                  {skeapWaitlistState?.isClosed
-                    ? `${skeapWaitlistState.totalWaitlisted} applicants received a final-position notification.`
-                    : `${skeapWaitlistState?.totalWaitlisted ?? 0} applicants are waitlisted. This action is available when all slots are full.`}
-                </p>
-              </div>
-              {skeapWaitlistState?.isClosed ? (
-                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  Finalized
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void handleCloseWaitlist()}
-                  disabled={
-                    loading ||
-                    saving ||
-                    closingWaitlist ||
-                    !skeapWaitlistState?.isFull ||
-                    !skeapWaitlistState.totalWaitlisted
-                  }
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
-                >
-                  {closingWaitlist
-                    ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                    : <BellRing className="h-4 w-4" aria-hidden="true" />}
-                  Close &amp; notify
-                </button>
-              )}
-            </div>
-          </section>
 
           <footer className="sticky bottom-0 z-10 -mx-4 mt-8 border-t border-slate-200 bg-slate-50/90 px-4 py-4 backdrop-blur-md sm:-mx-6 sm:px-6">
             <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">

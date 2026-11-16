@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
-import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inbox, Info, MessageCircle, Trash2, Upload, UserRound, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inbox, Info, LoaderCircle, MessageCircle, Trash2, Upload, UserRound, X } from "lucide-react";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { getCoreUploadGroups, getPhotoUploadGroup, CORE_UPLOAD_KEYS, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
@@ -52,6 +52,8 @@ type ApplicationReviewProps = {
     };
     application?: {
       id: string;
+      status?: string;
+      waitlistRemark?: string | null;
       school?: string;
       educationLevel?: string;
       currentCourse?: string;
@@ -103,6 +105,14 @@ type SubmittedFile = {
 };
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
+const WITHDRAWABLE_APPLICATION_STATUSES = new Set([
+  "PENDING",
+  "UNDER_REVIEW",
+  "PRE_QUALIFIED",
+  "RETURNED",
+  "RETURNED_FOR_EDIT",
+  "WAITLISTED",
+]);
 const ALLOWED_TYPES = new Set([
   "application/pdf",
   "application/msword",
@@ -287,9 +297,12 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [lifecycleAction, setLifecycleAction] = useState<"delete" | "withdraw" | null>(null);
   const [showApplicationForm, setShowApplicationForm] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [isProcessingLifecycleAction, setIsProcessingLifecycleAction] = useState(false);
+  const [hasWithdrawn, setHasWithdrawn] = useState(
+    application.application?.status?.toUpperCase() === "WITHDRAWN",
+  );
 
   const coreUploads = useMemo(() => getCoreUploadGroups(application.application?.uploadedFiles), [application.application?.uploadedFiles]);
   const photoUpload = useMemo(() => getPhotoUploadGroup(application.application?.uploadedFiles), [application.application?.uploadedFiles]);
@@ -320,16 +333,25 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   }, [stagedReplacements]);
 
   const reviewStatusLabel = application.reviewStatus || "Pending review";
-  const normalizedStatus = reviewStatusLabel.toUpperCase();
+  const applicationStatus = (application.application?.status || reviewStatusLabel).trim().toUpperCase();
+  const isWithdrawn = hasWithdrawn || applicationStatus === "WITHDRAWN";
+  const normalizedStatus = isWithdrawn ? "WITHDRAWN" : reviewStatusLabel.toUpperCase();
+  const isAgedOutWaitlisted = application.application?.waitlistRemark === "AGED_OUT";
+  const isWaitlistCycleClosed = application.application?.waitlistRemark === "CYCLE_CLOSED";
+  const isWaitlistClosed = isAgedOutWaitlisted || isWaitlistCycleClosed;
+  const isDraft = applicationStatus === "DRAFT";
+  const canWithdraw = !isWithdrawn && WITHDRAWABLE_APPLICATION_STATUSES.has(applicationStatus);
   const isApproved = normalizedStatus === "APPROVED";
   const isResubmitted = normalizedStatus === "RESUBMITTED";
-  const isRejected = normalizedStatus === "REJECTED";
+  const isRejected = normalizedStatus === "REJECTED" && !isAgedOutWaitlisted && !isWaitlistCycleClosed;
   const isApplicationReturned = isSkeapApplicationReturned(reviewStatusLabel);
+  const canResubmit = !isWithdrawn && isApplicationReturned &&
+    ["RETURNED", "RETURNED_FOR_EDIT"].includes(applicationStatus);
   const activeCorrections = useMemo(
-    () => isApplicationReturned
+    () => canResubmit
       ? submittedFiles.filter((file) => getFileActionHint(application.reviewThread, file))
       : [],
-    [isApplicationReturned, submittedFiles, application.reviewThread]
+    [canResubmit, submittedFiles, application.reviewThread]
   );
   const isUploadingReplacement = stagedReplacements.some((replacement) => replacement.status === "uploading");
   const pendingReplacementKeys = new Set([
@@ -346,8 +368,14 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.text;
     return note?.replace(/^(?:application\s+rejected|reason\s+for\s+rejection|rejection\s+reason)\s*:\s*/i, "");
   }, [application.reviewThread]);
-  const hasActionRequired = isApplicationReturned && !isRejected && activeCorrections.length > 0 && !isResubmitted;
-  const currentDisplayStatus = isRejected
+  const hasActionRequired = canResubmit && !isRejected && activeCorrections.length > 0 && !isResubmitted;
+  const currentDisplayStatus = isWithdrawn
+    ? "WITHDRAWN"
+    : isAgedOutWaitlisted
+    ? "CLOSED — AGE LIMIT"
+    : isWaitlistCycleClosed
+    ? "CLOSED"
+    : isRejected
     ? "REJECTED"
     : isResubmitted
     ? "RESUBMITTED"
@@ -358,14 +386,28 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     : reviewStatusLabel;
 
   useEffect(() => {
+    if (!lifecycleAction || isProcessingLifecycleAction) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLifecycleAction(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isProcessingLifecycleAction, lifecycleAction]);
+
+  useEffect(() => {
     if (isApproved) {
       router.push("/grantee-dashboard");
     }
   }, [isApproved, router]);
   const statusBadgeClass = isRejected
     ? "bg-rose-50 text-rose-700 border border-rose-200"
+    : isAgedOutWaitlisted || isWaitlistCycleClosed
+    ? "bg-slate-100 text-slate-700 border border-slate-200"
     : isApproved
     ? "bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold"
+    : isWithdrawn
+    ? "bg-slate-100 text-slate-600 border border-slate-200"
     : isResubmitted
     ? "bg-sky-100 text-sky-700 border border-sky-200 font-bold"
     : hasSavedReplacements
@@ -375,6 +417,8 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     : "bg-slate-100 text-slate-700";
   const bannerBgClass = isRejected
     ? "bg-rose-50 text-rose-900 border border-rose-200"
+    : isAgedOutWaitlisted || isWaitlistCycleClosed
+    ? "bg-slate-50 text-slate-800 border border-slate-200"
     : isResubmitted
     ? "bg-sky-50 text-sky-800 border-sky-200"
     : hasSavedReplacements
@@ -382,6 +426,10 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     : "bg-rose-50 text-rose-700 border-rose-100";
   const bannerMessage = isRejected
     ? "This application has been rejected and is now closed. No further updates are possible."
+    : isAgedOutWaitlisted
+    ? "Your application was closed because you reached the program’s maximum eligible age while on the waitlist."
+    : isWaitlistCycleClosed
+    ? "This application was closed when the SKEAP cycle ended and will not carry over to a future cycle."
     : isResubmitted
     ? "Your updated application packet has been delivered to the review team. No further action is required at this time."
     : isUploadingReplacement
@@ -391,10 +439,13 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     : "Fix the flagged files below and resubmit your application.";
   const headerSubtext = isRejected
     ? "Your application process has been finalized. Review the administrative decision details below."
+    : isAgedOutWaitlisted
+    ? "Your waitlisted application was closed after you exceeded the program’s age limit."
+    : isWaitlistCycleClosed
+    ? "Your waitlisted application was closed at the end of the SKEAP cycle."
     : "Review feedback is shown first so you can resolve corrections immediately.";
-  const isEditLocked = !isApplicationReturned || isResubmitted || isRejected || isApproved;
-  const disableResubmit = !isApplicationReturned || isResubmitted || isRejected || pendingReplacements === 0 || isUploadingReplacement || submitting;
-  const disableDelete = isResubmitted || isRejected || submitting;
+  const isEditLocked = !canResubmit || isResubmitted || isRejected || isApproved || isWithdrawn;
+  const disableResubmit = !canResubmit || isResubmitted || isRejected || pendingReplacements === 0 || isUploadingReplacement || submitting;
   const fileCount = submittedFiles.length;
   const resubmittedAtText = application.resubmittedAt ? new Date(application.resubmittedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "numeric" }) : null;
 
@@ -510,7 +561,6 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         current.forEach((replacement) => replacement.previewUrl && URL.revokeObjectURL(replacement.previewUrl));
         return [];
       });
-      setTimeout(() => setSuccess(null), 4500);
       router.refresh();
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
@@ -520,37 +570,42 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     }
   };
 
-  async function handleDelete() {
-    if (deleting) return;
-    setDeleting(true);
+  async function handleLifecycleAction() {
+    if (!lifecycleAction || isProcessingLifecycleAction) return;
+    setIsProcessingLifecycleAction(true);
     setError(null);
     setActionError(null);
     try {
-      const response = await fetch(`/api/applications/${application.id}/delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: application.id }),
-      });
-
+      const isDeletingDraft = lifecycleAction === "delete";
+      const response = await fetch(
+        isDeletingDraft
+          ? `/api/applications/${application.id}/delete`
+          : `/api/applications/${application.id}/cancel`,
+        {
+          method: isDeletingDraft ? "DELETE" : "POST",
+          headers: { "Content-Type": "application/json" },
+          ...(!isDeletingDraft ? { body: JSON.stringify({ action: "WITHDRAW" }) } : {}),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload?.error || "Delete failed");
+        throw new Error(payload?.error || (isDeletingDraft ? "Unable to delete draft." : "Unable to withdraw application."));
       }
 
-      setSuccess("Your application has been deleted.");
-      setTimeout(() => setSuccess(null), 3500);
-      // Redirect applicant to the verified landing page (root)
-      router.push("/");
-      try {
+      setLifecycleAction(null);
+      if (isDeletingDraft) {
+        setSuccess("Your draft has been deleted.");
+        router.push("/applications");
         router.refresh();
-      } catch {
-        // ignore refresh errors
+      } else {
+        setHasWithdrawn(true);
+        setSuccess("Application withdrawn. Your record has been archived.");
+        router.refresh();
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Unable to delete application.");
+      setActionError(err instanceof Error ? err.message : "Unable to update application status.");
     } finally {
-      setDeleting(false);
-      setShowDeleteConfirm(false);
+      setIsProcessingLifecycleAction(false);
     }
   }
 
@@ -733,7 +788,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           </div>
 
           <div className="flex flex-1 flex-col gap-5 p-5">
-            {application.waitlistStatus?.isWaitlisted ? (
+            {application.waitlistStatus?.isWaitlisted && !isWithdrawn ? (
               application.waitlistStatus.isCycleClosedAndFull ? (
                 <section aria-label="Final SKEAP waitlist status" className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <span className="inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-slate-700">
@@ -756,6 +811,18 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                   </p>
                 </section>
               )
+            ) : null}
+            {isAgedOutWaitlisted || isWaitlistCycleClosed ? (
+              <section
+                aria-label="SKEAP waitlist closure notice"
+                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+                role="status"
+              >
+                <p className="text-xs font-semibold text-slate-800">
+                  {isAgedOutWaitlisted ? "Waitlist application closed — age limit reached" : "SKEAP waitlist cycle closed"}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">{bannerMessage}</p>
+              </section>
             ) : null}
             <section aria-label="Applicant context" className="flex items-start gap-4">
                 {application.application?.photoFileUrl ? (
@@ -818,7 +885,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                   <p className="text-sm font-semibold text-emerald-900">Application approved</p>
                   <p className="mt-2 text-sm text-slate-700">Your application has been approved and onboarding is in progress.</p>
                 </div>
-              ) : (
+              ) : canResubmit ? (
                 <div className="mb-5 rounded-r-lg border-l-4 border-cyan-500 bg-cyan-50 p-4">
                   <p className="text-sm leading-relaxed text-slate-700">
                     {isUploadingReplacement
@@ -828,10 +895,10 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                       : "Choose at least one file replacement to activate resubmission."}
                   </p>
                 </div>
-              )}
+              ) : null}
 
               <div>
-                {!isRejected && !isApproved ? (
+                {canResubmit && !isRejected && !isApproved ? (
                   <button
                     type="button"
                     disabled={disableResubmit}
@@ -847,15 +914,29 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
 
           </div>
           <footer className="mt-auto border-t border-slate-100 bg-slate-50/50 p-5">
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={submitting || deleting}
-              className={`flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2 text-xs font-semibold transition-colors ${submitting || deleting ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-white text-red-600 hover:bg-red-50"}`}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden="true" />
-              {deleting ? "Deleting..." : "Delete Application"}
-            </button>
+            {isDraft || canWithdraw ? (
+              <button
+                type="button"
+                onClick={() => setLifecycleAction(isDraft ? "delete" : "withdraw")}
+                disabled={submitting || isProcessingLifecycleAction}
+                className={`flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2 text-xs font-semibold transition-colors ${
+                  submitting || isProcessingLifecycleAction
+                    ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500"
+                    : isDraft
+                      ? "border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                }`}
+              >
+                {isDraft ? (
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <X className="h-4 w-4" aria-hidden="true" />
+                )}
+                {isProcessingLifecycleAction
+                  ? isDraft ? "Deleting draft..." : "Withdrawing..."
+                  : isDraft ? "Delete Draft" : "Withdraw Application"}
+              </button>
+            ) : null}
           </footer>
 
         </div>
@@ -922,14 +1003,14 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
                             <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-700">Updated</span>
                           ) : isResubmitted ? (
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Pending</span>
-                          ) : correction && !isRejected ? (
+                          ) : correction && !isRejected && !isWaitlistClosed ? (
                             <span className="rounded-full bg-rose-50 px-2 py-0.5 text-red-600">Need Correction</span>
                           ) : null}
                       </div>
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      {!isRejected && !isApproved ? (
+                      {!isRejected && !isApproved && !isWaitlistClosed ? (
                         <button
                           type="button"
                           disabled={isEditLocked || isUploadingReplacement}
@@ -1084,27 +1165,71 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
       ) : null}
 
       {error ? <div role="alert" className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div> : null}
-      {actionError ? <FloatingFeedback message={actionError} type="error" onDismiss={() => setActionError(null)} /> : null}
+      {actionError ? <FloatingFeedback message={actionError} type="error" autoDismissMs={4000} onDismiss={() => setActionError(null)} /> : null}
       {success ? (
-        <FloatingFeedback message={success} type="success" autoDismissMs={0} onDismiss={() => setSuccess(null)} />
+        <FloatingFeedback message={success} type="success" autoDismissMs={4500} onDismiss={() => setSuccess(null)} />
       ) : null}
 
-      {showDeleteConfirm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+      {lifecycleAction ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !isProcessingLifecycleAction) {
+              setLifecycleAction(null);
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="application-lifecycle-title"
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
+          >
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">Delete your application?</h3>
-                <p className="mt-2 text-sm text-slate-600">Are you sure you want to delete this application? This will permanently remove your uploaded documents and submission history from the portal. This action cannot be undone.</p>
+                <h3 id="application-lifecycle-title" className="text-lg font-semibold text-slate-900">
+                  {lifecycleAction === "delete" ? "Delete this draft?" : "Withdraw your application?"}
+                </h3>
+                <p className="mt-2 text-sm text-slate-600">
+                  {lifecycleAction === "delete"
+                    ? "Delete this unsubmitted draft? This cannot be undone."
+                    : "Withdrawing your application removes you from active consideration (and forfeits your current waitlist position, if any). Your submission record will remain archived for Barangay Pico SK audit purposes."}
+                </p>
               </div>
-              <button type="button" onClick={() => setShowDeleteConfirm(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100">
+              <button
+                type="button"
+                onClick={() => setLifecycleAction(null)}
+                disabled={isProcessingLifecycleAction}
+                className="rounded-full p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                aria-label="Close confirmation"
+              >
                 <X />
               </button>
             </div>
             <div className="mt-6 flex items-center justify-end gap-3">
-              <button type="button" onClick={() => setShowDeleteConfirm(false)} className="rounded-3xl border border-slate-200 px-4 py-2 text-sm font-medium">Nevermind</button>
-              <button type="button" onClick={handleDelete} disabled={deleting} className="rounded-3xl bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                {deleting ? "Deleting..." : "Yes, delete application"}
+              <button
+                type="button"
+                onClick={() => setLifecycleAction(null)}
+                disabled={isProcessingLifecycleAction}
+                className="rounded-3xl border border-slate-200 px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleLifecycleAction()}
+                disabled={isProcessingLifecycleAction}
+                aria-busy={isProcessingLifecycleAction}
+                className={`inline-flex items-center gap-2 rounded-3xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                  lifecycleAction === "delete" ? "bg-rose-600 hover:bg-rose-700" : "bg-slate-900 hover:bg-slate-800"
+                }`}
+              >
+                {isProcessingLifecycleAction ? (
+                  <>
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    {lifecycleAction === "delete" ? "Deleting draft..." : "Withdrawing..."}
+                  </>
+                ) : lifecycleAction === "delete" ? "Delete Draft" : "Withdraw Application"}
               </button>
             </div>
           </div>

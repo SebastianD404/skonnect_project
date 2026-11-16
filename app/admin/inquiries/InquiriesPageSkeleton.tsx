@@ -1,102 +1,67 @@
-const metricCards = Array.from({ length: 4 }, (_, index) => index);
-const inquiryRows = Array.from({ length: 5 }, (_, index) => index);
+import { AdminStatGridSkeleton, SkeletonBar } from "../components/AdminSkeletonPrimitives";
+
+const inquiryRows = [0, 1, 2, 3, 4];
 
 export default function InquiriesPageSkeleton() {
   return (
-    <main
-      role="status"
-      aria-label="Loading inquiries"
-      className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse pb-12"
-    >
-      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div className="max-w-2xl">
-          <div className="h-3 w-24 rounded bg-slate-200" />
-          <div className="mb-1.5 mt-2 h-8 w-48 max-w-full rounded bg-slate-200" />
-          <div className="h-4 w-80 max-w-full rounded bg-slate-100" />
-        </div>
+    <main role="status" aria-label="Loading inquiries" className="mx-auto flex w-full max-w-7xl flex-col gap-6 pb-12">
+      <header className="space-y-2">
+        <SkeletonBar width="w-24" height="h-3" className="rounded-full bg-cyan-900/10" />
+        <SkeletonBar width="w-48" height="h-8" />
+        <SkeletonBar width="w-80" height="h-4" className="max-w-full bg-slate-100" />
       </header>
 
-      <section
-        aria-label="Inquiry metrics"
-        className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"
-      >
-        {metricCards.map((card) => (
-          <div
-            key={card}
-          className="flex min-h-[148px] min-w-0 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs sm:min-h-[160px] sm:p-5"
-          >
-          <div className="flex items-start justify-between gap-2 sm:items-center sm:gap-3">
-              <div className="h-3 w-28 rounded bg-slate-200" />
-            <div className="h-7 w-7 shrink-0 rounded-full bg-cyan-50 sm:h-8 sm:w-8" />
-            </div>
-            <div className="mt-4 h-9 w-20 rounded bg-slate-200" />
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <div className="h-3 w-28 rounded bg-slate-100" />
-              <div className="h-5 w-14 rounded-full bg-emerald-50" />
+      <AdminStatGridSkeleton />
+
+      <section aria-hidden="true" className="flex h-[min(720px,calc(100vh-390px))] min-h-[480px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <aside className="flex w-full shrink-0 flex-col bg-slate-50/50 md:w-[350px] md:border-r md:border-slate-200">
+          <div className="space-y-3 border-b border-slate-200 bg-white p-4">
+            <SkeletonBar width="w-full" height="h-9" className="rounded-lg bg-slate-100" />
+            <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+              {[0, 1, 2].map((filter) => (
+                <SkeletonBar key={filter} width="w-full" height="h-7" className="rounded-md bg-white/70" />
+              ))}
             </div>
           </div>
-        ))}
-      </section>
-
-      <section className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="flex flex-col items-center justify-between gap-4 border-b border-slate-100 bg-white p-4 sm:flex-row sm:p-5">
-          <div className="h-10 w-full rounded-full border border-slate-200 bg-slate-50 sm:w-80" />
-          <div className="flex w-full shrink-0 items-center overflow-hidden rounded-xl bg-slate-100 p-1 sm:w-auto">
-            {Array.from({ length: 3 }, (_, index) => (
-              <div key={index} className="h-8 w-20 shrink-0 rounded-lg bg-white/70" />
+          <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-hidden">
+            {inquiryRows.map((row) => (
+              <article key={row} className="space-y-2.5 border-l-4 border-transparent p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <SkeletonBar width="w-32" height="h-3" />
+                  <SkeletonBar width="w-12" height="h-2.5" className="bg-slate-100" />
+                </div>
+                <SkeletonBar width={row % 2 ? "w-40" : "w-52"} height="h-3" className="max-w-full" />
+                <SkeletonBar width="w-16" height="h-5" className="rounded-full bg-amber-50" />
+              </article>
             ))}
           </div>
-        </div>
-
-        <div className="w-full overflow-x-auto whitespace-nowrap">
-          <table className="w-full table-fixed border-collapse text-left text-sm">
-            <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
-              <tr className="border-b border-slate-800">
-                {[
-                  ["w-[25%]", "w-16"],
-                  ["w-[20%]", "w-10"],
-                  ["w-[12%]", "w-12"],
-                  ["w-[13%]", "w-16"],
-                  ["w-[14%]", "w-16"],
-                  ["w-[16%]", "w-14"],
-                ].map(([columnWidth, textWidth], index) => (
-                  <th
-                    key={index}
-                    className={`px-4 py-4 ${index === 0 ? "pl-6 sm:pl-8" : ""} ${index === 5 ? "pl-8 pr-6 sm:pl-9" : ""}`}
-                  >
-                    <div className={`h-3 rounded bg-slate-600 ${columnWidth} ${textWidth}`} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
-              {inquiryRows.map((row) => (
-                <tr key={row}>
-                  <td className="max-w-0 px-4 py-4 pl-6 sm:pl-8">
-                    <div className="space-y-2">
-                      <div className="h-4 w-36 max-w-full rounded bg-slate-200" />
-                      <div className="h-3 w-48 max-w-full rounded bg-slate-100" />
-                    </div>
-                  </td>
-                  <td className="max-w-0 px-4 py-4">
-                    <div className="space-y-2">
-                      <div className="h-4 w-28 max-w-full rounded bg-slate-200" />
-                      <div className="h-3 w-36 max-w-full rounded bg-slate-100" />
-                    </div>
-                  </td>
-                  <td className="px-4 py-4"><div className="h-6 w-14 rounded-full bg-amber-50" /></td>
-                  <td className="px-4 py-4"><div className="h-4 w-20 rounded bg-slate-100" /></td>
-                  <td className="px-4 py-4"><div className="h-4 w-20 rounded bg-slate-100" /></td>
-                  <td className="px-4 py-4 sm:px-6">
-                    <div className="ml-auto h-8 w-20 rounded-lg bg-slate-100" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        </aside>
+        <section className="hidden min-w-0 flex-1 flex-col bg-white md:flex">
+          <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-4">
+            <div className="min-w-0 flex-1 space-y-2">
+              <SkeletonBar width="w-64" height="h-5" className="max-w-full" />
+              <SkeletonBar width="w-80" height="h-3" className="max-w-full bg-slate-100" />
+              <SkeletonBar width="w-36" height="h-2.5" className="bg-slate-100" />
+            </div>
+            <SkeletonBar width="w-32" height="h-8" className="shrink-0 rounded-xl" />
+          </header>
+          <div className="min-h-0 flex-1 space-y-5 overflow-hidden bg-slate-50/30 p-4 sm:p-6">
+            <div className="flex flex-col items-start gap-2">
+              <SkeletonBar width="w-40" height="h-3" className="bg-slate-100" />
+              <SkeletonBar width="w-3/5" height="h-20" className="rounded-2xl" />
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <SkeletonBar width="w-32" height="h-3" className="bg-slate-100" />
+              <SkeletonBar width="w-2/5" height="h-16" className="rounded-2xl bg-slate-300/70" />
+            </div>
+          </div>
+          <footer className="border-t border-slate-200 bg-white p-4">
+            <SkeletonBar width="w-full" height="h-20" className="rounded-xl bg-slate-100" />
+            <SkeletonBar width="w-28" height="h-9" className="ml-auto mt-3 rounded-xl" />
+          </footer>
+        </section>
       </section>
-      <span className="sr-only">Loading inquiry records…</span>
+      <span className="sr-only">Loading inquiry inbox…</span>
     </main>
   );
 }

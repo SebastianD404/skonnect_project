@@ -10,6 +10,7 @@ import { areRequiredSkeapDocumentsPreScreened, normalizeUploadedFiles } from "@/
 import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 interface AttachedFileNote {
   fileId: string;
@@ -494,6 +495,7 @@ export async function PATCH(
       });
     }
 
+    await refreshSkeapApplicationsAdminView();
     revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin");
     revalidatePath("/admin/inquiries");

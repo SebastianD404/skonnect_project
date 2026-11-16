@@ -103,6 +103,11 @@ export default function RevokeGranteeModal({
               ? `${granteeName}'s scholarship is revoked. Retry the notification or close this dialog; the revocation will not be repeated.`
               : `Are you sure you want to revoke this scholarship? This action will tag ${granteeName} as Revoked, transfer their record to Revoked Grantees, and automatically notify them via email.`}
           </p>
+          {!revocationSaved ? (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+              This action changes SKEAP scholarship status only. It does not archive the youth&apos;s KK Registry profile.
+            </p>
+          ) : null}
         </div>
 
         {error && !revocationSaved ? (

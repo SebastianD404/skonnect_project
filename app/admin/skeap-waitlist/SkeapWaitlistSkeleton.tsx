@@ -5,7 +5,7 @@ export default function SkeapWaitlistSkeleton() {
     <main
       role="status"
       aria-label="Loading SKEAP waitlist"
-      className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse pb-12"
+      className="mx-auto flex w-full max-w-7xl flex-col gap-6 animate-pulse motion-reduce:animate-none pb-12"
     >
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div className="max-w-2xl">
@@ -13,10 +13,13 @@ export default function SkeapWaitlistSkeleton() {
           <div className="mb-1.5 mt-2 h-8 w-56 max-w-full rounded bg-slate-200" />
           <div className="h-4 w-[38rem] max-w-full rounded bg-slate-100" />
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-4 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-sm">
-          <div className="h-6 w-32 rounded bg-slate-100" />
-          <div className="h-6 w-px bg-slate-200" />
-          <div className="h-4 w-24 rounded bg-slate-100" />
+        <div className="flex flex-col items-stretch gap-3 sm:items-end">
+          <div className="flex shrink-0 flex-wrap items-center gap-4 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-sm">
+            <div className="h-6 w-32 rounded bg-slate-100" />
+            <div className="h-6 w-px bg-slate-200" />
+            <div className="h-4 w-24 rounded bg-slate-100" />
+          </div>
+          <div className="h-10 w-full rounded-xl bg-slate-200 sm:w-56" />
         </div>
       </header>
 

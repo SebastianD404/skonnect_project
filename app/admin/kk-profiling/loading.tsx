@@ -7,7 +7,7 @@ export default function AdminKKProfilingLoading() {
     <div
       role="status"
       aria-label="Loading KK profiling registrations"
-      className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse pb-12 text-slate-950"
+      className="flex flex-col gap-6 sm:gap-8 w-full animate-pulse motion-reduce:animate-none pb-12 text-slate-950"
     >
       <header className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>

@@ -26,6 +26,8 @@ import {
 import { getWaitlistQueuePosition } from "@/lib/skeap-applications";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
+import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
+import type { KKProfile } from "@/lib/kk-profile-client";
 
 const overviewIcons = [BarChart3, FileCheck2, Headset];
 const actionRowClass =
@@ -70,6 +72,19 @@ async function getProgramStatus(slug: string): Promise<ProgramStatus | null> {
   } catch {
     return null;
   }
+}
+
+function getAgeFromBirthDate(birthDate: Date) {
+  const today = new Date();
+  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+  if (
+    today.getUTCMonth() < birthDate.getUTCMonth() ||
+    (today.getUTCMonth() === birthDate.getUTCMonth() &&
+      today.getUTCDate() < birthDate.getUTCDate())
+  ) {
+    age -= 1;
+  }
+  return age;
 }
 
 type ProgramPageData = {
@@ -290,6 +305,76 @@ export default async function ProgramPage({ params }: Props) {
     redirect("/signup?next=%2Fprograms%2Fkk-profiling");
   }
 
+  let initialKkProfile: KKProfile | null = null;
+  let hasVerifiedKkProfile = false;
+  if (slug === "skeap-scholarship" && appUser) {
+    const userWithKkData = await prisma.user.findUnique({
+      where: { id: appUser.id },
+      select: {
+        email: true,
+        phoneNumber: true,
+        kkProfile: {
+          select: {
+            id: true,
+            middleName: true,
+            fullName: true,
+            purok: true,
+            addressLine: true,
+            barangay: true,
+            birthDate: true,
+            placeOfBirth: true,
+            contactNumber: true,
+            email: true,
+            isVerified: true,
+          },
+        },
+        profilingRegistrations: {
+          where: { program: "KK" },
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: {
+            sex: true,
+            civilStatus: true,
+            registeredSKVoter: true,
+            registeredNationalVoter: true,
+            reviewStatus: true,
+          },
+        },
+      },
+    });
+
+    const kkProfile = userWithKkData?.kkProfile;
+    const registration = userWithKkData?.profilingRegistrations[0];
+    hasVerifiedKkProfile =
+      Boolean(kkProfile?.isVerified) &&
+      registration?.reviewStatus?.trim().toLowerCase() === "approved";
+
+    if (kkProfile && registration && hasVerifiedKkProfile) {
+      initialKkProfile = {
+        id: kkProfile.id,
+        middleName: kkProfile.middleName,
+        fullName: kkProfile.fullName,
+        email: kkProfile.email || userWithKkData.email || "",
+        contactNumber: kkProfile.contactNumber || userWithKkData.phoneNumber || "",
+        purok: kkProfile.purok,
+        addressLine: kkProfile.addressLine,
+        barangay: kkProfile.barangay,
+        birthDate: kkProfile.birthDate.toISOString(),
+        placeOfBirth: kkProfile.placeOfBirth,
+        age: getAgeFromBirthDate(kkProfile.birthDate),
+        isVerified: kkProfile.isVerified,
+        status: getKKProfilingReviewStatus(registration.reviewStatus, kkProfile.isVerified),
+        registration: {
+          sex: registration.sex,
+          civilStatus: registration.civilStatus,
+          registeredNationalVoter: registration.registeredNationalVoter,
+          reviewStatus: registration.reviewStatus,
+          registeredSKVoter: registration.registeredSKVoter,
+        },
+      };
+    }
+  }
+
   let shouldRedirectToKkStatus = false;
 
   if (slug === "kk-profiling" && appUser) {
@@ -302,6 +387,7 @@ export default async function ProgramPage({ params }: Props) {
           },
         },
         profilingRegistrations: {
+          where: { program: "KK" },
           orderBy: { submittedAt: "desc" },
           take: 1,
           select: {
@@ -433,19 +519,14 @@ export default async function ProgramPage({ params }: Props) {
             </div>
 
             {slug !== "kk-profiling" && (
-              <div className="flex flex-wrap gap-3">
-                <ProgramApplyClient
-                  slug={slug}
-                  initialActiveEducationLevels={activeEducationLevels}
-                  waitlistStatus={waitlistStatus}
-                />
-                <ProgramActionButton
-                  action="admin-inquiry"
-                  className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
-                >
-                  Get application help →
-                </ProgramActionButton>
-              </div>
+              <ProgramApplyClient
+                slug={slug}
+                initialActiveEducationLevels={activeEducationLevels}
+                initialKkProfile={initialKkProfile}
+                hasVerifiedKkProfile={hasVerifiedKkProfile}
+                showHelpAction
+                waitlistStatus={waitlistStatus}
+              />
             )}
           </div>
         </div>
@@ -748,6 +829,8 @@ export default async function ProgramPage({ params }: Props) {
                           <ProgramApplyClient
                             slug={slug}
                             initialActiveEducationLevels={activeEducationLevels}
+                            initialKkProfile={initialKkProfile}
+                            hasVerifiedKkProfile={hasVerifiedKkProfile}
                             waitlistStatus={waitlistStatus}
                           />
                         </div>

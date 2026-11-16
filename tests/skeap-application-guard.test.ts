@@ -7,6 +7,7 @@ import {
   getSkeapEducationLevelGuardError,
   getSkeapReapplicationEligibility,
   getSkeapSubmissionGuardError,
+  isSkeapApplicationBlockingReapplication,
   isPermanentlyBarredFromSkeap,
 } from "@/lib/skeap-application-guard";
 import { handleSkeapApply } from "@/lib/skeap-application-client";
@@ -137,6 +138,27 @@ describe("handleSkeapApply", () => {
       expect(isPermanentlyBarredFromSkeap({ isPermanentlyDisqualified: false, reason: "Tampered or falsified documents" })).toBe(true);
       expect(isPermanentlyBarredFromSkeap({ isPermanentlyDisqualified: false, reason: "Failed to maintain minimum GWA" })).toBe(false);
     });
+  });
+
+  describe("isSkeapApplicationBlockingReapplication", () => {
+    it.each([
+      "PENDING",
+      "UNDER_REVIEW",
+      "RETURNED",
+      "RESUBMITTED",
+      "WAITLISTED",
+      "APPROVED",
+      "REVOKED",
+    ])("blocks %s applications", (status) => {
+      expect(isSkeapApplicationBlockingReapplication(status)).toBe(true);
+    });
+
+    it.each(["WITHDRAWN", "DRAFT", "REJECTED", null, undefined])(
+      "does not block %s applications",
+      (status) => {
+        expect(isSkeapApplicationBlockingReapplication(status)).toBe(false);
+      },
+    );
   });
 
   describe("getSkeapSubmissionGuardError", () => {

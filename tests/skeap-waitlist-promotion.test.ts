@@ -12,16 +12,23 @@ const mocks = vi.hoisted(() => ({
   sendEmail: vi.fn(),
   logAuditEvent: vi.fn(),
   revalidatePath: vi.fn(),
+  findPriorAgeOut: vi.fn(),
   findApplication: vi.fn(),
   findGrantee: vi.fn(),
   updateApplication: vi.fn(),
   updateInquiry: vi.fn(),
   updateUser: vi.fn(),
   upsertGrantee: vi.fn(),
+  refreshAdminView: vi.fn(),
+  sweepAgedOut: vi.fn(),
+  sweepClosedCycles: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
-  prisma: { $transaction: mocks.transaction },
+  prisma: {
+    $transaction: mocks.transaction,
+    skeapApplication: { findUnique: mocks.findPriorAgeOut },
+  },
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -67,6 +74,31 @@ vi.mock("@/lib/skeap-waitlist", () => ({
   reindexSkeapWaitlist: mocks.reindexWaitlist,
 }));
 
+vi.mock("@/lib/application-admin-view-refresh", () => ({
+  refreshSkeapApplicationsAdminView: mocks.refreshAdminView,
+}));
+
+vi.mock("@/lib/skeap-applications", () => ({
+  sweepAgedOutWaitlistApplicants: mocks.sweepAgedOut,
+  sweepClosedSkeapWaitlistCycles: mocks.sweepClosedCycles,
+}));
+
+vi.mock("@/lib/skeap-age", () => ({
+  getExactAge: (birthDate?: Date | null) => {
+    if (!birthDate) return null;
+    const now = new Date();
+    let age = now.getUTCFullYear() - birthDate.getUTCFullYear();
+    if (
+      now.getUTCMonth() < birthDate.getUTCMonth() ||
+      (now.getUTCMonth() === birthDate.getUTCMonth() &&
+        now.getUTCDate() < birthDate.getUTCDate())
+    ) {
+      age -= 1;
+    }
+    return age;
+  },
+}));
+
 vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
 }));
@@ -110,10 +142,12 @@ describe("SKEAP waitlist promotion", () => {
     mocks.findApplication.mockResolvedValue({
       id: "application-1",
       status: "WAITLISTED",
+      submittedAt: new Date(),
+      dateOfBirth: new Date("2000-01-01T00:00:00.000Z"),
       physicalDocumentsConfirmed: false,
       userId: "user-1",
       applicantName: "Sample Applicant",
-      user: { email: "applicant@example.com" },
+      user: { email: "applicant@example.com", kkProfile: { birthDate: new Date("2000-01-01T00:00:00.000Z") } },
       school: "Example University",
       currentCourse: "Computer Science",
       yearLevel: "1st Year",
@@ -123,6 +157,9 @@ describe("SKEAP waitlist promotion", () => {
     mocks.capacityCount.mockResolvedValue(10);
     mocks.maxSlots.mockResolvedValue(55);
     mocks.sendEmail.mockResolvedValue(true);
+    mocks.findPriorAgeOut.mockResolvedValue(null);
+    mocks.sweepAgedOut.mockResolvedValue({ removedCount: 0, removedApplicants: [] });
+    mocks.sweepClosedCycles.mockResolvedValue({ closedCount: 0 });
     mocks.transaction.mockImplementation(async (callback) => callback(createTransactionClient()));
   });
 
@@ -162,5 +199,34 @@ describe("SKEAP waitlist promotion", () => {
       update: expect.objectContaining({ status: "ACTIVE" }),
     }));
     expect(mocks.reindexWaitlist).toHaveBeenCalled();
+  });
+
+  it("removes an applicant who exceeds the age limit instead of promoting them", async () => {
+    mocks.findApplication.mockResolvedValue({
+      id: "application-1",
+      status: "WAITLISTED",
+      submittedAt: new Date(),
+      dateOfBirth: new Date("1990-01-01T00:00:00.000Z"),
+      physicalDocumentsConfirmed: true,
+      userId: "user-1",
+      applicantName: "Sample Applicant",
+      user: { email: "applicant@example.com", kkProfile: { birthDate: new Date("1990-01-01T00:00:00.000Z") } },
+      school: "Example University",
+      currentCourse: "Computer Science",
+      yearLevel: "1st Year",
+      inquiry: { id: "inquiry-1" },
+    });
+
+    const response = await POST(createRequest(true), {
+      params: Promise.resolve({ id: "application-1" }),
+    });
+
+    if (!response) throw new Error("Promotion endpoint did not return a response.");
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Applicant has exceeded the maximum eligible age and was automatically removed from the waitlist.",
+    });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+    expect(mocks.sweepAgedOut).toHaveBeenCalledTimes(2);
   });
 });

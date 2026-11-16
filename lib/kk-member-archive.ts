@@ -1,10 +1,9 @@
-export const KK_MEMBER_AGE_OUT_REASON = "Aged Out (31+)" as const;
+export const KK_MEMBER_AGE_OUT_REASON = "AGED_OUT_31" as const;
 
 export const KK_MEMBER_AGE_OUT_NOTICE_MESSAGE =
-  "Your KK youth profile has been archived because you turned 31, above the KK age limit of 30. Any active or probationary SKEAP grantee status has also been removed. Your SKonnect login remains active. If your recorded birth date is wrong or you believe this is a mistake, contact Barangay Pico SK officials to request a profile review.";
+  "Your KK youth profile has been archived because you reached age 31, above the KK age limit of 30. Any pending or waitlisted SKEAP application has been closed. Active scholarship records are managed separately in Active Grantees. Your SKonnect login remains active. If your recorded birth date is wrong or you believe this is a mistake, contact Barangay Pico SK officials to request a profile review.";
 
 export const KK_MEMBER_ARCHIVE_REASONS = [
-  KK_MEMBER_AGE_OUT_REASON,
   "Transferred Residence",
   "Deceased",
   "Duplicate Record",
@@ -17,6 +16,8 @@ export function isKKMemberArchiveReason(value: unknown): value is KKMemberArchiv
 }
 
 export function getKKMemberArchiveReasonLabel(value?: string | null) {
-  if (value === "Aged Out (Turned 31)") return "Aged Out (31+)";
+  if (value === KK_MEMBER_AGE_OUT_REASON || value === "Aged Out (31+)" || value === "Aged Out (Turned 31)") {
+    return "Aged Out (31+)";
+  }
   return isKKMemberArchiveReason(value) ? value : "Reason not recorded";
 }

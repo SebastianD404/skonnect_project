@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findFirst: vi.fn(),
-  checkAndArchive: vi.fn(),
+  sweepAgedOut: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -12,7 +12,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/archiveAgedOutMembers", () => ({
-  checkAndArchiveAgedOutMembers: mocks.checkAndArchive,
+  sweepAgedOutKkProfiles: mocks.sweepAgedOut,
 }));
 
 import { GET } from "@/app/api/cron/age-out-kk-members/route";
@@ -24,14 +24,14 @@ describe("age-out cron route", () => {
     vi.clearAllMocks();
     process.env.CRON_SECRET = "test-cron-secret";
     mocks.findFirst.mockResolvedValue({ id: "official-id" });
-    mocks.checkAndArchive.mockResolvedValue({ archivedCount: 2, removedGranteeCount: 1 });
+    mocks.sweepAgedOut.mockResolvedValue({ archivedCount: 2, closedApplicationCount: 1 });
   });
 
   it("rejects requests without the configured cron authorization", async () => {
     const response = await GET(new Request("http://localhost/api/cron/age-out-kk-members"));
 
     expect(response.status).toBe(401);
-    expect(mocks.checkAndArchive).not.toHaveBeenCalled();
+    expect(mocks.sweepAgedOut).not.toHaveBeenCalled();
   });
 
   it("runs the age-out archive with an audit actor for an authorized request", async () => {
@@ -40,11 +40,11 @@ describe("age-out cron route", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(mocks.checkAndArchive).toHaveBeenCalledWith("official-id", "scheduled");
+    expect(mocks.sweepAgedOut).toHaveBeenCalledWith("official-id", "scheduled");
     await expect(response.json()).resolves.toEqual({
       ok: true,
       archivedCount: 2,
-      removedGranteeCount: 1,
+      closedApplicationCount: 1,
     });
   });
 
@@ -56,7 +56,7 @@ describe("age-out cron route", () => {
     }));
 
     expect(response.status).toBe(503);
-    expect(mocks.checkAndArchive).not.toHaveBeenCalled();
+    expect(mocks.sweepAgedOut).not.toHaveBeenCalled();
   });
 
   afterEach(() => {

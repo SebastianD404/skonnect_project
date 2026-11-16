@@ -2,15 +2,15 @@
 import { requireRole } from "@/lib/auth";
 import { Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { getUploadGroups } from "@/lib/skeap-upload";
-import {
-  skeapStatusWhere,
-  SKEAP_APPLICATION_SELECT,
-} from "@/lib/skeap-applications";
+import { SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
-import { getAcademicYearDateRange, getAcademicYears, getCurrentAcademicYear } from "@/lib/semester";
+import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
-import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
+import {
+  getSkeapAdminQueueRows,
+  getSkeapAdminViewCounts,
+} from "@/lib/admin-application-views";
 import {
   findBanWatchlistMatch,
   type PermanentSkeapRevocationRecord,
@@ -33,6 +33,7 @@ interface ApplicationMessage {
     adminRemark: string;
   }[];
 }
+type SelectedSkeapInquiry = Prisma.InquiryGetPayload<{ select: typeof SKEAP_APPLICATION_SELECT }>;
 
 const IMAGE_REGEX = /\.(jpe?g|png|gif|webp|avif|svg)(\?|$)/i;
 const PDF_REGEX = /\.pdfm?(\?|$)/i;
@@ -156,6 +157,9 @@ function mapInquiryToApplication(inquiry: {
     } | null;
   };
   application?: {
+    status?: SubmissionStatus;
+    withdrawnAt?: Date | null;
+    withdrawalReason?: string | null;
     school?: string | null;
     educationLevel?: string | null;
     currentCourse: string;
@@ -218,6 +222,9 @@ function mapInquiryToApplication(inquiry: {
     const resubmittedMatcher = /resubm|resubmit|resubmitted/i;
     const returnedMatcher = /returned|correction|required|revise|revision/i;
 
+    if (inquiry.application?.status === SubmissionStatus.WITHDRAWN || /withdraw/i.test(inquiry.reviewStatus ?? "")) {
+      return "Withdrawn";
+    }
     if (inquiry.reviewStatus) {
       if (/pre.?qual/i.test(inquiry.reviewStatus)) {
         return "Pre-qualified";
@@ -293,6 +300,8 @@ function mapInquiryToApplication(inquiry: {
     ),
     submittedAt: inquiry.createdAt.toISOString(),
     status,
+    withdrawnAt: inquiry.application?.withdrawnAt?.toISOString() ?? null,
+    withdrawalReason: inquiry.application?.withdrawalReason ?? null,
     banWatchlistMatch: findBanWatchlistMatch(permanentRecords, {
       userId: inquiry.user.id,
       kkProfileId: inquiry.user.kkProfileId,
@@ -365,102 +374,49 @@ export default async function SkeapApplicationsPage({
   const academicYearRange = getAcademicYearDateRange(initialAcademicYear);
   if (!academicYearRange) throw new Error("Unable to determine the current academic year.");
 
-  // Shared base filter pieces (subject match + exclude cancelled/approved-like responses)
-  const subjectWhere: Prisma.InquiryWhereInput = skeapApplicationInquiryWhere;
-  const oldestInquiry = await prisma.inquiry.findFirst({
-    where: subjectWhere,
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { createdAt: true },
-  });
-  const academicYears = getAcademicYears(oldestInquiry?.createdAt ?? null, now);
-  const excludeCancelled = { reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive } };
-  const excludeApproved = { reviewStatus: { contains: "approve", mode: Prisma.QueryMode.insensitive } };
-
-  const baseWhere = {
-    ...subjectWhere,
-    NOT: [excludeCancelled],
-  };
-
-  const queueBaseWhere = {
-    ...baseWhere,
-    NOT: [excludeCancelled, excludeApproved],
-  };
-
-  const academicYearWhere = {
-    createdAt: { gte: academicYearRange.start, lt: academicYearRange.end },
-  };
   const [
-    pendingCount,
-    physicalCtcCount,
-    resubmittedCount,
-    approvedCount,
+    counts,
+    queueRows,
+    focusedRows,
     activeGranteeCount,
     maxSlots,
   ] = await Promise.all([
-    prisma.inquiry.count({
-      where: {
-        ...queueBaseWhere,
-        AND: [academicYearWhere, skeapStatusWhere(["pending"])],
-      },
-    }),
-    prisma.inquiry.count({
-      where: {
-        ...queueBaseWhere,
-        AND: [academicYearWhere, skeapStatusWhere(["pre_qualified"])],
-      },
-    }),
-    prisma.inquiry.count({
-      where: {
-        ...queueBaseWhere,
-        AND: [academicYearWhere, skeapStatusWhere(["resubm", "resubmit", "resubmitted"])],
-      },
-    }),
-    prisma.inquiry.count({
-      where: {
-        ...baseWhere,
-        AND: [academicYearWhere, skeapStatusWhere(["approve", "approved"])],
-      },
-    }),
+    getSkeapAdminViewCounts(academicYearRange),
+    getSkeapAdminQueueRows({ range: academicYearRange, filter: "queue", take: 16 }),
+    focusId
+      ? getSkeapAdminQueueRows({
+          range: academicYearRange,
+          filter: "queue",
+          inquiryId: focusId,
+          take: 1,
+        })
+      : Promise.resolve([]),
     getSkeapCapacityCount(),
     getSkeapMaxSlots(),
   ]);
-
-  // Fetch rows for queue using the same base filter but matching any visible statuses
-  const visibleStatusPatterns = ["pending", "pre_qualified", "resubm", "respond", "approve"];
-  const [inquiries, focusedInquiry, permanentRecords] = await Promise.all([
-    prisma.inquiry.findMany({
-      where: {
-        ...baseWhere,
-        AND: [
-          { createdAt: { gte: academicYearRange.start, lt: academicYearRange.end } },
-          skeapStatusWhere(visibleStatusPatterns),
-        ],
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 16,
-      select: SKEAP_APPLICATION_SELECT,
-    }),
-    focusId
-      ? prisma.inquiry.findFirst({
-          where: {
-            id: focusId,
-            ...queueBaseWhere,
-            application: {
-              is: {
-                status: { in: [SubmissionStatus.PENDING, SubmissionStatus.PRE_QUALIFIED] },
-              },
-            },
-            AND: [skeapStatusWhere(["pending", "pre_qualified"])],
-          },
+  const queueInquiryIds = queueRows.map((row) => row.inquiryId).filter((id): id is string => Boolean(id));
+  const focusedInquiryId = focusedRows[0]?.inquiryId;
+  const inquiryIds = Array.from(new Set([
+    ...queueInquiryIds,
+    ...(focusedInquiryId ? [focusedInquiryId] : []),
+  ]));
+  const [inquiries, permanentRecords] = await Promise.all([
+    inquiryIds.length
+      ? prisma.inquiry.findMany({
+          where: { id: { in: inquiryIds } },
           select: SKEAP_APPLICATION_SELECT,
         })
-      : Promise.resolve(null),
+      : Promise.resolve([] as SelectedSkeapInquiry[]),
     getPermanentlyDisqualifiedSkeapRecords(),
   ]);
-
-  const queueApplications = inquiries.slice(0, 15).map((inquiry) =>
-    mapInquiryToApplication(inquiry, permanentRecords)
-  );
+  const inquiryById = new Map<string, SelectedSkeapInquiry>();
+  for (const inquiry of inquiries) inquiryById.set(inquiry.id, inquiry);
+  const queueApplications = queueInquiryIds
+    .map((id) => inquiryById.get(id))
+    .filter((inquiry): inquiry is NonNullable<typeof inquiry> => Boolean(inquiry))
+    .slice(0, 15)
+    .map((inquiry) => mapInquiryToApplication(inquiry, permanentRecords));
+  const focusedInquiry = focusedInquiryId ? inquiryById.get(focusedInquiryId) : null;
   const focusedApplication = focusedInquiry
     ? mapInquiryToApplication(focusedInquiry, permanentRecords)
     : null;
@@ -471,8 +427,8 @@ export default async function SkeapApplicationsPage({
           .filter((application) => application.id !== focusedApplication.id)
       ]
     : queueApplications;
-  const hasNextPage = inquiries.length > 15;
-  const lastApplication = queueApplications[queueApplications.length - 1];
+  const hasNextPage = queueRows.length > 15;
+  const lastQueueRow = queueRows[14];
 
   return (
     <div className="w-full max-w-[1200px] mx-auto flex flex-col gap-6 sm:gap-8">
@@ -481,17 +437,16 @@ export default async function SkeapApplicationsPage({
         initialSelectedApplicationId={focusedApplication?.id}
         hasNextPage={hasNextPage}
         initialAcademicYear={initialAcademicYear}
-        academicYears={academicYears}
         initialCursor={
-          hasNextPage && lastApplication
-            ? { id: lastApplication.id, createdAt: lastApplication.submittedAt }
+          hasNextPage && lastQueueRow?.inquiryId && lastQueueRow.inquiryCreatedAt
+            ? { id: lastQueueRow.inquiryId, createdAt: lastQueueRow.inquiryCreatedAt.toISOString() }
             : null
         }
         counts={{
-          pending: pendingCount,
-          physicalCtc: physicalCtcCount,
-          resubmitted: resubmittedCount,
-          approved: approvedCount,
+          pending: counts.pendingCount,
+          physicalCtc: counts.physicalCtcCount,
+          resubmitted: counts.resubmittedCount,
+          withdrawn: counts.withdrawnCount,
         }}
         initialCapacityFull={activeGranteeCount >= maxSlots}
       />

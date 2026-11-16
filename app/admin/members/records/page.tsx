@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
+import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
 import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import AdminTablePaginationFooter from "../../AdminTablePaginationFooter";
 import { ArchivedMembersTable } from "./ArchivedMembersTable";
@@ -14,7 +14,7 @@ export default async function MemberRecordsPage({ searchParams }: {
   }>;
 }) {
   const admin = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
-  await checkAndArchiveAgedOutMembers(admin.id);
+  await sweepAgedOutKkProfiles(admin.id);
 
   const resolved = await searchParams;
   const getParam = (value?: string | string[]) => Array.isArray(value) ? value[0] : value;

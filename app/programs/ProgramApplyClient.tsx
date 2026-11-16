@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, LoaderCircle, X } from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
+import ProgramActionButton from "@/app/programs/ProgramActionButton";
 import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-profile-client";
 import { useAuth } from "@/app/components/AuthProvider";
 import { isSkeapTestAccount } from "@/lib/skeap-test-access";
@@ -19,6 +20,9 @@ import VerificationModal from "@/app/components/VerificationModal";
 type Props = {
   slug: string;
   initialActiveEducationLevels: readonly SkeapEducationLevelCode[];
+  initialKkProfile?: KKProfile | null;
+  hasVerifiedKkProfile?: boolean;
+  showHelpAction?: boolean;
   waitlistStatus?: {
     isWaitlisted: boolean;
     queuePosition: number | null;
@@ -81,6 +85,9 @@ function prefetchProgramStatus(slug: string) {
 export default function ProgramApplyClient({
   slug,
   initialActiveEducationLevels,
+  initialKkProfile = null,
+  hasVerifiedKkProfile = false,
+  showHelpAction = false,
   waitlistStatus = {
     isWaitlisted: false,
     queuePosition: null,
@@ -93,9 +100,8 @@ export default function ProgramApplyClient({
   const [open, setOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<KKProfile | null>(null);
   const [checkingKkProfile, setCheckingKkProfile] = useState(false);
-  const [kkCheckError, setKkCheckError] = useState<string | null>(null);
   const [kkCheckUnavailable, setKkCheckUnavailable] = useState(false);
-  const [showKkRequiredModal, setShowKkRequiredModal] = useState(false);
+  const [requiresKkProfiling, setRequiresKkProfiling] = useState(false);
   const [showAuthRequiredModal, setShowAuthRequiredModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
@@ -181,7 +187,7 @@ export default function ProgramApplyClient({
     }
 
     setCheckingKkProfile(true);
-    setKkCheckError(null);
+    setRequiresKkProfiling(false);
     setKkCheckUnavailable(false);
     const isTestAccount = isSkeapTestAccount(user?.email);
 
@@ -200,8 +206,27 @@ export default function ProgramApplyClient({
         return;
       }
 
+      if (hasVerifiedKkProfile && initialKkProfile) {
+        handleSkeapApply(
+          "APPROVED",
+          user?.skeapStatus,
+          router,
+          setShowVerificationModal,
+          () => openApplicationModal(initialKkProfile),
+        );
+        return;
+      }
+
       const data = await fetchKKProfile();
       const profile = data?.profile;
+      if (
+        data.hasVerifiedKkProfile === false ||
+        data.requiresKkProfiling ||
+        !profile
+      ) {
+        setRequiresKkProfiling(true);
+        return;
+      }
       if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
         throw new Error("KK profile response is missing profile data.");
       }
@@ -229,15 +254,11 @@ export default function ProgramApplyClient({
       } else if (kkProfileStatus === "REJECTED") {
         handleSkeapApply("REJECTED", user?.skeapStatus, router, setShowVerificationModal);
       } else {
-        setKkCheckError("Your KK profiling registration must be approved before you can apply for SKEAP.");
-        setShowKkRequiredModal(true);
+        setRequiresKkProfiling(true);
       }
     } catch (error) {
-      if (!(error instanceof Error && error.message === "KK profile not found")) {
-        console.error("Unable to load KK profile before SKEAP application:", error);
-        setKkCheckUnavailable(true);
-      }
-      setShowKkRequiredModal(true);
+      console.warn("Unable to verify KK profile before SKEAP application:", error);
+      setKkCheckUnavailable(true);
     } finally {
       setCheckingKkProfile(false);
     }
@@ -270,8 +291,14 @@ export default function ProgramApplyClient({
 
   useEffect(() => {
     prefetchProgramStatus(slug);
-    if (!authLoading && !isSkeapTestAccount(user?.email)) prefetchKKProfile();
-  }, [authLoading, slug, user?.email]);
+    if (
+      !hasVerifiedKkProfile &&
+      !authLoading &&
+      !isSkeapTestAccount(user?.email)
+    ) {
+      prefetchKKProfile();
+    }
+  }, [authLoading, hasVerifiedKkProfile, slug, user?.email]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -404,71 +431,132 @@ export default function ProgramApplyClient({
               : "Apply for SKEAP →";
   return (
     <>
-      <div className="flex flex-col items-start gap-2">
-        <button
-          type="button"
-          onMouseEnter={() => {
-            prefetchProgramStatus(slug);
-            if (!authLoading && !isSkeapTestAccount(user?.email)) prefetchKKProfile();
-          }}
-          onClick={() => void handleApplyClick()}
-          aria-busy={isApplyButtonBusy}
-          disabled={
-            checkingKkProfile ||
-            isApplying ||
-            authLoading ||
-            isWaitlisted ||
-            waitlistStatus.isCycleClosedAndFull ||
-            (Boolean(user) && currentSkeapEligibility !== "eligible")
-          }
-          className="inline-flex min-w-[220px] items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
-        >
-          {isApplyButtonBusy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-          {applyButtonLabel}
-        </button>
-        {currentSkeapEligibility === "barred" ? (
-          <p role="alert" className="max-w-sm rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-            {skeapEligibilityMessage ||
-              "You are permanently ineligible to reapply for SKEAP due to a prior conduct or disciplinary revocation."}
-          </p>
-        ) : null}
-        {isWaitlisted ? (
-          waitlistStatus.isCycleClosedAndFull ? (
-            <section aria-label="Final SKEAP waitlist status" className="w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-              <span className="inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-slate-700">
-                Final Queue Position: #{waitlistStatus.queuePosition ?? "—"}
-              </span>
-              <p className="mt-3 text-sm font-semibold text-slate-800">
-                Thank you for applying. The slots are already full and closed.
+      <div className="flex flex-col items-start">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onMouseEnter={() => {
+              prefetchProgramStatus(slug);
+              if (
+                !hasVerifiedKkProfile &&
+                !authLoading &&
+                !isSkeapTestAccount(user?.email)
+              ) {
+                prefetchKKProfile();
+              }
+            }}
+            onClick={() => void handleApplyClick()}
+            aria-busy={isApplyButtonBusy}
+            disabled={
+              checkingKkProfile ||
+              isApplying ||
+              authLoading ||
+              isWaitlisted ||
+              waitlistStatus.isCycleClosedAndFull ||
+              (Boolean(user) && currentSkeapEligibility !== "eligible")
+            }
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-slate-950 px-5 text-xs font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
+          >
+            {isApplyButtonBusy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+            {applyButtonLabel}
+          </button>
+          {showHelpAction ? (
+            <ProgramActionButton
+              action="admin-inquiry"
+              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-5 text-xs font-semibold text-slate-900 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
+            >
+              Get application help →
+            </ProgramActionButton>
+          ) : null}
+        </div>
+        {(requiresKkProfiling ||
+          kkCheckUnavailable ||
+          currentSkeapEligibility === "barred" ||
+          isWaitlisted ||
+          waitlistStatus.isCycleClosedAndFull ||
+          currentSkeapEligibility === "unavailable" ||
+          Boolean(applyError)) ? (
+          <div className="mt-3.5 flex w-full max-w-xl flex-col gap-3">
+            {requiresKkProfiling ? (
+              <section
+                role="alert"
+                className="w-full max-w-sm rounded-2xl border border-cyan-100 bg-white p-4 shadow-sm"
+              >
+                <h2 className="text-sm font-semibold text-slate-900">
+                  KK Profiling Required Before Applying
+                </h2>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+                  You need an active Katipunan ng Kabataan (KK) profile in Barangay Pico before submitting a SKEAP scholarship application.
+                </p>
+                <Link
+                  href="/programs/kk-profiling"
+                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-cyan-800 transition hover:text-cyan-950"
+                >
+                  Complete KK Profiling →
+                </Link>
+              </section>
+            ) : null}
+            {kkCheckUnavailable ? (
+              <div
+                role="alert"
+                className="flex w-full max-w-sm items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900"
+              >
+                <span>We couldn’t verify your KK profile. Please try again.</span>
+                <button
+                  type="button"
+                  onClick={() => void openApplyFlow()}
+                  disabled={checkingKkProfile}
+                  className="shrink-0 font-semibold underline underline-offset-2 disabled:opacity-60"
+                >
+                  {checkingKkProfile ? "Checking..." : "Try Again"}
+                </button>
+              </div>
+            ) : null}
+            {currentSkeapEligibility === "barred" ? (
+              <p role="alert" className="max-w-sm rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {skeapEligibilityMessage ||
+                  "You are permanently ineligible to reapply for SKEAP due to a prior conduct or disciplinary revocation."}
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                Your final position in the waitlist queue was #{waitlistStatus.queuePosition ?? "—"} of {waitlistStatus.totalWaitlisted}.
+            ) : null}
+            {isWaitlisted ? (
+              waitlistStatus.isCycleClosedAndFull ? (
+                <section aria-label="Final SKEAP waitlist status" className="w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                  <span className="inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-slate-700">
+                    Final Queue Position: #{waitlistStatus.queuePosition ?? "—"}
+                  </span>
+                  <p className="mt-3 text-sm font-semibold text-slate-800">
+                    Thank you for applying. The slots are already full and closed.
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    Your final position in the waitlist queue was #{waitlistStatus.queuePosition ?? "—"} of {waitlistStatus.totalWaitlisted}.
+                  </p>
+                </section>
+              ) : (
+                <section aria-label="SKEAP waitlist status" className="w-full max-w-sm rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                  <span className="inline-flex rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-amber-800">
+                    Queue Position: #{waitlistStatus.queuePosition ?? "—"}
+                  </span>
+                  <p className="mt-3 text-sm leading-relaxed text-amber-900">
+                    All slots are currently filled. You are <strong>#{waitlistStatus.queuePosition ?? "—"}</strong> in the waitlist queue, and we will notify you if a slot opens up.
+                  </p>
+                </section>
+              )
+            ) : waitlistStatus.isCycleClosedAndFull ? (
+              <p role="status" className="max-w-sm rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                The slots are already full and closed for this SKEAP cycle. Please check Application Status for updates.
               </p>
-            </section>
-          ) : (
-            <section aria-label="SKEAP waitlist status" className="w-full max-w-sm rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
-              <span className="inline-flex rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-amber-800">
-                Queue Position: #{waitlistStatus.queuePosition ?? "—"}
-              </span>
-              <p className="mt-3 text-sm leading-relaxed text-amber-900">
-                All slots are currently filled. You are <strong>#{waitlistStatus.queuePosition ?? "—"}</strong> in the waitlist queue, and we will notify you if a slot opens up.
+            ) : null}
+            {currentSkeapEligibility === "unavailable" ? (
+              <p role="alert" className="max-w-sm rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                We could not verify your SKEAP eligibility. Refresh the page to try again.
               </p>
-            </section>
-          )
-        ) : waitlistStatus.isCycleClosedAndFull ? (
-          <p role="status" className="max-w-sm rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            The slots are already full and closed for this SKEAP cycle. Please check Application Status for updates.
-          </p>
-        ) : null}
-        {currentSkeapEligibility === "unavailable" ? (
-          <p role="alert" className="max-w-sm rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            We could not verify your SKEAP eligibility. Refresh the page to try again.
-          </p>
-        ) : null}
-        {applyError ? (
-          <p role="alert" className="max-w-[220px] text-sm text-rose-700">
-            {applyError}
-          </p>
+            ) : null}
+            {applyError ? (
+              <p role="alert" className="max-w-[220px] text-sm text-rose-700">
+                {applyError}
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -488,109 +576,6 @@ export default function ProgramApplyClient({
           nextPath="/programs/skeap"
           onClose={() => setShowAuthRequiredModal(false)}
         />
-
-        {showKkRequiredModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-            onClick={() => setShowKkRequiredModal(false)}
-          />
-          <div className="relative w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl sm:p-8">
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={() => setShowKkRequiredModal(false)}
-              className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            {kkCheckError ? (
-              <>
-                <p className="text-xs uppercase tracking-[0.28em] text-amber-600">Approval required</p>
-                <h3 className="mt-2 text-3xl font-semibold text-slate-900">KK Profiling awaiting approval</h3>
-                <p className="mt-4 text-sm leading-7 text-slate-600">
-                  {kkCheckError}
-                </p>
-                <p className="mt-3 text-sm leading-7 text-slate-600">
-                  You can check the status of your KK Profiling submission and submit corrections if needed.
-                </p>
-
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowKkRequiredModal(false)}
-                    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Close
-                  </button>
-                  <Link
-                    href="/programs/kk-profiling/status"
-                    className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                  >
-                    Check KK Status
-                  </Link>
-                </div>
-              </>
-            ) : kkCheckUnavailable ? (
-              <>
-                <p className="text-xs uppercase tracking-[0.28em] text-amber-600">Temporarily unavailable</p>
-                <h3 className="mt-2 text-3xl font-semibold text-slate-900">Unable to verify your KK profile</h3>
-                <p className="mt-4 text-sm leading-7 text-slate-600">
-                  We couldn’t check your KK profile right now. Please try again in a moment.
-                </p>
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowKkRequiredModal(false)}
-                    className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowKkRequiredModal(false);
-                      void openApplyFlow();
-                    }}
-                    className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                  >
-                    Try again
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-xs uppercase tracking-[0.28em] text-emerald-600">SK Program Access</p>
-                <h3 className="mt-2 text-3xl font-semibold text-slate-900">Set up your KK Profile first</h3>
-                <p className="mt-4 text-sm leading-7 text-slate-600">
-                  To apply for the SKEAP grant, you first need an official Katipunan ng Kabataan (KK) profile to verify your residency in Barangay Pico. Already have an SKonnect account? Log in to continue your application.
-                </p>
-
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-                  <Link
-                    href={typeof window !== "undefined" ? `/programs/kk-profiling?redirect=${encodeURIComponent(window.location.href)}` : "/programs/kk-profiling"}
-                    className="inline-flex justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                  >
-                    Create KK Profile
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (typeof window !== "undefined") {
-                        window.location.href = `/login?redirect=${encodeURIComponent(window.location.href)}`;
-                      }
-                    }}
-                    className="inline-flex justify-center rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
-                  >
-                    Log in
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      ) : null}
-
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">

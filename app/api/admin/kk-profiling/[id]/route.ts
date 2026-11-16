@@ -5,6 +5,7 @@ import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 async function authorizeUser() {
   const supabase = await createClient();
@@ -215,6 +216,7 @@ export async function PUT(
       return saved;
     });
 
+    await refreshKkProfilingApplicationsAdminView();
     return NextResponse.json(updated);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

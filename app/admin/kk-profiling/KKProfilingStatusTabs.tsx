@@ -17,7 +17,7 @@ export default function KKProfilingStatusTabs({ currentStatus }: KKProfilingStat
   const isRedirectingToResubmitted = useRef(false);
   const tableSearch = useKKProfilingTableSearch();
   const setIsNavigating = tableSearch?.setIsNavigating;
-  const statuses = ["pending", "returned", "resubmitted", "approved"] as const;
+  const statuses = ["pending", "returned", "resubmitted", "withdrawn"] as const;
 
   const markResubmissionsViewed = useCallback(() => {
     const viewedAt = new Date().toISOString();

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, Clock, CornerUpLeft, Download, Eye, FileText, Loader2, RefreshCcw, RefreshCw, Send, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, Clock, CornerUpLeft, Download, Eye, FileText, Loader2, RefreshCcw, RefreshCw, Search, Send, X, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import AdminPaginationControls from "../AdminPaginationControls";
@@ -47,7 +47,7 @@ interface ApplicationCounts {
   pending: number;
   physicalCtc: number;
   resubmitted?: number;
-  approved: number;
+  withdrawn: number;
 }
 
 interface AttachedFileNote {
@@ -83,6 +83,8 @@ interface ApplicationRecord {
   school: string;
   submittedAt: string;
   status: string;
+  withdrawnAt?: string | null;
+  withdrawalReason?: string | null;
   priorRevocation?: {
     revokedAt: string | null;
     reason: string | null;
@@ -130,9 +132,10 @@ interface ApplicationMetricCardProps {
   icon: LucideIcon;
   active: boolean;
   onClick: () => void;
+  tone?: "default" | "slate";
 }
 
-function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onClick }: ApplicationMetricCardProps) {
+function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onClick, tone = "default" }: ApplicationMetricCardProps) {
   return (
     <button
       type="button"
@@ -143,7 +146,15 @@ function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onC
       <div aria-hidden="true" className="pointer-events-none absolute -top-10 -right-10 w-32 h-32 bg-cyan-50/50 rounded-full blur-2xl transition-colors duration-500 group-hover:bg-cyan-100/50" />
       <div className="relative z-10 flex min-w-0 items-center justify-between gap-2 sm:gap-3">
         <span className={`min-w-0 truncate text-[10px] font-bold tracking-widest uppercase ${active ? "text-cyan-700" : "text-slate-400"}`}>{label}</span>
-        <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-transform duration-300 group-hover:scale-110 ${active ? "bg-cyan-600 text-white" : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"}`}>
+        <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-transform duration-300 group-hover:scale-110 ${
+          tone === "slate"
+            ? active
+              ? "bg-slate-600 text-white"
+              : "bg-slate-100 border border-slate-200 text-slate-500"
+            : active
+              ? "bg-cyan-600 text-white"
+              : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"
+        }`}>
           <Icon className="w-3.5 h-3.5 shrink-0 sm:w-5 sm:h-5" />
         </div>
       </div>
@@ -182,6 +193,7 @@ function getDocumentReviewStatus(doc: DocumentItem, reviewThread: ApplicationMes
 
 function normalizeApplicationStatus(status: string) {
   const normalized = (status || "").trim().toLowerCase();
+  if (/withdraw/.test(normalized)) return "Withdrawn";
   if (/pre.?qual/.test(normalized)) return "Pre-qualified";
   if (/waitlist/.test(normalized)) return "Waitlisted";
   if (/resubm|resubmit|resubmitted/.test(normalized)) return "Resubmitted";
@@ -195,13 +207,29 @@ function normalizeApplicationStatus(status: string) {
 
 function matchesApplicationFilter(
   application: ApplicationRecord,
-  filter: "pending" | "physical-ctc" | "resubmitted" | "approved",
+  filter: "pending" | "physical-ctc" | "resubmitted" | "withdrawn",
 ) {
   const status = normalizeApplicationStatus(application.status);
   if (filter === "pending") return status === "Pending Review";
   if (filter === "physical-ctc") return status === "Pre-qualified";
   if (filter === "resubmitted") return status === "Resubmitted";
-  return status === "Approved";
+  return status === "Withdrawn";
+}
+
+function getQueueStatusLabel(status: string) {
+  const normalized = normalizeApplicationStatus(status);
+  return normalized === "Pre-qualified" ? "For Physical CTC" : normalized;
+}
+
+function getQueueStatusBadgeClass(status: string) {
+  const normalized = normalizeApplicationStatus(status);
+  if (normalized === "Approved") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (normalized === "Rejected" || normalized === "Ineligible") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (normalized === "Waitlisted" || normalized === "Pre-qualified") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (normalized === "Resubmitted") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (normalized === "Withdrawn") return "border-slate-200 bg-slate-100 text-slate-600";
+  if (normalized === "Returned") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
 function getApplicantInitials(name: string) {
@@ -417,7 +445,6 @@ export default function SkeapApplicationsClient({
   hasNextPage: initialHasNextPage,
   initialCursor,
   initialAcademicYear,
-  academicYears,
 }: {
   applications: ApplicationRecord[];
   initialSelectedApplicationId?: string;
@@ -426,7 +453,6 @@ export default function SkeapApplicationsClient({
   hasNextPage: boolean;
   initialCursor: { id: string; createdAt: string } | null;
   initialAcademicYear: string;
-  academicYears: string[];
 }) {
   const router = useRouter();
   const initialFocusedApplication = initialApplications.find(
@@ -443,8 +469,16 @@ export default function SkeapApplicationsClient({
     initialSelectedApplicationId ?? initialApplications[0]?.id ?? "",
   );
   const [showMobileDetails, setShowMobileDetails] = useState(Boolean(initialSelectedApplicationId));
-  const [viewFilter, setViewFilter] = useState<"pending" | "physical-ctc" | "resubmitted" | "approved">(initialFilter);
-  const [selectedAcademicYear, setSelectedAcademicYear] = useState(initialAcademicYear);
+  const [viewFilter, setViewFilter] = useState<"pending" | "physical-ctc" | "resubmitted" | "withdrawn">(initialFilter);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeSearchQuery, setActiveSearchQuery] = useState("");
+  const [searchResultCount, setSearchResultCount] = useState<number | null>(null);
+  const [searchApplications, setSearchApplications] = useState<ApplicationRecord[]>([]);
+  const [searchCursor, setSearchCursor] = useState<{ id: string; createdAt: string } | null>(null);
+  const [hasSearchNextPage, setHasSearchNextPage] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const selectedAcademicYear = initialAcademicYear;
   const itemsPerPage = 10;
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState<"overview" | "documents" | "activity">("overview");
@@ -455,6 +489,7 @@ export default function SkeapApplicationsClient({
   const [isPolling, setIsPolling] = useState(false);
   const isFetchingNextPageRef = useRef(false);
   const isRefreshingRef = useRef(false);
+  const searchRequestRef = useRef<AbortController | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
   const [attachedFileNotes, setAttachedFileNotes] = useState<AttachedFileNote[]>([]);
   const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -487,12 +522,38 @@ export default function SkeapApplicationsClient({
     verified: boolean;
   } | null>(null);
 
-  const displayedApplications = useMemo(
-    () => applications.filter((application) => matchesApplicationFilter(application, viewFilter)),
-    [applications, viewFilter]
-  );
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const isRemoteSearch = normalizedSearchQuery.length >= 2;
+  const displayedApplications = useMemo(() => {
+    const sourceApplications = isRemoteSearch && searchResultCount !== null
+      ? searchApplications
+      : applications;
+    return sourceApplications.filter((application) => {
+      const matchesQuery = !normalizedSearchQuery ||
+        application.applicantName.toLocaleLowerCase().includes(normalizedSearchQuery) ||
+        application.applicantEmail.toLocaleLowerCase().includes(normalizedSearchQuery);
+      return matchesQuery && (isRemoteSearch || matchesApplicationFilter(application, viewFilter));
+    });
+  }, [
+    applications,
+    isRemoteSearch,
+    normalizedSearchQuery,
+    searchApplications,
+    searchResultCount,
+    viewFilter,
+  ]);
 
-  const totalApplicantCount = applicationCounts?.[viewFilter] ?? displayedApplications.length;
+  const totalApplicantCount = isRemoteSearch
+    ? searchResultCount ?? displayedApplications.length
+    : normalizedSearchQuery
+      ? displayedApplications.length
+      : viewFilter === "pending"
+      ? applicationCounts?.pending ?? displayedApplications.length
+      : viewFilter === "physical-ctc"
+        ? applicationCounts?.physicalCtc ?? displayedApplications.length
+        : viewFilter === "resubmitted"
+          ? applicationCounts?.resubmitted ?? displayedApplications.length
+          : applicationCounts?.withdrawn ?? displayedApplications.length;
   const totalPages = Math.ceil(totalApplicantCount / itemsPerPage);
   const visiblePage = Math.min(currentPage, Math.max(totalPages, 1));
   const paginatedApplications = useMemo(
@@ -560,13 +621,16 @@ export default function SkeapApplicationsClient({
 
   const selectedStatus = normalizeApplicationStatus(selectedApplication?.status ?? "");
   const isApproved = selectedStatus === "Approved";
+  const isWithdrawn = selectedStatus === "Withdrawn";
   const isWaitlisted = selectedStatus === "Waitlisted";
   const isPreQualified = selectedStatus === "Pre-qualified";
   const canPrequalify = selectedStatus === "Pending Review" || selectedStatus === "Resubmitted";
   const applicantStatusBadgeClass = isPreQualified
     ? "inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20"
     : `rounded-full border px-2.5 py-1 text-xs font-semibold ${
-        selectedStatus === "Returned"
+        isWithdrawn
+          ? "border-slate-200 bg-slate-100 text-slate-600"
+          : selectedStatus === "Returned"
           ? "border-amber-200 bg-amber-50 text-amber-700"
           : selectedStatus === "Resubmitted"
             ? "border-blue-200 bg-blue-50 text-blue-700"
@@ -580,40 +644,51 @@ export default function SkeapApplicationsClient({
       }`;
   const applicantStatusLabel = isPreQualified
     ? "For Physical CTC"
+    : isWithdrawn
+      ? "Withdrawn"
     : selectedStatus === "Returned"
       ? "Correction Required"
       : selectedStatus;
   const isReviewFinalized =
-    isApproved || isWaitlisted || selectedStatus === "Rejected" || selectedStatus === "Ineligible";
+    isApproved || isWaitlisted || isWithdrawn || selectedStatus === "Rejected" || selectedStatus === "Ineligible";
   const canReturnForEdits =
     !isReviewFinalized &&
     selectedStatus !== "Returned";
 
-  const queueTitle =
-    viewFilter === "pending"
+  const queueTitle = isRemoteSearch
+    ? "Search Results"
+    : viewFilter === "pending"
       ? "Digital Screening"
       : viewFilter === "physical-ctc"
       ? "For Physical CTC"
       : viewFilter === "resubmitted"
       ? "Resubmitted Digital Files"
-      : "Approved Applicants";
+      : viewFilter === "withdrawn"
+        ? "Withdrawn Applications"
+        : "Search Results";
   const isQueueLoading = isRefreshing || isFetchingNextPage;
   const isQueueEmpty =
-    displayedApplications.length === 0 && totalApplicantCount === 0 && !isQueueLoading;
+    displayedApplications.length === 0 && totalApplicantCount === 0 && !isQueueLoading && !isSearching;
 
   function changeViewFilter(filter: typeof viewFilter) {
     setViewFilter(filter);
+    setSearchQuery("");
+    setActiveSearchQuery("");
+    setSearchResultCount(null);
+    setSearchApplications([]);
+    setSearchCursor(null);
+    setHasSearchNextPage(false);
+    searchRequestRef.current?.abort();
+    setIsSearching(false);
     setShowMobileDetails(false);
     setCurrentPage(1);
-
-    if (filter !== "approved" && selectedAcademicYear !== initialAcademicYear) {
-      setSelectedAcademicYear(initialAcademicYear);
-      setApplications([]);
-      setSelectedAppId("");
-      setCursor(null);
-      setHasNextPage(false);
-      void handleRefresh(initialAcademicYear);
-    }
+    setApplications([]);
+    setSelectedAppId("");
+    setCursor(null);
+    setHasNextPage(false);
+    void handleRefresh(selectedAcademicYear, {
+      filter: filter === "withdrawn" ? "withdrawn" : undefined,
+    });
   }
 
   const stats = useMemo(() => {
@@ -624,7 +699,7 @@ export default function SkeapApplicationsClient({
       }).length,
       physicalCtc: applications.filter((app) => normalizeApplicationStatus(app.status) === "Pre-qualified").length,
       resubmitted: applications.filter((app) => normalizeApplicationStatus(app.status) === "Resubmitted").length,
-      approved: applications.filter((app) => normalizeApplicationStatus(app.status) === "Approved").length,
+      withdrawn: applications.filter((app) => normalizeApplicationStatus(app.status) === "Withdrawn").length,
     };
 
     if (!applicationCounts) {
@@ -635,7 +710,7 @@ export default function SkeapApplicationsClient({
       pending: applicationCounts.pending,
       physicalCtc: applicationCounts.physicalCtc,
       resubmitted: applicationCounts.resubmitted ?? 0,
-      approved: applicationCounts.approved,
+      withdrawn: applicationCounts.withdrawn,
     };
   }, [applicationCounts, applications]);
 
@@ -850,10 +925,12 @@ export default function SkeapApplicationsClient({
       refreshServerData = true,
       silent = false,
       preserveApplication,
+      filter,
     }: {
       refreshServerData?: boolean;
       silent?: boolean;
       preserveApplication?: ApplicationRecord;
+      filter?: "withdrawn";
     } = {}
   ) => {
     if (isRefreshingRef.current || isFetchingNextPageRef.current) return;
@@ -866,17 +943,41 @@ export default function SkeapApplicationsClient({
     }
     try {
       const params = new URLSearchParams({ academicYear });
+      if (filter) params.set("filter", filter);
       const response = await fetch(`/api/admin/skeap-applications?${params}`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to refresh applications.");
-
-      const page = await response.json() as {
+      const payload: unknown = await response.json();
+      if (!response.ok) {
+        const apiError = typeof payload === "object" && payload !== null && "error" in payload &&
+          typeof payload.error === "string"
+          ? payload.error
+          : "Failed to refresh applications.";
+        const detail = typeof payload === "object" && payload !== null && "detail" in payload &&
+          typeof payload.detail === "string"
+          ? ` ${payload.detail}`
+          : "";
+        throw new Error(`${apiError}${detail}`);
+      }
+      if (typeof payload !== "object" || payload === null || !("applications" in payload) ||
+        !Array.isArray(payload.applications) || !("counts" in payload) ||
+        typeof payload.counts !== "object" || payload.counts === null ||
+        !("pending" in payload.counts) || typeof payload.counts.pending !== "number" ||
+        !("physicalCtc" in payload.counts) || typeof payload.counts.physicalCtc !== "number" ||
+        !("withdrawn" in payload.counts) || typeof payload.counts.withdrawn !== "number" ||
+        !("capacityFull" in payload) || typeof payload.capacityFull !== "boolean" ||
+        !("hasNextPage" in payload) || typeof payload.hasNextPage !== "boolean" ||
+        !("nextCursor" in payload)) {
+        throw new Error("The application refresh response was incomplete or invalid.");
+      }
+      const page = payload as {
         applications: ApplicationRecord[];
         counts: ApplicationCounts;
         capacityFull: boolean;
         hasNextPage: boolean;
         nextCursor: { id: string; createdAt: string } | null;
+        totalCount?: number | null;
       };
 
+      setRefreshError(null);
       setApplicationCounts(page.counts);
       setIsCapacityFull(page.capacityFull);
       if (silent) {
@@ -907,6 +1008,7 @@ export default function SkeapApplicationsClient({
       if (refreshServerData && academicYear === initialAcademicYear) router.refresh();
     } catch (error) {
       console.error(error);
+      setRefreshError(error instanceof Error ? error.message : "Failed to refresh applications.");
     } finally {
       isRefreshingRef.current = false;
       if (silent) {
@@ -917,10 +1019,139 @@ export default function SkeapApplicationsClient({
     }
   }, [initialAcademicYear, router, selectedAcademicYear]);
 
+  const fetchSearchResults = useCallback(async (query: string, silent = false) => {
+    searchRequestRef.current?.abort();
+    const controller = new AbortController();
+    searchRequestRef.current = controller;
+    setIsSearching(true);
+    try {
+      const params = new URLSearchParams({
+        academicYear: selectedAcademicYear,
+        search: query,
+      });
+      const response = await fetch(`/api/admin/skeap-applications?${params}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const payload: unknown = await response.json();
+      if (!response.ok) {
+        const apiError = typeof payload === "object" && payload !== null && "error" in payload &&
+          typeof payload.error === "string"
+          ? payload.error
+          : "Failed to search applications.";
+        throw new Error(apiError);
+      }
+      if (typeof payload !== "object" || payload === null ||
+        !("applications" in payload) || !Array.isArray(payload.applications) ||
+        !("hasNextPage" in payload) || typeof payload.hasNextPage !== "boolean" ||
+        !("nextCursor" in payload)) {
+        throw new Error("The application search response was incomplete or invalid.");
+      }
+      if (controller.signal.aborted) return;
+
+      const result = payload as {
+        applications: ApplicationRecord[];
+        counts?: ApplicationCounts;
+        capacityFull?: boolean;
+        totalCount?: number | null;
+        hasNextPage: boolean;
+        nextCursor: { id: string; createdAt: string } | null;
+      };
+      setRefreshError(null);
+      if (result.counts) setApplicationCounts(result.counts);
+      if (typeof result.capacityFull === "boolean") setIsCapacityFull(result.capacityFull);
+      setSearchApplications((current) => silent
+        ? [
+            ...result.applications,
+            ...current.filter((application) =>
+              !result.applications.some((refreshed) => refreshed.id === application.id)
+            ),
+          ]
+        : result.applications);
+      setSearchResultCount(result.totalCount ?? result.applications.length);
+      setSearchCursor(result.nextCursor);
+      setHasSearchNextPage(result.hasNextPage);
+      if (!silent) {
+        setCurrentPage(1);
+        setSelectedAppId((currentId) =>
+          result.applications.some((application) => application.id === currentId)
+            ? currentId
+            : result.applications[0]?.id ?? ""
+        );
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      console.error("Failed to search SKEAP applications:", error);
+      setRefreshError(error instanceof Error ? error.message : "Failed to search applications.");
+    } finally {
+      if (searchRequestRef.current === controller) {
+        searchRequestRef.current = null;
+        setIsSearching(false);
+      }
+    }
+  }, [selectedAcademicYear]);
+
+  const refreshCurrentSearchOrQueue = useCallback(async (
+    options: { preserveApplication?: ApplicationRecord } = {},
+  ) => {
+    if (isRemoteSearch && activeSearchQuery) {
+      await fetchSearchResults(activeSearchQuery);
+    } else {
+      await handleRefresh(selectedAcademicYear, {
+        refreshServerData: false,
+        ...options,
+        ...(viewFilter === "withdrawn" ? { filter: "withdrawn" } : {}),
+      });
+    }
+  }, [
+    activeSearchQuery,
+    fetchSearchResults,
+    handleRefresh,
+    isRemoteSearch,
+    selectedAcademicYear,
+    viewFilter,
+  ]);
+
+  function handleQueueSearchChange(value: string) {
+    const query = value.trim();
+    searchRequestRef.current?.abort();
+    searchRequestRef.current = null;
+    setIsSearching(false);
+    setSearchQuery(value);
+    setActiveSearchQuery(query.length >= 2 ? query : "");
+    setSearchApplications([]);
+    setSearchResultCount(null);
+    setSearchCursor(null);
+    setHasSearchNextPage(false);
+    setCurrentPage(1);
+    setSelectedAppId("");
+    setRefreshError(null);
+  }
+
+  useEffect(() => {
+    if (!isRemoteSearch || !activeSearchQuery) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void fetchSearchResults(activeSearchQuery);
+    }, 250);
+    return () => {
+      window.clearTimeout(timeoutId);
+      searchRequestRef.current?.abort();
+    };
+  }, [activeSearchQuery, fetchSearchResults, isRemoteSearch]);
+
   useEffect(() => {
     const refreshSilently = () => {
       if (document.visibilityState === "visible") {
-        void handleRefresh(selectedAcademicYear, { refreshServerData: false, silent: true });
+        if (isRemoteSearch && activeSearchQuery) {
+          void fetchSearchResults(activeSearchQuery, true);
+        } else {
+          void handleRefresh(selectedAcademicYear, {
+            refreshServerData: false,
+            silent: true,
+            ...(viewFilter === "withdrawn" ? { filter: "withdrawn" as const } : {}),
+          });
+        }
       }
     };
     const intervalId = window.setInterval(refreshSilently, 15_000);
@@ -932,30 +1163,24 @@ export default function SkeapApplicationsClient({
       document.removeEventListener("visibilitychange", refreshSilently);
       window.removeEventListener("focus", refreshSilently);
     };
-  }, [handleRefresh, selectedAcademicYear]);
-
-  function handleAcademicYearChange(academicYear: string) {
-    if (academicYear === selectedAcademicYear) return;
-
-    setSelectedAcademicYear(academicYear);
-    setApplications([]);
-    setSelectedAppId("");
-    setCursor(null);
-    setHasNextPage(false);
-    setCurrentPage(1);
-    void handleRefresh(academicYear);
-  }
+  }, [activeSearchQuery, fetchSearchResults, handleRefresh, isRemoteSearch, selectedAcademicYear, viewFilter]);
 
   const fetchNextPage = useCallback(async (minimumVisibleCount: number) => {
-    if (!hasNextPage || isFetchingNextPageRef.current || isRefreshingRef.current || !cursor) return false;
+    const activeHasNextPage = isRemoteSearch ? hasSearchNextPage : hasNextPage;
+    const activeCursor = isRemoteSearch ? searchCursor : cursor;
+    if (!activeHasNextPage || isFetchingNextPageRef.current || isRefreshingRef.current ||
+      isSearching || !activeCursor) return false;
 
     isFetchingNextPageRef.current = true;
     setIsFetchingNextPage(true);
     try {
-      let nextCursor: { id: string; createdAt: string } | null = cursor;
-      let morePages: boolean = hasNextPage;
+      let nextCursor: { id: string; createdAt: string } | null = activeCursor;
+      let morePages: boolean = activeHasNextPage;
       let visibleCount = displayedApplications.length;
-      const loadedIds = new Set(applications.map((application) => application.id));
+      const currentApplications = isRemoteSearch && searchResultCount !== null
+        ? searchApplications
+        : applications;
+      const loadedIds = new Set(currentApplications.map((application) => application.id));
       const newApplications: ApplicationRecord[] = [];
 
       while (morePages && nextCursor && visibleCount < minimumVisibleCount) {
@@ -964,6 +1189,11 @@ export default function SkeapApplicationsClient({
           cursorId: nextCursor.id,
           cursorDate: nextCursor.createdAt,
         });
+        if (isRemoteSearch && activeSearchQuery) {
+          params.set("search", activeSearchQuery);
+        } else if (!isRemoteSearch && viewFilter === "withdrawn") {
+          params.set("filter", "withdrawn");
+        }
         const response = await fetch(`/api/admin/skeap-applications?${params}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Failed to load more applications.");
 
@@ -980,17 +1210,26 @@ export default function SkeapApplicationsClient({
 
         newApplications.push(...uniqueApplications);
         visibleCount += uniqueApplications.filter((application) =>
-          matchesApplicationFilter(application, viewFilter)
+          isRemoteSearch || matchesApplicationFilter(application, viewFilter)
         ).length;
         nextCursor = page.nextCursor;
         morePages = page.hasNextPage;
       }
 
       if (newApplications.length > 0) {
-        setApplications((current) => [...current, ...newApplications]);
+        if (isRemoteSearch) {
+          setSearchApplications((current) => [...current, ...newApplications]);
+        } else {
+          setApplications((current) => [...current, ...newApplications]);
+        }
       }
-      setCursor(nextCursor);
-      setHasNextPage(morePages);
+      if (isRemoteSearch) {
+        setSearchCursor(nextCursor);
+        setHasSearchNextPage(morePages);
+      } else {
+        setCursor(nextCursor);
+        setHasNextPage(morePages);
+      }
       return true;
     } catch (error) {
       console.error(error);
@@ -999,32 +1238,54 @@ export default function SkeapApplicationsClient({
       isFetchingNextPageRef.current = false;
       setIsFetchingNextPage(false);
     }
-  }, [applications, cursor, displayedApplications.length, hasNextPage, selectedAcademicYear, viewFilter]);
+  }, [
+    activeSearchQuery,
+    applications,
+    cursor,
+    displayedApplications.length,
+    hasNextPage,
+    hasSearchNextPage,
+    isRemoteSearch,
+    isSearching,
+    searchApplications,
+    searchCursor,
+    searchResultCount,
+    selectedAcademicYear,
+    viewFilter,
+  ]);
 
   const autoFetchKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const activeHasNextPage = isRemoteSearch ? hasSearchNextPage : hasNextPage;
+    const activeCursor = isRemoteSearch ? searchCursor : cursor;
     const minimumVisibleCount = Math.min(visiblePage * itemsPerPage, totalApplicantCount);
     if (
-      !hasNextPage ||
+      !activeHasNextPage ||
       isQueueLoading ||
+      isSearching ||
       totalApplicantCount === 0 ||
       displayedApplications.length >= minimumVisibleCount ||
-      !cursor
+      !activeCursor
     ) {
       return;
     }
 
-    const cursorKey = `${viewFilter}:${cursor.id}:${cursor.createdAt}`;
+    const cursorKey = `${viewFilter}:${activeSearchQuery}:${activeCursor.id}:${activeCursor.createdAt}`;
     if (autoFetchKeyRef.current === cursorKey) return;
     autoFetchKeyRef.current = cursorKey;
     void fetchNextPage(minimumVisibleCount);
   }, [
+    activeSearchQuery,
     cursor,
     displayedApplications.length,
     fetchNextPage,
     hasNextPage,
+    hasSearchNextPage,
+    isRemoteSearch,
+    isSearching,
     isQueueLoading,
     itemsPerPage,
+    searchCursor,
     totalApplicantCount,
     viewFilter,
     visiblePage,
@@ -1040,7 +1301,7 @@ export default function SkeapApplicationsClient({
     const minimumVisibleCount = Math.min(nextPage * itemsPerPage, totalApplicantCount);
     if (
       displayedApplications.length < minimumVisibleCount &&
-      hasNextPage &&
+      (isRemoteSearch ? hasSearchNextPage : hasNextPage) &&
       !(await fetchNextPage(minimumVisibleCount))
     ) {
       return;
@@ -1053,6 +1314,11 @@ export default function SkeapApplicationsClient({
     updater: (application: ApplicationRecord) => ApplicationRecord
   ) {
     setApplications((current) =>
+      current.map((application) =>
+        application.id === selectedApplication?.id ? updater(application) : application
+      )
+    );
+    setSearchApplications((current) =>
       current.map((application) =>
         application.id === selectedApplication?.id ? updater(application) : application
       )
@@ -1306,7 +1572,7 @@ export default function SkeapApplicationsClient({
         const nextOpenApplication = displayedApplications.find((app) => app.id !== currentSelectedId);
         return nextOpenApplication?.id ?? currentSelectedId;
       });
-      await handleRefresh(selectedAcademicYear, { refreshServerData: false });
+      await refreshCurrentSearchOrQueue();
       setShowRejectModal(false);
       setRejectionReason("");
     } catch (error) {
@@ -1349,10 +1615,7 @@ export default function SkeapApplicationsClient({
       setViewFilter("physical-ctc");
       updateSelectedApplication(() => updatedApplication);
       router.refresh();
-      await handleRefresh(selectedAcademicYear, {
-        refreshServerData: false,
-        preserveApplication: updatedApplication,
-      });
+      await refreshCurrentSearchOrQueue({ preserveApplication: updatedApplication });
     } catch (error) {
       setApprovalError(error instanceof Error ? error.message : "Unable to pre-qualify application.");
       console.error(error);
@@ -1401,25 +1664,18 @@ export default function SkeapApplicationsClient({
           ? {
               ...current,
               physicalCtc: Math.max(0, current.physicalCtc - 1),
-              approved:
-                normalizeApplicationStatus(resultingStatus) === "Approved"
-                  ? current.approved + 1
-                  : current.approved,
             }
           : current
       );
       updateSelectedApplication(() => updatedApplication);
 
       if (normalizeApplicationStatus(resultingStatus) === "Approved") {
-        setViewFilter("approved");
+        setViewFilter("pending");
         setCurrentPage(1);
-        setSelectedAppId(selectedApplication.id);
-        await handleRefresh(selectedAcademicYear, {
-          refreshServerData: false,
-          preserveApplication: updatedApplication,
-        });
+        setSelectedAppId("");
+        await refreshCurrentSearchOrQueue();
       } else {
-        await handleRefresh(selectedAcademicYear, { refreshServerData: false });
+        await refreshCurrentSearchOrQueue();
       }
     } catch (error) {
       setApprovalError(error instanceof Error ? error.message : "Unable to approve application.");
@@ -1457,7 +1713,7 @@ export default function SkeapApplicationsClient({
       setShowReturnModal(false);
       setReturnMessage("");
       router.refresh();
-      await handleRefresh(selectedAcademicYear, { refreshServerData: false });
+      await refreshCurrentSearchOrQueue();
     } catch (error) {
       setReturnError(error instanceof Error ? error.message : "Unable to return application for edits.");
       console.error(error);
@@ -1508,12 +1764,13 @@ export default function SkeapApplicationsClient({
               onClick={() => changeViewFilter("physical-ctc")}
             />
             <ApplicationMetricCard
-              label="Approved"
-              value={stats.approved}
-              subtitle="processed"
-              icon={CheckCircle}
-              active={viewFilter === "approved"}
-              onClick={() => changeViewFilter("approved")}
+              label="Withdrawn"
+              value={stats.withdrawn}
+              subtitle="cancelled by applicant"
+              icon={X}
+              active={viewFilter === "withdrawn"}
+              onClick={() => changeViewFilter("withdrawn")}
+              tone="slate"
             />
           </div>
 
@@ -1527,41 +1784,73 @@ export default function SkeapApplicationsClient({
                   </div>
                   <button
                     type="button"
-                    onClick={() => void handleRefresh()}
-                    disabled={isRefreshing || isPolling || isFetchingNextPage}
+                    onClick={() => isRemoteSearch && activeSearchQuery
+                      ? void fetchSearchResults(activeSearchQuery)
+                      : void handleRefresh(selectedAcademicYear, {
+                          ...(viewFilter === "withdrawn" ? { filter: "withdrawn" as const } : {}),
+                        })}
+                    disabled={isRefreshing || isPolling || isFetchingNextPage || isSearching}
                     title="Refresh queue"
                     aria-label={isPolling ? "Checking for queue updates" : "Refresh queue"}
                     className="group shrink-0 rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:cursor-wait disabled:opacity-60"
                   >
-                    <RefreshCw className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing || isPolling ? "animate-spin" : ""}`} />
+                    <RefreshCw className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${isRefreshing || isPolling || isSearching ? "animate-spin" : ""}`} />
                   </button>
                 </div>
-                {viewFilter === "approved" ? (
-                  <select
-                    aria-label="Filter approved applications by academic year"
-                    value={selectedAcademicYear}
-                    onChange={(event) => handleAcademicYearChange(event.target.value)}
-                    disabled={isRefreshing || isFetchingNextPage}
-                    className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm outline-none transition-all focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {academicYears.map((academicYear) => (
-                      <option key={academicYear} value={academicYear}>
-                        A.Y. {academicYear}{academicYear === initialAcademicYear ? " (Current)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                <div className="relative">
+                  <label htmlFor="skeap-queue-search" className="sr-only">
+                    Filter queue or search all application records
+                  </label>
+                  <Search
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    id="skeap-queue-search"
+                    type="text"
+                    inputMode="search"
+                    value={searchQuery}
+                    onChange={(event) => handleQueueSearchChange(event.target.value)}
+                    placeholder="Filter queue or search all records..."
+                    className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-9 pr-8 text-xs text-slate-900 placeholder:text-slate-400 focus:border-cyan-600 focus:bg-white focus:outline-none"
+                  />
+                  {searchQuery ? (
+                    <button
+                      type="button"
+                      onClick={() => handleQueueSearchChange("")}
+                      aria-label="Clear queue search"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition hover:bg-slate-200/70 hover:text-slate-700"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </div>
+                {refreshError ? (
+                  <p role="alert" className="text-xs leading-5 text-rose-700">{refreshError}</p>
+                ) : null}
+                {isSearching ? (
+                  <p role="status" className="text-xs text-slate-500">Searching all application records…</p>
+                ) : null}
+                {activeSearchQuery ? (
+                  <p className="truncate text-xs text-slate-500">
+                    Matching &ldquo;{activeSearchQuery}&rdquo; across all application statuses
+                  </p>
                 ) : null}
               </div>
 
               <div
                 className="custom-scroll custom-scroll-visible flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto bg-white p-4"
-                aria-busy={isQueueLoading}
+                aria-busy={isQueueLoading || isSearching}
               >
                 {isQueueLoading ? (
                     Array.from({ length: 6 }, (_, index) => (
                       <QueueItemSkeleton key={`queue-skeleton-${index}`} />
                     ))
-                ) : paginatedApplications.map((application) => (
+                ) : paginatedApplications.map((application) => {
+                    const normalizedStatus = normalizeApplicationStatus(application.status);
+                    const isCrossStatusSearchMatch =
+                      isRemoteSearch && !matchesApplicationFilter(application, viewFilter);
+                    return (
                     <button
                       key={application.id}
                       type="button"
@@ -1570,7 +1859,7 @@ export default function SkeapApplicationsClient({
                         setShowMobileDetails(true);
                       }}
                       aria-pressed={application.id === effectiveSelectedAppId}
-                      className={`flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors ${
+                      className={`flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors ${
                         application.id === effectiveSelectedAppId
                           ? "bg-slate-100 text-slate-900 shadow-none ring-1 ring-slate-200"
                           : "text-slate-600 hover:bg-slate-50"
@@ -1581,29 +1870,48 @@ export default function SkeapApplicationsClient({
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col">
                         <div className="flex min-w-0 items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-slate-900">{application.applicantName}</p>
-                          {normalizeApplicationStatus(application.status) === "Pre-qualified" ? (
+                          <p className="truncate text-xs font-semibold text-slate-900">{application.applicantName}</p>
+                          {isCrossStatusSearchMatch ? (
+                            <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${getQueueStatusBadgeClass(application.status)}`}>
+                              {getQueueStatusLabel(application.status)}
+                            </span>
+                          ) : normalizedStatus === "Pre-qualified" ? (
                             <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
                               For Physical CTC
                             </span>
+                          ) : normalizedStatus === "Withdrawn" ? (
+                            <span className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[10px] font-medium text-slate-600">
+                              Withdrawn
+                            </span>
                           ) : null}
                         </div>
-                        <p className="truncate text-xs text-slate-500">
+                        <p
+                          className="mt-0.5 truncate text-[11px] text-slate-500"
+                          title={application.applicantEmail}
+                        >
+                          {application.applicantEmail}
+                        </p>
+                        <p className="mt-0.5 truncate text-[11px] text-slate-400">
                           {normalizeSkeapSchoolName(application.school) || "No school provided"}
                           {application.school && application.yearLevel ? " · " : ""}
                           {application.yearLevel || ""}
                         </p>
                       </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1 text-[10px] text-slate-400">
+                      <div className="flex shrink-0 self-start flex-col items-end gap-1 pt-0.5 text-right text-[11px] text-slate-400">
                         <span>{formatQueueDate(application.submittedAt)}</span>
                         <span>{application.documents.length} docs</span>
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
 
                   {!isQueueLoading && isQueueEmpty && (
                     <div className="flex flex-1 items-center justify-center p-6 text-center text-xs text-slate-400">
-                      No applications in this queue.
+                      {isRemoteSearch
+                        ? "No applications match this search."
+                        : viewFilter === "withdrawn"
+                          ? "No withdrawn applications."
+                          : "No applications in this queue."}
                     </div>
                   )}
               </div>
@@ -1698,13 +2006,13 @@ export default function SkeapApplicationsClient({
 
                   <div className={`mx-auto flex min-h-[500px] w-full max-w-4xl flex-col px-4 md:px-6 ${
                     activeTab === "overview"
-                        ? "justify-start pb-6 pt-6"
+                        ? "justify-start pb-4 pt-4"
                       : activeTab === "documents"
                       ? "pt-5 pb-3"
                       : "flex-1 gap-4 pb-10 pt-4"
                   }`}>
                     {activeTab === "overview" && (
-                      <div id="application-panel-overview" role="tabpanel" aria-labelledby="application-tab-overview" className="flex flex-col space-y-6">
+                      <div id="application-panel-overview" role="tabpanel" aria-labelledby="application-tab-overview" className="flex flex-col space-y-3.5">
                     <section className="overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm">
                       {selectedApplication.banWatchlistMatch ? (
                         <div
@@ -1726,7 +2034,7 @@ export default function SkeapApplicationsClient({
                           </p>
                         </div>
                       ) : null}
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
                         <h3 className="text-base font-semibold text-slate-900">Applicant profile</h3>
                         <div className="flex flex-wrap items-center gap-2">
                           {selectedApplication.priorRevocation ? (
@@ -1755,8 +2063,8 @@ export default function SkeapApplicationsClient({
                           </span>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-6 p-6">
-                        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                      <div className="flex flex-col gap-4 p-5">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                           <div className="flex flex-col gap-1">
                             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Age</span>
                             <span className="text-sm font-medium text-slate-900">
@@ -1777,9 +2085,11 @@ export default function SkeapApplicationsClient({
                           </div>
                         </div>
 
-                        <hr className="border-slate-100" />
+                        <div className="py-3">
+                          <hr className="border-slate-100" />
+                        </div>
 
-                        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                           <div className="flex flex-col gap-1">
                             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">School / Institution</span>
                             <span className="break-words text-sm font-medium text-slate-900">
@@ -1800,10 +2110,12 @@ export default function SkeapApplicationsClient({
                           </div>
                         </div>
 
-                        <hr className="border-slate-100" />
+                        <div className="py-3">
+                          <hr className="border-slate-100" />
+                        </div>
 
-                        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-                          <div className="flex flex-col gap-5">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                          <div className="flex flex-col gap-4">
                             <div className="flex flex-col gap-1">
                               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sitio / Address</span>
                               <span className="break-words text-sm font-medium text-slate-900">
@@ -1823,7 +2135,7 @@ export default function SkeapApplicationsClient({
                               {applicationDetails?.totalFamilyMonthlyIncome || "Not provided"}
                             </span>
                           </div>
-                          <div className="flex flex-col gap-5">
+                          <div className="flex flex-col gap-4">
                             <div className="flex flex-col gap-1">
                               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Submitted Date</span>
                               <span className="text-sm font-medium text-slate-900">{formatDate(selectedApplication.submittedAt)}</span>
@@ -1836,6 +2148,28 @@ export default function SkeapApplicationsClient({
                         </div>
                       </div>
                     </section>
+
+                    {isWithdrawn ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-100/80 p-5" role="status">
+                        <div className="flex items-start gap-3">
+                          <X aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-800">Application withdrawn</h4>
+                            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                              Applicant withdrew on{" "}
+                              {selectedApplication.withdrawnAt
+                                ? formatDate(selectedApplication.withdrawnAt)
+                                : "a date not recorded"}.
+                            </p>
+                            {selectedApplication.withdrawalReason ? (
+                              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                                Withdrawal reason: {selectedApplication.withdrawalReason}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
 
                     {isPreQualified ? (
                       <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
@@ -1895,29 +2229,22 @@ export default function SkeapApplicationsClient({
                         </div>
                       </div>
                     ) : isWaitlisted ? (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                      <div className="flex flex-col gap-4 rounded-xl border border-amber-200/90 bg-amber-50/75 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-start gap-3">
-                          <div className="mt-0.5 shrink-0">
-                            <Clock className="h-5 w-5 text-amber-600" />
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <h4 className="text-sm font-bold text-slate-900">Application Waitlisted</h4>
-                            <p className="text-sm leading-relaxed text-slate-600">
-                              {selectedApplication.application?.physicalDocumentsConfirmed
-                                ? "The applicant presented authentic physical documents, but no active scholarship slot was available. Their confirmed application can be promoted when capacity opens."
-                                : "No active scholarship slot was available. When capacity opens, this applicant must complete online pre-screening and physical document verification before final approval."}
+                          <Clock aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                          <div className="max-w-xl space-y-0.5">
+                            <h4 className="text-sm font-semibold text-amber-950">Application Waitlisted</h4>
+                            <p className="text-xs leading-relaxed text-amber-900/90">
+                              All scholarship slots were full when this application came in. Once a slot opens up, they’ll go through online screening and physical verification before final approval.
                             </p>
-                            <div className="mt-2">
-                              <Link
-                                href="/admin/skeap-waitlist"
-                                className="group inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 transition-colors hover:text-amber-900"
-                              >
-                                <span>View Scholarship Waitlist</span>
-                                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                              </Link>
-                            </div>
                           </div>
                         </div>
+                        <Link
+                          href="/admin/skeap-waitlist"
+                          className="inline-flex shrink-0 items-center gap-1.5 pl-7 text-xs font-semibold whitespace-nowrap text-amber-800 transition-colors hover:text-amber-950 sm:pl-0"
+                        >
+                          View Waitlist <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
+                        </Link>
                       </div>
                     ) : null}
                     {!isReviewFinalized ? (

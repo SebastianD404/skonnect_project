@@ -10,6 +10,7 @@ import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 import {
@@ -373,6 +374,9 @@ export async function PATCH(
   }
 
   if (updated.capacityFull) {
+    if (updated.applicationWaitlisted) {
+      await refreshSkeapApplicationsAdminView();
+    }
     return NextResponse.json(
       {
         error: updated.applicationWaitlisted

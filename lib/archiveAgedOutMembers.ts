@@ -1,21 +1,32 @@
-import { GranteeStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/logger";
-import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { closeOpenSkeapApplicationsForKkArchive } from "@/lib/kk-archive-skeap-applications";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import {
+  refreshKkProfilingApplicationsAdminView,
+  refreshSkeapApplicationsAdminView,
+} from "@/lib/application-admin-view-refresh";
+import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
+import { getExactAge } from "@/lib/skeap-age";
 import {
   KK_MEMBER_AGE_OUT_NOTICE_MESSAGE,
   KK_MEMBER_AGE_OUT_REASON,
 } from "@/lib/kk-member-archive";
 
-const AGED_OUT_GRANTEE_REMARK = "Disqualified: Exceeded KK age limit (Turned 31)";
+type AgedOutNotificationRecipient = {
+  userId: string;
+  email: string;
+  fullName: string;
+  message: string;
+};
 
-export async function checkAndArchiveAgedOutMembers(
+export async function sweepAgedOutKkProfiles(
   actorId: string,
   trigger: "admin-page" | "scheduled" = "admin-page",
 ) {
-  const cutoffDate = new Date();
-  cutoffDate.setFullYear(cutoffDate.getFullYear() - 31);
+  const today = new Date();
+  const cutoffDate = new Date(today);
+  cutoffDate.setUTCFullYear(cutoffDate.getUTCFullYear() - 31);
 
   const profiles = await prisma.profilingRegistration.findMany({
     where: {
@@ -32,18 +43,25 @@ export async function checkAndArchiveAgedOutMembers(
       userId: true,
       user: {
         select: {
-          grantee: {
-            select: { id: true, status: true, remarks: true },
-          },
+          id: true,
+          email: true,
+          fullName: true,
+          emailNotifications: true,
         },
       },
     },
   });
 
   let archivedCount = 0;
-  let removedGranteeCount = 0;
+  let closedApplicationCount = 0;
+  const emailRecipients: AgedOutNotificationRecipient[] = [];
+
   for (const profile of profiles) {
+    const currentAge = getExactAge(profile.birthDate, today);
+    if (currentAge === null || currentAge < 31) continue;
+
     const archivedAt = new Date();
+    const notice = `${KK_MEMBER_AGE_OUT_NOTICE_MESSAGE} Your recorded age is ${currentAge}.`;
     const result = await prisma.$transaction(async (tx) => {
       const archived = await tx.profilingRegistration.updateMany({
         where: {
@@ -55,56 +73,63 @@ export async function checkAndArchiveAgedOutMembers(
           reviewStatus: "Archived",
           archivedReason: KK_MEMBER_AGE_OUT_REASON,
           archivedAt,
+          archivedBy: "SYSTEM_AUTO",
         },
       });
-      if (archived.count !== 1) return { archived: false, granteeRemoved: false };
+      if (archived.count !== 1) return null;
 
+      let closedApplications = 0;
       if (profile.userId) {
         await syncKkProfileFromLatestRegistration(tx, profile.userId);
-        const sourceKey = "kk-age-out:age-limit-reached";
+        const closed = await closeOpenSkeapApplicationsForKkArchive(tx, {
+          userId: profile.userId,
+          actorId,
+          reason: KK_MEMBER_AGE_OUT_REASON,
+          message: `Your pending or waitlisted SKEAP application was closed because your KK Youth Registry profile was automatically archived after you reached age ${currentAge}.`,
+        });
+        closedApplications = closed.closedCount;
+
+        const sourceKey = `kk-age-out:${profile.id}`;
+        const message = await tx.granteeMessage.create({
+          data: {
+            userId: profile.userId,
+            senderId: actorId,
+            subject: "KK Youth Registry age limit reached",
+            body: notice,
+          },
+          select: { id: true },
+        });
         await tx.notification.upsert({
           where: { userId_sourceKey: { userId: profile.userId, sourceKey } },
           create: {
             userId: profile.userId,
             sourceKey,
-            message: `KK age-limit update: ${KK_MEMBER_AGE_OUT_NOTICE_MESSAGE}`,
+            message: `KK age-limit update: ${notice}`,
           },
-          update: {
-            message: `KK age-limit update: ${KK_MEMBER_AGE_OUT_NOTICE_MESSAGE}`,
-          },
+          update: { message: `KK age-limit update: ${notice}` },
         });
-      }
-
-      const grantee = profile.user?.grantee;
-      let granteeRemoved = false;
-      if (grantee?.status === GranteeStatus.ACTIVE || grantee?.status === GranteeStatus.PROBATIONARY) {
-        const removed = await tx.grantee.updateMany({
-          where: {
-            id: grantee.id,
-            status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
-          },
-          data: {
-            status: GranteeStatus.REMOVED,
-            dateRemoved: archivedAt,
-            remarks: AGED_OUT_GRANTEE_REMARK,
-          },
-        });
-        granteeRemoved = removed.count === 1;
-        if (granteeRemoved) {
-          await writeAuditLog(tx, {
-            action: "GRANTEE_STATUS_CHANGED",
-            actorId,
-            targetTable: "grantees",
-            targetId: grantee.id,
-            beforeData: { status: grantee.status, remarks: grantee.remarks },
-            afterData: {
-              status: GranteeStatus.REMOVED,
-              dateRemoved: archivedAt.toISOString(),
-              remarks: AGED_OUT_GRANTEE_REMARK,
-            },
-            metadata: { reason: KK_MEMBER_AGE_OUT_REASON, profileId: profile.id, trigger },
+        if (profile.user?.emailNotifications && profile.user.email) {
+          emailRecipients.push({
+            userId: profile.user.id,
+            email: profile.user.email,
+            fullName: profile.user.fullName || profile.fullName,
+            message: notice,
           });
         }
+
+        await writeAuditLog(tx, {
+          action: "KK_PROFILE_AGE_OUT_NOTIFIED",
+          actorId,
+          targetTable: "kk_profiling_registrations",
+          targetId: profile.id,
+          metadata: {
+            currentAge,
+            maxEligibleAge: 30,
+            notificationId: message.id,
+            closedApplicationCount: closedApplications,
+            trigger,
+          },
+        });
       }
 
       await writeAuditLog(tx, {
@@ -121,24 +146,65 @@ export async function checkAndArchiveAgedOutMembers(
           reviewStatus: "Archived",
           archivedReason: KK_MEMBER_AGE_OUT_REASON,
           archivedAt: archivedAt.toISOString(),
+          archivedBy: "SYSTEM_AUTO",
         },
         metadata: {
           fullName: profile.fullName,
           birthDate: profile.birthDate.toISOString(),
+          currentAge,
           trigger,
         },
       });
 
-      return { archived: true, granteeRemoved };
+      return { closedApplications };
     });
 
-    if (result.archived) archivedCount += 1;
-    if (result.granteeRemoved) removedGranteeCount += 1;
+    if (result) {
+      archivedCount += 1;
+      closedApplicationCount += result.closedApplications;
+    }
   }
 
-  if (removedGranteeCount > 0) {
-    await refreshInactiveGranteesView();
+  if (archivedCount > 0) {
+    await Promise.all([
+      refreshKkProfilingApplicationsAdminView(),
+      refreshSkeapApplicationsAdminView(),
+    ]);
   }
 
-  return { archivedCount, removedGranteeCount };
+  const emailRecipientsToNotify = emailRecipients.filter((recipient) => recipient.email);
+  if (
+    process.env.GMAIL_USER &&
+    process.env.GMAIL_APP_PASSWORD &&
+    emailRecipientsToNotify.length > 0
+  ) {
+    try {
+      const transporter = createGmailTransporter();
+      const results = await Promise.allSettled(
+        emailRecipientsToNotify.map((recipient) =>
+          sendBroadcastEmail(
+            transporter,
+            recipient.userId,
+            recipient.email,
+            "KK Youth Registry age limit reached",
+            `Dear ${recipient.fullName},\n\n${recipient.message}`,
+          ),
+        ),
+      );
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error("Could not send KK age-out notification email.", {
+            userId: emailRecipientsToNotify[index]?.userId,
+            error: result.reason,
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Could not initialize KK age-out notification email delivery.", error);
+    }
+  }
+
+  return { archivedCount, closedApplicationCount };
 }
+
+export const checkAndArchiveAgedOutMembers = sweepAgedOutKkProfiles;

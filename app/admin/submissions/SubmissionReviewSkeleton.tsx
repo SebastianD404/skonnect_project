@@ -2,7 +2,7 @@ const tabs = Array.from({ length: 4 }, (_, index) => index);
 const records = Array.from({ length: 4 }, (_, index) => index);
 
 function Placeholder({ className }: { className: string }) {
-  return <div className={`animate-pulse rounded bg-slate-200 ${className}`} />;
+  return <div className={`animate-pulse motion-reduce:animate-none rounded bg-slate-200 ${className}`} />;
 }
 
 function QueueSkeleton() {
@@ -68,7 +68,7 @@ function ReviewSkeleton() {
 
 export default function SubmissionReviewSkeleton() {
   return (
-    <div role="status" aria-label="Loading scholarship document review" className="flex w-full animate-pulse flex-col gap-6 pb-12">
+    <div role="status" aria-label="Loading scholarship document review" className="flex w-full animate-pulse motion-reduce:animate-none flex-col gap-6 pb-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <Placeholder className="h-3 w-40" />

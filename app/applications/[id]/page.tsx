@@ -77,6 +77,7 @@ export default async function ApplicationPage({ params }: Props) {
           status: true,
           submittedAt: true,
           waitlistFinalPosition: true,
+          waitlistRemark: true,
           school: true,
           educationLevel: true,
           currentCourse: true,
@@ -199,6 +200,8 @@ export default async function ApplicationPage({ params }: Props) {
             application: application.application
               ? {
                   id: application.application.id,
+                  status: application.application.status,
+                  waitlistRemark: application.application.waitlistRemark,
                   school: application.application.school ?? undefined,
                   educationLevel: application.application.educationLevel ?? undefined,
                   currentCourse: application.application.currentCourse,

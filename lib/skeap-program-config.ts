@@ -7,6 +7,8 @@ import {
 } from "@/lib/skeap-education";
 
 export const SKEAP_EDUCATION_LEVELS_SETTING_KEY = "SKEAP_ACTIVE_EDUCATION_LEVELS";
+export const SKEAP_MAX_ELIGIBLE_AGE_SETTING_KEY = "SKEAP_MAX_ELIGIBLE_AGE";
+export const DEFAULT_SKEAP_MAX_ELIGIBLE_AGE = 30;
 type SkeapProgramConfigClient = Pick<Prisma.TransactionClient, "systemSetting">;
 
 const EDUCATION_LEVEL_BITS: Record<SkeapEducationLevelCode, number> = {
@@ -50,5 +52,34 @@ export async function setActiveSkeapEducationLevels(
     where: { key: SKEAP_EDUCATION_LEVELS_SETTING_KEY },
     create: { key: SKEAP_EDUCATION_LEVELS_SETTING_KEY, value },
     update: { value },
+  });
+}
+
+export async function getSkeapMaxEligibleAge(
+  client: SkeapProgramConfigClient = prisma,
+): Promise<number> {
+  const setting = await client.systemSetting.findUnique({
+    where: { key: SKEAP_MAX_ELIGIBLE_AGE_SETTING_KEY },
+    select: { value: true },
+  });
+  const maxEligibleAge = setting?.value ?? DEFAULT_SKEAP_MAX_ELIGIBLE_AGE;
+  if (!Number.isInteger(maxEligibleAge) || maxEligibleAge < 15 || maxEligibleAge > 30) {
+    throw new Error("The current SKEAP maximum eligible age configuration is invalid.");
+  }
+  return maxEligibleAge;
+}
+
+export async function setSkeapMaxEligibleAge(
+  maxEligibleAge: number,
+  client: SkeapProgramConfigClient = prisma,
+) {
+  if (!Number.isInteger(maxEligibleAge) || maxEligibleAge < 15 || maxEligibleAge > 30) {
+    throw new Error("The SKEAP maximum eligible age must be between 15 and 30.");
+  }
+
+  return client.systemSetting.upsert({
+    where: { key: SKEAP_MAX_ELIGIBLE_AGE_SETTING_KEY },
+    create: { key: SKEAP_MAX_ELIGIBLE_AGE_SETTING_KEY, value: maxEligibleAge },
+    update: { value: maxEligibleAge },
   });
 }

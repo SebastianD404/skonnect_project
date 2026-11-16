@@ -156,6 +156,14 @@ Search phrases: how long for a response, inquiry reply time, when will SK respon
   },
   {
     content:
+      "Official SKEAP slot opening and waitlist policy: SKEAP scholarship slots open up when current grantees graduate from the program or are removed due to disqualification or withdrawal. When a slot becomes available, it is offered to waitlisted applicants on a strict first-come, first-served basis. These are the slot-opening conditions; do not imply that slots open for other reasons. Filipino: Nagkakaroon ng bakanteng SKEAP scholarship slot kapag nagtapos na sa programa ang kasalukuyang grantee o inalis siya dahil sa diskuwalipikasyon o pag-withdraw. Kapag may bakanteng slot, iaalok ito sa mga aplikanteng nasa waitlist ayon sa mahigpit na first-come, first-served na pagkakasunod-sunod. Ilocano: Mabalin nga aglukat ti SKEAP scholarship slot no aggraduar dagiti agdama a grantee iti programa wenno maikkatda gapu iti diskwalipikasion wenno panag-withdraw. No adda slot a maluktan, maipaay daytoy kadagiti aplikante iti waitlist babaen iti nainget a first-come, first-served a panagsunod. Search phrases: how will slots open, when do slots open, how can I get a slot from the waitlist, when does a SKEAP slot become available, paano magkakaroon ng slot, kailan may mababakanteng slot, kaano aglukat ti slot, kasano a makaalaka iti slot manipud iti waitlist.",
+    metadata: {
+      category: "skeap_waitlist_policy",
+      language: "ENGLISH",
+    },
+  },
+  {
+    content:
       "SKEAP compliance deadlines and notifications: The system sends automated email reminders to SKEAP grantees 1 week before their semester document submission deadline. Grantees also receive instant email notifications when their scholarship status changes (e.g., from Active to Removed, or when documents are approved). If a grantee fails to submit documents by the deadline, the SK Chairperson or officials will personally follow up and may grant an extension on a case-by-case basis. There is no automatic suspension or forfeiture for missed deadlines — the process is currently handled by SK officials with flexibility.",
     metadata: {
       category: "skeap_overview",

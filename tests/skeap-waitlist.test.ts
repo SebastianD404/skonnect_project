@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
+  findUniqueSetting: vi.fn(),
   capacityCount: vi.fn(),
   maxSlots: vi.fn(),
 }));
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     skeapApplication: { findMany: mocks.findMany },
+    systemSetting: { findUnique: mocks.findUniqueSetting },
   },
 }));
 
@@ -52,6 +54,7 @@ describe("SKEAP waitlist positions", () => {
         user: { fullName: null, email: "second@example.com" },
       },
     ]);
+    mocks.findUniqueSetting.mockResolvedValue(null);
     mocks.capacityCount.mockResolvedValue(52);
     mocks.maxSlots.mockResolvedValue(55);
   });

@@ -24,10 +24,12 @@ import { formatSkeapGrantAmountAnswer, isSkeapGrantAmountQuestion } from "@/lib/
 import {
   formatDualScholarshipAnswer,
   formatKkProfilingInfoAnswer,
+  formatSkeapSlotOpeningAnswer,
   formatSkeapSlotLimitAnswer,
   formatSkeapSlotsFullAnswer,
   isDualScholarshipQuestion,
   isKkProfilingInfoQuestion,
+  isSkeapSlotOpeningQuestion,
   isSkeapSlotLimitQuestion,
   isSkeapSlotsFullQuestion,
 } from "@/lib/chatbot/eligibility-info";
@@ -126,6 +128,14 @@ export async function runRagAnswer(params: {
   if (isSkeapSlotLimitQuestion(params.question)) {
     return {
       response: formatSkeapSlotLimitAnswer(params.language),
+      chunksUsed: 0,
+      sources: [],
+    };
+  }
+
+  if (isSkeapSlotOpeningQuestion(params.question)) {
+    return {
+      response: formatSkeapSlotOpeningAnswer(params.language),
       chunksUsed: 0,
       sources: [],
     };
@@ -381,7 +391,7 @@ export async function runRagAnswer(params: {
       "- Dual Scholarship Policy: Applying for the SKEAP scholarship while already receiving another financial scholarship or educational grant is strictly prohibited / generally not allowed.",
       "[SKEAP SLOT LIMIT & CAPACITY]",
       "- Slot Limit: The SKEAP scholarship program has a strict cap of 55 slots per academic term / semester.",
-      "- Waitlist Rule: Once the 55 slots are filled, additional applicants are placed on a waitlist processed on a first-come, first-served basis.",
+      "- Slot Opening Rule: SKEAP scholarship slots open up when current grantees graduate from the program or are removed due to disqualification or withdrawal. When a slot becomes available, it is offered to waitlisted applicants on a strict first-come, first-served basis.",
       "[SKEAP HIGH SCHOOL TO COLLEGE CONTINUATION POLICY]",
       "- High school SKEAP scholars may continue their scholarship into college as long as their grades are passing.",
       "- Continuation glossary: \"High School to College continuation\" = \"High School aginggana College\" = \"Agtuloy ti SKEAP manipud High School aginggana College\" = \"Mapalpas ti college\".",
@@ -460,10 +470,11 @@ export async function runRagAnswer(params: {
       "- English: \"Applying for SKEAP while already receiving another scholarship is generally not allowed.\"",
       "- Tagalog/Filipino: \"Ang pag-apply sa SKEAP habang mayroon ka nang ibang scholarship ay karaniwang hindi pinapayagan.\"",
       "- Ilocano: \"Ti panag-apply iti SKEAP bayat nga adda pay sabali a scholarship-mo ket sapasap a saan a maipalubos.\"",
-      "12. FULL SLOTS OVERRIDE: If the user asks what happens when slots are full, reached capacity, or maxed out (e.g., \"slots are full\", \"punô na ang slots\", \"napunon ti slot\"), DO NOT trigger the fallback message. You MUST answer using the [SKEAP SLOT CAPACITY & WAITLIST POLICY].",
-      "- English: \"If all available scholarship slots are already filled, new applicants will be placed on a waitlist. Waitlisted applications are processed on a strict first-come, first-served basis should slots open up.\"",
-      "- Tagalog/Filipino: \"Kapag punô na ang lahat ng available na scholarship slots, ang mga susunod na mag-a-apply ay ilalagay sa waitlist. Ang pagproseso sa mga nasa waitlist ay nakabatay sa strict first-come, first-served basis kung may mabubuksan na slot.\"",
-      "- Ilocano: \"Nu napunon dagiti amin a nakasagana a scholarship slots, maikabil iti waitlist dagiti sumaruno nga ag-apply. Maiturong ti panagproseso kadagiti adda iti waitlist babaen ti strict first-come, first-served basis nu adda agserra wenno aglukat a slot.\"",
+      "12. SKEAP SLOT AVAILABILITY OVERRIDE: If the user asks how or when SKEAP scholarship slots open, become available, or how a waitlisted applicant can get a slot (e.g., \"how will slots open\", \"when do slots open\", \"how can I get a slot from the waitlist\", \"kailan magkakaroon ng slot\", \"kaano aglukat ti slot\"), DO NOT trigger the fallback message. State both and only these availability conditions: current grantees graduate from the program, or they are removed due to disqualification or withdrawal. Then state that an available slot is offered to waitlisted applicants on a strict first-come, first-served basis. Do not imply that slots open for any other reason.",
+      "- English: \"SKEAP scholarship slots open up when current grantees graduate from the program or are removed due to disqualification or withdrawal. When a slot becomes available, it is offered to waitlisted applicants on a strict first-come, first-served basis.\"",
+      "- Tagalog/Filipino: \"Nagkakaroon ng bakanteng SKEAP scholarship slot kapag nagtapos na sa programa ang kasalukuyang grantee o inalis siya dahil sa diskuwalipikasyon o pag-withdraw. Kapag may bakanteng slot, iaalok ito sa mga aplikanteng nasa waitlist ayon sa mahigpit na first-come, first-served na pagkakasunod-sunod.\"",
+      "- Ilocano: \"Mabalin nga aglukat ti SKEAP scholarship slot no aggraduar dagiti agdama a grantee iti programa wenno maikkatda gapu iti diskwalipikasion wenno panag-withdraw. No adda slot a maluktan, maipaay daytoy kadagiti aplikante iti waitlist babaen iti nainget a first-come, first-served a panagsunod.\"",
+      "When the user asks only what happens if slots are full, explain that additional eligible applicants are waitlisted; clarify that openings occur when current grantees graduate or are removed due to disqualification or withdrawal, and the waitlist is handled first-come, first-served.",
       "13. KK PROFILING OVERRIDE: If the user asks what KK Profiling is, its purpose, or why it is required (e.g., \"what is KK profiling\", \"ano ang KK profiling\", \"an-ania ti KK profiling\"), DO NOT trigger the fallback message. You MUST answer strictly using the [KATIPUNAN NG KABATAAN (KK) PROFILING INFO] block.",
       "- English: \"KK Profiling (Katipunan ng Kabataan Profiling) is an official youth census conducted by the Sangguniang Kabataan to register all youth residents aged 15 to 30 in Barangay Pico. It collects demographic data to help the SK Council plan targeted youth programs, scholarships, and community projects.\"",
       "- Tagalog/Filipino: \"Ang KK Profiling (Katipunan ng Kabataan Profiling) ay isang opisyal na oryentasyon at pagtatala ng mga kabataang may edad 15 hanggang 30 taong gulang sa Barangay Pico. Layunin nitong makakolekta ng datos upang makabuo ang SK Council ng mga angkop na programa, scholarship, at proyekto para sa kabataan.\"",

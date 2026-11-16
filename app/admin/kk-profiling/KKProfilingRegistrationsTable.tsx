@@ -252,6 +252,8 @@ export function KKProfilingRegistrationsTable({
               const statusClass =
                 normalizedStatus === "approved"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : normalizedStatus === "withdrawn"
+                    ? "border-slate-200 bg-slate-100 text-slate-600"
                   : normalizedStatus === "pending" || normalizedStatus === "resubmitted"
                     ? "border-amber-200 bg-amber-50 text-amber-800"
                     : normalizedStatus === "returned" || normalizedStatus === "rejected"
@@ -277,7 +279,7 @@ export function KKProfilingRegistrationsTable({
                   <dl className="grid grid-cols-2 gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-xs">
                     <div className="min-w-0">
                       <dt className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Age Group</dt>
-                      <dd className="mt-0.5 truncate font-semibold text-slate-800">{registration.youthAgeGroup}</dd>
+                      <dd className="mt-0.5 truncate font-semibold text-slate-800">{registration.ageGroup ?? registration.youthAgeGroup}</dd>
                     </div>
                     <div className="min-w-0">
                       <dt className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Classification</dt>
@@ -341,7 +343,7 @@ export function KKProfilingRegistrationsTable({
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-y border-slate-100 py-3">
                     <div>
                       <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Age group</dt>
-                      <dd className="mt-0.5 text-xs font-medium text-slate-700">{registration.youthAgeGroup}</dd>
+                      <dd className="mt-0.5 text-xs font-medium text-slate-700">{registration.ageGroup ?? registration.youthAgeGroup}</dd>
                     </div>
                     <div>
                       <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Classification</dt>
@@ -479,6 +481,10 @@ export function KKProfilingRegistrationsTable({
                             </span>
                           ) : null}
                         </div>
+                      ) : String(registration.reviewStatus || "").toLowerCase() === "withdrawn" ? (
+                        <span className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 ${fitContainer ? "px-2.5 py-0.5 text-xs font-medium" : "px-2.5 py-1 text-[10px] font-bold"} text-slate-600`}>
+                          Withdrawn
+                        </span>
                       ) : (
                         registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (
                           <span

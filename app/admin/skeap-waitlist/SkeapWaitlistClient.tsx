@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BellRing, CheckCircle2, FileCheck, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileCheck, Info, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -35,7 +35,13 @@ async function readJsonResponse(response: Response) {
   }
 }
 
-export default function SkeapWaitlistClient({ initialData }: { initialData: SkeapWaitlistSnapshot }) {
+export default function SkeapWaitlistClient({
+  initialData,
+  ageOutRemovedCount = 0,
+}: {
+  initialData: SkeapWaitlistSnapshot;
+  ageOutRemovedCount?: number;
+}) {
   const [applications, setApplications] = useState<SkeapWaitlistApplication[]>(initialData.applications);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
@@ -50,6 +56,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const [waitlistActionId, setWaitlistActionId] = useState<string | null>(null);
   const [capacityWarning, setCapacityWarning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isAgeOutBannerDismissed, setIsAgeOutBannerDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [capacity, setCapacity] = useState<CapacityState>({
@@ -59,8 +66,6 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
   const [editingCapacity, setEditingCapacity] = useState(false);
   const [slotLimitDraft, setSlotLimitDraft] = useState(String(initialData.maxSlots));
   const [savingCapacity, setSavingCapacity] = useState(false);
-  const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
-  const [isClosingWaitlist, setIsClosingWaitlist] = useState(false);
   const [isWaitlistClosed, setIsWaitlistClosed] = useState(initialData.isClosed);
   const [cycle, setCycle] = useState(initialData.cycle);
   const isCapacityExceeded = capacityWarning || capacity.activeCount >= capacity.maxSlots;
@@ -285,36 +290,6 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
     }
   }
 
-  async function closeWaitlist() {
-    setIsClosingWaitlist(true);
-    setActionError(null);
-    setToastMessage(null);
-    try {
-      const response = await fetch("/api/admin/skeap-applications/waitlist/close", {
-        method: "POST",
-      });
-      const body = await readJsonResponse(response);
-      if (!response.ok) throw new Error(String(body.error || "Unable to close the waitlist."));
-      setIsCloseConfirmOpen(false);
-      if (Number(body.emailFailures) > 0) {
-        setActionError(
-          `The waitlist was finalized and in-app notices were sent, but email delivery failed for ${String(body.emailFailures)} applicant${Number(body.emailFailures) === 1 ? "" : "s"}.`,
-        );
-      } else {
-        setToastMessage(
-          body.alreadyClosed === true
-            ? `The ${cycle} SKEAP waitlist was already finalized.`
-            : `The ${cycle} SKEAP cycle was closed. ${String(body.notifiedCount ?? applications.length)} applicants were notified.`,
-        );
-      }
-      await loadWaitlist();
-    } catch (closeError) {
-      setActionError(closeError instanceof Error ? closeError.message : "Unable to close the waitlist.");
-    } finally {
-      setIsClosingWaitlist(false);
-    }
-  }
-
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 pb-12">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -322,7 +297,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">SKEAP Capacity Management</span>
           <h1 className="mb-1.5 mt-0.5 text-2xl font-bold tracking-tight text-slate-900">Scholarship waitlist</h1>
           <p className="text-sm leading-relaxed text-slate-500">
-            Applicants are ordered by the time they joined the queue. Promote the next applicant when an active scholarship slot becomes available.
+            Applicants are ordered by the time they joined the queue for the current cycle. Applicants who exceed the age limit are automatically removed and notified.
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-stretch gap-3 sm:items-end">
@@ -332,29 +307,6 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
               {cycle} cycle finalized
             </span>
           ) : null}
-          <button
-            type="button"
-            onClick={() => setIsCloseConfirmOpen(true)}
-            disabled={
-              isWaitlistClosed ||
-              capacity.activeCount < capacity.maxSlots ||
-              applications.length === 0 ||
-              isClosingWaitlist
-            }
-            title={
-              isWaitlistClosed
-                ? "This SKEAP cycle has already been finalized."
-                : capacity.activeCount < capacity.maxSlots
-                  ? "All SKEAP slots must be filled before closing the waitlist."
-                  : applications.length === 0
-                    ? "There are no waitlisted applicants to notify."
-                    : "Finalize queue positions and notify all waitlisted applicants."
-            }
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
-          >
-            <BellRing className="h-4 w-4" aria-hidden="true" />
-            Close Slots &amp; Notify Waitlist
-          </button>
           <div
             className={`group relative flex flex-wrap items-center justify-between gap-4 rounded-2xl border px-4 py-2.5 shadow-sm transition-colors hover:shadow-md ${isOverConfiguredCapacity ? "border-rose-200 bg-rose-50 hover:border-rose-300" : "border-slate-200/80 bg-white hover:border-cyan-300"}`}
           >
@@ -415,6 +367,24 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
       </header>
 
       {error ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-semibold text-rose-800">{error}</div> : null}
+      {ageOutRemovedCount > 0 && !isAgeOutBannerDismissed ? (
+        <div role="status" className="flex items-start justify-between gap-3 rounded-xl border border-cyan-100 bg-cyan-50/70 px-4 py-3 text-sm text-cyan-900">
+          <div className="flex items-start gap-2.5">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700" aria-hidden="true" />
+            <p>
+              {ageOutRemovedCount} waitlisted applicant{ageOutRemovedCount === 1 ? "" : "s"} exceeded the maximum eligible age and were automatically notified and removed.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAgeOutBannerDismissed(true)}
+            aria-label="Dismiss age-out notice"
+            className="shrink-0 rounded-md p-1 text-cyan-700 transition hover:bg-cyan-100 hover:text-cyan-950"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
       {isOverConfiguredCapacity ? (
         <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
@@ -494,6 +464,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                     <p className="truncate font-semibold text-slate-800">{normalizeSkeapSchoolName(application.school)}</p>
                     <p className="mt-0.5 break-words text-slate-500">
                       {[
+                      `${application.age ?? "—"} yrs`,
                         application.educationLevel,
                         application.currentCourse === "N/A" ? undefined : application.currentCourse,
                         application.yearLevel,
@@ -558,6 +529,7 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
                         <p>{normalizeSkeapSchoolName(application.school)}</p>
                         <p className="text-xs font-medium text-slate-500">
                           {[
+                            `${application.age ?? "—"} yrs`,
                             application.educationLevel,
                             application.currentCourse === "N/A" ? undefined : application.currentCourse,
                             application.yearLevel,
@@ -953,57 +925,6 @@ export default function SkeapWaitlistClient({ initialData }: { initialData: Skea
         </div>
       ) : null}
 
-      {isCloseConfirmOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm"
-            aria-label="Cancel closing the SKEAP waitlist"
-            onClick={() => setIsCloseConfirmOpen(false)}
-          />
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="close-waitlist-title"
-            className="relative w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl"
-          >
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700">
-                <BellRing className="h-5 w-5" aria-hidden="true" />
-              </div>
-              <div>
-                <h2 id="close-waitlist-title" className="text-base font-bold tracking-tight text-slate-900">
-                  Close slots and notify the waitlist?
-                </h2>
-                <p className="mt-1.5 text-sm leading-5 text-slate-600">
-                  All <strong className="text-slate-900">{applications.length}</strong> waitlisted applicants in the{" "}
-                  <strong className="text-slate-900">{cycle}</strong> cycle will receive a final queue position and an in-app notification.
-                  This action cannot be repeated for the same cycle.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
-              <button
-                type="button"
-                onClick={() => setIsCloseConfirmOpen(false)}
-                disabled={isClosingWaitlist}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void closeWaitlist()}
-                disabled={isClosingWaitlist}
-                className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isClosingWaitlist ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-                Confirm &amp; notify
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
     </main>
   );
 }

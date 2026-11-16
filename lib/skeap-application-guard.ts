@@ -50,6 +50,18 @@ const VOTER_ELIGIBILITY_ERROR =
   "Ineligible under Section 3(6): Applicants who have reached voting age (18+) must be duly registered voters of Barangay Pico to qualify for SKEAP.";
 const PERMANENT_DISQUALIFICATION_MESSAGE =
   "You are permanently ineligible to reapply for SKEAP due to a prior conduct or disciplinary revocation.";
+const SKEAP_APPLICATION_REAPPLICATION_BLOCKING_STATUSES = new Set([
+  "PENDING",
+  "UNDER_REVIEW",
+  "PRE_QUALIFIED",
+  "RETURNED",
+  "RETURNED_FOR_EDIT",
+  "RESUBMITTED",
+  "WAITLISTED",
+  "APPROVED",
+  "REVOKED",
+  "REMOVED",
+]);
 export const SKEAP_EDUCATION_LEVEL_CLOSED_ERROR =
   "This education category is not open for the current SKEAP cycle. Please select an available category.";
 
@@ -200,6 +212,12 @@ export function getSkeapReapplicationEligibility(
         message: PERMANENT_DISQUALIFICATION_MESSAGE,
       }
     : { eligible: true as const };
+}
+
+export function isSkeapApplicationBlockingReapplication(status: string | null | undefined) {
+  return SKEAP_APPLICATION_REAPPLICATION_BLOCKING_STATUSES.has(
+    status?.trim().toUpperCase() ?? "",
+  );
 }
 
 export function findBanWatchlistMatch(

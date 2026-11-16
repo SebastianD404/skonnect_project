@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 async function authorizeReviewUser() {
   const supabase = await createClient();
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
     });
 
+    await refreshSkeapApplicationsAdminView();
     revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin");
     revalidatePath("/applications");

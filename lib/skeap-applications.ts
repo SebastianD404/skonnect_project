@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, SubmissionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   getLatestSkeapResubmissionReplacements,
@@ -9,12 +9,18 @@ import {
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
-import { getAcademicYearDateRange } from "@/lib/semester";
+import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { getSkeapWaitlistCycle, getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 import {
   findBanWatchlistMatch,
   type PermanentSkeapRevocationRecord,
 } from "@/lib/skeap-application-guard";
+import { getSkeapMaxEligibleAge } from "@/lib/skeap-program-config";
+import { writeAuditLog } from "@/lib/audit/logger";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
+import { getExactAge } from "@/lib/skeap-age";
+import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 export {
   isSkeapApplicationRejected,
   isSkeapApplicationReturned,
@@ -90,6 +96,9 @@ export const SKEAP_APPLICATION_SELECT = {
   },
   application: {
     select: {
+      status: true,
+      withdrawnAt: true,
+      withdrawalReason: true,
       school: true,
       educationLevel: true,
       currentCourse: true,
@@ -153,6 +162,366 @@ export async function getWaitlistQueuePosition(
     position: applications[index].waitlistFinalPosition ?? index + 1,
     totalWaitlisted: cycleState.isClosed ? cycleState.totalWaitlisted : applications.length,
   };
+}
+
+type AgedOutWaitlistApplicant = {
+  applicationId: string;
+  userId: string;
+  applicantName: string;
+  email: string;
+  emailNotifications: boolean;
+  currentAge: number;
+};
+
+export async function sweepAgedOutWaitlistApplicants(actorId: string) {
+  const maxEligibleAge = await getSkeapMaxEligibleAge();
+  const today = new Date();
+  const waitlisted = await prisma.skeapApplication.findMany({
+    where: { status: SubmissionStatus.WAITLISTED },
+    select: {
+      id: true,
+      userId: true,
+      applicantName: true,
+      submittedAt: true,
+      dateOfBirth: true,
+      inquiry: { select: { id: true } },
+      user: {
+        select: {
+          fullName: true,
+          email: true,
+          emailNotifications: true,
+          kkProfile: { select: { birthDate: true } },
+        },
+      },
+    },
+  });
+  const agedOutCandidates = waitlisted.flatMap((application) => {
+    const currentAge = getExactAge(
+      application.user.kkProfile?.birthDate ?? application.dateOfBirth,
+      today,
+    );
+    if (currentAge === null || currentAge <= maxEligibleAge) return [];
+    return [{
+      applicationId: application.id,
+      userId: application.userId,
+      applicantName: application.applicantName || application.user.fullName || application.user.email,
+      email: application.user.email,
+      emailNotifications: application.user.emailNotifications,
+      currentAge,
+      inquiryId: application.inquiry?.id ?? null,
+      submittedAt: application.submittedAt,
+    }];
+  });
+  if (agedOutCandidates.length === 0) {
+    return { removedCount: 0, removedApplicants: [] as AgedOutWaitlistApplicant[] };
+  }
+
+  const removedApplicants = await prisma.$transaction(async (tx) => {
+    const removed: AgedOutWaitlistApplicant[] = [];
+    const cycles = new Set<string>();
+
+    for (const candidate of agedOutCandidates) {
+      const message =
+        `Thank you for applying to the Sangguniang Kabataan Educational Assistance Program (SKEAP). Because you have now reached ${candidate.currentAge} years old and exceeded the maximum eligible age (${maxEligibleAge}), your waitlisted application has been closed.`;
+      const update = await tx.skeapApplication.updateMany({
+        where: { id: candidate.applicationId, status: SubmissionStatus.WAITLISTED },
+        data: {
+          status: SubmissionStatus.REJECTED,
+          waitlistPosition: null,
+          waitlistFinalPosition: null,
+          waitlistRemark: "AGED_OUT",
+        },
+      });
+      if (update.count !== 1) continue;
+
+      if (candidate.inquiryId) {
+        await tx.inquiry.update({
+          where: { id: candidate.inquiryId },
+          data: {
+            reviewStatus: "Closed",
+            response: message,
+            respondedAt: today,
+            isResolved: true,
+            lastUpdatedBy: actorId,
+          },
+        });
+      }
+
+      const granteeMessage = await tx.granteeMessage.create({
+        data: {
+          userId: candidate.userId,
+          senderId: actorId,
+          subject: "SKEAP Waitlist Update — Age Eligibility Reached",
+          body: message,
+        },
+        select: { id: true },
+      });
+      await tx.notification.upsert({
+        where: {
+          userId_sourceKey: {
+            userId: candidate.userId,
+            sourceKey: `skeap-age-out:${candidate.applicationId}`,
+          },
+        },
+        create: {
+          userId: candidate.userId,
+          sourceKey: `skeap-age-out:${candidate.applicationId}`,
+          message: `SKEAP Waitlist Update — Age Eligibility Reached\n\n${message}`,
+        },
+        update: {
+          message: `SKEAP Waitlist Update — Age Eligibility Reached\n\n${message}`,
+        },
+      });
+      await writeAuditLog(tx, {
+        action: "SKEAP_WAITLIST_AGE_OUT",
+        actorId,
+        targetTable: "skeap_applications",
+        targetId: candidate.applicationId,
+        beforeData: { status: SubmissionStatus.WAITLISTED },
+        afterData: { status: SubmissionStatus.REJECTED, waitlistRemark: "AGED_OUT" },
+        metadata: {
+          currentAge: candidate.currentAge,
+          maxEligibleAge,
+          notificationId: granteeMessage.id,
+        },
+      });
+
+      removed.push({
+        applicationId: candidate.applicationId,
+        userId: candidate.userId,
+        applicantName: candidate.applicantName,
+        email: candidate.email,
+        emailNotifications: candidate.emailNotifications,
+        currentAge: candidate.currentAge,
+      });
+      cycles.add(getCurrentAcademicYear(candidate.submittedAt));
+    }
+
+    for (const cycle of cycles) {
+      await reindexSkeapWaitlist(tx, cycle);
+    }
+    return removed;
+  });
+
+  if (removedApplicants.length === 0) {
+    return { removedCount: 0, removedApplicants };
+  }
+
+  await refreshSkeapApplicationsAdminView();
+
+  if (
+    process.env.GMAIL_USER &&
+    process.env.GMAIL_APP_PASSWORD &&
+    removedApplicants.some((applicant) => applicant.emailNotifications && applicant.email)
+  ) {
+    try {
+      const transporter = createGmailTransporter();
+      const emailApplicants = removedApplicants.filter(
+        (applicant) => applicant.emailNotifications && applicant.email,
+      );
+      const emailResults = await Promise.allSettled(
+        emailApplicants.map((applicant) =>
+            sendBroadcastEmail(
+              transporter,
+              applicant.userId,
+              applicant.email,
+              "SKEAP Waitlist Update — Age Eligibility Reached",
+              `Thank you for applying to the Sangguniang Kabataan Educational Assistance Program (SKEAP). Because you have now reached ${applicant.currentAge} years old and exceeded the maximum eligible age (${maxEligibleAge}), your waitlisted application has been closed.`,
+            ),
+          ),
+      );
+      emailResults.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error("Could not send SKEAP age-out email.", {
+              applicationId: emailApplicants[index]?.applicationId,
+            error: result.reason,
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Could not initialize SKEAP age-out email delivery.", error);
+    }
+  }
+
+  return { removedCount: removedApplicants.length, removedApplicants };
+}
+
+export async function sweepClosedSkeapWaitlistCycles(actorId: string) {
+  const activeCycle = getSkeapWaitlistCycle();
+  const activeRange = getAcademicYearDateRange(activeCycle);
+  if (!activeRange) throw new Error("Unable to determine the active SKEAP waitlist cycle.");
+
+  const waitlisted = await prisma.skeapApplication.findMany({
+    where: { status: SubmissionStatus.WAITLISTED },
+    orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+    select: {
+      id: true,
+      userId: true,
+      applicantName: true,
+      submittedAt: true,
+      waitlistPosition: true,
+      waitlistFinalPosition: true,
+      inquiry: { select: { id: true } },
+      user: {
+        select: {
+          fullName: true,
+          email: true,
+          emailNotifications: true,
+        },
+      },
+    },
+  });
+  if (waitlisted.length === 0) return { closedCount: 0 };
+
+  const cycleStates = new Map<string, boolean>();
+  const cycles = new Set(waitlisted.map((application) => getCurrentAcademicYear(application.submittedAt)));
+  for (const cycle of cycles) {
+    const range = getAcademicYearDateRange(cycle);
+    if (!range) throw new Error(`Invalid SKEAP waitlist cycle: ${cycle}`);
+    const isPastCycle = range.start < activeRange.start;
+    const state = isPastCycle ? null : await getSkeapWaitlistCycleState(cycle);
+    cycleStates.set(cycle, isPastCycle || state?.isClosed === true);
+  }
+
+  const closedCandidates = waitlisted.filter((application) =>
+    cycleStates.get(getCurrentAcademicYear(application.submittedAt)) === true,
+  );
+  if (closedCandidates.length === 0) return { closedCount: 0 };
+
+  const cycleCounts = new Map<string, number>();
+  const closedApplicants = await prisma.$transaction(async (tx) => {
+    const closed: Array<{
+      applicationId: string;
+      userId: string;
+      email: string;
+      emailNotifications: boolean;
+      applicantName: string;
+      cycle: string;
+      position: number;
+    }> = [];
+    const affectedCycles = new Set<string>();
+
+    for (const application of closedCandidates) {
+      const cycle = getCurrentAcademicYear(application.submittedAt);
+      const nextPosition = (cycleCounts.get(cycle) ?? 0) + 1;
+      const position =
+        application.waitlistFinalPosition ??
+        application.waitlistPosition ??
+        nextPosition;
+      cycleCounts.set(cycle, Math.max(nextPosition, position));
+      const message =
+        `The ${cycle} SKEAP cycle has closed. Your waitlisted application is now closed and will not carry over to another cycle. Your final queue position was #${position}.`;
+      const update = await tx.skeapApplication.updateMany({
+        where: { id: application.id, status: SubmissionStatus.WAITLISTED },
+        data: {
+          status: SubmissionStatus.REJECTED,
+          waitlistPosition: null,
+          waitlistFinalPosition: position,
+          waitlistRemark: "CYCLE_CLOSED",
+        },
+      });
+      if (update.count !== 1) continue;
+
+      if (application.inquiry) {
+        await tx.inquiry.update({
+          where: { id: application.inquiry.id },
+          data: {
+            reviewStatus: "Closed",
+            response: message,
+            respondedAt: new Date(),
+            isResolved: true,
+            lastUpdatedBy: actorId,
+          },
+        });
+      }
+
+      const granteeMessage = await tx.granteeMessage.create({
+        data: {
+          userId: application.userId,
+          senderId: actorId,
+          subject: "SKEAP Waitlist Update — Cycle Closed",
+          body: message,
+        },
+        select: { id: true },
+      });
+      await tx.notification.upsert({
+        where: {
+          userId_sourceKey: {
+            userId: application.userId,
+            sourceKey: `skeap-cycle-closed:${application.id}`,
+          },
+        },
+        create: {
+          userId: application.userId,
+          sourceKey: `skeap-cycle-closed:${application.id}`,
+          message: `SKEAP Waitlist Update — Cycle Closed\n\n${message}`,
+        },
+        update: {
+          message: `SKEAP Waitlist Update — Cycle Closed\n\n${message}`,
+        },
+      });
+      await writeAuditLog(tx, {
+        action: "SKEAP_WAITLIST_CYCLE_FINALIZED",
+        actorId,
+        targetTable: "skeap_applications",
+        targetId: application.id,
+        beforeData: { status: SubmissionStatus.WAITLISTED },
+        afterData: { status: SubmissionStatus.REJECTED, waitlistRemark: "CYCLE_CLOSED" },
+        metadata: { cycle, finalPosition: position, notificationId: granteeMessage.id },
+      });
+
+      affectedCycles.add(cycle);
+      closed.push({
+        applicationId: application.id,
+        userId: application.userId,
+        email: application.user.email,
+        emailNotifications: application.user.emailNotifications,
+        applicantName: application.applicantName || application.user.fullName || application.user.email,
+        cycle,
+        position,
+      });
+    }
+
+    for (const cycle of affectedCycles) {
+      await reindexSkeapWaitlist(tx, cycle);
+    }
+    return closed;
+  });
+
+  if (closedApplicants.length === 0) return { closedCount: 0 };
+  await refreshSkeapApplicationsAdminView();
+
+  const emailApplicants = closedApplicants.filter(
+    (applicant) => applicant.emailNotifications && applicant.email,
+  );
+  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD && emailApplicants.length > 0) {
+    try {
+      const transporter = createGmailTransporter();
+      const emailResults = await Promise.allSettled(
+        emailApplicants.map((applicant) =>
+          sendBroadcastEmail(
+            transporter,
+            applicant.userId,
+            applicant.email,
+            "SKEAP Waitlist Update — Cycle Closed",
+            `The ${applicant.cycle} SKEAP cycle has closed. Your waitlisted application is now closed and will not carry over to another cycle. Your final queue position was #${applicant.position}.`,
+          ),
+        ),
+      );
+      emailResults.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error("Could not send SKEAP cycle-closure email.", {
+            applicationId: emailApplicants[index]?.applicationId,
+            error: result.reason,
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Could not initialize SKEAP cycle-closure email delivery.", error);
+    }
+  }
+
+  return { closedCount: closedApplicants.length };
 }
 
 export function skeapPendingApplicationsWhere(academicYearRange: { start: Date; end: Date }): Prisma.InquiryWhereInput {

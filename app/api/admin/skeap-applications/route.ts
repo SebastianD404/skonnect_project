@@ -3,17 +3,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import {
-  mapInquiryToApplication,
-  skeapStatusWhere,
-  SKEAP_APPLICATION_SELECT,
-} from "@/lib/skeap-applications";
+import { mapInquiryToApplication, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
-import { skeapApplicationInquiryWhere } from "@/lib/inquiries/filters";
 import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
+import {
+  countSkeapAdminQueueRows,
+  getSkeapAdminQueueRows,
+  getSkeapAdminViewCounts,
+  type SkeapAdminQueueFilter,
+} from "@/lib/admin-application-views";
 
 const PAGE_SIZE = 15;
+type SelectedSkeapInquiry = Prisma.InquiryGetPayload<{ select: typeof SKEAP_APPLICATION_SELECT }>;
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -30,114 +32,98 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const cursorId = request.nextUrl.searchParams.get("cursorId");
-    const cursorDateValue = request.nextUrl.searchParams.get("cursorDate");
-    const academicYear = request.nextUrl.searchParams.get("academicYear") ?? getCurrentAcademicYear();
-    const academicYearRange = getAcademicYearDateRange(academicYear);
+    const params = request.nextUrl.searchParams;
+    const cursorId = params.get("cursorId");
+    const cursorDateValue = params.get("cursorDate");
     const cursorDate = cursorDateValue ? new Date(cursorDateValue) : null;
-    if (!academicYearRange) {
+    const academicYear = params.get("academicYear") ?? getCurrentAcademicYear();
+    const range = getAcademicYearDateRange(academicYear);
+    const searchTerm = params.get("search")?.trim() ?? "";
+    const isSearch = searchTerm.length >= 2;
+    const filter: SkeapAdminQueueFilter = isSearch
+      ? "search"
+      : params.get("filter") === "withdrawn"
+        ? "withdrawn"
+        : "queue";
+
+    if (!range) {
       return NextResponse.json({ error: "Invalid academic year." }, { status: 400 });
     }
     if (cursorId && (!cursorDate || Number.isNaN(cursorDate.getTime()))) {
       return NextResponse.json({ error: "Invalid pagination cursor." }, { status: 400 });
     }
 
-    const subjectWhere: Prisma.InquiryWhereInput = skeapApplicationInquiryWhere;
-    const excludeCancelled: Prisma.InquiryWhereInput = {
-      reviewStatus: { contains: "cancel", mode: Prisma.QueryMode.insensitive },
-    };
-    const excludeApproved: Prisma.InquiryWhereInput = {
-      reviewStatus: { contains: "approve", mode: Prisma.QueryMode.insensitive },
-    };
-    const academicYearWhere: Prisma.InquiryWhereInput = {
-      createdAt: { gte: academicYearRange.start, lt: academicYearRange.end },
-    };
-    const baseWhere: Prisma.InquiryWhereInput = {
-      ...subjectWhere,
-      NOT: [excludeCancelled],
-    };
-    const queueBaseWhere: Prisma.InquiryWhereInput = {
-      ...baseWhere,
-      NOT: [excludeCancelled, excludeApproved],
-    };
-    const cursorWhere: Prisma.InquiryWhereInput[] = cursorId && cursorDate
-      ? [{
-          OR: [
-            { createdAt: { lt: cursorDate } },
-            { createdAt: cursorDate, id: { lt: cursorId } },
-          ],
-        }]
-      : [];
-
-    const metricsPromise = cursorId
-      ? Promise.resolve(null)
-      : Promise.all([
-          prisma.inquiry.count({
-            where: {
-              ...queueBaseWhere,
-              AND: [academicYearWhere, skeapStatusWhere(["pending"])],
-            },
-          }),
-          prisma.inquiry.count({
-            where: {
-              ...queueBaseWhere,
-              AND: [academicYearWhere, skeapStatusWhere(["pre_qualified"])],
-            },
-          }),
-          prisma.inquiry.count({
-            where: {
-              ...queueBaseWhere,
-              AND: [academicYearWhere, skeapStatusWhere(["resubm", "resubmit", "resubmitted"])],
-            },
-          }),
-          prisma.inquiry.count({
-            where: {
-              ...baseWhere,
-              AND: [academicYearWhere, skeapStatusWhere(["approve", "approved"])],
-            },
-          }),
-          getSkeapCapacityCount(),
-          getSkeapMaxSlots(),
-        ]).then(([pending, physicalCtc, resubmitted, approved, activeGranteeCount, maxSlots]) => ({
-          counts: { pending, physicalCtc, resubmitted, approved },
-          capacityFull: activeGranteeCount >= maxSlots,
-        }));
-
-    const [inquiries, metrics, permanentRecords] = await Promise.all([
-      prisma.inquiry.findMany({
-        where: {
-          ...baseWhere,
-          AND: [
-            academicYearWhere,
-            skeapStatusWhere(["pending", "pre_qualified", "resubm", "respond", "approve"]),
-            ...cursorWhere,
-          ],
-        },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    const [rows, viewCounts, totalCount, activeGranteeCount, maxSlots] = await Promise.all([
+      getSkeapAdminQueueRows({
+        range,
+        filter,
+        search: isSearch ? searchTerm : undefined,
+        cursor: cursorId && cursorDate ? { id: cursorId, createdAt: cursorDate } : null,
         take: PAGE_SIZE + 1,
-        select: SKEAP_APPLICATION_SELECT,
       }),
-      metricsPromise,
-      getPermanentlyDisqualifiedSkeapRecords(),
+      cursorId ? Promise.resolve(null) : getSkeapAdminViewCounts(range),
+      isSearch
+        ? countSkeapAdminQueueRows({ range, filter: "search", search: searchTerm })
+        : Promise.resolve(null),
+      cursorId ? Promise.resolve(null) : getSkeapCapacityCount(),
+      cursorId ? Promise.resolve(null) : getSkeapMaxSlots(),
     ]);
 
-    const hasNextPage = inquiries.length > PAGE_SIZE;
-    const page = inquiries.slice(0, PAGE_SIZE);
-    const lastInquiry = page[page.length - 1];
+    const hasNextPage = rows.length > PAGE_SIZE;
+    const pageRows = rows.slice(0, PAGE_SIZE);
+    const inquiryIds = pageRows
+      .map((row) => row.inquiryId)
+      .filter((id): id is string => Boolean(id));
+    const [inquiries, permanentRecords] = await Promise.all([
+      inquiryIds.length
+        ? prisma.inquiry.findMany({
+            where: { id: { in: inquiryIds } },
+            select: SKEAP_APPLICATION_SELECT,
+          })
+        : Promise.resolve([] as SelectedSkeapInquiry[]),
+      getPermanentlyDisqualifiedSkeapRecords(),
+    ]);
+    const inquiriesById = new Map<string, SelectedSkeapInquiry>();
+    for (const inquiry of inquiries) inquiriesById.set(inquiry.id, inquiry);
+    const applications = inquiryIds
+      .map((id) => inquiriesById.get(id))
+      .filter((inquiry): inquiry is NonNullable<typeof inquiry> => Boolean(inquiry))
+      .map((inquiry) => mapInquiryToApplication(inquiry, permanentRecords));
+    const lastRow = pageRows[pageRows.length - 1];
+    const metrics = viewCounts && activeGranteeCount !== null && maxSlots !== null
+      ? {
+          counts: {
+            pending: viewCounts.pendingCount,
+            physicalCtc: viewCounts.physicalCtcCount,
+            resubmitted: viewCounts.resubmittedCount,
+            withdrawn: viewCounts.withdrawnCount,
+          },
+          capacityFull: activeGranteeCount >= maxSlots,
+        }
+      : null;
 
     return NextResponse.json({
-      applications: page.map((inquiry) =>
-        mapInquiryToApplication(inquiry, permanentRecords)
-      ),
+      applications,
       counts: metrics?.counts,
       capacityFull: metrics?.capacityFull,
+      totalCount,
       hasNextPage,
-      nextCursor: hasNextPage && lastInquiry
-        ? { id: lastInquiry.id, createdAt: lastInquiry.createdAt.toISOString() }
+      pendingCount: viewCounts?.pendingCount,
+      resubmittedCount: viewCounts?.resubmittedCount,
+      physicalCtcCount: viewCounts?.physicalCtcCount,
+      withdrawnCount: viewCounts?.withdrawnCount,
+      nextCursor: hasNextPage && lastRow?.inquiryId && lastRow.inquiryCreatedAt
+        ? { id: lastRow.inquiryId, createdAt: lastRow.inquiryCreatedAt.toISOString() }
         : null,
     });
   } catch (error) {
     console.error("Failed to load SKEAP application page:", error);
-    return NextResponse.json({ error: "Failed to load applications." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Failed to load applications.",
+        detail: error instanceof Error ? error.message : "Unexpected server error.",
+      },
+      { status: 500 },
+    );
   }
 }

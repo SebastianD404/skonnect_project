@@ -1,124 +1,132 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { ensureProfile } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
-export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+function collectUrls(value: unknown, urls: Set<string>) {
+  if (typeof value === "string") {
+    for (const url of value.match(/https?:\/\/[^\s"'<>]+/g) ?? []) urls.add(url);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectUrls(entry, urls));
+    return;
+  }
+  if (value && typeof value === "object") {
+    Object.values(value).forEach((entry) => collectUrls(entry, urls));
+  }
+}
+
+export async function DELETE(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const params = await context.params;
-    let applicationId: string | undefined = params?.id;
-
-    if (!applicationId) {
-      applicationId = request.nextUrl.searchParams.get("id") || undefined;
-    }
-
-    if (!applicationId) {
-      try {
-        const body = await request.json().catch(() => null);
-        if (body && typeof body.id === "string") applicationId = body.id;
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    if (!applicationId) {
-      return NextResponse.json({ error: "Missing application id" }, { status: 400 });
-    }
+    const { id } = await context.params;
+    if (!id) return NextResponse.json({ error: "Missing application id." }, { status: 400 });
 
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
     const appUser = await ensureProfile(user);
-    if (!appUser) {
-      return NextResponse.json({ error: "User not found" }, { status: 401 });
-    }
+    if (!appUser) return NextResponse.json({ error: "User not found." }, { status: 401 });
+    if (appUser.role !== Role.YOUTH) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
-    const inquiry = await prisma.inquiry.findUnique({ where: { id: applicationId } });
-    if (!inquiry) {
-      return NextResponse.json({ error: "Application not found" }, { status: 404 });
-    }
-
-    if (inquiry.userId !== appUser.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    // Collect possible file paths to remove from storage
-    const bucketName = "public image";
-    const urls: string[] = [];
-
-    // Extract URLs from message body
-    if (typeof inquiry.message === "string") {
-      // matchAll returns an iterator of RegExpMatchArray, but Array.from types it as unknown[] under strict checks
-      const matches = Array.from((inquiry.message || "").matchAll(/https?:\/\/[^\"]+/g)) as RegExpMatchArray[];
-      matches.forEach((m) => {
-        if (typeof m[0] === "string") urls.push(m[0]);
-      });
-    }
-
-    // Extract file URLs from reviewThread attachments
-    const thread = Array.isArray(inquiry.reviewThread) ? inquiry.reviewThread : [];
-    thread.forEach((entry: any) => {
-      if (Array.isArray(entry.attachments)) {
-        entry.attachments.forEach((att: any) => {
-          if (att && typeof att.fileUrl === "string") urls.push(att.fileUrl);
-        });
-      }
+    const inquiry = await prisma.inquiry.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        message: true,
+        reviewThread: true,
+        application: {
+          select: {
+            id: true,
+            userId: true,
+            status: true,
+            uploadedFiles: true,
+            enrollmentFileUrl: true,
+            reportCardFileUrl: true,
+            photoFileUrl: true,
+          },
+        },
+      },
     });
-
-    // Map public URLs back to storage paths. Supabase public URL pattern: {SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}
-    const storagePaths: string[] = [];
-    const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "") + "/storage/v1/object/public/" + encodeURIComponent(bucketName) + "/";
-
-    for (const url of urls) {
-      try {
-        if (url.startsWith(base)) {
-          const path = decodeURIComponent(url.substring(base.length));
-          if (path) storagePaths.push(path);
-        }
-      } catch (e) {
-        // ignore
-      }
+    if (!inquiry) return NextResponse.json({ error: "Application not found." }, { status: 404 });
+    if (inquiry.userId !== appUser.id || inquiry.application?.userId !== appUser.id) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+    if (!inquiry.application || inquiry.application.status !== "DRAFT") {
+      return NextResponse.json(
+        { error: "Submitted applications cannot be deleted. Withdraw an eligible application instead." },
+        { status: 403 },
+      );
     }
 
-    // Delete files from storage if any
+    const urls = new Set<string>();
+    collectUrls(inquiry.message, urls);
+    collectUrls(inquiry.reviewThread, urls);
+    collectUrls(inquiry.application.uploadedFiles, urls);
+    collectUrls(
+      [
+        inquiry.application.enrollmentFileUrl,
+        inquiry.application.reportCardFileUrl,
+        inquiry.application.photoFileUrl,
+      ],
+      urls,
+    );
+
+    const bucketName = "public image";
+    const storageBase =
+      `${(process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "")}/storage/v1/object/public/${encodeURIComponent(bucketName)}/`;
+    const storagePaths = Array.from(urls)
+      .filter((url) => url.startsWith(storageBase))
+      .map((url) => {
+        try {
+          return decodeURIComponent(url.slice(storageBase.length));
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean);
+
+    const deletion = await prisma.skeapApplication.deleteMany({
+      where: {
+        id: inquiry.application.id,
+        userId: appUser.id,
+        status: "DRAFT",
+      },
+    });
+    if (deletion.count !== 1) {
+      return NextResponse.json(
+        { error: "Only an unsubmitted draft can be deleted. The application status may have changed." },
+        { status: 403 },
+      );
+    }
+
     if (storagePaths.length > 0) {
       try {
         const { error } = await supabase.storage.from(bucketName).remove(storagePaths);
-        if (error) {
-          console.warn("Failed to remove storage files", { error, storagePaths });
-        }
-      } catch (e) {
-        console.warn("Storage removal failed", e);
+        if (error) console.warn("Failed to remove draft upload files from storage.", { error, storagePaths });
+      } catch (storageError) {
+        console.warn("Draft was deleted but storage cleanup failed.", { storageError, storagePaths });
       }
     }
 
-    // Remove inquiry row in a transaction
-    await prisma.$transaction(async (tx) => {
-      await (tx as any).inquiry.delete({ where: { id: applicationId } });
-    });
-
-    // Revalidate applicant and admin lists
+    await refreshSkeapApplicationsAdminView();
     try {
       revalidatePath("/applications");
       revalidatePath("/dashboard");
       revalidatePath("/admin/skeap-applications");
       revalidatePath("/admin");
-    } catch (err) {
-      // non-fatal
-      console.warn("Revalidation failed for delete route", err);
+    } catch (revalidationError) {
+      console.warn("Draft deletion succeeded but page revalidation failed.", revalidationError);
     }
 
     return NextResponse.json({ success: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to delete application";
-    console.error("Delete application error:", err);
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch (error) {
+    console.error("Delete draft error:", error);
+    return NextResponse.json({ error: "Unable to delete draft. Please try again." }, { status: 500 });
   }
 }

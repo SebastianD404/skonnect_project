@@ -5,6 +5,7 @@ import { writeAuditLog } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -80,6 +81,7 @@ export async function DELETE(
       return { id: application.id, applicantName: application.applicantName || "Applicant" };
     });
 
+    await refreshSkeapApplicationsAdminView();
     return NextResponse.json({ success: true, application: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to remove applicant from the waitlist.";

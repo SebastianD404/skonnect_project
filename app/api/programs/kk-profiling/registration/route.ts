@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 export async function PUT(request: NextRequest) {
   const supabase = await createClient();
@@ -103,5 +104,6 @@ export async function PUT(request: NextRequest) {
     return saved;
   });
 
+  await refreshKkProfilingApplicationsAdminView();
   return NextResponse.json(updated);
 }

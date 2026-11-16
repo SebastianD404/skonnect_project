@@ -3,7 +3,7 @@ import { Users } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { hasProfilingRegistrationColumn, listProfilingRegistrations, prisma } from "@/lib/prisma";
 import { formatDisplayName } from "@/lib/display-name";
-import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
+import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
 import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import { KKProfilingRegistrationsTable } from "../kk-profiling/KKProfilingRegistrationsTable";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
@@ -33,7 +33,7 @@ export default async function RegistryMembersPage({
   cohort: "all" | "regular";
 }) {
   const admin = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
-  await checkAndArchiveAgedOutMembers(admin.id);
+  await sweepAgedOutKkProfiles(admin.id);
 
   const resolved = await searchParams;
   const rawPage = Array.isArray(resolved.page) ? resolved.page[0] : resolved.page;
@@ -232,11 +232,8 @@ export default async function RegistryMembersPage({
   const membersForTable = pagedMembers.map((member) => {
     const applicationStatuses = member.user?.skeapApplications.map((application) => application.status) ?? [];
     const granteeStatus = member.user?.grantee?.status;
-    const isActiveScholar =
-      member.user?.role === Role.GRANTEE &&
-      granteeStatus === GranteeStatus.ACTIVE;
-    const isProbationaryGrantee =
-      member.user?.role === Role.GRANTEE && granteeStatus === GranteeStatus.PROBATIONARY;
+    const isActiveScholar = granteeStatus === GranteeStatus.ACTIVE;
+    const isProbationaryGrantee = granteeStatus === GranteeStatus.PROBATIONARY;
     const skeapStatus = isActiveScholar
       ? GranteeStatus.ACTIVE
       : isProbationaryGrantee

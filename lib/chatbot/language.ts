@@ -7,6 +7,7 @@ const ILOCANO_MARKERS = new Set([
   "awan", "papanak", "alaen", "idjay", "ijay", "kurang", "mali", "kamali",
   "na-protektaran", "impormasyonko", "natalged", "ngata", "dagitoy", "ditoy",
   "agtuloy", "agtultuloy", "aginggana", "dytuy", "pylng", "mapalpas",
+  "kaano", "aglukat", "aggraduar",
 ]);
 
 const FILIPINO_MARKERS = new Set([

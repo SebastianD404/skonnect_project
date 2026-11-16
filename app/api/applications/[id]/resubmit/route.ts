@@ -10,6 +10,7 @@ import {
 import { ensureProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { isSkeapApplicationRejected, isSkeapApplicationReturned } from "@/lib/skeap-applications";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 type ReplacementUpload = {
   slotId: string;
@@ -203,5 +204,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     );
   }
 
+  await refreshSkeapApplicationsAdminView();
   return NextResponse.json({ inquiry: result.inquiry });
 }

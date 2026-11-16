@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { uploadPrivateDocument } from "@/lib/private-documents";
 import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 const ALLOWED_TYPES = new Set([
   "application/pdf",
@@ -137,6 +138,7 @@ export async function POST(request: NextRequest) {
       return saved;
     });
 
+    await refreshKkProfilingApplicationsAdminView();
     return NextResponse.json({
       success: true,
       files: uploadedFiles,

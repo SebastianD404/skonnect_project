@@ -3,7 +3,7 @@ const tableRows = Array.from({ length: 5 }, (_, index) => index);
 
 export default function AdminMembersLoading() {
   return (
-    <div role="status" aria-label="Loading members" className="w-full max-w-[1200px] mx-auto flex flex-col gap-6 sm:gap-8 animate-pulse text-slate-950">
+    <div role="status" aria-label="Loading members" className="w-full max-w-[1200px] mx-auto flex flex-col gap-6 sm:gap-8 animate-pulse motion-reduce:animate-none text-slate-950">
       <header>
         <div>
           <div className="mb-2 h-3 w-28 rounded bg-slate-200" />

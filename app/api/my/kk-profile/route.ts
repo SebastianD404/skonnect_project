@@ -48,41 +48,40 @@ async function getKKProfile() {
 
   const appUser = await ensureProfile(user);
   if (!appUser) {
-    return NextResponse.json({ error: "User profile not found" }, { status: 404 });
+    return NextResponse.json({
+      profile: null,
+      hasVerifiedKkProfile: false,
+      requiresKkProfiling: true,
+    });
   }
 
-  const profile = await prisma.user.findUnique({
-    where: { id: appUser.id },
-    select: {
-      id: true,
-      fullName: true,
-      email: true,
-      phoneNumber: true,
-      kkProfile: {
-        select: {
-          id: true,
-          middleName: true,
-          fullName: true,
-          purok: true,
-          addressLine: true,
-          barangay: true,
-          birthDate: true,
-          placeOfBirth: true,
-          contactNumber: true,
-          email: true,
-          isVerified: true,
+  const [profile, latestRegistration, ageOutRegistration] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: appUser.id },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phoneNumber: true,
+        kkProfile: {
+          select: {
+            id: true,
+            middleName: true,
+            fullName: true,
+            purok: true,
+            addressLine: true,
+            barangay: true,
+            birthDate: true,
+            placeOfBirth: true,
+            contactNumber: true,
+            email: true,
+            isVerified: true,
+          },
         },
       },
-    },
-  });
-
-  if (!profile?.kkProfile) {
-    return NextResponse.json({ error: "KK profile not found" }, { status: 404 });
-  }
-
-  const [latestRegistration, ageOutRegistration] = await Promise.all([
+    }),
     prisma.profilingRegistration.findFirst({
-      where: { userId: appUser.id },
+      where: { userId: appUser.id, program: "KK" },
       orderBy: { submittedAt: "desc" },
       select: {
         id: true,
@@ -107,6 +106,8 @@ async function getKKProfile() {
         noAssemblyReason: true,
         reviewStatus: true,
         reviewNotes: true,
+        withdrawnAt: true,
+        withdrawalReason: true,
         submittedAt: true,
         idDocumentType: true,
         idFrontFileUrl: true,
@@ -119,7 +120,10 @@ async function getKKProfile() {
     prisma.profilingRegistration.findFirst({
       where: {
         userId: appUser.id,
-        archivedReason: { in: [KK_MEMBER_AGE_OUT_REASON, "Aged Out (Turned 31)"] },
+        program: "KK",
+        archivedReason: {
+          in: [KK_MEMBER_AGE_OUT_REASON, "Aged Out (31+)", "Aged Out (Turned 31)"],
+        },
         archivedAt: { not: null },
       },
       orderBy: { archivedAt: "desc" },
@@ -127,12 +131,26 @@ async function getKKProfile() {
     }),
   ]);
 
+  const hasApprovedRegistration =
+    latestRegistration?.reviewStatus?.trim().toLowerCase() === "approved";
+  const hasVerifiedKkProfile =
+    Boolean(profile?.kkProfile?.isVerified) && hasApprovedRegistration;
+  if (!profile?.kkProfile || !hasVerifiedKkProfile) {
+    return NextResponse.json({
+      profile: null,
+      hasVerifiedKkProfile: false,
+      requiresKkProfiling: true,
+    });
+  }
+
   const status = getKKProfilingReviewStatus(
     latestRegistration?.reviewStatus,
     profile.kkProfile.isVerified,
   );
 
   return NextResponse.json({
+    hasVerifiedKkProfile: true,
+    requiresKkProfiling: false,
     profile: {
       id: profile.kkProfile.id,
       middleName: profile.kkProfile.middleName,
@@ -151,6 +169,8 @@ async function getKKProfile() {
         ? { archivedAt: ageOutRegistration.archivedAt }
         : null,
       reviewNotes: latestRegistration?.reviewNotes ?? null,
+      withdrawnAt: latestRegistration?.withdrawnAt ?? null,
+      withdrawalReason: latestRegistration?.withdrawalReason ?? null,
       registrationSubmittedAt: latestRegistration?.submittedAt ?? null,
       idDocumentType: latestRegistration?.idDocumentType ?? null,
       idFrontFileUrl: latestRegistration?.idFrontFileUrl ?? null,
@@ -181,6 +201,8 @@ async function getKKProfile() {
             assemblyTimes: latestRegistration.assemblyTimes,
             noAssemblyReason: latestRegistration.noAssemblyReason,
             reviewStatus: latestRegistration.reviewStatus,
+            withdrawnAt: latestRegistration.withdrawnAt,
+            withdrawalReason: latestRegistration.withdrawalReason,
             submittedAt: latestRegistration.submittedAt,
             idDocumentType: latestRegistration.idDocumentType,
             idFrontFileUrl: latestRegistration.idFrontFileUrl,

@@ -18,12 +18,14 @@ import {
   getSkeapEducationLevelGuardError,
   getSkeapReapplicationEligibility,
   getSkeapSubmissionGuardError,
+  isSkeapApplicationBlockingReapplication,
 } from "@/lib/skeap-application-guard";
 import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import {
   getSkeapWaitlistCycleState,
 } from "@/lib/skeap-waitlist-cycle";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 const EDUCATION_LEVELS = ["elementary", "highSchool", "college", "vocational"] as const;
 const EDUCATION_FIELDS = [
@@ -141,6 +143,9 @@ export async function GET() {
     ]);
     const eligibility = getSkeapReapplicationEligibility(permanentRecords, identityCandidate);
     const currentCycleApplication = currentCycleApplications[0];
+    const hasCurrentApplication = isSkeapApplicationBlockingReapplication(
+      currentCycleApplication?.status,
+    );
     const initialUploadedFiles = eligibility.eligible
       ? getSkeapApplicationResumeFiles(currentCycleApplication?.status, currentCycleApplication?.uploadedFiles)
       : {};
@@ -148,6 +153,7 @@ export async function GET() {
     return NextResponse.json(
       {
         hasApplication: Boolean(applicationInquiry),
+        hasCurrentApplication,
         reviewStatus: applicationInquiry?.reviewStatus ?? null,
         applicationStatus: applicationInquiry?.application?.status ?? null,
         eligibility,
@@ -463,28 +469,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Applicants must be between 15 and 30 years old." }, { status: 400 });
     }
 
-    if (appUser.kkStatus !== "APPROVED") {
+    const [latestKkRegistration, kkProfile] = await Promise.all([
+      prisma.profilingRegistration.findFirst({
+        where: { userId: appUser.id },
+        orderBy: { submittedAt: "desc" },
+        select: {
+          reviewStatus: true,
+          birthDate: true,
+          photoFileUrl: true,
+          birthCertificateFileUrl: true,
+          idFrontFileUrl: true,
+          idBackFileUrl: true,
+          idSingleFileUrl: true,
+        },
+      }),
+      prisma.user.findUnique({
+        where: { id: appUser.id },
+        select: { kkProfile: { select: { isVerified: true } } },
+      }),
+    ]);
+    const hasVerifiedKkProfile =
+      latestKkRegistration?.reviewStatus?.trim().toLowerCase() === "approved" &&
+      kkProfile?.kkProfile?.isVerified === true;
+    if (!hasVerifiedKkProfile) {
       return NextResponse.json(
         { error: "Your KK Profiling must be approved before you can apply for SKEAP." },
         { status: 403 },
       );
     }
 
-    const approvedKkRegistration = await prisma.profilingRegistration.findFirst({
-      where: {
-        userId: appUser.id,
-        reviewStatus: { equals: "Approved", mode: "insensitive" },
-      },
-      orderBy: { submittedAt: "desc" },
-      select: {
-        birthDate: true,
-        photoFileUrl: true,
-        birthCertificateFileUrl: true,
-        idFrontFileUrl: true,
-        idBackFileUrl: true,
-        idSingleFileUrl: true,
-      },
-    });
+    const approvedKkRegistration = latestKkRegistration;
     if (
       !approvedKkRegistration?.photoFileUrl ||
       !approvedKkRegistration.birthCertificateFileUrl ||
@@ -611,7 +625,13 @@ export async function POST(request: NextRequest) {
       const activeApplication = await tx.skeapApplication.findFirst({
         where: {
           userId: appUser.id,
-          status: { in: ["PENDING", "PRE_QUALIFIED", "RETURNED_FOR_EDIT", "WAITLISTED"] },
+          status: {
+            notIn: [
+              SubmissionStatus.DRAFT,
+              SubmissionStatus.REJECTED,
+              SubmissionStatus.WITHDRAWN,
+            ],
+          },
         },
         select: { id: true },
       });
@@ -668,6 +688,7 @@ export async function POST(request: NextRequest) {
       return { applicationId: application.id, inquiryId: inquiry.id, isWaitlisted, waitlistPosition, maxSlots };
     });
 
+    await refreshSkeapApplicationsAdminView();
     return NextResponse.json({
       success: true,
       applicationId: created.applicationId,

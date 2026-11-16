@@ -174,6 +174,8 @@ model SkeapApplication {
   physicalDocumentsConfirmed Boolean         @default(false)
   submittedAt              DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
+  withdrawnAt              DateTime?
+  withdrawalReason         String?
   applicantName            String?
   permanentAddress         String?
   dateOfBirth              DateTime?
@@ -211,6 +213,33 @@ model SkeapApplication {
   @@map("skeap_applications")
 }
 
+view skeap_applications_admin_mv {
+  id                    String   @unique
+  inquiryId             String?
+  inquiryCreatedAt      DateTime?
+  userId                String
+  fullName              String
+  email                 String
+  age                   Int?
+  phone                 String?
+  sitio                 String?
+  school                String?
+  educationLevel        String?
+  course                String?
+  yearLevel             String?
+  status                String
+  reviewStatus          String?
+  withdrawnAt           DateTime?
+  withdrawalReason      String?
+  submittedAt           DateTime
+  updatedAt             DateTime
+  documentCount         Int
+  ocrNameMismatchCount  Int
+  hasOcrNameMismatch    Boolean
+
+  @@map("skeap_applications_admin_mv")
+}
+
 model SystemSetting {
   id        String   @id @default(cuid())
   key       String   @unique
@@ -246,8 +275,11 @@ model ProfilingRegistration {
   consent                           Boolean  @default(true)
   submittedAt                       DateTime @default(now())
   reviewStatus                      String   @default("Pending")
+  withdrawnAt                       DateTime?
+  withdrawalReason                  String?
   archivedReason                    String?  @map("archived_reason")
   archivedAt                        DateTime? @map("archived_at")
+  archivedBy                        String?  @map("archived_by")
   reviewNotes                       String?
   idBackFileUrl                     String?
   birthCertificateFileUrl           String?
@@ -263,6 +295,56 @@ model ProfilingRegistration {
   @@index([reviewStatus, submittedAt(sort: Desc)])
   @@index([reviewStatus, birthDate])
   @@map("kk_profiling_registrations")
+}
+
+view kk_profiling_applications_admin_mv {
+  id                       String   @unique
+  program                  String
+  userId                   String?
+  fullName                 String
+  email                    String
+  address                  String
+  sex                      String
+  age                      Int
+  ageGroup                 String?
+  birthDate                DateTime
+  facebook                 String
+  contactNumber            String
+  civilStatus              String
+  youthClassification      String
+  classification           String
+  youthAgeGroup            String
+  workStatus               String
+  educationalBackground    String
+  registeredSKVoter        String
+  isSkVoter                Boolean
+  votedLastSK              String
+  registeredNationalVoter  String
+  attendedKKAssembly       String
+  assemblyTimes            String?
+  noAssemblyReason         String?
+  consent                  Boolean
+  submittedAt              DateTime
+  reviewStatus             String
+  status                   String
+  withdrawnAt              DateTime?
+  withdrawalReason         String?
+  archivedReason           String?
+  archivedAt               DateTime?
+  reviewNotes              String?
+  idBackFileUrl            String?
+  birthCertificateFileUrl  String?
+  idDocumentType           String?
+  idFrontFileUrl           String?
+  photoFileUrl             String?
+  idSingleFileUrl          String?
+  residencyStatementAcknowledgement Boolean
+  middleName               String
+  requiresManualReview     Boolean
+  skeapStatus              String?
+  granteeId                String?
+
+  @@map("kk_profiling_applications_admin_mv")
 }
 
 model Announcement {
@@ -565,6 +647,7 @@ enum EventStatus {
 }
 
 enum SubmissionStatus {
+  DRAFT
   PENDING
   PRE_QUALIFIED
   APPROVED
@@ -572,6 +655,7 @@ enum SubmissionStatus {
   RETURNED_FOR_EDIT
   WAITLISTED
   REMOVED
+  WITHDRAWN
 }
 
 enum Language {

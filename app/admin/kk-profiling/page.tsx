@@ -1,4 +1,8 @@
-import { getProfilingRegistrationCount, getProfilingRegistrationCountByStatus, hasProfilingRegistrationColumn, listProfilingRegistrations } from "@/lib/prisma";
+import {
+  getKkProfilingAdminViewCount,
+  listKkProfilingAdminViewRows,
+  type KkProfilingAdminViewRow,
+} from "@/lib/admin-application-views";
 import { requireRole } from "@/lib/auth";
 import { Role } from "@prisma/client";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
@@ -6,6 +10,21 @@ import { KKProfilingRegistrationsTable } from "@/app/admin/kk-profiling/KKProfil
 import { KKProfilingTableSearchField, KKProfilingTableSearchProvider } from "./KKProfilingTableSearch";
 import KKProfilingStatusTabs from "./KKProfilingStatusTabs";
 import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
+import type { KKProfilingRegistration } from "./types";
+
+function toKKProfilingRegistration(row: KkProfilingAdminViewRow): KKProfilingRegistration {
+  return {
+    ...row,
+    reviewStatus: row.status,
+    user: {
+      fullName: row.fullName,
+      email: row.email,
+      grantee: row.granteeId && row.skeapStatus
+        ? { id: row.granteeId, status: row.skeapStatus }
+        : null,
+    },
+  };
+}
 
 export default async function AdminKKProfilingPage({ searchParams }: { searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; status?: string | string[]; focus?: string | string[] }> }) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
@@ -21,59 +40,30 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
   const requestedPageSize = Number(rawPageSize);
   const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const requestedStatus = String(rawStatus || "pending").toLowerCase();
-  const statusParam = ["pending", "returned", "resubmitted", "approved", "rejected"].includes(requestedStatus)
+  const statusParam = ["pending", "returned", "resubmitted", "withdrawn", "rejected"].includes(requestedStatus)
     ? requestedStatus
     : "pending";
   const skip = (page - 1) * pageSize;
+  const statusLabel =
+    statusParam === "returned"
+      ? "Returned"
+      : statusParam === "resubmitted"
+        ? "Resubmitted"
+        : statusParam === "withdrawn"
+          ? "Withdrawn"
+          : statusParam === "rejected"
+            ? "Rejected"
+            : "Pending";
 
-  const hasReviewStatusColumn = await hasProfilingRegistrationColumn("reviewStatus");
-  const whereFilter =
-    hasReviewStatusColumn && statusParam === "approved"
-      ? { reviewStatus: "Approved" }
-      : hasReviewStatusColumn && statusParam === "pending"
-      ? { reviewStatus: "Pending" }
-      : hasReviewStatusColumn && statusParam === "returned"
-      ? { reviewStatus: "Returned" }
-      : hasReviewStatusColumn && statusParam === "resubmitted"
-      ? { reviewStatus: "Resubmitted" }
-      : hasReviewStatusColumn && statusParam === "rejected"
-      ? { reviewStatus: "Rejected" }
-      : undefined;
-
-  const selectedStatus = whereFilter?.reviewStatus;
-  const [totalCount, registrations, focusedRegistrations] = await Promise.all([
-    hasReviewStatusColumn && selectedStatus
-      ? getProfilingRegistrationCountByStatus(selectedStatus)
-      : getProfilingRegistrationCount(),
-    listProfilingRegistrations({
-      where: whereFilter,
-      orderBy: { submittedAt: "desc" },
-      take: pageSize,
-      skip,
-      include: {
-        user: {
-          select: {
-            fullName: true,
-            email: true,
-          },
-        },
-      },
-    }),
-    hasReviewStatusColumn && selectedStatus && focusId
-      ? listProfilingRegistrations({
-          where: { ...whereFilter, id: focusId },
-          take: 1,
-          include: {
-            user: {
-              select: {
-                fullName: true,
-                email: true,
-              },
-            },
-          },
-        })
+  const [totalCount, rows, focusedRows] = await Promise.all([
+    getKkProfilingAdminViewCount(statusLabel),
+    listKkProfilingAdminViewRows({ status: statusLabel, take: pageSize, skip }),
+    focusId
+      ? listKkProfilingAdminViewRows({ status: statusLabel, id: focusId, take: 1, skip: 0 })
       : Promise.resolve([]),
   ]);
+  const registrations = rows.map(toKKProfilingRegistration);
+  const focusedRegistrations = focusedRows.map(toKKProfilingRegistration);
 
   const latestRegistrations = focusedRegistrations.length > 0
     ? [
@@ -81,16 +71,6 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
         ...registrations.filter((registration) => registration.id !== focusId),
       ].slice(0, pageSize)
     : registrations;
-  const statusLabel = statusParam === "approved"
-    ? "Approved"
-    : statusParam === "returned"
-    ? "Returned"
-    : statusParam === "resubmitted"
-    ? "Resubmitted"
-    : statusParam === "rejected"
-    ? "Rejected"
-    : "Pending";
-
   return (
     <KKProfilingTableSearchProvider>
       <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8 pb-12 text-slate-950">
@@ -113,12 +93,12 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
             <KKProfilingTableSearchField />
             <KKProfilingStatusTabs
               currentStatus={
-                statusParam === "approved"
-                  ? "approved"
-                  : statusParam === "returned"
+                statusParam === "returned"
                   ? "returned"
                   : statusParam === "resubmitted"
                   ? "resubmitted"
+                  : statusParam === "withdrawn"
+                  ? "withdrawn"
                   : statusParam === "rejected"
                   ? "rejected"
                   : "pending"

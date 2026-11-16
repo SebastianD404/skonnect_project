@@ -11,6 +11,15 @@ import { DEFAULT_SKEAP_MAX_SLOTS, getSkeapCapacityCount, getSkeapMaxSlots, lockS
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import {
+  sweepAgedOutWaitlistApplicants,
+  sweepClosedSkeapWaitlistCycles,
+} from "@/lib/skeap-applications";
+import { getExactAge } from "@/lib/skeap-age";
+import { getSkeapMaxEligibleAge } from "@/lib/skeap-program-config";
+import { getAcademicYearDateRange } from "@/lib/semester";
+import { getSkeapWaitlistCycle, getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -49,6 +58,25 @@ export async function POST(
 
   let maxSlots = DEFAULT_SKEAP_MAX_SLOTS;
   try {
+    const ageOutSweep = await sweepAgedOutWaitlistApplicants(auth.user.id);
+    await sweepClosedSkeapWaitlistCycles(auth.user.id);
+    if (ageOutSweep.removedApplicants.some((application) => application.applicationId === id)) {
+      return NextResponse.json(
+        { error: "Applicant has exceeded the maximum eligible age and was automatically removed from the waitlist." },
+        { status: 400 },
+      );
+    }
+    const priorAgeOut = await prisma.skeapApplication.findUnique({
+      where: { id },
+      select: { waitlistRemark: true },
+    });
+    if (priorAgeOut?.waitlistRemark === "AGED_OUT") {
+      return NextResponse.json(
+        { error: "Applicant has exceeded the maximum eligible age and was automatically removed from the waitlist." },
+        { status: 400 },
+      );
+    }
+
     const promoted = await prisma.$transaction(async (tx) => {
       await lockSkeapCapacity(tx);
       maxSlots = await getSkeapMaxSlots(tx);
@@ -57,10 +85,17 @@ export async function POST(
         select: {
           id: true,
           status: true,
+          submittedAt: true,
+          dateOfBirth: true,
           physicalDocumentsConfirmed: true,
           userId: true,
           applicantName: true,
-          user: { select: { email: true } },
+          user: {
+            select: {
+              email: true,
+              kkProfile: { select: { birthDate: true } },
+            },
+          },
           school: true,
           currentCourse: true,
           yearLevel: true,
@@ -69,6 +104,25 @@ export async function POST(
       });
       if (!application) throw new Error("NOT_FOUND");
       if (application.status !== "WAITLISTED") throw new Error("NOT_WAITLISTED");
+      const maxEligibleAge = await getSkeapMaxEligibleAge(tx);
+      const currentAge = getExactAge(
+        application.user.kkProfile?.birthDate ?? application.dateOfBirth,
+      );
+      if (currentAge !== null && currentAge > maxEligibleAge) {
+        throw new Error("APPLICANT_AGED_OUT");
+      }
+
+      const cycle = getSkeapWaitlistCycle();
+      const cycleRange = getAcademicYearDateRange(cycle);
+      if (!cycleRange) throw new Error("SKEAP_CYCLE_UNAVAILABLE");
+      if (
+        application.submittedAt < cycleRange.start ||
+        application.submittedAt >= cycleRange.end
+      ) {
+        throw new Error("STALE_WAITLIST_CYCLE");
+      }
+      const cycleState = await getSkeapWaitlistCycleState(cycle, tx);
+      if (cycleState.isClosed) throw new Error("SKEAP_CYCLE_CLOSED");
       if (!application.physicalDocumentsConfirmed && !confirmPhysicalVerification) {
         throw new Error("PHYSICAL_VERIFICATION_REQUIRED");
       }
@@ -177,6 +231,7 @@ export async function POST(
     });
 
     revalidatePath("/admin");
+    await refreshSkeapApplicationsAdminView();
     revalidatePath("/admin/skeap-applications");
     revalidatePath("/admin/skeap-waitlist");
     revalidatePath("/applications");
@@ -189,12 +244,22 @@ export async function POST(
     return NextResponse.json({ success: true, emailSent, application: promotedApplication });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to promote application.";
+    if (message === "APPLICANT_AGED_OUT") {
+      await sweepAgedOutWaitlistApplicants(auth.user.id);
+      return NextResponse.json(
+        { error: "Applicant has exceeded the maximum eligible age and was automatically removed from the waitlist." },
+        { status: 400 },
+      );
+    }
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });
     if (message === "NOT_WAITLISTED") return NextResponse.json({ error: "Application is not currently waitlisted." }, { status: 409 });
     if (message === "PHYSICAL_VERIFICATION_REQUIRED") {
       return NextResponse.json({ error: "Confirm that the original/CTC documents were physically verified before promotion." }, { status: 400 });
     }
     if (message === "GRANTEE_ARCHIVED") return NextResponse.json({ error: "Graduated Grantee records cannot be changed by SKEAP promotion." }, { status: 409 });
+    if (message === "STALE_WAITLIST_CYCLE" || message === "SKEAP_CYCLE_CLOSED") {
+      return NextResponse.json({ error: "This SKEAP waitlist cycle is closed and cannot be promoted." }, { status: 409 });
+    }
     if (message === "CAPACITY_FULL") {
       return NextResponse.json(
         { error: `All ${maxSlots} SKEAP slots are currently filled. The applicant remains WAITLISTED.` },

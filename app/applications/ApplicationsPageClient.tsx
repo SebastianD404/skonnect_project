@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, CircleDashed, Clock3, ArrowRight } from "lucide-react";
 import { useAuth } from "@/app/components/AuthProvider";
+import {
+  getKkProfilingApplicationCardStatus,
+  type KkProfilingApplicationCardStatus,
+} from "@/lib/kk-profiling-application-status";
 
 type ApplicationRecord = {
   id: string;
@@ -14,7 +18,9 @@ type ApplicationRecord = {
 
 type ApplicationCardStatus = {
   label: string;
-  tone: "emerald" | "amber" | "rose" | "slate";
+  tone: "emerald" | "amber" | "cyan" | "rose" | "slate";
+  actionLabel?: string;
+  actionHref?: string;
 };
 
 const notStartedStatus: ApplicationCardStatus = { label: "Not started", tone: "slate" };
@@ -32,6 +38,8 @@ function StatusIndicator({ status }: { status: ApplicationCardStatus }) {
     ? CheckCircle2
     : status.tone === "amber"
     ? Clock3
+    : status.tone === "cyan"
+    ? CheckCircle2
     : status.tone === "rose"
     ? AlertCircle
     : CircleDashed;
@@ -39,6 +47,8 @@ function StatusIndicator({ status }: { status: ApplicationCardStatus }) {
     ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
     : status.tone === "amber"
     ? "bg-amber-50 text-amber-800 ring-amber-200"
+    : status.tone === "cyan"
+    ? "bg-cyan-50 text-cyan-800 ring-cyan-200"
     : status.tone === "rose"
     ? "bg-rose-50 text-rose-800 ring-rose-200"
     : "bg-slate-100 text-slate-700 ring-slate-200";
@@ -53,7 +63,7 @@ function StatusIndicator({ status }: { status: ApplicationCardStatus }) {
 
 export default function ApplicationsPage() {
   const { user } = useAuth();
-  const [kkStatus, setKkStatus] = useState<ApplicationCardStatus | null>(null);
+  const [kkStatus, setKkStatus] = useState<KkProfilingApplicationCardStatus | null>(null);
   const [skeapApplication, setSkeapApplication] = useState<ApplicationRecord | null>(null);
   const [skeapStatus, setSkeapStatus] = useState<ApplicationCardStatus | null>(null);
 
@@ -62,7 +72,7 @@ export default function ApplicationsPage() {
 
     async function loadStatuses() {
       const [kkResult, skeapResult] = await Promise.allSettled([
-        fetch("/api/my/kk-profile", { cache: "no-store" }),
+        fetch("/api/my/kk-profiling-application", { cache: "no-store" }),
         fetch("/api/my/inquiries?skeapOnly=1", { cache: "no-store" }),
       ]);
 
@@ -70,19 +80,20 @@ export default function ApplicationsPage() {
 
       if (kkResult.status === "fulfilled" && kkResult.value.ok) {
         const data = await kkResult.value.json();
-        if (typeof data.profile?.status === "string") {
-          const label = data.profile.status;
-          setKkStatus({ label, tone: getStatusTone(label) });
-        } else {
-          setKkStatus(notStartedStatus);
-        }
+        setKkStatus(getKkProfilingApplicationCardStatus(
+          typeof data.reviewStatus === "string" ? data.reviewStatus : null,
+          data.isProfileVerified === true,
+        ));
       } else if (
         kkResult.status === "fulfilled" &&
         (kkResult.value.status === 401 || kkResult.value.status === 404)
       ) {
-        setKkStatus(notStartedStatus);
+        setKkStatus(getKkProfilingApplicationCardStatus(null, false));
       } else {
-        setKkStatus({ label: "Status unavailable", tone: "slate" });
+        setKkStatus({
+          ...getKkProfilingApplicationCardStatus("Unable to Load Status", false),
+          actionLabel: "View Status",
+        });
       }
 
       if (skeapResult.status === "fulfilled" && skeapResult.value.ok) {
@@ -98,7 +109,7 @@ export default function ApplicationsPage() {
           setSkeapStatus(notStartedStatus);
         }
       } else {
-        setSkeapStatus({ label: "Status unavailable", tone: "slate" });
+        setSkeapStatus({ label: "Unable to Load Status", tone: "slate" });
       }
     }
 
@@ -143,10 +154,10 @@ export default function ApplicationsPage() {
                 {kkStatus ? <StatusIndicator status={kkStatus} /> : <span className="text-sm text-slate-500">Checking status...</span>}
               </div>
               <Link
-                href="/programs/kk-profiling/status"
+                href={kkStatus?.actionHref ?? "/programs/kk-profiling/status"}
                 className="inline-flex items-center gap-2 rounded-lg bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition-colors duration-300 hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 group-hover:bg-[#0D2E47]"
               >
-                <span>View Status</span>
+                <span>{kkStatus?.actionLabel ?? "View Status"}</span>
                 <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" aria-hidden="true" />
               </Link>
             </div>

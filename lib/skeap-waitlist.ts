@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { getAcademicYearDateRange } from "@/lib/semester";
+import { getExactAge } from "@/lib/skeap-age";
 import {
   getSkeapWaitlistCycle,
   getSkeapWaitlistCycleState,
@@ -46,6 +47,7 @@ export type SkeapWaitlistApplication = {
   educationLevel: string | null;
   currentCourse: string;
   yearLevel: string;
+  age: number | null;
 };
 
 export type SkeapWaitlistSnapshot = {
@@ -83,7 +85,14 @@ export async function getSkeapWaitlistSnapshot(
         educationLevel: true,
         currentCourse: true,
         yearLevel: true,
-        user: { select: { fullName: true, email: true } },
+        dateOfBirth: true,
+        user: {
+          select: {
+            fullName: true,
+            email: true,
+            kkProfile: { select: { birthDate: true } },
+          },
+        },
       },
     }),
     getSkeapWaitlistCycleState(cycle),
@@ -111,6 +120,7 @@ export async function getSkeapWaitlistSnapshot(
       educationLevel: application.educationLevel,
       currentCourse: application.currentCourse,
       yearLevel: application.yearLevel,
+      age: getExactAge(application.user.kkProfile?.birthDate ?? application.dateOfBirth),
     })),
   };
 }

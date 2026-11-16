@@ -12,6 +12,11 @@ import {
   getSkeapWaitlistCycleSettingKey,
   getSkeapWaitlistCycleState,
 } from "@/lib/skeap-waitlist-cycle";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import {
+  sweepAgedOutWaitlistApplicants,
+  sweepClosedSkeapWaitlistCycles,
+} from "@/lib/skeap-applications";
 
 const NOTIFICATION_TITLE = "SKEAP Waitlist Update — Slots Full & Closed";
 
@@ -36,6 +41,8 @@ export async function POST() {
   try {
     const auth = await authorizeAdmin();
     if ("error" in auth) return auth.error;
+    await sweepAgedOutWaitlistApplicants(auth.user.id);
+    await sweepClosedSkeapWaitlistCycles(auth.user.id);
 
     const cycle = getSkeapWaitlistCycle();
     const range = getAcademicYearDateRange(cycle);
@@ -52,21 +59,6 @@ export async function POST() {
       result = await prisma.$transaction(async (tx) => {
         await lockSkeapCapacity(tx);
         const cycleState = await getSkeapWaitlistCycleState(cycle, tx);
-        if (cycleState.isClosed) {
-          return {
-            alreadyClosed: true,
-            cycle,
-            notifiedCount: cycleState.totalWaitlisted,
-            recipients: [],
-          };
-        }
-
-        const [activeCount, maxSlots] = await Promise.all([
-          getSkeapCapacityCount(tx),
-          getSkeapMaxSlots(tx),
-        ]);
-        if (activeCount < maxSlots) throw new Error("SLOTS_NOT_FULL");
-
         const waitlisted = await tx.skeapApplication.findMany({
           where: {
             status: SubmissionStatus.WAITLISTED,
@@ -77,9 +69,25 @@ export async function POST() {
             id: true,
             userId: true,
             applicantName: true,
+            inquiry: { select: { id: true } },
             user: { select: { fullName: true, email: true } },
           },
         });
+        if (cycleState.isClosed && waitlisted.length === 0) {
+          return {
+            alreadyClosed: true,
+            cycle,
+            notifiedCount: cycleState.totalWaitlisted,
+            recipients: [],
+          };
+        }
+        if (!cycleState.isClosed) {
+          const [activeCount, maxSlots] = await Promise.all([
+            getSkeapCapacityCount(tx),
+            getSkeapMaxSlots(tx),
+          ]);
+          if (activeCount < maxSlots) throw new Error("SLOTS_NOT_FULL");
+        }
         if (waitlisted.length === 0) throw new Error("WAITLIST_EMPTY");
 
         const recipients: Array<{ userId: string; email: string; applicantName: string; position: number }> = [];
@@ -90,10 +98,24 @@ export async function POST() {
           await tx.skeapApplication.update({
             where: { id: application.id },
             data: {
-              waitlistPosition: position,
+              status: SubmissionStatus.REJECTED,
+              waitlistPosition: null,
               waitlistFinalPosition: position,
+              waitlistRemark: "CYCLE_CLOSED",
             },
           });
+          if (application.inquiry) {
+            await tx.inquiry.update({
+              where: { id: application.inquiry.id },
+              data: {
+                reviewStatus: "Closed",
+                response: message,
+                respondedAt: new Date(),
+                isResolved: true,
+                lastUpdatedBy: auth.user.id,
+              },
+            });
+          }
           const granteeMessage = await tx.granteeMessage.create({
             data: {
               userId: application.userId,
@@ -119,18 +141,20 @@ export async function POST() {
           });
         }
 
-        await tx.systemSetting.create({
-          data: {
-            key: getSkeapWaitlistCycleSettingKey(cycle),
-            value: waitlisted.length,
-          },
-        });
+        if (!cycleState.isClosed) {
+          await tx.systemSetting.create({
+            data: {
+              key: getSkeapWaitlistCycleSettingKey(cycle),
+              value: waitlisted.length,
+            },
+          });
+        }
         await writeAuditLog(tx, {
-          action: "SKEAP_WAITLIST_CYCLE_CLOSED",
+          action: cycleState.isClosed ? "SKEAP_WAITLIST_CYCLE_FINALIZED" : "SKEAP_WAITLIST_CYCLE_CLOSED",
           actorId: auth.user.id,
           targetTable: "skeap_applications",
           targetId: cycle,
-          beforeData: { isClosed: false },
+          beforeData: { isClosed: cycleState.isClosed, remainingWaitlisted: waitlisted.length },
           afterData: { isClosed: true, totalWaitlisted: waitlisted.length },
           metadata: { cycle, totalWaitlisted: waitlisted.length },
         });
@@ -195,6 +219,7 @@ export async function POST() {
       }
     }
 
+    await refreshSkeapApplicationsAdminView();
     return NextResponse.json({
       success: true,
       alreadyClosed: false,

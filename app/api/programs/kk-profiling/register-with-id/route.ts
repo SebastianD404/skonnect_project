@@ -10,6 +10,7 @@ import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
 import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { buildIdentityFingerprint } from "@/lib/skeap-application-guard";
+import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import {
   BARANGAY_PICO,
   OFFICIAL_PUROKS,
@@ -530,6 +531,7 @@ export async function POST(req: NextRequest) {
       return { kkProfileId: kkProfile.id, userId: updatedUser.id };
     });
 
+    await refreshKkProfilingApplicationsAdminView();
     return NextResponse.json({
       success: true,
       kkProfileId: created.kkProfileId,

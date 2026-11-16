@@ -5,6 +5,7 @@ import { removePrivateDocument, uploadPrivateDocument } from "@/lib/private-docu
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { CORE_UPLOAD_KEYS, mergeSkeapDraftReplacement } from "@/lib/skeap-upload";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 const ALLOWED_TYPES = new Set([
   "application/pdf",
@@ -157,6 +158,7 @@ export async function POST(
         : NextResponse.json({ error: "The application status changed. Refresh the page and try again." }, { status: 409 });
     }
 
+    await refreshSkeapApplicationsAdminView();
     return NextResponse.json({ success: true, url: fileUrl, fileName: file.name, fileType: storedFile.type });
   } catch (error) {
     console.error("SKEAP replacement upload failed:", error);

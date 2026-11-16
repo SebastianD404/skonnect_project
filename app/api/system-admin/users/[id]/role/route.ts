@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 import {
@@ -230,6 +231,9 @@ export async function PATCH(
     });
 
     if (result.capacityFull) {
+      if (result.applicationWaitlisted) {
+        await refreshSkeapApplicationsAdminView();
+      }
       return NextResponse.json(
         {
           error: result.applicationWaitlisted

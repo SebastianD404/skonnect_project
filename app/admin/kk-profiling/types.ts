@@ -1,6 +1,6 @@
 export interface KKProfilingRegistration {
   id: string;
-  skeapStatus?: string;
+  skeapStatus?: string | null;
   user?: {
     fullName?: string | null;
     email?: string | null;
@@ -11,6 +11,7 @@ export interface KKProfilingRegistration {
   } | null;
   fullName: string;
   email: string;
+  status?: string;
   address: string;
   sex: string;
   age: number;
@@ -20,6 +21,9 @@ export interface KKProfilingRegistration {
   civilStatus: string;
   youthClassification: string;
   youthAgeGroup: string;
+  ageGroup?: string | null;
+  classification?: string;
+  isSkVoter?: boolean;
   workStatus: string;
   educationalBackground: string;
   registeredSKVoter: string;
@@ -37,6 +41,8 @@ export interface KKProfilingRegistration {
   idBackFileUrl?: string | null;
   idSingleFileUrl?: string | null;
   reviewStatus?: string;
+  withdrawnAt?: string | Date | null;
+  withdrawalReason?: string | null;
   archivedReason?: string | null;
   archivedAt?: string | Date | null;
   reviewNotes?: string | null;

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { detectLanguage } from "@/lib/chatbot/language";
 import { generateAnswer } from "@/lib/chatbot/gemini";
+import { runRagAnswer } from "@/lib/chatbot/rag";
 import {
   SKEAP_APPLICATION_REQUIREMENT_CHUNKS,
   SKEAP_DOCUMENT_NAMES_SYSTEM_DIRECTIVE,
@@ -27,10 +28,12 @@ import {
   formatDualScholarshipAnswer,
   formatKkProfilingInfoAnswer,
   formatSkeapSlotLimitAnswer,
+  formatSkeapSlotOpeningAnswer,
   formatSkeapSlotsFullAnswer,
   isDualScholarshipQuestion,
   isKkProfilingInfoQuestion,
   isSkeapSlotLimitQuestion,
+  isSkeapSlotOpeningQuestion,
   isSkeapSlotsFullQuestion,
 } from "@/lib/chatbot/eligibility-info";
 import {
@@ -89,6 +92,10 @@ describe("detectLanguage", () => {
 
   it("detects Ilocano standard payout claiming questions", () => {
     expect(detectLanguage("kasano ti agala ti payout? sadinno?")).toBe("ILOCANO");
+  });
+
+  it("detects Ilocano slot-opening questions", () => {
+    expect(detectLanguage("Kaano aglukat ti slot?")).toBe("ILOCANO");
   });
 
   it("detects Tagalog data privacy questions", () => {
@@ -469,14 +476,56 @@ describe("SKEAP full slots and waitlist policy", () => {
 
   it("returns the exact waitlist policy in English, Filipino, and Ilocano", () => {
     expect(formatSkeapSlotsFullAnswer("ENGLISH")).toBe(
-      "If all available scholarship slots are already filled, new applicants will be placed on a waitlist. Waitlisted applications are processed on a strict first-come, first-served basis should slots open up."
+      "SKEAP scholarship slots open up when current grantees graduate from the program or are removed due to disqualification or withdrawal. When a slot becomes available, it is offered to waitlisted applicants on a strict first-come, first-served basis."
     );
     expect(formatSkeapSlotsFullAnswer("FILIPINO")).toBe(
-      "Kapag punô na ang lahat ng available na scholarship slots, ang mga susunod na mag-a-apply ay ilalagay sa waitlist. Ang pagproseso sa mga nasa waitlist ay nakabatay sa strict first-come, first-served basis kung may mabubuksan na slot."
+      "Nagkakaroon ng bakanteng SKEAP scholarship slot kapag nagtapos na sa programa ang kasalukuyang grantee o inalis siya dahil sa diskuwalipikasyon o pag-withdraw. Kapag may bakanteng slot, iaalok ito sa mga aplikanteng nasa waitlist ayon sa mahigpit na first-come, first-served na pagkakasunod-sunod."
     );
     expect(formatSkeapSlotsFullAnswer("ILOCANO")).toBe(
-      "Nu napunon dagiti amin a nakasagana a scholarship slots, maikabil iti waitlist dagiti sumaruno nga ag-apply. Maiturong ti panagproseso kadagiti adda iti waitlist babaen ti strict first-come, first-served basis nu adda agserra wenno aglukat a slot."
+      "Mabalin nga aglukat ti SKEAP scholarship slot no aggraduar dagiti agdama a grantee iti programa wenno maikkatda gapu iti diskwalipikasion wenno panag-withdraw. No adda slot a maluktan, maipaay daytoy kadagiti aplikante iti waitlist babaen iti nainget a first-come, first-served a panagsunod."
     );
+  });
+
+  it.each([
+    "how will slots open",
+    "when do slots open",
+    "how can I get a slot from the waitlist",
+    "Kailan magkakaroon ng slot?",
+    "Kaano aglukat ti slot?",
+  ])("recognizes slot-opening questions: %s", (question) => {
+    expect(isSkeapSlotOpeningQuestion(question)).toBe(true);
+  });
+
+  it.each([
+    "How much is the SKEAP grant?",
+    "How many SKEAP slots are available?",
+    "What happens when all slots are full?",
+    "Are SKEAP slots open?",
+    "When does the SKEAP application open?",
+  ])("does not mistake unrelated or full-capacity questions for slot opening: %s", (question) => {
+    expect(isSkeapSlotOpeningQuestion(question)).toBe(false);
+  });
+
+  it("returns the slot-opening policy in the detected language", () => {
+    expect(formatSkeapSlotOpeningAnswer("ENGLISH")).toBe(
+      "SKEAP scholarship slots open up when current grantees graduate from the program or are removed due to disqualification or withdrawal. When a slot becomes available, it is offered to waitlisted applicants on a strict first-come, first-served basis."
+    );
+    expect(formatSkeapSlotOpeningAnswer("FILIPINO")).toContain("nagtapos na sa programa");
+    expect(formatSkeapSlotOpeningAnswer("FILIPINO")).toContain("diskuwalipikasyon o pag-withdraw");
+    expect(formatSkeapSlotOpeningAnswer("ILOCANO")).toContain("aggraduar");
+    expect(formatSkeapSlotOpeningAnswer("ILOCANO")).toContain("diskwalipikasion wenno panag-withdraw");
+  });
+
+  it("answers slot-opening questions deterministically without RAG fallback", async () => {
+    const result = await runRagAnswer({
+      question: "how will slots open",
+      language: detectLanguage("how will slots open"),
+      history: [],
+      liveSubmissionSchedules,
+    });
+
+    expect(result.response).toBe(formatSkeapSlotOpeningAnswer("ENGLISH"));
+    expect(result.chunksUsed).toBe(0);
   });
 });
 

@@ -46,6 +46,8 @@ type KkProfileRegistration = {
   idBackFileUrl?: string | null;
   idSingleFileUrl?: string | null;
   reviewStatus: string;
+  withdrawnAt?: string | null;
+  withdrawalReason?: string | null;
   submittedAt?: string | null;
 };
 
@@ -62,6 +64,8 @@ type KkProfileStatus = {
   status: string;
   ageOutNotice: { archivedAt: string | null } | null;
   reviewNotes: string | null;
+  withdrawnAt: string | null;
+  withdrawalReason: string | null;
   registrationSubmittedAt: string | null;
   idDocumentType?: string | null;
   photoFileUrl?: string | null;
@@ -79,6 +83,9 @@ function getStatusBadge(status: string) {
   }
   if (normalized.includes("rejected")) {
     return { label: "Not approved", tone: "rose" };
+  }
+  if (normalized.includes("withdrawn")) {
+    return { label: "Withdrawn", tone: "slate" };
   }
   if (normalized.includes("approved")) {
     return { label: "Approved", tone: "emerald" };
@@ -103,6 +110,10 @@ export default function KKProfilingStatusPage() {
   const [authRequired, setAuthRequired] = useState(false);
   const [noProfile, setNoProfile] = useState(false);
   const [showFormModal, setShowFormModal] = useState(false);
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
+  const [withdrawalReason, setWithdrawalReason] = useState("");
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const refreshIntervalMs = 15000;
@@ -243,9 +254,52 @@ export default function KKProfilingStatusPage() {
   const isAgeOutStatus = Boolean(profile?.ageOutNotice);
   const isReturnedStatus = normalizedProfileStatus.includes("returned");
   const isRejectedStatus = normalizedProfileStatus.includes("rejected");
+  const isWithdrawnStatus = normalizedProfileStatus.includes("withdrawn");
+  const canWithdraw =
+    Boolean(profile?.registration) &&
+    ["pending", "pending verification", "returned", "resubmitted"].includes(normalizedProfileStatus) &&
+    !isAgeOutStatus;
   const isHistoricalReviewerNotes = /resubmitted|pending/.test(normalizedProfileStatus);
   const hasReviewerNotes = Boolean(profile?.reviewNotes?.trim() && (isReturnedStatus || isRejectedStatus || isHistoricalReviewerNotes));
   const hasValidRegistration = profile?.registration !== null && profile?.registration !== undefined;
+
+  async function withdrawApplication() {
+    if (!canWithdraw || isWithdrawing) return;
+    setIsWithdrawing(true);
+    setWithdrawError(null);
+    try {
+      const response = await fetch("/api/my/kk-profiling-application", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ withdrawalReason }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.error || "Unable to withdraw your KK Profiling application.");
+      }
+
+      const withdrawnAt = body.withdrawnAt || new Date().toISOString();
+      const reason = body.withdrawalReason || null;
+      setProfile((current) => current
+        ? {
+            ...current,
+            status: "Withdrawn",
+            withdrawnAt,
+            withdrawalReason: reason,
+            registration: current.registration
+              ? { ...current.registration, reviewStatus: "Withdrawn", withdrawnAt, withdrawalReason: reason }
+              : current.registration,
+          }
+        : current);
+      setShowWithdrawConfirm(false);
+      setWithdrawalReason("");
+      router.refresh();
+    } catch (error) {
+      setWithdrawError(error instanceof Error ? error.message : "Unable to withdraw your KK Profiling application.");
+    } finally {
+      setIsWithdrawing(false);
+    }
+  }
   
   // NUCLEAR OPTION 3: Strict Modal Visibility Gate
   // Modal should ONLY be visible when ALL conditions are EXPLICITLY true
@@ -529,16 +583,51 @@ export default function KKProfilingStatusPage() {
                 </div>
                 <div className="grid gap-4 px-6 py-5 sm:grid-cols-3 sm:px-10">
                   {["Application submitted", "Staff verification", "Decision and update"].map((step, index) => {
-                    const complete = isApprovedStatus || isRejectedStatus || isAgeOutStatus || index === 0;
-                    const active = !isApprovedStatus && !isRejectedStatus && !isAgeOutStatus && index === 1;
+                    const complete = isApprovedStatus || isRejectedStatus || isWithdrawnStatus || isAgeOutStatus || index === 0;
+                    const active = !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isAgeOutStatus && index === 1;
                     return <div key={step} className="flex items-center gap-3" aria-current={active ? "step" : undefined}><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${complete ? "bg-teal-700 text-white" : active ? "bg-teal-50 text-teal-700 ring-2 ring-teal-200" : "bg-slate-100 text-slate-400"}`}>{complete ? "✓" : active ? <span className="flex items-center gap-0.5" aria-label="In progress"><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse" /><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse [animation-delay:150ms]" /><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse [animation-delay:300ms]" /></span> : index + 1}</span><span className={`text-sm font-medium ${complete ? "text-slate-900" : active ? "text-teal-800" : "text-slate-400"}`}>{step}{active ? <span className="ml-2 text-xs font-normal text-slate-500">In progress</span> : null}</span></div>;
                   })}
                 </div>
               </section>
 
+              {isWithdrawnStatus ? (
+                <section role="status" className="rounded-2xl border border-slate-200 bg-slate-100/80 p-5 text-slate-700">
+                  <h2 className="text-sm font-bold text-slate-800">KK Profiling application withdrawn</h2>
+                  <p className="mt-1 text-sm">
+                    Withdrawn on {profile.withdrawnAt
+                      ? new Date(profile.withdrawnAt).toLocaleString()
+                      : "a date not recorded"}.
+                  </p>
+                  {profile.withdrawalReason ? (
+                    <p className="mt-2 text-sm">Reason: {profile.withdrawalReason}</p>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {canWithdraw ? (
+                <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">Need to cancel this submission?</h2>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Withdraw it to remove the application from the active review queue. The audit record will be retained.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWithdrawError(null);
+                      setShowWithdrawConfirm(true);
+                    }}
+                    className="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                  >
+                    Withdraw application
+                  </button>
+                </section>
+              ) : null}
+
               <div className="flex w-full flex-col gap-6">
                 <section className="w-full rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-                  {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isAgeOutStatus ? (
+                  {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isAgeOutStatus ? (
                     <div className="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-4">
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
@@ -711,7 +800,7 @@ export default function KKProfilingStatusPage() {
         </main>
       )}
 
-      {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isAgeOutStatus ? (
+      {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isAgeOutStatus ? (
         <KKProfilingFormModal
           isOpen={showFormModal}
           registration={profile.registration}
@@ -731,6 +820,70 @@ export default function KKProfilingStatusPage() {
             );
           }}
         />
+      ) : null}
+
+      {showWithdrawConfirm ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="kk-withdraw-title"
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="kk-withdraw-title" className="text-lg font-bold text-slate-900">
+                  Withdraw KK Profiling application?
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Your submission will leave the active review queue, but its audit record will remain with Barangay Pico.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWithdrawConfirm(false)}
+                disabled={isWithdrawing}
+                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+                aria-label="Close withdrawal confirmation"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            <label htmlFor="kk-withdrawal-reason" className="mt-5 block text-sm font-semibold text-slate-800">
+              Reason (optional)
+            </label>
+            <textarea
+              id="kk-withdrawal-reason"
+              rows={3}
+              maxLength={500}
+              value={withdrawalReason}
+              onChange={(event) => setWithdrawalReason(event.target.value)}
+              disabled={isWithdrawing}
+              className="mt-2 w-full resize-y rounded-xl border border-slate-300 p-3 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50"
+            />
+            {withdrawError ? (
+              <p role="alert" className="mt-3 text-sm text-rose-700">{withdrawError}</p>
+            ) : null}
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setShowWithdrawConfirm(false)}
+                disabled={isWithdrawing}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Keep application
+              </button>
+              <button
+                type="button"
+                onClick={() => void withdrawApplication()}
+                disabled={isWithdrawing}
+                className="rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isWithdrawing ? "Withdrawing..." : "Confirm withdrawal"}
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {/* NUCLEAR OPTION 4: Kill CSS Transition Initialization */}

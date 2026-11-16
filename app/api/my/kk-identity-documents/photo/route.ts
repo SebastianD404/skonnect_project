@@ -4,6 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { removePrivateDocument, uploadPrivateDocument } from "@/lib/private-documents";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const PHOTO_TYPES = new Map([
@@ -109,6 +110,7 @@ export async function POST(request: Request) {
       }),
     ]);
 
+    await refreshKkProfilingApplicationsAdminView();
     return NextResponse.json({
       photo: privateDocument.url,
       avatarUrl: avatarPath,

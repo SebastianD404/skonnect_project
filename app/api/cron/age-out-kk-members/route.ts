@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
-import { checkAndArchiveAgedOutMembers } from "@/lib/archiveAgedOutMembers";
+import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const result = await checkAndArchiveAgedOutMembers(auditActor.id, "scheduled");
+    const result = await sweepAgedOutKkProfiles(auditActor.id, "scheduled");
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("Scheduled KK age-out run failed:", error);

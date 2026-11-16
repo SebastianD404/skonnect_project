@@ -6,7 +6,7 @@ function Placeholder({ className }: { className: string }) {
 
 export function MemberRecordsLoading() {
   return (
-    <main role="status" aria-label="Loading archived member records" className="mx-auto flex w-full max-w-7xl animate-pulse flex-col gap-6 pb-12 sm:gap-8">
+    <main role="status" aria-label="Loading archived member records" className="mx-auto flex w-full max-w-7xl animate-pulse motion-reduce:animate-none flex-col gap-6 pb-12 sm:gap-8">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <Placeholder className="h-3 w-28 bg-slate-100" />

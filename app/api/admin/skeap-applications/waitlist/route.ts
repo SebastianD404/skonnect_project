@@ -12,6 +12,8 @@ import {
   getSkeapWaitlistCycleState,
 } from "@/lib/skeap-waitlist-cycle";
 import { lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { getExactAge } from "@/lib/skeap-age";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -64,7 +66,14 @@ export async function GET(request: NextRequest) {
           educationLevel: true,
           currentCourse: true,
           yearLevel: true,
-          user: { select: { fullName: true, email: true } },
+          dateOfBirth: true,
+          user: {
+            select: {
+              fullName: true,
+              email: true,
+              kkProfile: { select: { birthDate: true } },
+            },
+          },
         },
       });
 
@@ -81,6 +90,7 @@ export async function GET(request: NextRequest) {
           educationLevel: application.educationLevel,
           currentCourse: application.currentCourse,
           yearLevel: application.yearLevel,
+          age: getExactAge(application.user.kkProfile?.birthDate ?? application.dateOfBirth),
         })),
       });
     }
@@ -170,6 +180,7 @@ export async function POST(request: NextRequest) {
       };
     });
 
+    await refreshSkeapApplicationsAdminView();
     return NextResponse.json({ success: true, application: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to add application to the waitlist.";

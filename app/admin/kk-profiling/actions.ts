@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { prisma } from "@/lib/prisma";
+import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 export async function rejectKKProfilingApplication(id: string, reason: string) {
   const registrationId = id.trim();
@@ -64,6 +65,7 @@ export async function rejectKKProfilingApplication(id: string, reason: string) {
   });
 
   if (result.success) {
+    await refreshKkProfilingApplicationsAdminView();
     revalidatePath("/admin/kk-profiling");
   }
   return result;

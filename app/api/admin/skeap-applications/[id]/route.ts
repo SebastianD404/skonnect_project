@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mapInquiryToApplication, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { normalizeUploadedFiles, SKEAP_UPLOAD_ORDER } from "@/lib/skeap-upload";
 import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
+import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -134,6 +135,7 @@ export async function PATCH(
       return NextResponse.json({ error: "This document has changed. Refresh the application and try again." }, { status: 409 });
     }
 
+    await refreshSkeapApplicationsAdminView();
     return NextResponse.json({ verified: result.verified, adminRemark: result.adminRemark });
   } catch (error) {
     console.error("Failed to update SKEAP document verification:", error);

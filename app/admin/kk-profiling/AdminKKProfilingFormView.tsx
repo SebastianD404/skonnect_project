@@ -85,7 +85,8 @@ export function AdminKKProfilingFormView({
 
   const isApproved = registration.reviewStatus?.toLowerCase() === "approved";
   const isRejected = registration.reviewStatus?.toLowerCase() === "rejected";
-  const isLocked = isApproved || isRejected;
+  const isWithdrawn = registration.reviewStatus?.toLowerCase() === "withdrawn";
+  const isLocked = isApproved || isRejected || isWithdrawn;
   const canReturn = !isLocked;
 
   useEffect(() => {
@@ -271,6 +272,8 @@ export function AdminKKProfilingFormView({
                   className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                     isApproved
                       ? "bg-emerald-100 text-emerald-800"
+                      : isWithdrawn
+                      ? "border border-slate-200 bg-slate-100 text-slate-600"
                       : isRejected
                       ? "bg-rose-100 text-rose-800"
                       : registration.reviewStatus === "Returned"
@@ -306,6 +309,22 @@ export function AdminKKProfilingFormView({
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
+          {isWithdrawn ? (
+            <section
+              role="status"
+              className="mb-5 rounded-xl border border-slate-200 bg-slate-100/80 p-4 text-slate-700"
+            >
+              <p className="text-sm font-semibold">Application withdrawn</p>
+              <p className="mt-1 text-sm">
+                Withdrawn on {registration.withdrawnAt
+                  ? new Date(registration.withdrawnAt).toLocaleString()
+                  : "a date not recorded"}.
+              </p>
+              {registration.withdrawalReason ? (
+                <p className="mt-2 text-sm">Reason: {registration.withdrawalReason}</p>
+              ) : null}
+            </section>
+          ) : null}
           <div className="mb-6 space-y-3 text-left text-sm text-slate-600">
             <p>
               <span className="font-medium text-slate-700">Informed consent:</span> This registrant indicated consent when submitting the KK profiling form.

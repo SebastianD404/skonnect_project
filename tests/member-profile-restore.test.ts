@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   requireRole: vi.fn(),
   writeAuditLog: vi.fn(),
+  refreshKkAdminView: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -18,6 +19,10 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/audit/logger", () => ({
   writeAuditLog: mocks.writeAuditLog,
+}));
+
+vi.mock("@/lib/application-admin-view-refresh", () => ({
+  refreshKkProfilingApplicationsAdminView: mocks.refreshKkAdminView,
 }));
 
 import { PATCH } from "@/app/api/admin/members/[id]/restore/route";
