@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/age-out-kk-members",
       "schedule": "30 0 * * *"
+    },
+    {
+      "path": "/api/cron/backup",
+      "schedule": "0 16 * * *"
     }
   ]
 }

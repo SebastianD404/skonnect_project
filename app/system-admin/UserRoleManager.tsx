@@ -9,7 +9,6 @@ import {
   Eye,
   Filter,
   CheckCircle,
-  ChevronDown,
   GraduationCap,
   LoaderCircle,
   MoreHorizontal,
@@ -50,15 +49,20 @@ type UserItem = {
 type Props = {
   users: UserItem[];
   totalCount: number;
+  currentUserId: string | null;
 };
 
 type RoleFilter = "ALL" | Role;
+type RoleChangeCandidate = {
+  user: UserItem;
+  nextRole: Role;
+};
 
 const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
-  { value: "YOUTH", label: "YOUTH" },
-  { value: "GRANTEE", label: "GRANTEE" },
-  { value: "SK_OFFICIAL", label: "SK_OFFICIAL" },
-  { value: "SUPER_ADMIN", label: "SUPER_ADMIN" },
+  { value: "YOUTH", label: "Youth" },
+  { value: "GRANTEE", label: "Grantee" },
+  { value: "SK_OFFICIAL", label: "SK Admin" },
+  { value: "SUPER_ADMIN", label: "System Admin" },
 ];
 
 const SCHOLAR_STATUS_BADGES = {
@@ -141,13 +145,14 @@ function DetailItem({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-export default function UserRoleManager({ users, totalCount }: Props) {
+export default function UserRoleManager({ users, totalCount, currentUserId }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
   const [showRoleFilterMenu, setShowRoleFilterMenu] = useState(false);
   const [viewingUser, setViewingUser] = useState<UserItem | null>(null);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+  const [roleCandidate, setRoleCandidate] = useState<RoleChangeCandidate | null>(null);
   const [statusCandidate, setStatusCandidate] = useState<UserItem | null>(null);
   const [openActionsUserId, setOpenActionsUserId] = useState<string | null>(null);
   const [actionsMenuPosition, setActionsMenuPosition] = useState({ top: 0, left: 0 });
@@ -158,15 +163,8 @@ export default function UserRoleManager({ users, totalCount }: Props) {
   const [editPhoneNumber, setEditPhoneNumber] = useState("");
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [draftRoles, setDraftRoles] = useState<Record<string, Role>>(() =>
-    Object.fromEntries(users.map((user) => [user.id, user.role])) as Record<string, Role>
-  );
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    setDraftRoles(Object.fromEntries(users.map((user) => [user.id, user.role])) as Record<string, Role>);
-  }, [users]);
 
   useEffect(() => {
     if (!openActionsUserId) return;
@@ -232,7 +230,6 @@ export default function UserRoleManager({ users, totalCount }: Props) {
     const user = users.find((item) => item.id === userId);
     if (!user || user.role === role || (isPending && pendingUserId !== userId)) return;
 
-    setDraftRoles((prev) => ({ ...prev, [userId]: role }));
     setPendingUserId(userId);
     setMessage(null);
 
@@ -252,13 +249,85 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         setMessage({ type: "success", text: "Role updated successfully." });
         router.refresh();
       } catch (error) {
-        setDraftRoles((prev) => ({ ...prev, [userId]: user.role }));
         const text = error instanceof Error ? error.message : "Failed to update role";
         setMessage({ type: "error", text });
       } finally {
         setPendingUserId(null);
       }
     });
+  }
+
+  function renderRoleControl(user: UserItem, compact = false) {
+    const busy = isPending && pendingUserId === user.id;
+    const isCurrentAccount = user.id === currentUserId;
+    const isActiveScholar = user.granteeStatus
+      ? user.granteeStatus === "ACTIVE" || user.granteeStatus === "PROBATIONARY"
+      : user.skeapStatus === "APPROVED";
+
+    if (user.role === "SUPER_ADMIN" || isCurrentAccount) {
+      return (
+        <div className="flex flex-col items-start gap-1">
+          <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-800">
+            {user.role === "SUPER_ADMIN" ? "System Admin" : "Current Account"}
+          </span>
+          {isCurrentAccount ? (
+            <span className="text-[10px] font-medium text-slate-500">Current Account</span>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (user.role === "GRANTEE" || isActiveScholar) {
+      return (
+        <div className="flex flex-col items-start gap-1" title="Managed via SKEAP">
+          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+            Grantee
+          </span>
+          <span className="text-[10px] font-medium text-slate-500">Managed via SKEAP</span>
+        </div>
+      );
+    }
+
+    if (user.role === "YOUTH") {
+      return (
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => setRoleCandidate({ user, nextRole: "SK_OFFICIAL" })}
+          className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "w-full" : ""}`}
+        >
+          {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+          {busy ? "Updating..." : "Appoint as SK Admin"}
+        </button>
+      );
+    }
+
+    if (user.role === "SK_OFFICIAL") {
+      return (
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => setRoleCandidate({ user, nextRole: "YOUTH" })}
+          className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "w-full" : ""}`}
+        >
+          {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+          {busy ? "Updating..." : "Remove SK Admin"}
+        </button>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+        {user.role}
+      </span>
+    );
+  }
+
+  function confirmRoleChange() {
+    if (!roleCandidate) return;
+    const { user, nextRole } = roleCandidate;
+    setRoleCandidate(null);
+    updateRole(user.id, nextRole);
   }
 
   function handleExportUsersExcel() {
@@ -450,7 +519,9 @@ export default function UserRoleManager({ users, totalCount }: Props) {
               onClick={() => setShowRoleFilterMenu((prev) => !prev)}
             >
               <Filter className="h-4 w-4" />
-              {roleFilter === "ALL" ? "All roles" : roleFilter}
+              {roleFilter === "ALL"
+                ? "All roles"
+                : ROLE_OPTIONS.find((option) => option.value === roleFilter)?.label ?? roleFilter}
             </button>
             {showRoleFilterMenu ? (
               <div className="absolute right-0 top-11 z-20 w-44 overflow-hidden rounded-xl border border-[#D8E3EC] bg-white shadow-lg">
@@ -474,7 +545,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                       setShowRoleFilterMenu(false);
                     }}
                   >
-                    {option.value}
+                    {option.label}
                   </button>
                 ))}
               </div>
@@ -508,7 +579,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
           <div>
             <h2 className="text-lg font-black text-slate-900">System Users &amp; Role Management</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Manage account access, assign RBAC roles, and control active user permissions.
+              Grant or revoke SK Admin workspace access for Barangay Pico SK Officials. Youth and Grantee statuses are assigned automatically through KK Profiling and SKEAP workflows.
             </p>
           </div>
           <span className="w-fit rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
@@ -531,7 +602,6 @@ export default function UserRoleManager({ users, totalCount }: Props) {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredUsers.map((user) => {
-                  const draftRole = draftRoles[user.id] ?? user.role;
                   const busy = isPending && pendingUserId === user.id;
                   const scholarStatusBadge = user.skeapStatus === "WAITLISTED"
                     ? SCHOLAR_STATUS_BADGES.WAITLISTED
@@ -555,32 +625,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="relative w-fit">
-                            <select
-                              aria-label={`Role for ${user.displayName}`}
-                              value={draftRole}
-                              onChange={(event) => updateRole(user.id, event.target.value as Role)}
-                              className="h-9 w-[124px] appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-9 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
-                              disabled={isPending}
-                            >
-                              {ROLE_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <ChevronDown
-                              aria-hidden="true"
-                              className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500"
-                            />
-                          </div>
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center" aria-live="polite">
-                            {busy ? (
-                              <LoaderCircle className="h-4 w-4 animate-spin text-cyan-700" aria-label="Updating role" />
-                            ) : null}
-                          </span>
-                        </div>
+                        {renderRoleControl(user)}
                       </td>
                       <td className="px-6 py-4">
                         <div className={`flex items-center gap-1.5 text-sm font-medium ${user.isActive ? "text-emerald-700" : "text-slate-500"}`}>
@@ -689,7 +734,6 @@ export default function UserRoleManager({ users, totalCount }: Props) {
 
             <div className="flex flex-col gap-4 p-4 md:hidden">
               {filteredUsers.map((user) => {
-                const draftRole = draftRoles[user.id] ?? user.role;
                 const busy = isPending && pendingUserId === user.id;
                 const scholarStatusBadge = user.skeapStatus === "WAITLISTED"
                   ? SCHOLAR_STATUS_BADGES.WAITLISTED
@@ -722,28 +766,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                         <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                           Current Role
                         </dt>
-                        <dd className="relative mt-1">
-                          <select
-                            aria-label={`Role for ${user.displayName}`}
-                            value={draftRole}
-                            onChange={(event) => updateRole(user.id, event.target.value as Role)}
-                            className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-2 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
-                            disabled={isPending}
-                          >
-                            {ROLE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown
-                            aria-hidden="true"
-                            className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500"
-                          />
-                          {busy ? (
-                            <LoaderCircle className="absolute right-7 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-cyan-700" aria-label="Updating role" />
-                          ) : null}
-                        </dd>
+                        <dd className="mt-1">{renderRoleControl(user, true)}</dd>
                       </div>
                       <div>
                         <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -831,6 +854,53 @@ export default function UserRoleManager({ users, totalCount }: Props) {
         )}
       </div>
 
+      {roleCandidate ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="role-change-title"
+            aria-describedby="role-change-description"
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className={`border-t-4 p-5 ${roleCandidate.nextRole === "SK_OFFICIAL" ? "border-cyan-600" : "border-rose-600"}`}>
+              <h2 id="role-change-title" className="text-base font-semibold text-slate-950">
+                {roleCandidate.nextRole === "SK_OFFICIAL" ? "Appoint as SK Admin?" : "Remove SK Admin access?"}
+              </h2>
+              <p id="role-change-description" className="mt-2 text-sm leading-6 text-slate-600">
+                {roleCandidate.nextRole === "SK_OFFICIAL" ? (
+                  <>
+                    Appoint {roleCandidate.user.displayName || roleCandidate.user.fullName} as an SK Admin? They will gain access to the SK Admin workspace to review applications, manage youth records, and generate reports.
+                  </>
+                ) : (
+                  <>
+                    Revoke SK Admin access for {roleCandidate.user.displayName || roleCandidate.user.fullName}? Their administrative workspace privileges will be removed and their account will return to standard Youth access.
+                  </>
+                )}
+              </p>
+              <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setRoleCandidate(null)}
+                  disabled={isPending && pendingUserId === roleCandidate.user.id}
+                  className="rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmRoleChange}
+                  disabled={isPending}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${roleCandidate.nextRole === "SK_OFFICIAL" ? "bg-[#0F3D5C] hover:bg-[#0a2f47]" : "bg-rose-700 hover:bg-rose-800"}`}
+                >
+                  {roleCandidate.nextRole === "SK_OFFICIAL" ? "Appoint as SK Admin" : "Remove SK Admin"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {viewingUser ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/35 px-4">
           <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#D6E1EC] bg-white p-6 shadow-xl">
@@ -863,7 +933,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">System Role</span>
                 <div className="mt-1.5">
                   <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                    {viewingUser.role}
+                    {ROLE_OPTIONS.find((option) => option.value === viewingUser.role)?.label ?? viewingUser.role}
                   </span>
                 </div>
               </div>
@@ -967,7 +1037,7 @@ export default function UserRoleManager({ users, totalCount }: Props) {
             </div>
 
             <p className="mb-4 text-sm text-slate-500">
-              Update the user&apos;s name and contact details. Manage system role separately in the role selector.
+              Update the user&apos;s name and contact details. Manage SK Admin access using the governance controls in the user list.
             </p>
             <div className="space-y-4">
               <label className="block text-sm">

@@ -18,6 +18,7 @@ import type { KKProfile } from "@/lib/kk-profile-client";
 import { validateDocumentOCR, verifyOcrDocumentName } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
+import FormFieldLabel from "@/app/components/FormFieldLabel";
 import {
   DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS,
   getSkeapEducationLevelCode,
@@ -644,9 +645,9 @@ function GroupedPresetCombobox({
 
   return (
     <div ref={wrapperRef} className="relative flex min-w-0 flex-col">
-      <label htmlFor={inputId} className="text-sm font-semibold">
-        {label}{required ? <span className="ml-1 text-black" aria-hidden="true">*</span> : null}
-      </label>
+      <FormFieldLabel htmlFor={inputId} required={required} className="text-sm font-semibold">
+        {label}
+      </FormFieldLabel>
       <div className="relative mt-1">
         <input
           id={inputId}
@@ -851,6 +852,7 @@ export default function SkeapApplicationWizard({
 }) {
   const [step, setStep] = useState(0);
   const parsedProfileName = parseProfileName(userProfile?.fullName ?? "");
+  const profileMiddleName = userProfile?.middleName?.trim() || parsedProfileName.middleName;
   const profilePlaceOfBirth = userProfile?.placeOfBirth;
   const profileBirthDate = userProfile?.birthDate ? String(userProfile.birthDate).slice(0, 10) : "";
   const profileAge = profileBirthDate ? computeAgeFromDateValue(profileBirthDate) : undefined;
@@ -866,9 +868,8 @@ export default function SkeapApplicationWizard({
   // Full SKEAP form fields (mirror DOCX)
   const [lastName, setLastName] = useState(parsedProfileName.lastName);
   const [firstName, setFirstName] = useState(parsedProfileName.firstName);
-  const [middleName, setMiddleName] = useState(
-    userProfile?.middleName?.trim() || parsedProfileName.middleName
-  );
+  const [middleName, setMiddleName] = useState(profileMiddleName);
+  const [noMiddleName, setNoMiddleName] = useState(!profileMiddleName.trim());
   const [schoolName, setSchoolName] = useState("");
   const applicantName = `${lastName.trim()}${firstName.trim() ? `, ${firstName.trim()}` : ""}${middleName.trim() ? ` ${middleName.trim()}` : ""}`;
   const applicantDisplayName = [firstName, middleName, lastName].map((part) => part.trim()).filter(Boolean).join(" ");
@@ -1104,7 +1105,7 @@ export default function SkeapApplicationWizard({
     if (step === 0) {
       if (!lastName.trim()) addError("lastName", "Last name is required.");
       if (!firstName.trim()) addError("firstName", "First name is required.");
-      if (!middleName.trim()) addError("middleName", "Middle name is required.");
+      if (!noMiddleName && !middleName.trim()) addError("middleName", "Middle name is required.");
       if (!permanentAddress.trim()) addError("permanentAddress", "Permanent address is required.");
       if (!schoolName.trim()) addError("schoolName", "School / Institution is required.");
       else if (schoolName.trim().length < 2) addError("schoolName", "Please enter or select your school.");
@@ -1596,6 +1597,7 @@ export default function SkeapApplicationWizard({
           lastName,
           firstName,
           middleName,
+          noMiddleName,
           permanentAddress,
           dateOfBirth,
           placeOfBirth,
@@ -1662,6 +1664,9 @@ export default function SkeapApplicationWizard({
         <p className="mt-2 text-sm leading-6 text-slate-600">
           The fields below are the actual application form for SKEAP. Complete each section and upload the required documents to submit your application.
         </p>
+        <p className="mt-2 text-xs text-slate-500">
+          Fields marked with <span className="font-semibold text-rose-600">*</span> are required.
+        </p>
       </div>
 
       <div className="scrollbar-hide mb-4 flex flex-row flex-nowrap gap-2 overflow-x-auto">
@@ -1723,11 +1728,26 @@ export default function SkeapApplicationWizard({
                 value={middleName}
                 onChange={(value) => { setMiddleName(value); markFieldValid("middleName"); }}
                 placeholder="Enter middle name"
-                dataRequired="profile"
-                required
-                readOnly={!allowManualProfileDetails}
+                dataRequired={!noMiddleName ? "profile" : undefined}
+                required={!noMiddleName}
+                readOnly={!allowManualProfileDetails || noMiddleName}
                 invalid={invalidFields.has("middleName")}
               />
+              <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={noMiddleName}
+                  disabled={!allowManualProfileDetails && !profileMiddleName.trim()}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setNoMiddleName(checked);
+                    setMiddleName(checked ? "" : profileMiddleName);
+                    markFieldValid("middleName");
+                  }}
+                  className="rounded border-slate-300"
+                />
+                I do not have a middle name
+              </label>
             </div>
           </div>
 
@@ -1736,7 +1756,7 @@ export default function SkeapApplicationWizard({
               <EditableField label="Permanent Address" value={permanentAddress} onChange={(value) => { setPermanentAddress(value); markFieldValid("permanentAddress"); }} placeholder="Enter permanent address in Barangay Pico" dataRequired="profile" required invalid={invalidFields.has("permanentAddress")} />
             ) : (
             <label className="flex min-w-0 flex-col">
-              <span className="text-sm font-semibold">Permanent Address <span className="text-black" aria-hidden="true">*</span></span>
+              <FormFieldLabel required className="text-sm font-semibold">Permanent Address</FormFieldLabel>
               <input
                 readOnly
                 data-required="profile"
@@ -1763,7 +1783,7 @@ export default function SkeapApplicationWizard({
 
           <div className="grid grid-cols-1 items-start gap-x-6 gap-y-4 md:grid-cols-2">
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Date of Birth <span className="text-black" aria-hidden="true">*</span></span>
+              <FormFieldLabel required className="text-sm font-semibold">Date of Birth</FormFieldLabel>
               <input
                 data-required="profile"
                 required
@@ -1787,7 +1807,7 @@ export default function SkeapApplicationWizard({
               />
             </label>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Place of Birth <span className="text-black" aria-hidden="true">*</span></span>
+              <FormFieldLabel required className="text-sm font-semibold">Place of Birth</FormFieldLabel>
               <input
                 data-required="profile"
                 required
@@ -1809,7 +1829,7 @@ export default function SkeapApplicationWizard({
               ) : null}
             </label>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Age <span className="text-black" aria-hidden="true">*</span></span>
+              <FormFieldLabel required className="text-sm font-semibold">Age</FormFieldLabel>
               <input
                 data-required="profile"
                 type="number"
@@ -1830,9 +1850,9 @@ export default function SkeapApplicationWizard({
               />
             </label>
             <div className="flex min-w-0 flex-col">
-              <label htmlFor="skeap-civil-status" className="text-sm font-semibold">
-                Civil Status <span className="text-black" aria-hidden="true">*</span>
-              </label>
+              <FormFieldLabel htmlFor="skeap-civil-status" required className="text-sm font-semibold">
+                Civil Status
+              </FormFieldLabel>
               <div className="relative mt-1 w-full">
                 <select
                   id="skeap-civil-status"
@@ -1864,9 +1884,9 @@ export default function SkeapApplicationWizard({
               </div>
             </div>
             <div className="flex min-w-0 flex-col">
-              <label htmlFor="skeap-gender" className="text-sm font-semibold">
-                Gender <span className="text-black" aria-hidden="true">*</span>
-              </label>
+              <FormFieldLabel htmlFor="skeap-gender" required className="text-sm font-semibold">
+                Gender
+              </FormFieldLabel>
               <div className="relative mt-1 w-full">
                 <select
                   id="skeap-gender"
@@ -1896,7 +1916,7 @@ export default function SkeapApplicationWizard({
               </div>
             </div>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Contact Number <span className="text-black" aria-hidden="true">*</span></span>
+              <FormFieldLabel required className="text-sm font-semibold">Contact Number</FormFieldLabel>
               <input
                 data-required="profile"
                 required
@@ -1914,7 +1934,7 @@ export default function SkeapApplicationWizard({
               />
             </label>
             <label className="flex flex-col md:col-span-2">
-              <span className="text-sm font-semibold">Email Address <span className="text-black" aria-hidden="true">*</span></span>
+              <FormFieldLabel required className="text-sm font-semibold">Email Address</FormFieldLabel>
               <input
                 readOnly
                 data-required="profile"
@@ -1958,7 +1978,9 @@ export default function SkeapApplicationWizard({
               </div>
             </div>
             <fieldset className="mt-2 flex flex-col gap-2 md:col-span-2">
-              <legend className="text-sm font-semibold text-slate-900">Registered Voter <span className="text-black" aria-hidden="true">*</span></legend>
+              <legend>
+                <FormFieldLabel required className="text-sm font-semibold text-slate-900">Registered Voter</FormFieldLabel>
+              </legend>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${registeredVoter === true ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-slate-300"} ${invalidFields.has("registeredVoter") ? "border-rose-300" : ""}`}>
                   <input
@@ -2059,13 +2081,17 @@ export default function SkeapApplicationWizard({
                       }}
                       className="mt-0.5 h-4 w-4 shrink-0"
                     />
-                    <span>I confirm that my parent or legal guardian is a duly registered voter of Barangay Pico.</span>
+                    <FormFieldLabel required className="text-sm font-normal text-slate-700">
+                      I confirm that my parent or legal guardian is a duly registered voter of Barangay Pico.
+                    </FormFieldLabel>
                   </label>
                   {validationErrors.parentGuardianRegisteredVoter ? (
                     <p className="text-xs text-rose-600" role="alert">{validationErrors.parentGuardianRegisteredVoter}</p>
                   ) : null}
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-sm font-medium text-slate-800">Parent / Legal Guardian Registered Voter Full Name <span className="text-rose-600" aria-hidden="true">*</span></span>
+                    <FormFieldLabel required className="text-sm font-medium text-slate-800">
+                      Parent / Legal Guardian Registered Voter Full Name
+                    </FormFieldLabel>
                     <input
                       data-required="profile"
                       name="parentGuardianVoterFullName"
@@ -2107,9 +2133,9 @@ export default function SkeapApplicationWizard({
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             <label className="flex flex-col">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Education Level <span className="text-black" aria-hidden="true">*</span>
-              </span>
+              <FormFieldLabel required className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Education Level
+              </FormFieldLabel>
               <div className="relative mt-1">
                 <select
                   data-required="scholarship"
@@ -2151,13 +2177,13 @@ export default function SkeapApplicationWizard({
             {!isJuniorHighSchool ? (
               <div className="flex flex-col">
                 <div className="flex min-h-5 items-center justify-between gap-3">
-                  <label
+                  <FormFieldLabel
                     htmlFor={courseFieldId}
+                    required
                     className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500"
                   >
                     {isSeniorHighSchool ? "Academic / TVL Strand" : "Current / Intended Course"}
-                    <span className="ml-1 text-black" aria-hidden="true">*</span>
-                  </label>
+                  </FormFieldLabel>
                   {courseSelectValue === "__OTHER__" ? (
                     <button
                       type="button"
@@ -2231,10 +2257,9 @@ export default function SkeapApplicationWizard({
               </div>
             ) : (
               <label className="flex flex-col">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <FormFieldLabel required className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                   Current / Intended Course
-                  <span className="ml-1 text-black" aria-hidden="true">*</span>
-                </span>
+                </FormFieldLabel>
                 <input
                   data-required="scholarship"
                   readOnly
@@ -2247,7 +2272,7 @@ export default function SkeapApplicationWizard({
               </label>
             )}
             <label className="flex flex-col">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Year level <span className="text-black" aria-hidden="true">*</span></span>
+              <FormFieldLabel required className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Year level</FormFieldLabel>
               <div className="relative mt-1">
                 <select
                   data-required="scholarship"
@@ -2282,7 +2307,7 @@ export default function SkeapApplicationWizard({
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <label className="flex flex-col">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Father's Name <span className="text-black" aria-hidden="true">*</span></span>
+                <FormFieldLabel required className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Father&apos;s Name</FormFieldLabel>
                 <input
                   data-required="scholarship"
                   required
@@ -2312,7 +2337,7 @@ export default function SkeapApplicationWizard({
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <label className="flex flex-col">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Father's contact <span className="text-black" aria-hidden="true">*</span></span>
+                <FormFieldLabel required className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Father&apos;s contact</FormFieldLabel>
                 <input
                   data-required="scholarship"
                   required
@@ -2348,7 +2373,7 @@ export default function SkeapApplicationWizard({
                 </label>
               </label>
               <label className="flex flex-col">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mother's maiden name <span className="text-black" aria-hidden="true">*</span></span>
+                <FormFieldLabel required className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mother&apos;s maiden name</FormFieldLabel>
                 <input
                   data-required="scholarship"
                   required
@@ -2378,7 +2403,7 @@ export default function SkeapApplicationWizard({
                 disabled={mothersContact === "N/A"}
               />
               <label className="flex flex-col">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mother's contact <span className="text-black" aria-hidden="true">*</span></span>
+                <FormFieldLabel required className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mother&apos;s contact</FormFieldLabel>
                 <input
                   data-required="scholarship"
                   required
@@ -2416,7 +2441,7 @@ export default function SkeapApplicationWizard({
             </div>
             <div className="mt-3">
               <label className="flex flex-col">
-                <span className="text-sm font-semibold">Total Family Monthly Income <span className="text-black" aria-hidden="true">*</span></span>
+                <FormFieldLabel required className="text-sm font-semibold">Total Family Monthly Income</FormFieldLabel>
                 <input
                   data-required="scholarship"
                   required
@@ -2551,7 +2576,7 @@ export default function SkeapApplicationWizard({
                 <li key={label} className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-white/80 p-3">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-semibold text-slate-800">{label}</span>
+                    <FormFieldLabel required className="block text-xs font-semibold text-slate-800">{label}</FormFieldLabel>
                     <span className="mt-0.5 block text-[11px] text-slate-500">{detail}</span>
                   </span>
                   <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
@@ -2643,8 +2668,10 @@ export default function SkeapApplicationWizard({
                   className={`flex flex-col gap-2 overflow-hidden rounded-2xl border p-4 ${invalidFields.has(key) ? "border-rose-300 bg-rose-50/30 text-slate-900" : "border-slate-200 bg-white"}`}
                 >
                   <div>
-                    <div className="flex items-center justify-between">
-                      <h4 className="min-w-0 truncate text-sm font-semibold text-slate-900">{label}</h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="min-w-0 truncate text-sm font-semibold text-slate-900">
+                            <FormFieldLabel required>{label}</FormFieldLabel>
+                          </h4>
                       {!isReady ? (
                         <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusLabel === "UNVERIFIED" ? "border border-slate-200 bg-slate-100 text-slate-700" : `border ${statusBadgeClass}`}`}>
                           {statusLabel}
@@ -2663,6 +2690,7 @@ export default function SkeapApplicationWizard({
                     id={inputId}
                     name={key}
                     type="file"
+                    aria-required="true"
                     accept={ACCEPTED_DOCUMENT_TYPES}
                     data-requirement={key}
                     onChange={(e) => {
@@ -2933,7 +2961,9 @@ function VerifiedIdentityDocumentCard({
       <div className="flex items-start gap-2">
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
         <div className="min-w-0">
-          <h4 className="text-sm font-semibold text-slate-900">{label}</h4>
+          <h4 className="text-sm font-semibold text-slate-900">
+            <FormFieldLabel required>{label}</FormFieldLabel>
+          </h4>
           <p className="mt-1 text-xs text-emerald-700">Attached securely from your KK Profile</p>
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
             {links.map((link) => (
@@ -2994,7 +3024,9 @@ function UpdatablePhotoDocumentCard({
       <div className="flex items-start gap-2">
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <h4 className="text-sm font-semibold text-slate-900">{label}</h4>
+          <h4 className="text-sm font-semibold text-slate-900">
+            <FormFieldLabel required>{label}</FormFieldLabel>
+          </h4>
           <p className="mt-1 text-xs text-emerald-700">Attached securely from your KK Profile</p>
           <a
             href={href}
@@ -3079,9 +3111,9 @@ function EditableField({
 }) {
   return (
     <label className="flex flex-col">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-        {label}{required ? <span className="ml-1 text-black" aria-hidden="true">*</span> : null}
-      </span>
+      <FormFieldLabel required={required} className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+        {label}
+      </FormFieldLabel>
       <input
         type={type}
         data-required={dataRequired}

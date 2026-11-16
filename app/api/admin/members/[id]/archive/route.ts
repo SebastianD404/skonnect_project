@@ -59,7 +59,7 @@ export async function PATCH(
         registration.user?.grantee?.status === "PROBATIONARY"
       ) {
         return {
-          error: "Active SKEAP grantees must be managed in Active Grantees first.",
+          error: "Active SKEAP grantees must be managed in Active Grantees before archiving their KK profile.",
           status: 400 as const,
         };
       }

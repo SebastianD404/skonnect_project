@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEve
 import Image from "next/image";
 import { Clock3, FileText, LoaderCircle, UploadCloud, X } from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
+import FormFieldLabel from "@/app/components/FormFieldLabel";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
 export type OcrStrategy = "none" | "residency" | "birth-certificate" | "front-id" | "back-id";
@@ -22,6 +23,7 @@ export type DocumentOCRState = {
 
 type DocumentUploadCardProps = {
   title: string;
+  required?: boolean;
   acceptedFormats: string;
   accept: string;
   maxSize: number;
@@ -171,6 +173,7 @@ function formatFileSize(size: number) {
 
 export function DocumentUploadCard({
   title,
+  required = false,
   acceptedFormats,
   accept,
   maxSize,
@@ -394,6 +397,7 @@ export function DocumentUploadCard({
           type="file"
           accept={accept}
           aria-label={`Select ${title}`}
+          aria-required={required}
           className="sr-only outline-none focus:outline-none focus:ring-0"
           onChange={(event) => {
             const file = event.currentTarget.files?.[0] ?? null;
@@ -412,9 +416,9 @@ export function DocumentUploadCard({
               } text-white`}
             >
               {isPdf ? <FileText className={`mb-1 text-white ${compact ? "h-4 w-4" : "h-6 w-6"}`} aria-hidden="true" /> : null}
-              <p className={`font-semibold leading-tight text-white ${compact ? "text-xs" : "text-sm"}`}>
+              <FormFieldLabel required={required} className={`font-semibold leading-tight text-white ${compact ? "text-xs" : "text-sm"}`}>
                 {title}
-              </p>
+              </FormFieldLabel>
               {compact ? (
                 <div className="mt-1 w-full min-w-0 text-white">
                   <p className="truncate text-[10px] leading-tight" title={selectedFile.name}>
@@ -474,7 +478,9 @@ export function DocumentUploadCard({
               className={`mb-1 ${compact ? "h-5 w-5" : "h-6 w-6"} text-slate-400 transition-transform duration-150 group-hover:-translate-y-0.5 group-active:scale-90`}
               aria-hidden="true"
             />
-            <p className="text-sm font-semibold text-slate-800">{title}</p>
+            <FormFieldLabel required={required} className="text-sm font-semibold text-slate-800">
+              {title}
+            </FormFieldLabel>
             <p className="mt-1 text-xs text-slate-500">
               {acceptedFormats} · Max {formatFileSize(maxSize)}
             </p>
@@ -514,7 +520,9 @@ export function DocumentUploadCard({
           >
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-slate-900">{title}</h2>
+                <h2 className="truncate text-sm font-semibold text-slate-900">
+                  <FormFieldLabel required={required}>{title}</FormFieldLabel>
+                </h2>
                 <p className="truncate text-xs text-slate-500">{selectedFile.name}</p>
               </div>
               <button

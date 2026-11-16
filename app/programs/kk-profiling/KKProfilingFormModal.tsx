@@ -12,6 +12,7 @@ import {
   removeNameNumbers,
 } from "@/lib/kk-profiling-inputs";
 import { scanDocument } from "@/lib/ocrValidation";
+import FormFieldLabel from "@/app/components/FormFieldLabel";
 
 type KKProfilingRegistrationData = {
   id: string;
@@ -95,7 +96,7 @@ function SimpleDocumentReplacement({
 }: SimpleDocumentReplacementProps) {
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4">
-      <span className="font-semibold text-slate-900">{title}</span>
+      <FormFieldLabel required className="font-semibold text-slate-900">{title}</FormFieldLabel>
       <span className="text-xs text-slate-500">{helper}</span>
       {existingUrl ? (
         <a
@@ -114,6 +115,7 @@ function SimpleDocumentReplacement({
         type="file"
         accept={accept}
         aria-label={`Replace ${title}`}
+        aria-required="true"
         onChange={(event) => onFileChange(event.currentTarget.files?.[0] ?? null)}
         className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700"
       />
@@ -253,7 +255,7 @@ function UnifiedDocumentDropzone({
       }`}
     >
       <div className="mb-3 flex min-h-[3rem] items-start justify-between">
-        <span className="font-semibold text-slate-900">{title}</span>
+        <FormFieldLabel required className="font-semibold text-slate-900">{title}</FormFieldLabel>
         {statusBadge}
       </div>
 
@@ -385,6 +387,7 @@ function UnifiedDocumentDropzone({
         ref={inputRef}
         type="file"
         accept={accept}
+        aria-required="true"
         onClick={(event) => event.stopPropagation()}
         onChange={(event) => {
           setIsPickingFile(false);
@@ -687,7 +690,12 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       <div className="relative mx-auto flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6 py-5 sm:px-8">
           <div>
-            <h2 className="text-xl font-semibold text-slate-950">KK Profiling Registration</h2>
+            <div>
+              <h2 className="text-xl font-semibold text-slate-950">KK Profiling Registration</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Fields marked with <span className="font-semibold text-rose-600">*</span> are required.
+              </p>
+            </div>
           </div>
           <button
             type="button"
@@ -710,7 +718,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
           <div className="grid gap-x-4 gap-y-4 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-last-name" className="text-sm font-semibold">Last Name *</label>
+              <FormFieldLabel htmlFor="edit-last-name" required className="text-sm font-semibold">Last Name</FormFieldLabel>
               <input
                 id="edit-last-name"
                 value={form.lastName}
@@ -720,7 +728,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-first-name" className="text-sm font-semibold">First Name *</label>
+              <FormFieldLabel htmlFor="edit-first-name" required className="text-sm font-semibold">First Name</FormFieldLabel>
               <input
                 id="edit-first-name"
                 value={form.firstName}
@@ -730,7 +738,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-middle-name" className="text-sm font-semibold">Middle Name *</label>
+              <FormFieldLabel htmlFor="edit-middle-name" required className="text-sm font-semibold">Middle Name</FormFieldLabel>
               <input
                 id="edit-middle-name"
                 value={form.middleName}
@@ -742,15 +750,15 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
           </div>
 
           <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5"><label htmlFor="edit-sitio" className="text-sm font-semibold">Sitio *</label><select id="edit-sitio" value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"><option value="">Select sitio</option>{OFFICIAL_SITIOS.map((sitio) => <option key={sitio} value={sitio}>{sitio}</option>)}</select></div>
-            <div className="flex flex-col gap-1.5"><label htmlFor="edit-barangay" className="text-sm font-semibold">Barangay *</label><input id="edit-barangay" value={form.barangay} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
-            <div className="flex flex-col gap-1.5"><label htmlFor="edit-municipality" className="text-sm font-semibold">Municipality *</label><input id="edit-municipality" value={form.municipality} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
-            <div className="flex flex-col gap-1.5"><label htmlFor="edit-province" className="text-sm font-semibold">Province *</label><input id="edit-province" value={form.province} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
+            <div className="flex flex-col gap-1.5"><FormFieldLabel htmlFor="edit-sitio" required className="text-sm font-semibold">Sitio</FormFieldLabel><select id="edit-sitio" value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} className="mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm"><option value="">Select sitio</option>{OFFICIAL_SITIOS.map((sitio) => (<option key={sitio} value={sitio}>{sitio}</option>))}</select></div>
+            <div className="flex flex-col gap-1.5"><FormFieldLabel htmlFor="edit-barangay" required className="text-sm font-semibold">Barangay</FormFieldLabel><input id="edit-barangay" value={form.barangay} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
+            <div className="flex flex-col gap-1.5"><FormFieldLabel htmlFor="edit-municipality" required className="text-sm font-semibold">Municipality</FormFieldLabel><input id="edit-municipality" value={form.municipality} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
+            <div className="flex flex-col gap-1.5"><FormFieldLabel htmlFor="edit-province" required className="text-sm font-semibold">Province</FormFieldLabel><input id="edit-province" value={form.province} readOnly className="mt-1 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm" /></div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Sex</span>
+              <FormFieldLabel required className="text-sm font-semibold">Sex</FormFieldLabel>
               <select
                 value={form.sex}
                 onChange={(e) => setField("sex", e.target.value)}
@@ -762,7 +770,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               </select>
             </label>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Birth date</span>
+              <FormFieldLabel required className="text-sm font-semibold">Birth date</FormFieldLabel>
               <input
                 type="date"
                 min="1995-01-01"
@@ -780,7 +788,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               />
             </label>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Age</span>
+              <FormFieldLabel required className="text-sm font-semibold">Age</FormFieldLabel>
               <input
                 type="number"
                 value={form.age}
@@ -792,7 +800,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Email address</span>
+              <FormFieldLabel required className="text-sm font-semibold">Email address</FormFieldLabel>
               <input
                 type="email"
                 value={form.email}
@@ -801,7 +809,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               />
             </label>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Facebook account</span>
+              <FormFieldLabel required className="text-sm font-semibold">Facebook account</FormFieldLabel>
               <input
                 value={form.facebook}
                 onChange={(e) => setField("facebook", e.target.value)}
@@ -811,7 +819,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
           </div>
 
           <label className="flex flex-col">
-            <span className="text-sm font-semibold">Contact number</span>
+            <FormFieldLabel required className="text-sm font-semibold">Contact number</FormFieldLabel>
             <input
               value={form.contactNumber}
               onChange={(e) => setField("contactNumber", keepContactNumberDigits(e.target.value))}
@@ -826,7 +834,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Civil status</span>
+              <FormFieldLabel required className="text-sm font-semibold">Civil status</FormFieldLabel>
               <select
                 value={form.civilStatus}
                 onChange={(e) => setField("civilStatus", e.target.value)}
@@ -841,7 +849,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               </select>
             </label>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Youth classification</span>
+              <FormFieldLabel required className="text-sm font-semibold">Youth classification</FormFieldLabel>
               <select
                 value={form.youthClassification}
                 onChange={(e) => setField("youthClassification", e.target.value)}
@@ -859,7 +867,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Youth age group</span>
+              <FormFieldLabel required className="text-sm font-semibold">Youth age group</FormFieldLabel>
               <select
                 value={form.youthAgeGroup}
                 onChange={(e) => setField("youthAgeGroup", e.target.value)}
@@ -872,7 +880,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               </select>
             </label>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Work status</span>
+              <FormFieldLabel required className="text-sm font-semibold">Work status</FormFieldLabel>
               <select
                 value={form.workStatus}
                 onChange={(e) => setField("workStatus", e.target.value)}
@@ -889,7 +897,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
           </div>
 
           <label className="flex flex-col">
-            <span className="text-sm font-semibold">Educational background</span>
+            <FormFieldLabel required className="text-sm font-semibold">Educational background</FormFieldLabel>
             <select
               value={form.educationalBackground}
               onChange={(e) => setField("educationalBackground", e.target.value)}
@@ -904,7 +912,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Registered SK voter?</span>
+              <FormFieldLabel required className="text-sm font-semibold">Registered SK voter?</FormFieldLabel>
               <select
                 value={form.registeredSKVoter}
                 onChange={(e) => setField("registeredSKVoter", e.target.value)}
@@ -916,7 +924,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               </select>
             </label>
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">Voted last SK election?</span>
+              <FormFieldLabel required className="text-sm font-semibold">Voted last SK election?</FormFieldLabel>
               <select
                 value={form.votedLastSK}
                 onChange={(e) => setField("votedLastSK", e.target.value)}
@@ -930,7 +938,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
           </div>
 
           <label className="flex flex-col">
-            <span className="text-sm font-semibold">Registered national voter?</span>
+            <FormFieldLabel required className="text-sm font-semibold">Registered national voter?</FormFieldLabel>
             <select
               value={form.registeredNationalVoter}
               onChange={(e) => setField("registeredNationalVoter", e.target.value)}
@@ -943,7 +951,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
           </label>
 
           <label className="flex flex-col">
-            <span className="text-sm font-semibold">Attended KK Assembly?</span>
+            <FormFieldLabel required className="text-sm font-semibold">Attended KK Assembly?</FormFieldLabel>
             <select
               value={form.attendedKKAssembly}
               onChange={(e) => setField("attendedKKAssembly", e.target.value)}
@@ -957,7 +965,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
           {form.attendedKKAssembly === "Yes" ? (
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">If yes, how many times</span>
+              <FormFieldLabel required className="text-sm font-semibold">If yes, how many times</FormFieldLabel>
               <input
                 value={form.assemblyTimes ?? ""}
                 onChange={(e) => setField("assemblyTimes", e.target.value)}
@@ -968,7 +976,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
           {form.attendedKKAssembly === "No" ? (
             <label className="flex flex-col">
-              <span className="text-sm font-semibold">If no, why</span>
+              <FormFieldLabel required className="text-sm font-semibold">If no, why</FormFieldLabel>
               <input
                 value={form.noAssemblyReason ?? ""}
                 onChange={(e) => setField("noAssemblyReason", e.target.value)}

@@ -101,7 +101,7 @@ describe("KK member profile archive lifecycle", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      error: "Active SKEAP grantees must be managed in Active Grantees first.",
+      error: "Active SKEAP grantees must be managed in Active Grantees before archiving their KK profile.",
     });
     expect(mocks.updateRegistration).not.toHaveBeenCalled();
     expect(mocks.closeSkeapApplications).not.toHaveBeenCalled();

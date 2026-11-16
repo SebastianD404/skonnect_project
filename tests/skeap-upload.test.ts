@@ -34,7 +34,7 @@ describe("SKEAP required document labels", () => {
       { key: SKEAP_UPLOAD_KEY.GRADE_REPORT, label: "Grades Issued by School Registrar" },
       {
         key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
-        label: "COMELEC Voter's Certificate (Barangay Pico) *",
+        label: "COMELEC Voter's Certificate (Barangay Pico)",
         helperText: "Upload a clear photo or PDF of the appropriate Barangay Pico COMELEC Voter's Certificate.",
       },
     ]);
@@ -45,7 +45,7 @@ describe("SKEAP required document labels", () => {
 
     expect(highSchoolDocs[2].label).toBe("Certified True Copy of Report Card / Form 138");
     expect(highSchoolDocs[3].label).toBe(
-      "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico) *",
+      "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico)",
     );
     expect(highSchoolDocs[3].helperText).toBe(
       "Upload the Barangay Pico COMELEC Voter's Certificate of your parent or legal guardian.",
@@ -53,7 +53,7 @@ describe("SKEAP required document labels", () => {
 
     const registeredApplicantDocs = getSkeapRequiredDocuments("College", "1st Year", 18, true);
     expect(registeredApplicantDocs[3].label).toBe(
-      "Applicant's COMELEC Voter's Certificate (Barangay Pico) *",
+      "Applicant's COMELEC Voter's Certificate (Barangay Pico)",
     );
     expect(registeredApplicantDocs[3].helperText).toBe(
       "Upload a clear photo or PDF of your Barangay Pico COMELEC Voter's Certificate.",

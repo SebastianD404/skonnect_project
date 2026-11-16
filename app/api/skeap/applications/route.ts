@@ -335,10 +335,11 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const firstName = String(body.firstName ?? "").trim();
-    const middleName = String(body.middleName ?? "").trim();
+    const noMiddleName = body.noMiddleName === true;
+    const middleName = noMiddleName ? "" : String(body.middleName ?? "").trim();
     const lastName = String(body.lastName ?? "").trim();
-    const applicantName = firstName && middleName && lastName
-      ? `${lastName}, ${firstName} ${middleName}`
+    const applicantName = firstName && lastName
+      ? `${lastName}, ${firstName}${middleName ? ` ${middleName}` : ""}`
       : "";
     const schoolName = normalizeSkeapSchoolName(String(body.schoolName || "").trim());
     const educationLevel = String(body.educationLevel || "").trim();
@@ -370,8 +371,11 @@ export async function POST(request: NextRequest) {
     const parentGuardianRegisteredVoter = body.parentGuardianRegisteredVoter === true;
     const parentGuardianVoterFullName = String(body.parentGuardianVoterFullName ?? "").trim();
 
-    if (!firstName || !middleName || !lastName) {
-      return NextResponse.json({ error: "Applicant first, middle, and last names are required." }, { status: 400 });
+    if (!firstName || (!middleName && !noMiddleName) || !lastName) {
+      return NextResponse.json(
+        { error: noMiddleName ? "Applicant first and last names are required." : "Applicant first, middle, and last names are required." },
+        { status: 400 },
+      );
     }
     if (typeof registeredVoter !== "boolean") {
       return NextResponse.json(

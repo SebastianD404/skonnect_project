@@ -71,7 +71,11 @@ export default async function MemberRecordsPage({ searchParams }: {
       </header>
 
       <section className="flex w-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-        <ArchivedMembersTable records={records} initialQuery={query} />
+        <ArchivedMembersTable
+          records={records}
+          initialQuery={query}
+          totalCount={totalCount}
+        />
 
         <AdminTablePaginationFooter
           totalCount={totalCount}

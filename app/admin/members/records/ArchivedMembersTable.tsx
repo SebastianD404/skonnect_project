@@ -12,14 +12,24 @@ import { ArchivedMemberRowActions } from "./ArchivedMemberRowActions";
 export function ArchivedMembersTable({
   records,
   initialQuery,
+  totalCount,
 }: {
   records: KKProfilingRegistration[];
   initialQuery: string;
+  totalCount: number;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const hasActiveSearch = Boolean(query.trim() || initialQuery.trim());
+  const emptyState = records.length > 0
+    ? null
+    : totalCount > 0
+      ? "Unable to load records for this page. Please refresh."
+      : hasActiveSearch
+        ? "No archived KK youth profiles match your search."
+        : "No archived KK youth profiles yet.";
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -109,9 +119,16 @@ export function ArchivedMembersTable({
             </article>
           );
         })}
-        {records.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
-            No archived KK youth profiles match your search.
+        {emptyState ? (
+          <div
+            role={totalCount > 0 ? "alert" : undefined}
+            className={`rounded-2xl border px-6 py-12 text-center text-sm ${
+              totalCount > 0
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : "border-slate-200 bg-white text-slate-500"
+            }`}
+          >
+            {emptyState}
           </div>
         ) : null}
       </div>
@@ -167,10 +184,18 @@ export function ArchivedMembersTable({
                 </tr>
               );
             })}
-            {records.length === 0 ? (
+            {emptyState ? (
               <tr>
-                <td colSpan={8} className="whitespace-nowrap px-6 py-12 text-center text-sm text-slate-500">
-                  No archived KK youth profiles match your search.
+                <td
+                  colSpan={8}
+                  role={totalCount > 0 ? "alert" : undefined}
+                  className={`whitespace-nowrap px-6 py-12 text-center text-sm ${
+                    totalCount > 0
+                      ? "bg-amber-50 text-amber-900"
+                      : "text-slate-500"
+                  }`}
+                >
+                  {emptyState}
                 </td>
               </tr>
             ) : null}

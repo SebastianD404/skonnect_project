@@ -16,6 +16,7 @@ import type { SkeapEducationLevel, SkeapEducationLevelCode } from "@/lib/skeap-e
 import AccountRequiredModal from "@/app/components/AccountRequiredModal";
 import { handleSkeapApply } from "@/lib/skeap-application-client";
 import VerificationModal from "@/app/components/VerificationModal";
+import FormFieldLabel from "@/app/components/FormFieldLabel";
 
 type Props = {
   slug: string;
@@ -695,7 +696,9 @@ export default function ProgramApplyClient({
                           <li key={label} className="flex items-start gap-2">
                             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
                             <span className="min-w-0 flex-1">
-                              <span className="block text-xs font-medium leading-relaxed text-slate-700">{label}</span>
+                              <FormFieldLabel required className="block text-xs font-medium leading-relaxed text-slate-700">
+                                {label}
+                              </FormFieldLabel>
                               <span className="block text-[11px] leading-relaxed text-slate-500">{detail}</span>
                             </span>
                             <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
@@ -714,7 +717,9 @@ export default function ProgramApplyClient({
                           <li key={document.key} className="flex items-start gap-2">
                             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden="true" />
                             <span className="text-xs leading-relaxed text-slate-600">
-                              <span>{document.label}</span>
+                              <FormFieldLabel required className="text-xs leading-relaxed text-slate-600">
+                                {document.label}
+                              </FormFieldLabel>
                               {document.helperText ? (
                                 <span className="mt-0.5 block text-[11px] text-slate-500">{document.helperText}</span>
                               ) : null}

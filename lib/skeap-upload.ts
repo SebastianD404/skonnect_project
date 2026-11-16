@@ -245,10 +245,10 @@ export function getSkeapRequiredDocuments(
 ): SkeapRequiredDocument[] {
   const isHighSchool = educationLevel === "Junior High School" || educationLevel === "Senior High School";
   const voterCertificateLabel = isRegisteredVoter === true
-    ? "Applicant's COMELEC Voter's Certificate (Barangay Pico) *"
+    ? "Applicant's COMELEC Voter's Certificate (Barangay Pico)"
     : applicantAge >= 15 && applicantAge < 18 && isRegisteredVoter === false
-      ? "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico) *"
-      : "COMELEC Voter's Certificate (Barangay Pico) *";
+      ? "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico)"
+      : "COMELEC Voter's Certificate (Barangay Pico)";
   const voterCertificateHelperText = isRegisteredVoter === true
     ? "Upload a clear photo or PDF of your Barangay Pico COMELEC Voter's Certificate."
     : applicantAge >= 15 && applicantAge < 18 && isRegisteredVoter === false

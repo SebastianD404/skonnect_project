@@ -15,6 +15,7 @@ import {
   type DocumentOCRKey,
   type DocumentOCRState,
 } from "@/app/components/DocumentOCRValidationExample";
+import FormFieldLabel from "@/app/components/FormFieldLabel";
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { ChevronDown, Eye, EyeOff, MapPin } from "lucide-react";
 import KkProfilingSuccessInterstitial from "@/app/programs/kk-profiling/KkProfilingSuccessInterstitial";
@@ -735,6 +736,9 @@ export default function KKProfilingForm() {
         <>
         <form onSubmit={handleSubmit} className="grid gap-x-4 gap-y-2 [&_label]:gap-1.5">
           <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
+          <p className="text-xs text-slate-500">
+            Fields marked with <span className="font-semibold text-rose-600">*</span> are required.
+          </p>
 
       <div className="flex flex-col gap-6">
         <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
@@ -757,7 +761,7 @@ export default function KKProfilingForm() {
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-3">
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Last Name *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Last Name</FormFieldLabel>
           <input
             value={form.lastName}
             onChange={(e) => setField("lastName", removeNameNumbers(e.target.value))}
@@ -772,7 +776,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">First Name *</span>
+          <FormFieldLabel required className="text-sm font-semibold">First Name</FormFieldLabel>
           <input
             value={form.firstName}
             onChange={(e) => setField("firstName", removeNameNumbers(e.target.value))}
@@ -787,7 +791,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Middle Name *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Middle Name</FormFieldLabel>
           <input
             value={form.middleInitial}
             onChange={(e) => setField("middleInitial", normalizedMiddleInitial(e.target.value))}
@@ -805,7 +809,7 @@ export default function KKProfilingForm() {
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Sitio *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Sitio</FormFieldLabel>
           <SelectWithChevron value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} required className="w-full rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select sitio</option>
             {OFFICIAL_SITIOS.map((sitio) => (
@@ -815,26 +819,26 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Barangay *</span>
-          <input value={form.barangay} readOnly className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
+          <FormFieldLabel required className="text-sm font-semibold">Barangay</FormFieldLabel>
+          <input value={form.barangay} readOnly required aria-required="true" className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
         </label>
       </div>
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Municipality *</span>
-          <input value={form.municipality} readOnly className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
+          <FormFieldLabel required className="text-sm font-semibold">Municipality</FormFieldLabel>
+          <input value={form.municipality} readOnly required aria-required="true" className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Province *</span>
-          <input value={form.province} readOnly className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
+          <FormFieldLabel required className="text-sm font-semibold">Province</FormFieldLabel>
+          <input value={form.province} readOnly required aria-required="true" className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
         </label>
       </div>
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-3">
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Sex *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Sex</FormFieldLabel>
           <SelectWithChevron value={form.sex} onChange={(e) => setField("sex", e.target.value)} required className="w-full rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Male</option>
@@ -843,7 +847,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Birth Date *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Birth Date</FormFieldLabel>
           <input
             type="date"
             min="1995-01-01"
@@ -863,12 +867,14 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Age *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Age</FormFieldLabel>
           <input
             type="number"
             min={0}
             value={form.age}
             readOnly
+            required
+            aria-required="true"
             aria-readonly="true"
             className="w-full rounded-lg border bg-slate-100 px-3 py-2 text-slate-700"
           />
@@ -877,7 +883,7 @@ export default function KKProfilingForm() {
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Place of Birth *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Place of Birth</FormFieldLabel>
           <input
             value={form.placeOfBirth}
             onChange={(event) => setField("placeOfBirth", event.target.value)}
@@ -889,7 +895,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Contact Number *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Contact Number</FormFieldLabel>
           <input
             value={form.contactNumber}
             onChange={(e) => setField("contactNumber", keepContactNumberDigits(e.target.value))}
@@ -902,7 +908,7 @@ export default function KKProfilingForm() {
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Email Address *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Email Address</FormFieldLabel>
           <input
             ref={emailInputRef}
             type="email"
@@ -922,7 +928,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
-          <span className="text-sm font-semibold">Facebook Account (Name) *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Facebook Account (Name)</FormFieldLabel>
           <input value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} required className="w-full rounded-lg border px-3 py-2" />
         </label>
       </div>
@@ -935,7 +941,7 @@ export default function KKProfilingForm() {
           </div>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-semibold">Civil Status *</span>
+        <FormFieldLabel required className="text-sm font-semibold">Civil Status</FormFieldLabel>
         <SelectWithChevron value={form.civilStatus} onChange={(e) => setField("civilStatus", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
           <option>Single</option>
@@ -947,7 +953,7 @@ export default function KKProfilingForm() {
       </label>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-semibold">Youth Classification *</span>
+        <FormFieldLabel required className="text-sm font-semibold">Youth Classification</FormFieldLabel>
         <SelectWithChevron value={form.youthClassification} onChange={(e) => setField("youthClassification", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
           <option>In school Youth</option>
@@ -960,7 +966,7 @@ export default function KKProfilingForm() {
 
       <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">Youth age Group *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Youth age Group</FormFieldLabel>
           <SelectWithChevron value={form.youthAgeGroup} onChange={(e) => setField("youthAgeGroup", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Child Youth (15-17 yrs old)</option>
@@ -970,7 +976,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">Work Status *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Work Status</FormFieldLabel>
           <SelectWithChevron value={form.workStatus} onChange={(e) => setField("workStatus", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Employed</option>
@@ -983,7 +989,7 @@ export default function KKProfilingForm() {
       </div>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-semibold">Educational Background *</span>
+        <FormFieldLabel required className="text-sm font-semibold">Educational Background</FormFieldLabel>
         <SelectWithChevron value={form.educationalBackground} onChange={(e) => setField("educationalBackground", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
           <option>High school Level</option>
@@ -994,7 +1000,7 @@ export default function KKProfilingForm() {
 
       <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-3">
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">Registered SK Voter? *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Registered SK Voter?</FormFieldLabel>
           <SelectWithChevron value={form.registeredSKVoter} onChange={(e) => setField("registeredSKVoter", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Yes</option>
@@ -1003,7 +1009,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">Did you vote last SK election? *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Did you vote last SK election?</FormFieldLabel>
           <SelectWithChevron value={form.votedLastSK} onChange={(e) => setField("votedLastSK", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Yes</option>
@@ -1012,7 +1018,7 @@ export default function KKProfilingForm() {
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">Registered National Voter? *</span>
+          <FormFieldLabel required className="text-sm font-semibold">Registered National Voter?</FormFieldLabel>
           <SelectWithChevron value={form.registeredNationalVoter} onChange={(e) => setField("registeredNationalVoter", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>Yes</option>
@@ -1022,7 +1028,7 @@ export default function KKProfilingForm() {
       </div>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-semibold">Have you already attended a KK Assembly? *</span>
+        <FormFieldLabel required className="text-sm font-semibold">Have you already attended a KK Assembly?</FormFieldLabel>
         <SelectWithChevron value={form.attendedKKAssembly} onChange={(e) => setField("attendedKKAssembly", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
           <option value="">Select</option>
           <option>Yes</option>
@@ -1032,8 +1038,8 @@ export default function KKProfilingForm() {
 
       {form.attendedKKAssembly === "Yes" && (
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">If Yes, How many times</span>
-          <SelectWithChevron value={form.assemblyTimes} onChange={(e) => setField("assemblyTimes", e.target.value)} className="rounded-lg border pl-3 pr-10 py-2">
+          <FormFieldLabel required className="text-sm font-semibold">If Yes, How many times</FormFieldLabel>
+          <SelectWithChevron value={form.assemblyTimes} onChange={(e) => setField("assemblyTimes", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>1-2 Times</option>
             <option>3-4 Times</option>
@@ -1044,8 +1050,8 @@ export default function KKProfilingForm() {
 
       {form.attendedKKAssembly === "No" && (
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-semibold">If No, Why?</span>
-          <SelectWithChevron value={form.noAssemblyReason} onChange={(e) => setField("noAssemblyReason", e.target.value)} className="rounded-lg border pl-3 pr-10 py-2">
+          <FormFieldLabel required className="text-sm font-semibold">If No, Why?</FormFieldLabel>
+          <SelectWithChevron value={form.noAssemblyReason} onChange={(e) => setField("noAssemblyReason", e.target.value)} required className="rounded-lg border pl-3 pr-10 py-2">
             <option value="">Select</option>
             <option>There were no KK Assembly Meetings</option>
             <option>Not interested to attend</option>
@@ -1073,7 +1079,8 @@ export default function KKProfilingForm() {
 
           <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
             <DocumentUploadCard
-              title="Profile Picture (2x2) *"
+              title="Profile Picture (2x2)"
+              required
               acceptedFormats="JPG/JFIF, PNG, WebP"
               accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
               maxSize={10 * 1024 * 1024}
@@ -1082,7 +1089,8 @@ export default function KKProfilingForm() {
               onUpload={(file) => handleIdFileChange("photo", file)}
             />
             <DocumentUploadCard
-              title="Birth Certificate *"
+              title="Birth Certificate"
+              required
               acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
               accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
               maxSize={10 * 1024 * 1024}
@@ -1093,14 +1101,17 @@ export default function KKProfilingForm() {
             />
             <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-3">
               <div className="mb-2">
-                <h4 className="text-sm font-semibold text-slate-900">Valid ID (Front and Back) *</h4>
+                <h4 className="text-sm font-semibold text-slate-900">
+                  <FormFieldLabel required>Valid ID (Front and Back)</FormFieldLabel>
+                </h4>
                 <p className="mt-1 text-[11px] leading-snug text-slate-500">
                   Upload both sides of one valid ID.
                 </p>
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <DocumentUploadCard
-                  title="Front *"
+                  title="Front"
+                  required
                   acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
                   accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
                   maxSize={10 * 1024 * 1024}
@@ -1116,7 +1127,8 @@ export default function KKProfilingForm() {
                   onFailedOcrAttempt={() => recordFailedOcrAttempt("front")}
                 />
                 <DocumentUploadCard
-                  title="Back *"
+                  title="Back"
+                  required
                   acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
                   accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
                   maxSize={10 * 1024 * 1024}
@@ -1134,7 +1146,8 @@ export default function KKProfilingForm() {
               </div>
             </div>
             <DocumentUploadCard
-              title="Certificate of Residency *"
+              title="Certificate of Residency"
+              required
               acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
               accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
               maxSize={10 * 1024 * 1024}
@@ -1218,14 +1231,16 @@ export default function KKProfilingForm() {
           <input
             id="kk-profiling-consent"
             type="checkbox"
+            required
+            aria-required="true"
             checked={form.consent}
             onChange={(e) => setField("consent", e.target.checked)}
             className="mt-1 shrink-0"
           />
           <div className="text-sm">
-            <label htmlFor="kk-profiling-consent">
-              I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling (required).
-            </label>
+            <FormFieldLabel htmlFor="kk-profiling-consent" required className="cursor-pointer">
+              I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling.
+            </FormFieldLabel>
             <button
               type="button"
               onClick={() => setShowConsentModal(true)}

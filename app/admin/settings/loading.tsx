@@ -115,6 +115,39 @@ export default function SettingsLoading() {
             <SkeletonBar width="w-12" height="h-7" className="rounded-full bg-cyan-50" />
           </div>
         </section>
+        <section className="py-8">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 sm:p-6">
+              <div className="space-y-2">
+                <SkeletonBar width="w-52" height="h-5" />
+                <SkeletonBar width="w-[34rem]" height="h-4" className="max-w-full bg-slate-100" />
+              </div>
+              <SkeletonBar width="w-36" height="h-7" className="rounded-full bg-emerald-50" />
+            </div>
+            <div className="grid gap-3 border-b border-slate-100 p-5 sm:grid-cols-3">
+              {[0, 1, 2].map((metric) => (
+                <div key={metric} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                  <SkeletonBar width="w-24" height="h-3" />
+                  <SkeletonBar width="w-36" height="h-4" />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 border-b border-slate-100 p-5">
+              <SkeletonBar width="w-56" height="h-10" className="rounded-xl" />
+              <SkeletonBar width="w-52" height="h-10" className="rounded-xl bg-slate-50" />
+            </div>
+            <div className="space-y-3 p-5">
+              <SkeletonBar width="w-44" height="h-4" />
+              {[0, 1, 2].map((row) => (
+                <div key={row} className="grid grid-cols-5 gap-4 border-t border-slate-100 py-3">
+                  {[0, 1, 2, 3, 4].map((column) => (
+                    <SkeletonBar key={column} width="w-full" height="h-4" className="bg-slate-100" />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
         <footer className="sticky bottom-0 z-10 -mx-4 mt-8 border-t border-slate-200 bg-slate-50/90 px-4 py-4 backdrop-blur-md sm:-mx-6 sm:px-6">
           <div className="flex justify-end">
             <SkeletonBar width="w-32" height="h-10" className="rounded-xl" />

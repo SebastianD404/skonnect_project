@@ -1,5 +1,5 @@
-import { SubmissionStatus } from "@prisma/client";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { formatDisplayName } from "@/lib/display-name";
 import Link from "next/link";
@@ -23,7 +23,17 @@ export default async function SystemAdminUsersPage({
   const requestedPageSize = Number(rawPageSize);
   const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const hasRetentionColumn = await hasGranteeRetentionColumn();
-  const [totalCount, users] = await Promise.all([
+  const supabase = await createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  const currentUserPromise = authUser
+    ? prisma.user.findUnique({
+        where: { authId: authUser.id },
+        select: { id: true },
+      })
+    : Promise.resolve(null);
+  const [totalCount, users, currentUser] = await Promise.all([
     prisma.user.count(),
     prisma.user.findMany({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -50,12 +60,7 @@ export default async function SystemAdminUsersPage({
         barangay: true,
         languagePref: true,
         skeapApplications: {
-          where: {
-            status: {
-              in: [SubmissionStatus.WAITLISTED, SubmissionStatus.PENDING, SubmissionStatus.APPROVED, SubmissionStatus.REJECTED],
-            },
-          },
-          orderBy: { submittedAt: "desc" },
+          orderBy: [{ updatedAt: "desc" }, { submittedAt: "desc" }],
           take: 1,
           select: { status: true },
         },
@@ -73,6 +78,7 @@ export default async function SystemAdminUsersPage({
         },
       },
     }),
+    currentUserPromise,
   ]);
 
   return (
@@ -88,7 +94,7 @@ export default async function SystemAdminUsersPage({
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">System Admin</p>
           <h1 className="text-4xl font-black text-slate-950 sm:text-5xl">Users &amp; Roles</h1>
           <p className="max-w-2xl text-sm text-slate-600">
-            Manage account access, assign RBAC roles, and control active user permissions.
+            Grant or revoke SK Admin workspace access for Barangay Pico SK Officials. Youth and Grantee statuses are assigned automatically through KK Profiling and SKEAP workflows.
           </p>
         </div>
         <Link
@@ -108,11 +114,7 @@ export default async function SystemAdminUsersPage({
           displayName: formatDisplayName(user.kkProfile, user.fullName),
           email: user.email,
           avatarUrl: user.avatarUrl,
-          role: user.grantee?.status === "GRADUATED" ||
-            user.grantee?.status === "REMOVED" ||
-            user.grantee?.status === "REVOKED"
-            ? "YOUTH"
-            : user.role,
+          role: user.role,
           isActive: user.isActive,
           granteeStatus: user.grantee?.status ?? null,
           username: user.username,
@@ -131,6 +133,7 @@ export default async function SystemAdminUsersPage({
             : null,
           createdAt: user.createdAt.toISOString(),
         }))}
+        currentUserId={currentUser?.id ?? null}
       />
       <AdminTablePaginationFooter
         totalCount={totalCount}

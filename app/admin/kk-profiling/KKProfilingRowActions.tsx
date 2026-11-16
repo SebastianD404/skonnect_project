@@ -386,10 +386,10 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 id="active-grantee-archive-title" className="text-lg font-bold tracking-tight text-slate-900">
-                    Manage this youth in Active Grantees
+                    Manage in Active Grantees first
                   </h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    This youth is currently an <strong>Active SKEAP Grantee</strong>. To revoke their scholarship under Barangay Ordinance No. 1 - 2022 Section 6 or discontinue it due to residency transfer, manage them in <strong>Active Grantees</strong> first.
+                    This youth is currently an Active SKEAP Grantee. Update or close their scholarship status in Active Grantees before archiving their KK profile.
                   </p>
                 </div>
                 <button
@@ -407,7 +407,7 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                   onClick={() => setShowActiveGranteeGuard(false)}
                   className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
-                  Close
+                  Cancel
                 </button>
                 <Link
                   href="/admin/grantees"

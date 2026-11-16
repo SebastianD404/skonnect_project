@@ -37,6 +37,7 @@ model User {
   emailNotifications     Boolean                 @default(true)
   announcements          Announcement[]
   auditLogs              AuditLog[]              @relation("ActorAuditLogs")
+  createdBackups         BackupLog[]             @relation("BackupLogCreator")
   chatMessages           ChatMessage[]
   sentGranteeMessages    GranteeMessage[]        @relation("GranteeMessageSender")
   granteeMessages        GranteeMessage[]        @relation("GranteeMessageRecipient")
@@ -506,6 +507,23 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model BackupLog {
+  id              String        @id @default(uuid())
+  fileName        String
+  trigger         BackupTrigger
+  status          BackupStatus
+  recordCounts    Json
+  fileSizeBytes   Int
+  checksumSha256  String
+  createdById     String?
+  createdAt       DateTime      @default(now())
+  createdBy       User?         @relation("BackupLogCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("backup_logs")
+}
+
 model ChatEmbedding {
   id         String                 @id @default(uuid())
   content    String
@@ -621,6 +639,16 @@ enum Role {
   GRANTEE
   SK_OFFICIAL
   SUPER_ADMIN
+}
+
+enum BackupTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+enum BackupStatus {
+  COMPLETED
+  FAILED
 }
 
 enum GranteeStatus {

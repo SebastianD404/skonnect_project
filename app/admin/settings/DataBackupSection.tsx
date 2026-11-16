@@ -1,0 +1,555 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CloudDownload,
+  Database,
+  Download,
+  FileCheck2,
+  Loader2,
+  ShieldCheck,
+  X,
+} from "lucide-react";
+
+type BackupCounts = Record<string, number>;
+
+type BackupHistoryItem = {
+  id: string;
+  fileName: string;
+  trigger: "MANUAL" | "SCHEDULED";
+  status: "COMPLETED" | "FAILED";
+  recordCounts: BackupCounts;
+  fileSizeBytes: number;
+  checksumSha256: string;
+  createdAt: string;
+  createdBy: string | null;
+};
+
+type BackupOverview = {
+  serverNow: string;
+  recentBackups: BackupHistoryItem[];
+  lastSuccessfulBackupAt: string | null;
+  liveRecordCounts: BackupCounts;
+  canRestore: boolean;
+};
+
+type VerifyResponse = {
+  checksumVerified: true;
+  checksumSha256: string;
+  fileName: string;
+  createdAt: string;
+  recordCounts: BackupCounts;
+};
+
+function formatDate(value: string | null) {
+  if (!value) return "No backup yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Manila",
+  }).format(date);
+}
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  let size = bytes / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(size < 10 ? 1 : 0)} ${units[unitIndex]}`;
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+  try {
+    return text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    throw new Error(`Backup service returned an invalid response (HTTP ${response.status}).`);
+  }
+}
+
+async function fetchBackupOverview(): Promise<BackupOverview> {
+  const response = await fetch("/api/admin/backups", { cache: "no-store" });
+  const body = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(typeof body.error === "string" ? body.error : "Unable to load backup history.");
+  }
+  return body as unknown as BackupOverview;
+}
+
+export default function DataBackupSection() {
+  const [overview, setOverview] = useState<BackupOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [verification, setVerification] = useState<VerifyResponse | null>(null);
+  const [confirmation, setConfirmation] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoreSuccess, setRestoreSuccess] = useState<string | null>(null);
+
+  const loadOverview = useCallback(async () => {
+    try {
+      setOverview(await fetchBackupOverview());
+      setError(null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load backup history.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchBackupOverview()
+      .then((data) => {
+        if (!active) return;
+        setOverview(data);
+        setError(null);
+      })
+      .catch((loadError: unknown) => {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load backup history.");
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const protectedRecordCount = useMemo(
+    () => Object.values(overview?.liveRecordCounts ?? {}).reduce((total, count) => total + count, 0),
+    [overview?.liveRecordCounts],
+  );
+  const backupAgeMs = overview?.lastSuccessfulBackupAt
+    ? Date.parse(overview.serverNow) - Date.parse(overview.lastSuccessfulBackupAt)
+    : Number.POSITIVE_INFINITY;
+  const recentlyBackedUp = backupAgeMs >= 0 && backupAgeMs <= 7 * 24 * 60 * 60 * 1000;
+
+  async function handleDownloadBackup() {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/admin/backups/export", { method: "POST" });
+      if (!response.ok) {
+        const body = await readJsonResponse(response);
+        throw new Error(typeof body.error === "string" ? body.error : "Unable to generate a backup.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition");
+      const fileName = disposition?.match(/filename="([^"]+)"/i)?.[1] ?? "skonnect-backup.json";
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      await loadOverview();
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "Unable to generate a backup.");
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  async function handleScheduledDownload(backup: BackupHistoryItem) {
+    if (downloadingId) return;
+    setDownloadingId(backup.id);
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin/backups/${encodeURIComponent(backup.id)}/download`);
+      if (!response.ok) {
+        const body = await readJsonResponse(response);
+        throw new Error(typeof body.error === "string" ? body.error : "Unable to download this backup.");
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = backup.fileName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "Unable to download this backup.");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  function resetRestore() {
+    setSelectedFile(null);
+    setVerification(null);
+    setConfirmation("");
+    setRestoreError(null);
+    setRestoreSuccess(null);
+    setIsVerifying(false);
+    setIsRestoring(false);
+  }
+
+  function closeRestore() {
+    if (isVerifying || isRestoring) return;
+    setRestoreOpen(false);
+    resetRestore();
+  }
+
+  async function handleFileChange(file: File | null) {
+    setSelectedFile(file);
+    setVerification(null);
+    setConfirmation("");
+    setRestoreSuccess(null);
+    setRestoreError(null);
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      setRestoreError("Select a .json backup file.");
+      return;
+    }
+
+    setIsVerifying(true);
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+      formData.set("intent", "verify");
+      const response = await fetch("/api/admin/backups/restore", { method: "POST", body: formData });
+      const body = await readJsonResponse(response);
+      if (!response.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Unable to verify this backup.");
+      }
+      setVerification(body as unknown as VerifyResponse);
+    } catch (verifyError) {
+      setRestoreError(verifyError instanceof Error ? verifyError.message : "Unable to verify this backup.");
+    } finally {
+      setIsVerifying(false);
+    }
+  }
+
+  async function handleRestore() {
+    if (!selectedFile || !verification || confirmation !== "RESTORE" || isRestoring) return;
+    setIsRestoring(true);
+    setRestoreError(null);
+    setRestoreSuccess(null);
+    try {
+      const formData = new FormData();
+      formData.set("file", selectedFile);
+      formData.set("intent", "restore");
+      formData.set("confirmation", confirmation);
+      const response = await fetch("/api/admin/backups/restore", { method: "POST", body: formData });
+      const body = await readJsonResponse(response);
+      if (!response.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Unable to restore this backup.");
+      }
+      setRestoreSuccess("Snapshot restored. Existing records not present in the file were left unchanged.");
+      setVerification(null);
+      setSelectedFile(null);
+      setConfirmation("");
+      await loadOverview();
+    } catch (restoreFailure) {
+      setRestoreError(restoreFailure instanceof Error ? restoreFailure.message : "Unable to restore this backup.");
+    } finally {
+      setIsRestoring(false);
+    }
+  }
+
+  return (
+    <section className="py-8" aria-labelledby="data-backup-heading">
+      <article className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-slate-100 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-cyan-800">
+              <Database className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 id="data-backup-heading" className="text-base font-bold text-slate-950">
+                Data Backup &amp; Recovery
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+                Export verifiable snapshots of Barangay Pico youth profiles, SKEAP applications, grantees, and accounting records.
+              </p>
+            </div>
+          </div>
+          <span
+            className={`inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+              recentlyBackedUp
+                ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-700/15"
+                : "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-700/15"
+            }`}
+          >
+            {recentlyBackedUp ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />}
+            {recentlyBackedUp ? "Backed up recently" : "Backup recommended"}
+          </span>
+        </div>
+
+        <div className="grid gap-3 border-b border-slate-100 p-5 sm:grid-cols-3 sm:p-6">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Last Backup</p>
+            <p className="mt-1.5 text-sm font-semibold text-slate-900">
+              {loading ? "Loading…" : formatDate(overview?.lastSuccessfulBackupAt ?? null)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Automated Schedule</p>
+            <p className="mt-1.5 text-sm font-semibold text-slate-900">Daily · 12:00 AM PHT</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Protected Records</p>
+            <p className="mt-1.5 text-sm font-semibold tabular-nums text-slate-900">
+              {loading ? "—" : protectedRecordCount.toLocaleString("en-PH")}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadBackup}
+              disabled={isDownloading}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
+            >
+              {isDownloading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
+              {isDownloading ? "Generating snapshot..." : "Download Full Backup (.JSON)"}
+            </button>
+            {overview?.canRestore ? (
+              <button
+                type="button"
+                onClick={() => {
+                  resetRestore();
+                  setRestoreOpen(true);
+                }}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                Verify &amp; Restore Snapshot
+              </button>
+            ) : null}
+          </div>
+          <p className="max-w-md text-xs leading-5 text-slate-500">
+            Snapshots contain personal records. Store downloaded files securely. SHA-256 confirms integrity, not source authenticity; Supabase Auth credentials are not included.
+          </p>
+        </div>
+
+        {error ? (
+          <p role="alert" className="mx-5 mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 sm:mx-6">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="border-t border-slate-100 px-5 py-5 sm:px-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-bold text-slate-900">Recent Backup History</h3>
+            <button
+              type="button"
+              onClick={() => void loadOverview()}
+              disabled={loading}
+              className="text-xs font-semibold text-cyan-800 hover:text-cyan-950 disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] text-left text-xs">
+              <thead className="border-y border-slate-200/80 bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="px-3 py-2.5">Date &amp; Time</th>
+                  <th className="px-3 py-2.5">Type</th>
+                  <th className="px-3 py-2.5">Created By</th>
+                  <th className="px-3 py-2.5">File Size</th>
+                  <th className="px-3 py-2.5">SHA-256</th>
+                  <th className="px-3 py-2.5">File</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(overview?.recentBackups ?? []).map((backup) => (
+                  <tr key={backup.id} className="text-slate-700">
+                    <td className="whitespace-nowrap px-3 py-3">
+                      <span className="font-medium text-slate-900">{formatDate(backup.createdAt)}</span>
+                      {backup.status === "FAILED" ? (
+                        <span className="ml-2 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">Failed</span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3">{backup.trigger === "MANUAL" ? "Manual" : "Scheduled"}</td>
+                    <td className="px-3 py-3">{backup.createdBy ?? "Automated schedule"}</td>
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums">{formatFileSize(backup.fileSizeBytes)}</td>
+                    <td className="px-3 py-3">
+                      <span
+                        title={backup.checksumSha256 || "No checksum recorded"}
+                        className="inline-flex rounded-full bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-600"
+                      >
+                        {backup.checksumSha256 ? `${backup.checksumSha256.slice(0, 12)}…` : "—"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      {backup.status === "COMPLETED" && backup.trigger === "SCHEDULED" ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleScheduledDownload(backup)}
+                          disabled={Boolean(downloadingId)}
+                          aria-label={`Download ${backup.fileName}`}
+                          className="inline-flex items-center gap-1.5 font-semibold text-cyan-800 hover:text-cyan-950 disabled:opacity-50"
+                        >
+                          {downloadingId === backup.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}
+                          Download
+                        </button>
+                      ) : (
+                        <span className="text-slate-400">{backup.fileName}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!loading && (overview?.recentBackups.length ?? 0) === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                      No backup events have been recorded yet.
+                    </td>
+                  </tr>
+                ) : null}
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-8 text-center text-slate-500">Loading backup history…</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+
+      {restoreOpen && overview?.canRestore ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 px-4 py-6">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="backup-restore-title"
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 sm:p-6">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+                  <FileCheck2 className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <h2 id="backup-restore-title" className="text-lg font-bold text-slate-950">Verify &amp; Restore Snapshot</h2>
+                  <p className="mt-1 text-sm leading-5 text-slate-500">Choose a SKonnect JSON backup and verify its integrity before restoring.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeRestore}
+                disabled={isVerifying || isRestoring}
+                aria-label="Close restore dialog"
+                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </header>
+
+            <div className="space-y-5 p-5 sm:p-6">
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-800">Backup file (.json)</span>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  disabled={isVerifying || isRestoring}
+                  onChange={(event) => void handleFileChange(event.target.files?.[0] ?? null)}
+                  className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700"
+                />
+              </label>
+
+              {isVerifying ? (
+                <div className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-800">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Checking the SHA-256 checksum…
+                </div>
+              ) : null}
+
+              {verification ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-emerald-900">SHA-256 Checksum Verified</p>
+                      <p className="mt-1 break-all font-mono text-[11px] text-emerald-800">{verification.checksumSha256}</p>
+                      <p className="mt-2 text-xs text-emerald-800">
+                        {verification.fileName} · created {formatDate(verification.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {Object.entries(verification.recordCounts).map(([table, count]) => (
+                      <div key={table} className="rounded-lg border border-emerald-200/70 bg-white/70 px-3 py-2">
+                        <p className="truncate text-[10px] font-medium text-slate-500">{table}</p>
+                        <p className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">{count.toLocaleString("en-PH")}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4">
+                <div className="flex gap-2.5">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+                  <p className="text-xs leading-5 text-amber-900">
+                    Restore upserts records in one transaction. Records not present in the snapshot are not deleted, and existing System Admin roles are protected. Confirm you have selected the intended file.
+                  </p>
+                </div>
+              </div>
+
+              {selectedFile && verification ? (
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-800">
+                    Type <span className="font-mono text-rose-700">RESTORE</span> to enable database restore
+                  </span>
+                  <input
+                    value={confirmation}
+                    onChange={(event) => setConfirmation(event.target.value)}
+                    disabled={isRestoring}
+                    autoComplete="off"
+                    className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-medium outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </label>
+              ) : null}
+
+              {restoreError ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{restoreError}</p> : null}
+              {restoreSuccess ? <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{restoreSuccess}</p> : null}
+            </div>
+
+            <footer className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:justify-end sm:p-6">
+              <button
+                type="button"
+                onClick={closeRestore}
+                disabled={isVerifying || isRestoring}
+                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRestore}
+                disabled={!verification || confirmation !== "RESTORE" || isRestoring}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isRestoring ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="h-4 w-4" aria-hidden="true" />}
+                {isRestoring ? "Restoring database…" : "Restore Database"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+    </section>
+  );
+}
