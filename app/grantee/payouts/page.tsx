@@ -29,6 +29,7 @@ export default async function GranteePayoutsPage() {
     where: { userId: appUser.id },
     select: {
       id: true,
+      yearLevel: true,
       entryAcademicYear: true,
       entrySemester: true,
       dateEnrolled: true,

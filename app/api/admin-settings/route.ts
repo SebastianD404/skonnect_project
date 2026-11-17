@@ -7,7 +7,11 @@ import { parseReminderOffsets } from "../../../lib/reminders";
 import { writeAuditLog } from "../../../lib/audit/logger";
 import { getAcademicTermScheduleState, parseManilaDateTime } from "@/lib/academic-term-schedule";
 import { MAX_SCHEDULED_TERMS } from "@/lib/academic-term-schedule-constants";
-import { isAllowedAcademicSemester } from "@/lib/semester-progress";
+import {
+  getCurrentManilaAcademicSemester,
+  isAcademicSemesterAfter,
+  isAllowedAcademicSemester,
+} from "@/lib/semester-progress";
 import {
   parseSkeapEducationLevelCodes,
   type SkeapEducationLevelCode,
@@ -100,6 +104,53 @@ export async function GET() {
     const activeSkeapEducationLevels = await getActiveSkeapEducationLevels();
     const { schedules: academicTermSchedules, window: academicTermWindow } =
       await getAcademicTermScheduleState();
+    const assignedGrantees = await prisma.grantee.findMany({
+      where: {
+        status: { in: ["ACTIVE", "PROBATIONARY"] },
+        entryAcademicYear: { not: null },
+        entrySemester: { not: null },
+      },
+      select: {
+        id: true,
+        entryAcademicYear: true,
+        entrySemester: true,
+        user: { select: { fullName: true } },
+        submissions: {
+          where: { status: "APPROVED" },
+          select: { semester: true },
+        },
+        payout: {
+          select: {
+            semester: true,
+            status: true,
+            disbursedAt: true,
+            claimedAt: true,
+          },
+        },
+      },
+    });
+    const activeGranteeTermGroups = new Map<string, { term: string; grantees: Array<{ id: string; fullName: string }> }>();
+    for (const grantee of assignedGrantees) {
+      const term = `${grantee.entryAcademicYear} ${grantee.entrySemester}`;
+      const hasApprovedEntrySubmission = grantee.submissions.some(
+        (submission) => submission.semester.trim() === term,
+      );
+      const hasDisbursedEntryPayout =
+        grantee.payout?.semester === term &&
+        (grantee.payout.disbursedAt !== null ||
+          grantee.payout.claimedAt !== null ||
+          grantee.payout.status === "DISBURSED_UNCONFIRMED" ||
+          grantee.payout.status === "CONFIRMED");
+      if (hasApprovedEntrySubmission || hasDisbursedEntryPayout) continue;
+
+      const group = activeGranteeTermGroups.get(term) ?? { term, grantees: [] };
+      group.grantees.push({ id: grantee.id, fullName: grantee.user.fullName });
+      activeGranteeTermGroups.set(term, group);
+    }
+    const activeGranteeTerms = Array.from(activeGranteeTermGroups.values()).map((group) => ({
+      ...group,
+      count: group.grantees.length,
+    }));
     const cycle = getCurrentAcademicYear();
     const cycleRange = getAcademicYearDateRange(cycle);
     if (!cycleRange) throw new Error("Unable to determine the active SKEAP cycle.");
@@ -128,6 +179,7 @@ export async function GET() {
         opensAt: schedule.opensAt.toISOString(),
         closesAt: schedule.closesAt.toISOString(),
       })),
+      activeGranteeTerms,
       academicTermWindow,
       skeapWaitlistState: {
         cycle,
@@ -271,6 +323,21 @@ export async function POST(request: Request) {
       )
     ) {
       return NextResponse.json({ error: "A schedule already exists for this academic term." }, { status: 409 });
+    }
+    const now = new Date();
+    const currentlyOpenSchedule = existingSchedules.find(
+      (schedule) => schedule.opensAt <= now && schedule.closesAt >= now,
+    );
+    const termFloor = currentlyOpenSchedule?.semester ?? getCurrentManilaAcademicSemester(now);
+    if (
+      parsedSchedules.some(
+        (schedule) => !schedule.id && !isAcademicSemesterAfter(schedule.semester, termFloor),
+      )
+    ) {
+      return NextResponse.json(
+        { error: `New schedules must be later than ${termFloor}. Past or current academic terms cannot be added.` },
+        { status: 400 },
+      );
     }
     const editedIds = new Set(parsedSchedules.flatMap((schedule) => schedule.id ? [schedule.id] : []));
     const removedIds = new Set(deletedIds);

@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
       type: "Submission",
       label: submission.grantee.user.fullName,
       detail: `${submission.semester} · ${submission.status.toLowerCase()}`,
-      href: "/admin/submissions",
+      href: "/admin/grantee-submissions",
       updatedAt: submission.submittedAt.getTime(),
     })),
   ];

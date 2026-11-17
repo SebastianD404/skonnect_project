@@ -259,6 +259,7 @@ export async function POST(
                 coeFileUrl: true,
               },
             },
+            yearLevel: true,
             user: {
               select: {
                 id: true,
@@ -270,6 +271,7 @@ export async function POST(
         const graduationProgress = getGranteeGraduationProgress({
           submissions: grantee.submissions,
           dateEnrolled: grantee.dateEnrolled,
+          yearLevel: grantee.yearLevel,
           journeyStart: grantee.journeyStart,
           journeyEnd: grantee.journeyEnd,
           entryTerm: grantee.entryAcademicYear && grantee.entrySemester

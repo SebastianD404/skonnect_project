@@ -84,7 +84,6 @@ export async function POST(
       );
     }
 
-    const promotionTime = new Date();
     const promoted = await prisma.$transaction(async (tx) => {
       await lockSkeapCapacity(tx);
       maxSlots = await getSkeapMaxSlots(tx);
@@ -137,6 +136,7 @@ export async function POST(
       const schedules = await tx.academicTermSchedule.findMany({
         select: { id: true, semester: true, opensAt: true, closesAt: true },
       });
+      const promotionTime = new Date();
       const entryTerm = resolveGranteeEntryTerm(schedules, promotionTime);
 
       const existingGrantee = await tx.grantee.findUnique({

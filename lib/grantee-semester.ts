@@ -37,6 +37,7 @@ export type GranteeTimelineSubmission = {
 };
 
 export type GranteeTimelineProfile = {
+  yearLevel?: string | null;
   entryAcademicYear?: string | null;
   entrySemester?: string | null;
   dateEnrolled?: Date | null;
@@ -179,6 +180,7 @@ export function resolveGranteeAcademicTimeline(
   const journeyProgress = getGranteeGraduationProgress({
     submissions,
     dateEnrolled,
+    yearLevel: grantee.yearLevel,
     journeyStart: grantee.journeyStart,
     journeyEnd: grantee.journeyEnd,
     entryTerm: entryTerm.termLabel,
@@ -254,6 +256,7 @@ export async function detectGranteeTargetTerm(
       status: { in: ["ACTIVE", "PROBATIONARY"] },
     },
     select: {
+      yearLevel: true,
       entryAcademicYear: true,
       entrySemester: true,
       dateEnrolled: true,

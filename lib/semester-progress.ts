@@ -49,6 +49,47 @@ export function isAllowedAcademicSemester(semester: string) {
   return parsed.endYear === parsed.startYear + 1;
 }
 
+export function getAcademicSemesterOrder(semester: string) {
+  const parsed = parseSemesterLabel(semester.trim());
+  if (!parsed || parsed.term === "Annual / School Year" || parsed.endYear !== parsed.startYear + 1) {
+    return null;
+  }
+  return parsed.startYear * 2 + (parsed.term === "Second Semester" ? 1 : 0);
+}
+
+export function isAcademicSemesterAfter(semester: string, previousSemester: string) {
+  const semesterOrder = getAcademicSemesterOrder(semester);
+  const previousSemesterOrder = getAcademicSemesterOrder(previousSemester);
+  return semesterOrder !== null && previousSemesterOrder !== null && semesterOrder > previousSemesterOrder;
+}
+
+export function getNextAcademicSemester(semester: string) {
+  const parsed = parseSemesterLabel(semester.trim());
+  if (!parsed || parsed.term === "Annual / School Year" || parsed.endYear !== parsed.startYear + 1) {
+    return null;
+  }
+  return parsed.term === "First Semester"
+    ? `${parsed.startYear}-${parsed.endYear} Second Semester`
+    : `${parsed.endYear}-${parsed.endYear + 1} First Semester`;
+}
+
+export function getCurrentManilaAcademicSemester(referenceDate = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "numeric",
+  }).formatToParts(referenceDate);
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  if (!Number.isInteger(year) || !Number.isInteger(month)) {
+    throw new Error("Unable to determine the current academic term.");
+  }
+
+  if (month >= 6 && month <= 10) return `${year}-${year + 1} First Semester`;
+  if (month >= 11) return `${year}-${year + 1} Second Semester`;
+  return `${year - 1}-${year} Second Semester`;
+}
+
 export function getPreviousAcademicSemester(semester: string) {
   const parsed = parseSemesterLabel(semester.trim());
   if (!parsed) return null;

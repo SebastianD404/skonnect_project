@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Circle, Settings, X } from "lucide-react";
 import AcademicJourneyMap, { type AcademicJourneyMapProps } from "@/app/components/AcademicJourneyMap";
 import {
@@ -26,6 +27,7 @@ export default function AcademicJourneySetup({
   journeyEnd: string | null;
   mapProps: MapProps;
 }) {
+  const router = useRouter();
   const [journeyStart, setJourneyStart] = useState(initialJourneyStart ?? "");
   const [journeyEnd, setJourneyEnd] = useState(initialJourneyEnd ?? "");
   const [draftStart, setDraftStart] = useState(initialJourneyStart ?? "");
@@ -81,6 +83,7 @@ export default function AcademicJourneySetup({
       setJourneyEnd(result.journeyEnd);
       setConfigured(true);
       setShowDialog(false);
+      router.refresh();
     } catch {
       setError("We couldn't save your journey. Check your connection and try again.");
     } finally {

@@ -7,7 +7,7 @@ import AdminGranteesPageClient from "../AdminGranteesPageClient";
 import type { GranteeTableRow } from "../grantees/GranteeStatusTable";
 import { ensureProfile } from "@/lib/auth";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
-import { getAcademicJourneyProgress } from "@/lib/academic-journey";
+import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
 import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 
 export default async function AdminGranteesPage({ searchParams }: {
@@ -113,6 +113,10 @@ export default async function AdminGranteesPage({ searchParams }: {
         ...(hasGraduationReadyAtColumn ? { graduationReadyAt: true } : {}),
         exitClearanceStatus: true,
         yearLevel: true,
+        entryAcademicYear: true,
+        entrySemester: true,
+        journeyStart: true,
+        journeyEnd: true,
         school: true,
         dateEnrolled: true,
         graduatedAt: true,
@@ -165,7 +169,16 @@ export default async function AdminGranteesPage({ searchParams }: {
   }
 
   const granteeRows: GranteeTableRow[] = grantees.map((grantee) => {
-    const journeyProgress = getAcademicJourneyProgress(grantee.submissions, grantee.dateEnrolled);
+    const journeyProgress = getGranteeGraduationProgress({
+      submissions: grantee.submissions,
+      dateEnrolled: grantee.dateEnrolled,
+      yearLevel: grantee.yearLevel,
+      journeyStart: grantee.journeyStart,
+      journeyEnd: grantee.journeyEnd,
+      entryTerm: grantee.entryAcademicYear && grantee.entrySemester
+        ? `${grantee.entryAcademicYear} ${grantee.entrySemester}`
+        : undefined,
+    });
     return {
       id: grantee.id,
       fullName: formatDisplayName(grantee.user.kkProfile, grantee.user.fullName),

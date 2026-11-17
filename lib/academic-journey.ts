@@ -98,6 +98,7 @@ export type AcademicJourneyNodeStatus =
   | "PENDING"
   | "UNDER_REVIEW"
   | "RETURNED"
+  | "PRE_GRANT"
   | "CURRENT"
   | "LOCKED";
 
@@ -122,6 +123,28 @@ export type AcademicJourneyNode = {
   coeFileUrl: string | null;
   isInitialGrant: boolean;
 };
+
+function getJourneyStage(value: string | null | undefined) {
+  if (!value) return null;
+  const configuredPoint = parseJourneyPoint(value);
+  if (configuredPoint) {
+    return configuredPoint.track === "grade"
+      ? configuredPoint.year
+      : 12 + configuredPoint.year;
+  }
+
+  const gradeMatch = /\bgrade\s*(7|8|9|10|11|12)\b/i.exec(value);
+  if (gradeMatch) return Number(gradeMatch[1]);
+  const collegeMatch = /\b(?:incoming freshman|([1-6])(?:st|nd|rd|th)?\s+year|first year|second year|third year|fourth year|fifth year|sixth year)\b/i.exec(value);
+  if (!collegeMatch) return null;
+  const wordYear = /\b(first|second|third|fourth|fifth|sixth) year\b/i.exec(value)?.[1]?.toLowerCase();
+  const year = collegeMatch[1]
+    ? Number(collegeMatch[1])
+    : value.toLowerCase().includes("incoming freshman")
+      ? 1
+      : ({ first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6 } as const)[wordYear as "first" | "second" | "third" | "fourth" | "fifth" | "sixth"];
+  return year ? 12 + year : null;
+}
 
 export type AcademicJourneyStepStatus =
   | "locked"
@@ -190,20 +213,34 @@ export function getAcademicJourneyProgress(
   totalYears = 4,
   initialGrant?: AcademicJourneyInitialGrant | null,
   entrySemester?: string,
+  yearLevel?: string | null,
+  journeyStart?: string | null,
 ) {
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
+  const startStage = getJourneyStage(journeyStart);
+  const journeyStartStage = startStage ?? 13;
   const termCount = years * 2;
   const startOrder = getSemesterOrder(entrySemester ?? getCurrentAcademicSemester(dateEnrolled));
   const calendarOrder = getSemesterOrder(getCurrentAcademicSemester(now));
+  const currentEducationStage = getJourneyStage(yearLevel) ?? journeyStartStage;
+  const entrySemesterOffset = entrySemester?.toLowerCase().includes("second semester") ? 1 : 0;
+  const preGrantCount = Math.max(
+    0,
+    Math.min(
+      termCount,
+      (currentEducationStage - journeyStartStage) * 2 + entrySemesterOffset,
+    ),
+  );
+  const journeyStartOrder = startOrder === null ? null : startOrder - preGrantCount;
 
-  if (startOrder === null || calendarOrder === null) {
+  if (startOrder === null || calendarOrder === null || journeyStartOrder === null) {
     throw new Error("Unable to determine academic journey semester order.");
   }
 
   const submissionsByOrder = new Map<number, AcademicJourneySubmission>();
   for (const submission of submissions) {
     const order = getSemesterOrder(submission.semester.trim());
-    if (order === null || order < startOrder || order >= startOrder + termCount) continue;
+    if (order === null || order < startOrder || order >= journeyStartOrder + termCount) continue;
 
     const previous = submissionsByOrder.get(order);
     const submittedAt = submission.submittedAt
@@ -217,15 +254,19 @@ export function getAcademicJourneyProgress(
 
   const nodes: AcademicJourneyNode[] = [];
   for (let index = 0; index < termCount; index += 1) {
-    const semester = getSemesterLabel(startOrder + index);
-    const submission = submissionsByOrder.get(startOrder + index) ?? null;
+    const nodeOrder = journeyStartOrder + index;
+    const semester = getSemesterLabel(nodeOrder);
+    const isPreGrant = index < preGrantCount;
+    const submission = isPreGrant ? null : submissionsByOrder.get(nodeOrder) ?? null;
     const isInitialGrant =
-      index === 0 &&
+      index === preGrantCount &&
       !submission &&
       Boolean(initialGrant?.semester === semester);
     let status: AcademicJourneyNodeStatus;
 
-    if (submission?.status === "APPROVED" || isInitialGrant) {
+    if (isPreGrant) {
+      status = "PRE_GRANT";
+    } else if (submission?.status === "APPROVED" || isInitialGrant) {
       status = "VALIDATED";
     } else if (submission?.status === "PENDING") {
       status = "PENDING";
@@ -239,7 +280,10 @@ export function getAcademicJourneyProgress(
       submission?.status === "REJECTED"
     ) {
       status = "RETURNED";
-    } else if (index === 0 || nodes[index - 1]?.status === "VALIDATED") {
+    } else if (
+      index === preGrantCount ||
+      nodes[index - 1]?.status === "VALIDATED"
+    ) {
       status = "CURRENT";
     } else {
       status = "LOCKED";
@@ -297,7 +341,8 @@ export function getAcademicJourneyProgress(
           ? "action_required" as const
           : "open_for_submit" as const,
     nodes,
-    calendarSemesterIndex: Math.max(0, Math.min(calendarOrder - startOrder, termCount)),
+    eligibleSemesterCount: termCount - preGrantCount,
+    calendarSemesterIndex: Math.max(0, Math.min(calendarOrder - journeyStartOrder, termCount)),
   };
 }
 

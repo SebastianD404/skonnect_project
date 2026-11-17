@@ -140,7 +140,7 @@ describe("getApprovedSemesterCount", () => {
 });
 
 describe("getAcademicJourneyProgress", () => {
-  it("starts at the configured entry semester without validating an admission grant", () => {
+  it("marks the first semester before a first-year second-semester admission as prior", () => {
     const progress = getAcademicJourneyProgress(
       [],
       new Date("2026-08-01T00:00:00.000Z"),
@@ -148,15 +148,43 @@ describe("getAcademicJourneyProgress", () => {
       4,
       null,
       "2026-2027 Second Semester",
+      "1st Year",
+      "college-1",
     );
 
     expect(progress).toMatchObject({
-      currentSemesterIndex: 0,
+      currentSemesterIndex: 1,
       currentStepSemester: "2026-2027 Second Semester",
       validatedSemesterIndexes: [],
       currentStepStatus: "open_for_submit",
+      eligibleSemesterCount: 7,
     });
-    expect(progress.nodes[0].status).toBe("CURRENT");
+    expect(progress.nodes[0]).toMatchObject({
+      semester: "2026-2027 First Semester",
+      status: "PRE_GRANT",
+    });
+    expect(progress.nodes[1].status).toBe("CURRENT");
+  });
+
+  it("skips all terms before a second-year second-semester admission", () => {
+    const progress = getAcademicJourneyProgress(
+      [],
+      new Date("2026-08-01T00:00:00.000Z"),
+      new Date("2026-11-17T05:00:00.000Z"),
+      4,
+      null,
+      "2026-2027 Second Semester",
+      "2nd Year",
+      "college-1",
+    );
+
+    expect(progress.currentSemesterIndex).toBe(3);
+    expect(progress.nodes.slice(0, 3).every((node) => node.status === "PRE_GRANT")).toBe(true);
+    expect(progress.nodes[3]).toMatchObject({
+      semester: "2026-2027 Second Semester",
+      status: "CURRENT",
+    });
+    expect(progress.eligibleSemesterCount).toBe(5);
   });
 
   it("advances the current step to the first unvalidated semester", () => {

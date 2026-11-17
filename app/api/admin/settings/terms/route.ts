@@ -6,7 +6,11 @@ import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { MAX_SCHEDULED_TERMS } from "@/lib/academic-term-schedule-constants";
 import { parseManilaDateTime } from "@/lib/academic-term-schedule";
-import { isAllowedAcademicSemester } from "@/lib/semester-progress";
+import {
+  getCurrentManilaAcademicSemester,
+  isAcademicSemesterAfter,
+  isAllowedAcademicSemester,
+} from "@/lib/semester-progress";
 import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 
 export async function POST(request: Request) {
@@ -43,6 +47,7 @@ export async function POST(request: Request) {
       );
     }
 
+    const requestTime = new Date();
     const result = await prisma.$transaction(async (tx) => {
       const existingSchedules = await tx.academicTermSchedule.findMany({
         orderBy: { opensAt: "asc" },
@@ -53,6 +58,16 @@ export async function POST(request: Request) {
       }
       if (existingSchedules.some((schedule) => schedule.semester === semester)) {
         return { error: `A schedule already exists for ${semester}.`, status: 409 as const };
+      }
+      const currentlyOpenSchedule = existingSchedules.find(
+        (schedule) => schedule.opensAt <= requestTime && schedule.closesAt >= requestTime,
+      );
+      const termFloor = currentlyOpenSchedule?.semester ?? getCurrentManilaAcademicSemester(requestTime);
+      if (!isAcademicSemesterAfter(semester, termFloor)) {
+        return {
+          error: `New schedules must be later than ${termFloor}. Past or current academic terms cannot be added.`,
+          status: 400 as const,
+        };
       }
 
       const allSchedules = [...existingSchedules, { opensAt, closesAt }].sort(

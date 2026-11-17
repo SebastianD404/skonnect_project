@@ -434,6 +434,7 @@ export default async function GranteeDashboardContent() {
               photoUrl: journeyPhotoUrl,
               currentSemesterIndex: journeyProgress.currentSemesterIndex,
               validatedSemesterIndexes: journeyProgress.validatedSemesterIndexes,
+              eligibleSemesterCount: journeyProgress.totalRequiredSemesters,
               journeyNodes,
               isGraduated: isGraduatedScholar,
               currentStepStatus,

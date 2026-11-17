@@ -208,6 +208,7 @@ describe("resolveGranteeEntryTerm", () => {
 describe("resolveGranteeAcademicTimeline", () => {
   it("starts at the stored term with zero validated semesters and advances only after approval", () => {
     const grantee = {
+      yearLevel: "1st Year",
       entryAcademicYear: "2026-2027",
       entrySemester: "Second Semester",
       dateEnrolled: new Date("2026-11-01T00:00:00.000Z"),
@@ -219,11 +220,13 @@ describe("resolveGranteeAcademicTimeline", () => {
     const initialTimeline = resolveGranteeAcademicTimeline(grantee, [], activeSettings);
     expect(initialTimeline.targetTerm.termLabel).toBe("2026-2027 Second Semester");
     expect(initialTimeline.journeyProgress).toMatchObject({
-      currentSemesterIndex: 0,
+      currentSemesterIndex: 1,
       currentStepSemester: "2026-2027 Second Semester",
       validatedCount: 0,
+      totalRequiredSemesters: 7,
     });
-    expect(initialTimeline.journeyProgress.nodes[0].status).toBe("CURRENT");
+    expect(initialTimeline.journeyProgress.nodes[0].status).toBe("PRE_GRANT");
+    expect(initialTimeline.journeyProgress.nodes[1].status).toBe("CURRENT");
 
     const approvedTimeline = resolveGranteeAcademicTimeline(grantee, [
       {

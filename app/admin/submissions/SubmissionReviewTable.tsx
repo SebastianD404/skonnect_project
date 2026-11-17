@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import RevokeGranteeModal from "./RevokeGranteeModal";
@@ -11,7 +11,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
-  Download,
   ExternalLink,
   FileText,
   GraduationCap,
@@ -439,31 +438,6 @@ export default function SubmissionReviewTable() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isExportMenuOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !exportMenuRef.current?.contains(event.target)) {
-        setIsExportMenuOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsExportMenuOpen(false);
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isExportMenuOpen]);
-
   useEffect(() => {
     if (!actionSuccess) return;
     const timeout = window.setTimeout(() => setActionSuccess(null), 5000);
@@ -557,53 +531,6 @@ export default function SubmissionReviewTable() {
     setSelectedSubmissionId(selectedId);
     setIsMobileReviewOpen(false);
     setIsLoading(true);
-  }
-
-  async function exportReport(reportType: "current" | "missing_incomplete" | "pending_review" | "fully_cleared") {
-    if (isExporting) return;
-    setIsExporting(true);
-    setExportError(null);
-    setIsExportMenuOpen(false);
-
-    try {
-      const params = new URLSearchParams({ reportType });
-      if (reportType === "current") {
-        params.set("status", activeTab);
-        params.set("search", query.trim());
-      } else if (reportType === "missing_incomplete") {
-        params.set("search", query.trim());
-      } else if (reportType === "pending_review") {
-        params.set("search", query.trim());
-      } else if (reportType === "fully_cleared") {
-        params.set("search", query.trim());
-      }
-
-      const response = await fetch(`/api/admin/submissions/export?${params.toString()}`, {
-        cache: "no-store",
-        credentials: "same-origin",
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error || "Unable to export submissions.");
-      }
-
-      const blob = await response.blob();
-      const objectUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const filename = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/i)?.[1]
-        ?? "SKEAP-Submissions.xlsx";
-      link.href = objectUrl;
-      link.download = filename;
-      link.style.display = "none";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
-    } catch (error) {
-      setExportError(error instanceof Error ? error.message : "Unable to export submissions.");
-    } finally {
-      setIsExporting(false);
-    }
   }
 
   function updateDraft(submissionId: string, updates: Partial<ReviewDraft>) {
@@ -780,7 +707,7 @@ export default function SubmissionReviewTable() {
       }
 
       setIsRevokeModalOpen(false);
-      router.push("/admin/submissions");
+      router.push("/admin/grantee-submissions");
       router.refresh();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Unable to revoke grantee.");
@@ -791,13 +718,9 @@ export default function SubmissionReviewTable() {
 
   return (
     <section className="w-full">
-      {exportError ? (
-        <FloatingFeedback message={exportError} type="error" onDismiss={() => setExportError(null)} />
-      ) : null}
       <div className="p-4 sm:p-5">
-        <div className="flex w-full flex-col gap-3.5">
-          <div className="flex w-full min-w-0 items-center gap-3">
-          <label className="relative block min-w-[220px] max-w-md flex-1">
+        <div className="flex w-full flex-wrap items-center gap-3">
+          <label className="relative block w-full min-w-0 sm:w-72 sm:flex-none lg:w-[28rem]">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="search"
@@ -814,66 +737,27 @@ export default function SubmissionReviewTable() {
               />
           </label>
 
-          <div ref={exportMenuRef} className="relative ml-auto shrink-0">
-              <button
-                type="button"
-                aria-label={isExporting ? "Exporting submissions" : "Export submissions"}
-                aria-expanded={isExportMenuOpen}
-                aria-controls="submissions-export-menu"
-                aria-busy={isExporting}
-                disabled={isExporting}
-                onClick={() => setIsExportMenuOpen((open) => !open)}
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#0F3D5C] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] disabled:cursor-wait disabled:opacity-70 sm:py-2.5"
-              >
-                {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                <span className="hidden sm:inline">{isExporting ? "Exporting..." : "Export Submissions"}</span>
-                {!isExporting ? <ChevronDown className={`hidden h-4 w-4 text-slate-400 transition sm:block ${isExportMenuOpen ? "rotate-180" : ""}`} /> : null}
-              </button>
-              {isExportMenuOpen ? (
-                <div
-                  id="submissions-export-menu"
-                  role="group"
-                  aria-label="Export submission reports"
-                  className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
-                >
-                  <button type="button" onClick={() => void exportReport("current")} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50">
-                    Export Current View
-                  </button>
-                  <button type="button" onClick={() => void exportReport("missing_incomplete")} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50">
-                    Missing/Incomplete Submissions
-                  </button>
-                  <button type="button" onClick={() => void exportReport("pending_review")} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50">
-                    Pending Review List
-                  </button>
-                  <button type="button" onClick={() => void exportReport("fully_cleared")} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50">
-                    Fully Cleared List
-                  </button>
-                </div>
-              ) : null}
-          </div>
-          </div>
-
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-            <label className="relative w-full sm:hidden">
-              <span className="sr-only">Filter submissions by status</span>
-              <select
-                value={activeTab}
-                onChange={(event) => changeTab(event.target.value as TabType)}
-                className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-10 text-xs font-semibold text-slate-700 outline-none focus:border-[#0a1f33] focus:ring-2 focus:ring-[#0a1f33]/10"
-              >
-                {TABS.map((tab) => (
-                  <option key={tab.id} value={tab.id}>
-                    {tab.label} ({responseData.counts[tab.id]})
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                aria-hidden="true"
-                className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
-              />
-            </label>
-            <div className="hidden max-w-full items-center gap-1.5 rounded-xl bg-slate-100 p-1 sm:flex sm:flex-wrap">
+          <label className="relative block w-full sm:hidden">
+            <span className="sr-only">Filter submissions by status</span>
+            <select
+              value={activeTab}
+              onChange={(event) => changeTab(event.target.value as TabType)}
+              className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-10 text-xs font-semibold text-slate-700 outline-none focus:border-[#0a1f33] focus:ring-2 focus:ring-[#0a1f33]/10"
+            >
               {TABS.map((tab) => (
+                <option key={tab.id} value={tab.id}>
+                  {tab.label} ({responseData.counts[tab.id]})
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              aria-hidden="true"
+              className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+            />
+          </label>
+
+          <div className="hidden max-w-full items-center gap-1.5 overflow-x-auto rounded-xl bg-slate-100 p-1 sm:ml-auto sm:flex">
+            {TABS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -891,9 +775,9 @@ export default function SubmissionReviewTable() {
                   {responseData.counts[tab.id]}
                 </span>
               </button>
-              ))}
-            </div>
+            ))}
           </div>
+
         </div>
         <div className="mt-3 flex justify-start lg:justify-end">
           <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500">

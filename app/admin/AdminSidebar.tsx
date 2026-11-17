@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { Role } from "@prisma/client";
-import { AlertTriangle, Archive, BadgeCheck, Banknote, ClipboardList, Clock, Database, Download, FileCheck, FileText, GraduationCap, History, Inbox, LayoutDashboard, Menu, Radio, Settings, UserX, UsersRound, X } from "lucide-react";
+import { AlertTriangle, Archive, BadgeCheck, Banknote, CalendarClock, ClipboardList, Clock, Database, Download, FileCheck, FileText, GraduationCap, History, Inbox, LayoutDashboard, Menu, Radio, Settings, UserX, UsersRound, X } from "lucide-react";
 import AdminSidebarBrand from "./AdminSidebarBrand";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { Avatar } from "@/components/ui/Avatar";
@@ -79,7 +79,7 @@ const GRANTEES_LAST_VIEWED_KEY = "admin-grantees-last-viewed";
 const BADGE_SECTIONS = [
   { href: "/admin/inquiries", countKey: "openInquiryCount", cookie: "admin-inquiries-last-viewed" },
   { href: "/admin/skeap-applications", countKey: "skeapApplicationCount", cookie: "admin-skeap-applications-last-viewed" },
-  { href: "/admin/submissions", countKey: "pendingDocumentCount", cookie: "admin-submissions-last-viewed" },
+  { href: "/admin/grantee-submissions", countKey: "pendingDocumentCount", cookie: "admin-submissions-last-viewed" },
   { href: "/admin/kk-profiling", countKey: "profilingRegistrationCount", cookie: "admin-kk-profiling-last-viewed" },
   { href: "/admin/skeap/active", countKey: "newGranteeCount", cookie: "admin-grantees-last-viewed" },
   { href: "/admin/registry/masterlist", countKey: "approvedMemberCount", cookie: "admin-members-last-viewed" },
@@ -270,7 +270,8 @@ export default function AdminSidebar({
         { label: "Active Grantees", href: "/admin/skeap/active", icon: GraduationCap, badge: liveCounts.newGranteeCount },
         { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: liveCounts.skeapApplicationCount },
         { label: "Waitlist", href: "/admin/skeap-waitlist", icon: Clock },
-        { label: "Grantee Submissions", href: "/admin/submissions", icon: FileCheck, badge: liveCounts.pendingDocumentCount },
+        { label: "Grantee Submissions", href: "/admin/grantee-submissions", icon: FileCheck, badge: liveCounts.pendingDocumentCount },
+        { label: "Term Schedules", href: "/admin/term-schedules", icon: CalendarClock },
         { label: "Non-Compliant", href: "/admin/skeap/non-compliant", icon: AlertTriangle },
         { label: "Revoked Grantees", href: "/admin/skeap/revoked", icon: UserX },
         { label: "Graduated Scholars", href: "/admin/grantees/records", icon: History },

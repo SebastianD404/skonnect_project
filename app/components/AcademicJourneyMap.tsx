@@ -38,6 +38,7 @@ export type AcademicJourneyMapProps = {
   validatedSemesterIndexes: number[];
   currentStepStatus?: AcademicJourneyStepStatus;
   currentStepOpensAt?: string | null;
+  eligibleSemesterCount?: number;
   journeyNodes?: AcademicJourneyNode[];
   isGraduated?: boolean;
   journeyStart?: string | null;
@@ -187,6 +188,7 @@ export default function AcademicJourneyMap({
   validatedSemesterIndexes,
   currentStepStatus = "scheduled_locked",
   currentStepOpensAt,
+  eligibleSemesterCount,
   journeyNodes,
   isGraduated = false,
   journeyStart,
@@ -262,6 +264,9 @@ export default function AcademicJourneyMap({
     };
   }), [currentIndex, currentStepStatus, journeyNodes, terms, validatedIndexes]);
   const validatedCount = semesterNodes.filter((node) => node.status === "VALIDATED").length;
+  const eligibleCount = Math.max(0, Math.min(eligibleSemesterCount ?? termCount, termCount));
+  const eligibleNodeIndex = journeyNodes?.findIndex((node) => node.status !== "PRE_GRANT") ?? 0;
+  const firstEligibleIndex = eligibleNodeIndex < 0 ? termCount : eligibleNodeIndex;
   const pathNodeCount = termCount + (compact ? 0 : 1);
   const focusedIndex = Math.min(currentIndex, pathNodeCount - 1);
   const trackWidth = START_X + (pathNodeCount - 1) * STEP_WIDTH + STEP_WIDTH / 2
@@ -283,8 +288,8 @@ export default function AcademicJourneyMap({
     const midX = (previous.x + point.x) / 2;
     return `${path} C ${midX} ${previous.y}, ${midX} ${point.y}, ${point.x} ${point.y}`;
   }, "");
-  const progressPath = currentIndex > 0
-    ? nodePoints.slice(0, currentIndex + 1).reduce((path, point, index, points) => {
+  const progressPath = currentIndex > firstEligibleIndex
+    ? nodePoints.slice(firstEligibleIndex, currentIndex + 1).reduce((path, point, index, points) => {
         if (index === 0) return `M ${point.x} ${point.y}`;
         const previous = points[index - 1];
         const midX = (previous.x + point.x) / 2;
@@ -311,6 +316,8 @@ export default function AcademicJourneyMap({
       ? "Under Review"
       : selectedNode?.status === "CURRENT"
         ? "Current Step"
+        : selectedNode?.status === "PRE_GRANT"
+          ? "Prior Term"
         : "Returned";
   const selectedDocuments = selectedNode
     ? [
@@ -323,6 +330,8 @@ export default function AcademicJourneyMap({
     : null;
   const selectedNodeStatusClass = selectedNode?.status === "VALIDATED"
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : selectedNode?.status === "PRE_GRANT"
+      ? "border-slate-200 bg-slate-100 text-slate-500"
     : selectedNode?.status === "RETURNED"
       ? "border-amber-200 bg-amber-50 text-amber-800"
       : "border-indigo-200 bg-indigo-50 text-indigo-700";
@@ -421,9 +430,12 @@ export default function AcademicJourneyMap({
   }, [focusedIndex, termCount]);
 
   if (compact) {
+    const progressStart = termCount > 1
+      ? 6.25 + (firstEligibleIndex / (termCount - 1)) * 87.5
+      : 6.25;
     const progressWidth = termCount > 1
-      ? `${(Math.min(currentIndex, termCount - 1) / (termCount - 1)) * 87.5}%`
-      : "0%";
+      ? (Math.max(0, Math.min(currentIndex - firstEligibleIndex, eligibleCount - 1)) / (termCount - 1)) * 87.5
+      : 0;
 
     return (
       <div className="w-full text-white">
@@ -432,7 +444,7 @@ export default function AcademicJourneyMap({
             Academic Journey
           </span>
           <span className="shrink-0 rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-            {validatedCount}/{termCount} Validated
+            {validatedCount}/{eligibleCount} Validated
           </span>
         </div>
 
@@ -442,8 +454,8 @@ export default function AcademicJourneyMap({
             aria-hidden="true"
           />
           <div
-            className={`absolute left-[6.25%] top-1.5 h-0.5 rounded-full transition-all duration-500 ${stepStatusConfig.activePathClassName}`}
-            style={{ width: progressWidth }}
+            className={`absolute top-1.5 h-0.5 rounded-full transition-all duration-500 ${stepStatusConfig.activePathClassName}`}
+            style={{ left: `${progressStart}%`, width: `${progressWidth}%` }}
             aria-hidden="true"
           />
           <div className="relative z-10 flex w-full justify-between">
@@ -527,7 +539,7 @@ export default function AcademicJourneyMap({
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex self-start rounded-full border border-emerald-200/60 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 shadow-2xs md:self-auto">
-              {validatedCount} of {termCount} semesters validated
+              {validatedCount} of {eligibleCount} semesters validated
             </span>
             {isExtendedCourse ? (
               <span className="hidden items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-400 sm:inline-flex">
@@ -658,6 +670,7 @@ export default function AcademicJourneyMap({
             {terms.map((term, index) => {
               const journeyNode = semesterNodes[index];
               const isCompleted = journeyNode.status === "VALIDATED";
+              const isPriorTerm = journeyNode.status === "PRE_GRANT";
               const isCurrent = index === currentIndex;
               const isMissed = !journeyNodes && index < currentIndex && !isCompleted;
               const canOpenNode = Boolean(journeyNodes) && !compact && [
@@ -669,6 +682,8 @@ export default function AcademicJourneyMap({
               ].includes(journeyNode.status);
               const stateLabel = isCompleted
                 ? "validated"
+                : isPriorTerm
+                  ? "prior term"
                 : journeyNode.status === "PENDING" || journeyNode.status === "UNDER_REVIEW"
                   ? "under review"
                   : journeyNode.status === "RETURNED"
@@ -730,6 +745,8 @@ export default function AcademicJourneyMap({
                             : "Click to view"
                           : isCompleted
                             ? "Semester validated"
+                          : isPriorTerm
+                            ? "Before SKEAP admission"
                           : isCurrent
                             ? stepStatusLabel
                             : isMissed
@@ -791,6 +808,10 @@ export default function AcademicJourneyMap({
                           ? compact
                             ? `${stepStatusConfig.compactActiveNodeClassName} h-4 w-4 border-2`
                             : `h-11 w-11 border-4 ${stepStatusConfig.activeNodeClassName}`
+                            : isPriorTerm
+                              ? compact
+                                ? "border-slate-700 bg-slate-800"
+                                : "h-9 w-9 border border-slate-200 bg-slate-100 text-slate-400"
                           : journeyNode.status === "PENDING" || journeyNode.status === "UNDER_REVIEW"
                             ? compact
                               ? "border-indigo-400 bg-indigo-400"
@@ -826,6 +847,8 @@ export default function AcademicJourneyMap({
                       compact ? null : <Clock3 className="h-4 w-4" aria-hidden="true" />
                     ) : journeyNode.status === "RETURNED" ? (
                       compact ? null : <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+                    ) : isPriorTerm ? (
+                      compact ? null : <Check className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
                     ) : compact ? null : (
                       <Lock className="h-4 w-4" aria-hidden="true" />
                     )}
@@ -864,6 +887,10 @@ export default function AcademicJourneyMap({
                     <span className="mt-1 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-800">
                       Returned
                     </span>
+                  ) : !compact && isPriorTerm ? (
+                    <span className="mt-1 whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500">
+                      Prior Term
+                    </span>
                   ) : null}
 
                   {!compact && milestoneIcon && index !== 0 ? (
@@ -891,7 +918,7 @@ export default function AcademicJourneyMap({
                     <p className="mt-0.5 text-[10px] text-emerald-300">
                       {isGraduated
                         ? "Exit clearance verified"
-                        : validatedCount === termCount
+                        : validatedCount === eligibleCount
                           ? "All semesters validated"
                           : "Complete all semesters to unlock"}
                     </p>
@@ -903,7 +930,7 @@ export default function AcademicJourneyMap({
                   className={`relative flex h-14 w-14 items-center justify-center rounded-2xl transition-all duration-300 ${
                     isGraduated
                       ? "border border-amber-200/80 bg-gradient-to-tr from-emerald-500 via-teal-400 to-amber-300 text-slate-950 shadow-xl shadow-emerald-500/30 ring-4 ring-amber-300/20"
-                      : validatedCount === termCount
+                      : validatedCount === eligibleCount
                       ? "bg-gradient-to-tr from-emerald-600 to-teal-400 text-white shadow-xl shadow-emerald-500/30"
                       : "border-2 border-slate-200 bg-white text-slate-300"
                   }`}
@@ -932,12 +959,12 @@ export default function AcademicJourneyMap({
 
       {compact ? (
         <p className="mt-2 text-[10px] text-slate-400">
-          {validatedCount} of {termCount} semesters validated
+          {validatedCount} of {eligibleCount} semesters validated
         </p>
       ) : (
         <div className="relative z-10 mt-2 flex items-center justify-center gap-1.5 px-6 pb-5 text-[11px] text-slate-400">
           <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{validatedCount} of {termCount} semesters validated</span>
+          <span>{validatedCount} of {eligibleCount} semesters validated</span>
         </div>
       )}
 

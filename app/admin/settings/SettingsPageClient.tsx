@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { CalendarDays, Loader2, Plus, Save, Trash2 } from "lucide-react";
-import { MAX_SCHEDULED_TERMS } from "@/lib/academic-term-schedule-constants";
+import Link from "next/link";
+import { Save } from "lucide-react";
 import {
   ACTIVE_SKEAP_EDUCATION_LEVELS,
   SKEAP_EDUCATION_LEVEL_OPTIONS,
@@ -13,20 +12,6 @@ import {
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import SkeapEducationLevelsSettings from "@/app/admin/settings/SkeapEducationLevelsSettings";
 
-type AcademicTermScheduleInput = {
-  id?: string;
-  semester: string;
-  opensAt: string;
-  closesAt: string;
-};
-
-type NewScheduleInput = {
-  startYear: string;
-  term: "First Semester" | "Second Semester";
-  opensAt: string;
-  closesAt: string;
-};
-
 type SettingsResponse = {
   error?: string;
   fullName?: string;
@@ -35,18 +20,6 @@ type SettingsResponse = {
   activeSkeapEducationLevels?: SkeapEducationLevelCode[];
   settings?: { inquiryAlerts?: boolean; submissionAlerts?: boolean };
   reminderSettings?: { skeapReminderOffsets?: string };
-  academicTermSchedules?: Array<{
-    id: string;
-    semester: string;
-    opensAt: string;
-    closesAt: string;
-  }>;
-  createdSchedule?: {
-    id: string;
-    semester: string;
-    opensAt: string;
-    closesAt: string;
-  };
 };
 
 const DEFAULT_STATE = {
@@ -88,62 +61,19 @@ async function readSettingsResponse(response: Response): Promise<SettingsRespons
   }
 }
 
-function toManilaDateTimeLocal(value: string | null | undefined) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const manilaDate = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return `${manilaDate.getUTCFullYear()}-${pad(manilaDate.getUTCMonth() + 1)}-${pad(manilaDate.getUTCDate())}T${pad(manilaDate.getUTCHours())}:${pad(manilaDate.getUTCMinutes())}`;
-}
-
-function updateDateTimeYear(value: string, yearValue: string) {
-  const year = Number(yearValue);
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
-  if (!match || !Number.isInteger(year) || year < 2000 || year >= 9999) return value;
-
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return value;
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const adjustedDay = String(Math.min(day, daysInMonth)).padStart(2, "0");
-  return `${yearValue}-${match[2]}-${adjustedDay}${match[4]}`;
-}
-
-function getScheduleStatus(schedule: AcademicTermScheduleInput) {
-  const now = Date.now();
-  const opensAt = new Date(`${schedule.opensAt}:00+08:00`).getTime();
-  const closesAt = new Date(`${schedule.closesAt}:00+08:00`).getTime();
-  if (now < opensAt) return "Scheduled";
-  if (now <= closesAt) return "Open";
-  return "Closed";
-}
-
 export default function SettingsPageClient({ dateLabel }: { dateLabel: string }) {
-  const router = useRouter();
   const [formState, setFormState] = useState(DEFAULT_STATE);
   const [savedState, setSavedState] = useState(DEFAULT_STATE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [academicTermSchedules, setAcademicTermSchedules] = useState<AcademicTermScheduleInput[]>([]);
-  const [savedAcademicTermSchedules, setSavedAcademicTermSchedules] = useState<AcademicTermScheduleInput[]>([]);
   const [activeSkeapEducationLevels, setActiveSkeapEducationLevels] = useState<SkeapEducationLevelCode[]>([
     ...ACTIVE_SKEAP_EDUCATION_LEVELS,
   ]);
   const [savedSkeapEducationLevels, setSavedSkeapEducationLevels] = useState<SkeapEducationLevelCode[]>([
     ...ACTIVE_SKEAP_EDUCATION_LEVELS,
   ]);
-  const [deletedAcademicTermScheduleIds, setDeletedAcademicTermScheduleIds] = useState<string[]>([]);
-  const [isAddingTerm, setIsAddingTerm] = useState(false);
-  const [newSchedule, setNewSchedule] = useState<NewScheduleInput>({
-    startYear: String(new Date().getFullYear()),
-    term: "First Semester",
-    opensAt: "",
-    closesAt: "",
-  });
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -168,18 +98,8 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
           skeapReminderOffsets: data.reminderSettings?.skeapReminderOffsets ?? DEFAULT_STATE.skeapReminderOffsets,
           waitlistOfferDays: String(data.waitlistOfferDays ?? DEFAULT_STATE.waitlistOfferDays),
         };
-        const loadedSchedules: AcademicTermScheduleInput[] = (data.academicTermSchedules ?? []).map(
-          (schedule: { id: string; semester: string; opensAt: string; closesAt: string }) => ({
-            id: schedule.id,
-            semester: schedule.semester,
-            opensAt: toManilaDateTimeLocal(schedule.opensAt),
-            closesAt: toManilaDateTimeLocal(schedule.closesAt),
-          })
-        );
         setFormState(loadedState);
         setSavedState(loadedState);
-        setAcademicTermSchedules(loadedSchedules);
-        setSavedAcademicTermSchedules(loadedSchedules);
         setActiveSkeapEducationLevels(loadedEducationLevels);
         setSavedSkeapEducationLevels(loadedEducationLevels);
       } catch (error) {
@@ -209,104 +129,11 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
 
   const hasUnsavedChanges =
     JSON.stringify(formState) !== JSON.stringify(savedState) ||
-    JSON.stringify(academicTermSchedules) !== JSON.stringify(savedAcademicTermSchedules) ||
-    !haveSameEducationLevels(activeSkeapEducationLevels, savedSkeapEducationLevels) ||
-    deletedAcademicTermScheduleIds.length > 0;
-  const isAtCapacity = academicTermSchedules.length >= MAX_SCHEDULED_TERMS;
-  const selectedStartYear = Number(newSchedule.startYear);
-  const newScheduleDateMin = Number.isInteger(selectedStartYear)
-    && selectedStartYear >= 2000
-    && selectedStartYear < 9999
-    ? `${newSchedule.startYear}-01-01T00:00`
-    : undefined;
-
-  async function handleSaveTerm() {
-    if (isAtCapacity) {
-      setErrorMessage(`Maximum limit reached (${MAX_SCHEDULED_TERMS} terms).`);
-      return;
-    }
-
-    const startYear = Number(newSchedule.startYear);
-    if (!Number.isInteger(startYear) || startYear < 2000 || startYear >= 9999) {
-      setErrorMessage("Enter a valid academic year start.");
-      return;
-    }
-    const semester = `${startYear}-${startYear + 1} ${newSchedule.term}`;
-    if (academicTermSchedules.some((schedule) => schedule.semester === semester)) {
-      setErrorMessage(`A schedule already exists for ${semester}.`);
-      return;
-    }
-    if (!newSchedule.opensAt || !newSchedule.closesAt || newSchedule.opensAt >= newSchedule.closesAt) {
-      setErrorMessage("Set an opening date and a later submission deadline.");
-      return;
-    }
-    const academicYearStart = `${startYear}-01-01T00:00`;
-    if (newSchedule.opensAt < academicYearStart || newSchedule.closesAt < academicYearStart) {
-      setErrorMessage(`Opening and deadline dates must be in or after ${startYear}.`);
-      return;
-    }
-    const existingDeadlines = academicTermSchedules.map((schedule) =>
-      new Date(`${schedule.closesAt}:00+08:00`).getTime()
-    );
-    if (existingDeadlines.some(Number.isNaN)) {
-      setErrorMessage("Set a valid submission deadline for each existing schedule before adding another term.");
-      return;
-    }
-    const latestDeadline = Math.max(...existingDeadlines);
-    const opensAt = new Date(`${newSchedule.opensAt}:00+08:00`).getTime();
-    if (Number.isNaN(opensAt) || opensAt <= latestDeadline) {
-      setErrorMessage("The new term must open after the latest existing schedule deadline.");
-      return;
-    }
-
-    setErrorMessage(null);
-    setIsSaving(true);
-    try {
-      const response = await fetch("/api/admin/settings/terms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          semester,
-          opensAt: newSchedule.opensAt,
-          closesAt: newSchedule.closesAt,
-        }),
-      });
-      const data = await readSettingsResponse(response);
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to save the academic term.");
-      }
-      if (!data.createdSchedule || !data.academicTermSchedules) {
-        throw new Error("The term was saved, but the updated schedule list could not be loaded. Refresh the page.");
-      }
-
-      const toScheduleInput = (schedule: NonNullable<SettingsResponse["createdSchedule"]>) => ({
-        id: schedule.id,
-        semester: schedule.semester,
-        opensAt: toManilaDateTimeLocal(schedule.opensAt),
-        closesAt: toManilaDateTimeLocal(schedule.closesAt),
-      });
-      const createdSchedule = toScheduleInput(data.createdSchedule);
-      const persistedSchedules = data.academicTermSchedules.map(toScheduleInput);
-
-      setAcademicTermSchedules((current) =>
-        [...current.filter((schedule) => schedule.semester !== createdSchedule.semester), createdSchedule]
-          .sort((a, b) => a.opensAt.localeCompare(b.opensAt))
-      );
-      setSavedAcademicTermSchedules(persistedSchedules);
-      setStatusMessage(`${createdSchedule.semester} schedule saved.`);
-      router.refresh();
-      setNewSchedule((current) => ({ ...current, opensAt: "", closesAt: "" }));
-      setIsAddingTerm(false);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to save the academic term.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
+    !haveSameEducationLevels(activeSkeapEducationLevels, savedSkeapEducationLevels);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (isSaving) return;
+    if (saving) return;
     setSaving(true);
     setStatusMessage(null);
     setErrorMessage(null);
@@ -318,8 +145,6 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
         body: JSON.stringify({
           ...formState,
           activeSkeapEducationLevels,
-          academicTermSchedules,
-          deletedAcademicTermScheduleIds,
         }),
       });
       const data = await readSettingsResponse(response);
@@ -336,19 +161,8 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
         })
       );
       setStatusMessage("Your settings are saved and up to date.");
-      const savedSchedules = (data.academicTermSchedules ?? []).map(
-        (schedule: { id: string; semester: string; opensAt: string; closesAt: string }) => ({
-          id: schedule.id,
-          semester: schedule.semester,
-          opensAt: toManilaDateTimeLocal(schedule.opensAt),
-          closesAt: toManilaDateTimeLocal(schedule.closesAt),
-        })
-      );
-      setAcademicTermSchedules(savedSchedules);
-      setSavedAcademicTermSchedules(savedSchedules);
       setActiveSkeapEducationLevels(savedEducationLevels);
       setSavedSkeapEducationLevels(savedEducationLevels);
-      setDeletedAcademicTermScheduleIds([]);
       const nextState = {
         ...formState,
         waitlistOfferDays: String(data.waitlistOfferDays ?? formState.waitlistOfferDays),
@@ -371,7 +185,7 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#0F3D5C]">{dateLabel}</p>
           <h1 className="mt-3 text-3xl font-black text-slate-950 sm:text-4xl">SK Official settings</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            Manage your profile, alerts, academic schedules, and SKEAP cycle settings.
+            Manage your profile, security, alerts, and SKEAP cycle settings.
           </p>
         </header>
 
@@ -416,217 +230,17 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
             </div>
           </section>
 
-          <section className="grid grid-cols-1 gap-8 py-8 md:grid-cols-3">
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900">Academic term schedule</h2>
-                <p className="mt-1 text-sm leading-6 text-slate-500">
-                  Control when grantees can submit documents for each term. This schedule is separate from the SKEAP application deadline.
-                </p>
-              </div>
-              <div className="flex items-start gap-2.5 rounded-xl border border-sky-200/80 bg-sky-50/80 p-3.5">
-                <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" aria-hidden="true" />
-                <p className="text-xs font-medium leading-relaxed text-sky-900">
-                  All opening and deadline times use Philippine time (Asia/Manila). The term opens automatically at its scheduled start and submissions close at the deadline.
-                </p>
-              </div>
-            </div>
-            <div className="space-y-5 md:col-span-2">
-
-              <div className="mb-4 space-y-4">
-                {academicTermSchedules.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-4 py-5 text-center text-sm text-slate-500">
-                    No academic submission windows have been scheduled yet.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {academicTermSchedules.map((schedule, index) => {
-                      const scheduleStatus = getScheduleStatus(schedule);
-                      const statusTone = scheduleStatus === "Open"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : scheduleStatus === "Scheduled"
-                          ? "bg-sky-50 text-sky-700"
-                          : "bg-slate-100 text-slate-600";
-                      return (
-                        <article
-                          key={schedule.id ?? schedule.semester}
-                          className="rounded-xl border border-slate-200 bg-white p-4"
-                        >
-                          <div className="mb-3 flex items-center justify-between gap-3">
-                            <div>
-                              <h3 className="text-sm font-semibold text-slate-900">{schedule.semester}</h3>
-                              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusTone}`}>
-                                {scheduleStatus}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (schedule.id) {
-                                  setDeletedAcademicTermScheduleIds((current) => [...current, schedule.id!]);
-                                }
-                                setAcademicTermSchedules((current) => current.filter((_, rowIndex) => rowIndex !== index));
-                              }}
-                              disabled={loading || saving || isSaving}
-                              aria-label={`Remove ${schedule.semester} schedule`}
-                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              <Trash2 className="h-4 w-4" aria-hidden="true" />
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <label className="flex flex-col gap-1.5 text-xs font-semibold text-slate-700">
-                              Opens on
-                              <input
-                                type="datetime-local"
-                                value={schedule.opensAt}
-                                onChange={(event) => setAcademicTermSchedules((current) =>
-                                  current.map((item, rowIndex) =>
-                                    rowIndex === index ? { ...item, opensAt: event.target.value } : item
-                                  )
-                                )}
-                                disabled={loading || saving || isSaving}
-                                className={INPUT_CLASSES}
-                              />
-                            </label>
-                            <label className="flex flex-col gap-1.5 text-xs font-semibold text-slate-700">
-                              Submission deadline
-                              <input
-                                type="datetime-local"
-                                value={schedule.closesAt}
-                                onChange={(event) => setAcademicTermSchedules((current) =>
-                                  current.map((item, rowIndex) =>
-                                    rowIndex === index ? { ...item, closesAt: event.target.value } : item
-                                  )
-                                )}
-                                disabled={loading || saving || isSaving}
-                                className={INPUT_CLASSES}
-                              />
-                            </label>
-                            <p className="text-[11px] font-medium text-slate-500 sm:col-span-2">
-                              Dates must be in or after academic year {newSchedule.startYear}.
-                            </p>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {isAtCapacity ? (
-                <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 p-3 text-center">
-                  <p className="text-xs font-semibold text-amber-800">
-                    Maximum limit reached ({MAX_SCHEDULED_TERMS} terms).
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-amber-700/80">
-                    Delete or complete an existing schedule before adding a new term.
-                  </p>
-                </div>
-              ) : !isAddingTerm ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setErrorMessage(null);
-                    setIsAddingTerm(true);
-                  }}
-                  disabled={loading || saving || isSaving}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-3 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Plus className="h-4 w-4" aria-hidden="true" />
-                  Add new term
-                </button>
-              ) : (
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wider text-slate-900">Add a term</h3>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <label className="flex flex-col gap-1.5 text-xs font-semibold text-slate-700">
-                      Academic year start
-                      <input
-                        type="number"
-                        min="2000"
-                        max="9998"
-                        value={newSchedule.startYear}
-                        onChange={(event) => {
-                          const startYear = event.target.value;
-                          setNewSchedule((current) => ({
-                            ...current,
-                            startYear,
-                            opensAt: updateDateTimeYear(current.opensAt, startYear),
-                            closesAt: updateDateTimeYear(current.closesAt, startYear),
-                          }));
-                        }}
-                        placeholder="2026"
-                        disabled={loading || saving || isSaving}
-                        className={INPUT_CLASSES}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1.5 text-xs font-semibold text-slate-700">
-                      Semester
-                      <select
-                        value={newSchedule.term}
-                        onChange={(event) => setNewSchedule((current) => ({
-                          ...current,
-                          term: event.target.value as NewScheduleInput["term"],
-                        }))}
-                        disabled={loading || saving || isSaving}
-                        className={INPUT_CLASSES}
-                      >
-                        <option>First Semester</option>
-                        <option>Second Semester</option>
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1.5 text-xs font-semibold text-slate-700">
-                      Opens on
-                      <input
-                        type="datetime-local"
-                        value={newSchedule.opensAt}
-                        min={newScheduleDateMin}
-                        onChange={(event) => setNewSchedule((current) => ({ ...current, opensAt: event.target.value }))}
-                        disabled={loading || saving || isSaving}
-                        className={INPUT_CLASSES}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1.5 text-xs font-semibold text-slate-700">
-                      Submission deadline
-                      <input
-                        type="datetime-local"
-                        value={newSchedule.closesAt}
-                        min={newScheduleDateMin}
-                        onChange={(event) => setNewSchedule((current) => ({ ...current, closesAt: event.target.value }))}
-                        disabled={loading || saving || isSaving}
-                        className={INPUT_CLASSES}
-                      />
-                    </label>
-                  </div>
-                  <div className="mt-5 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setIsAddingTerm(false)}
-                      disabled={loading || saving || isSaving}
-                      className="h-9 cursor-pointer rounded-lg px-4 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSaveTerm}
-                      disabled={loading || saving || isSaving}
-                      className="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-xs font-bold text-white shadow-sm transition-all hover:bg-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {isSaving ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                          <span>Saving...</span>
-                        </>
-                      ) : (
-                        <span>Save Term</span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+          <section className="my-8 rounded-2xl border border-sky-200 bg-sky-50/70 p-5 sm:p-6">
+            <h2 className="text-sm font-bold text-slate-900">Academic term schedules</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+              Manage semester submission windows and deadlines for grantee requirements.
+            </p>
+            <Link
+              href="/admin/term-schedules"
+              className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-[#0F3D5C] px-4 text-sm font-semibold text-white transition hover:bg-[#0b3049] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600 focus-visible:ring-offset-2"
+            >
+              Manage term schedules →
+            </Link>
           </section>
 
           <section className="grid grid-cols-1 gap-8 py-8 md:grid-cols-3">
@@ -759,7 +373,7 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
               </span>
               <button
                 type="submit"
-                disabled={saving || loading || isSaving || !hasUnsavedChanges}
+                disabled={saving || loading || !hasUnsavedChanges}
                 className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-600 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Save className="h-4 w-4" aria-hidden="true" />
