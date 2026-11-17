@@ -7,7 +7,7 @@ import { ensureProfile } from "@/lib/auth";
 import { logAuditEvent, writeAuditLog } from "@/lib/audit/logger";
 import { ensureThreadMessage } from "@/lib/inquiries/thread";
 import { areRequiredSkeapDocumentsPreScreened, normalizeUploadedFiles } from "@/lib/skeap-upload";
-import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
@@ -207,10 +207,10 @@ export async function PATCH(
     }
 
     const updatedInquiry = await prisma.$transaction(async (tx) => {
-      let maxSlots: number | null = null;
+      let capacitySnapshot: Awaited<ReturnType<typeof getSkeapCapacitySnapshot>> | null = null;
       if (action === "approve") {
         await lockSkeapCapacity(tx);
-        maxSlots = await getSkeapMaxSlots(tx);
+        capacitySnapshot = await getSkeapCapacitySnapshot(tx);
       }
       const currentInquiry = await tx.inquiry.findUnique({
         where: { id },
@@ -299,7 +299,7 @@ export async function PATCH(
       let approvalMessage = message;
       let waitlistPosition: number | null = null;
       if (action === "approve") {
-        if (!currentInquiry?.application?.id || !currentInquiry.application.userId || maxSlots === null) {
+        if (!currentInquiry?.application?.id || !currentInquiry.application.userId || !capacitySnapshot) {
           throw new Error("The linked SKEAP application could not be found.");
         }
         const granteeStatus = currentInquiry.application.user.grantee?.status;
@@ -307,8 +307,8 @@ export async function PATCH(
         if (currentInquiry.application.status === "APPROVED" && alreadyHasScholarSlot) {
           approvalStatus = "APPROVED";
         } else {
-          const activeCount = await getSkeapCapacityCount(tx, currentInquiry.application.userId);
-          approvalStatus = activeCount >= maxSlots ? "WAITLISTED" : "APPROVED";
+          const applicantCapacity = await getSkeapCapacitySnapshot(tx, currentInquiry.application.userId);
+          approvalStatus = applicantCapacity.isFull ? "WAITLISTED" : "APPROVED";
         }
         if (approvalStatus === "WAITLISTED") {
           waitlistPosition = (await tx.skeapApplication.count({ where: { status: "WAITLISTED" } })) + 1;

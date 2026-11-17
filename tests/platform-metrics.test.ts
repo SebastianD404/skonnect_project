@@ -44,6 +44,9 @@ describe("platform account metrics", () => {
         metrics.adminStaff +
         metrics.archivedOrInactive,
     ).toBe(metrics.totalAccounts);
+    expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toMatch(
+      /WHEN account\."is_active"\s+AND account\."role" IN \('SK_OFFICIAL', 'SUPER_ADMIN'\)\s+THEN 'ADMIN_STAFF'/,
+    );
   });
 
   it("maps metric keys to the materialized-view segments", () => {
@@ -51,14 +54,14 @@ describe("platform account metrics", () => {
     expect(getPlatformAccountMetricSegment("all")).toBeNull();
   });
 
-  it("returns a filtered page and matching count from the materialized view", async () => {
+  it("normalizes the SK Admin segment before filtering users", async () => {
     const rows = [{
       id: "user-1",
       fullName: "Ada Lovelace",
       displayName: "LOVELACE, ADA",
       email: "ada@example.test",
       avatarUrl: null,
-      role: "YOUTH",
+      role: "SK_OFFICIAL",
       isActive: true,
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -81,7 +84,7 @@ describe("platform account metrics", () => {
       .mockResolvedValueOnce([{ count: BigInt(1) }]);
 
     const result = await getPlatformAccountUsersPage({
-      metric: "verified",
+      metric: "adminStaff",
       role: null,
       query: "Ada",
       page: 2,
@@ -90,5 +93,10 @@ describe("platform account metrics", () => {
 
     expect(result).toEqual({ rows, totalCount: 1 });
     expect(mocks.queryRaw).toHaveBeenCalledTimes(2);
+    expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toContain(`"metric_segment" = ?`);
+    expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toContain("categorized_users");
+    expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toMatch(
+      /account\."role" IN \('SK_OFFICIAL', 'SUPER_ADMIN'\)/,
+    );
   });
 });

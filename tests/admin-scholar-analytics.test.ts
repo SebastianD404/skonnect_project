@@ -5,8 +5,7 @@ const mocks = vi.hoisted(() => ({
   inquiryCount: vi.fn(),
   queryRaw: vi.fn(),
   profilingCount: vi.fn(),
-  capacityCount: vi.fn(),
-  maxSlots: vi.fn(),
+  capacitySnapshot: vi.fn(),
   platformMetrics: vi.fn(),
 }));
 
@@ -20,8 +19,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/skeap-capacity", () => ({
-  getSkeapCapacityCount: mocks.capacityCount,
-  getSkeapMaxSlots: mocks.maxSlots,
+  getSkeapCapacitySnapshot: mocks.capacitySnapshot,
 }));
 
 vi.mock("@/lib/platform-metrics", () => ({
@@ -44,8 +42,12 @@ describe("admin scholar demographics", () => {
         { status: "REMOVED", _count: { _all: 4 } },
         { status: "REVOKED", _count: { _all: 5 } },
       ]);
-    mocks.capacityCount.mockResolvedValue(3);
-    mocks.maxSlots.mockResolvedValue(20);
+    mocks.capacitySnapshot.mockResolvedValue({
+      activeCount: 3,
+      maxSlots: 20,
+      availableSlots: 17,
+      isFull: false,
+    });
     mocks.inquiryCount.mockResolvedValue(1);
     mocks.profilingCount.mockResolvedValue(7);
     mocks.platformMetrics.mockResolvedValue({

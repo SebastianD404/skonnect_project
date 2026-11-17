@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
@@ -151,6 +152,8 @@ export async function PATCH(
     }
 
     await refreshSystemUsersAdminView();
+    revalidatePath("/system-admin/users");
+    revalidatePath("/system-admin");
     return NextResponse.json({ success: true, user: result.user });
   } catch (error) {
     console.error("[PATCH /api/system-admin/users/[id]/role]", error);

@@ -9,6 +9,10 @@ import { ensureProfile } from "@/lib/auth";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
 import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
+import { ACTIVE_GRANTEE_WHERE } from "@/lib/skeap-capacity";
+import type { Prisma } from "@prisma/client";
+
+export const dynamic = "force-dynamic";
 
 export default async function AdminGranteesPage({ searchParams }: {
   searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; q?: string | string[] }>;
@@ -27,85 +31,84 @@ export default async function AdminGranteesPage({ searchParams }: {
     hasGranteeRetentionColumn(),
     hasGranteeColumn("graduationReadyAt"),
   ]);
-  const profileStatusSql = `AND profile_user."role"::text = 'GRANTEE' AND (
-       g."status"::text = 'ACTIVE'
-     )
-     AND EXISTS (
-       SELECT 1
-       FROM "skeap_applications" approved_application
-       WHERE approved_application."userId" = profile_user."id"
-         AND approved_application."status" = 'APPROVED'
-     )`;
-  const pageKeys = await prisma.$queryRawUnsafe<Array<{
-    recordId: string;
-  }>>(
-    `SELECT g."id"::text AS "recordId", g."updatedAt" AS "updatedAt"
-     FROM "grantees" g
-     JOIN "users" profile_user ON profile_user."id" = g."userId"
-     LEFT JOIN "kk_profiles" kk_profile ON kk_profile."id" = profile_user."kkProfileId"
-     WHERE TRUE ${profileStatusSql}
-       AND (
-         $3 = ''
-         OR concat_ws(
-           ' ',
-           profile_user."fullName",
-           profile_user."email",
-           profile_user."phoneNumber",
-           kk_profile."fullName",
-           kk_profile."firstName",
-           kk_profile."middleName",
-           kk_profile."lastName",
-           kk_profile."contactNumber",
-           g."school",
-           g."yearLevel"
-         ) ILIKE '%' || $3 || '%'
-         OR EXISTS (
-           SELECT 1
-           FROM "skeap_applications" search_application
-           WHERE search_application."userId" = profile_user."id"
-             AND search_application."contactNumber" ILIKE '%' || $3 || '%'
-         )
-       )
-     ORDER BY "updatedAt" DESC, "recordId" ASC
-     LIMIT $1 OFFSET $2`,
-    pageSize,
-    skip,
-    query
-  );
-  const totalCountRows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-    `SELECT COUNT(*)::bigint AS "count" FROM (
-       SELECT g."id"
-       FROM "grantees" g
-       JOIN "users" profile_user ON profile_user."id" = g."userId"
-       LEFT JOIN "kk_profiles" kk_profile ON kk_profile."id" = profile_user."kkProfileId"
-       WHERE TRUE ${profileStatusSql}
-         AND (
-           $1 = ''
-           OR concat_ws(
-             ' ',
-             profile_user."fullName",
-             profile_user."email",
-             profile_user."phoneNumber",
-             kk_profile."fullName",
-             kk_profile."firstName",
-             kk_profile."middleName",
-             kk_profile."lastName",
-             kk_profile."contactNumber",
-             g."school",
-             g."yearLevel"
-           ) ILIKE '%' || $1 || '%'
-           OR EXISTS (
-             SELECT 1
-             FROM "skeap_applications" search_application
-             WHERE search_application."userId" = profile_user."id"
-               AND search_application."contactNumber" ILIKE '%' || $1 || '%'
-           )
-         )
-     ) matching_grantees`,
-    query
-  );
+  const searchFilter: Prisma.GranteeWhereInput = query
+    ? {
+        OR: [
+          { user: { is: { fullName: { contains: query, mode: "insensitive" } } } },
+          { user: { is: { email: { contains: query, mode: "insensitive" } } } },
+          { user: { is: { phoneNumber: { contains: query, mode: "insensitive" } } } },
+          {
+            user: {
+              is: {
+                kkProfile: {
+                  is: { fullName: { contains: query, mode: "insensitive" } },
+                },
+              },
+            },
+          },
+          {
+            user: {
+              is: {
+                kkProfile: {
+                  is: { firstName: { contains: query, mode: "insensitive" } },
+                },
+              },
+            },
+          },
+          {
+            user: {
+              is: {
+                kkProfile: {
+                  is: { middleName: { contains: query, mode: "insensitive" } },
+                },
+              },
+            },
+          },
+          {
+            user: {
+              is: {
+                kkProfile: {
+                  is: { lastName: { contains: query, mode: "insensitive" } },
+                },
+              },
+            },
+          },
+          {
+            user: {
+              is: {
+                kkProfile: {
+                  is: { contactNumber: { contains: query, mode: "insensitive" } },
+                },
+              },
+            },
+          },
+          { school: { contains: query, mode: "insensitive" } },
+          { yearLevel: { contains: query, mode: "insensitive" } },
+          {
+            user: {
+              is: {
+                skeapApplications: {
+                  some: { contactNumber: { contains: query, mode: "insensitive" } },
+                },
+              },
+            },
+          },
+        ],
+      }
+    : {};
+  const where: Prisma.GranteeWhereInput = { ...ACTIVE_GRANTEE_WHERE, ...searchFilter };
+  const [pageKeys, totalCount] = await Promise.all([
+    prisma.grantee.findMany({
+      where,
+      select: { id: true },
+      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+      skip,
+      take: pageSize,
+    }),
+    prisma.grantee.count({ where }),
+  ]);
   const grantees = await prisma.grantee.findMany({
-      where: { id: { in: pageKeys.map((item) => item.recordId) } },
+      where: { id: { in: pageKeys.map((item) => item.id) } },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
@@ -211,10 +214,9 @@ export default async function AdminGranteesPage({ searchParams }: {
 
   const granteeRowsById = new Map(granteeRows.map((grantee) => [grantee.id, grantee]));
   const paginatedGranteeRows = pageKeys.flatMap((item) => {
-    const grantee = granteeRowsById.get(item.recordId);
+    const grantee = granteeRowsById.get(item.id);
     return grantee ? [grantee] : [];
   });
-  const totalCount = Number(totalCountRows[0]?.count ?? 0);
   return (
     <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">
       <AdminGranteesPageClient

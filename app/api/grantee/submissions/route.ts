@@ -6,9 +6,77 @@ import { isGranteeProfileComplete } from "@/lib/grantee-profile";
 import { processSubmissionGradeReportOcr } from "@/lib/ocr/process-submission";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import { detectGranteeTargetTerm, getScheduleSemesterForTargetTerm } from "@/lib/grantee-semester";
+import type { GradeReportDiagnostics } from "@/lib/grade-report-parser";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+function getClientGradeDiagnostics(value: unknown): GradeReportDiagnostics | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const detectedScale =
+    record.detectedScale === "PERCENTAGE_100" || record.detectedScale === "SCALE_1_TO_5"
+      ? record.detectedScale
+      : null;
+  const estimatedGwa =
+    typeof record.estimatedGwa === "number" && Number.isFinite(record.estimatedGwa)
+      ? record.estimatedGwa
+      : null;
+  const isValidEstimatedGwa =
+    estimatedGwa !== null &&
+    (detectedScale === "PERCENTAGE_100"
+      ? estimatedGwa >= 0 && estimatedGwa <= 100
+      : detectedScale === "SCALE_1_TO_5"
+        ? estimatedGwa >= 1 && estimatedGwa <= 5
+        : false);
+  const normalizedEstimatedGwa = isValidEstimatedGwa ? estimatedGwa : null;
+  const flaggedSubjectsValue = Array.isArray(record.flaggedSubjects)
+    ? record.flaggedSubjects
+    : record.flaggedGrades;
+  const flaggedSubjects = Array.isArray(flaggedSubjectsValue)
+    ? flaggedSubjectsValue
+        .filter((grade): grade is string => typeof grade === "string")
+        .map((grade) => grade.slice(0, 160))
+        .slice(0, 30)
+    : [];
+  const hasPossibleFailingGrade =
+    record.hasPossibleFailingGrade === true || flaggedSubjects.length > 0;
+  const meetsGwaRequirement =
+    normalizedEstimatedGwa === null
+      ? null
+      : detectedScale === "PERCENTAGE_100"
+        ? normalizedEstimatedGwa >= 80
+        : normalizedEstimatedGwa <= 2.5;
+  const gwaCheckStatus =
+    meetsGwaRequirement === null
+      ? "UNAVAILABLE"
+      : meetsGwaRequirement
+        ? "MEETS_REQUIREMENT"
+        : "BELOW_REQUIREMENT";
+  return {
+    detectedScale,
+    estimatedGwa: normalizedEstimatedGwa,
+    gwaCheckStatus,
+    meetsGwaRequirement,
+    gwaMessage:
+      normalizedEstimatedGwa !== null
+        ? meetsGwaRequirement
+          ? "Estimated GWA meets the 80% maintenance requirement."
+          : "Estimated GWA does not meet the 80% maintenance requirement."
+        : typeof record.gwaMessage === "string"
+        ? record.gwaMessage.slice(0, 200)
+        : "GWA could not be auto-calculated — SK Admin will verify.",
+    hasPossibleFailingGrade,
+    flaggedSubjects,
+    flaggedGrades: flaggedSubjects,
+    possibleFailingGradeMessage:
+      hasPossibleFailingGrade
+        ? "Possible failing grade detected. An SK Admin will verify your official grade report."
+        : typeof record.possibleFailingGradeMessage === "string"
+          ? record.possibleFailingGradeMessage.slice(0, 200)
+          : null,
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -52,6 +120,7 @@ export async function POST(request: NextRequest) {
     const coeFileUrl = String(body.coeFileUrl ?? "").trim();
     const forceSubmit = body.forceSubmit === true;
     const clientRequiresStrictManualReview = body.requiresStrictManualReview === true;
+    const clientGradeDiagnostics = getClientGradeDiagnostics(body.gradeDiagnostics);
 
     const detectedTerm = await detectGranteeTargetTerm(appUser.id);
     if (!detectedTerm) {
@@ -62,57 +131,54 @@ export async function POST(request: NextRequest) {
     }
     const semester = detectedTerm.termLabel;
 
-    const existing = await prisma.submission.findFirst({
-      where: {
-        granteeId,
-        semester,
-      },
-      orderBy: { submittedAt: "desc" },
-      select: {
-        id: true,
-        semester: true,
-        status: true,
-        gradeFileUrl: true,
-        coeFileUrl: true,
-        flaggedFields: true,
-        resubmittedFields: true,
-        reviewNotes: true,
-        requiresStrictManualReview: true,
-        reviewedById: true,
-        reviewedAt: true,
-      },
-    });
+    const [existing, lockedExisting] = await Promise.all([
+      prisma.submission.findFirst({
+        where: { granteeId, semester },
+        orderBy: { submittedAt: "desc" },
+        select: {
+          id: true,
+          semester: true,
+          status: true,
+          gradeFileUrl: true,
+          coeFileUrl: true,
+          flaggedFields: true,
+          resubmittedFields: true,
+          reviewNotes: true,
+          requiresStrictManualReview: true,
+          reviewedById: true,
+          reviewedAt: true,
+          submittedAt: true,
+        },
+      }),
+      prisma.submission.findFirst({
+        where: {
+          granteeId,
+          semester,
+          status: { in: [SubmissionStatus.PENDING, SubmissionStatus.APPROVED] },
+        },
+        orderBy: { submittedAt: "desc" },
+        select: { id: true, status: true },
+      }),
+    ]);
 
     if (
-      existing?.status === SubmissionStatus.AWAITING_PHYSICAL_CTC ||
+      lockedExisting ||
+      existing?.status === SubmissionStatus.PENDING ||
       existing?.status === SubmissionStatus.APPROVED
     ) {
       return NextResponse.json(
-        { error: "Your submission for this term has already passed initial review and cannot be overwritten." },
+        { error: "Your submission for this term is already under review." },
         { status: 409 }
       );
     }
-    const canReplaceUnlockedPending =
-      existing?.status === SubmissionStatus.PENDING &&
-      !existing.reviewedById &&
-      !existing.reviewedAt;
-    if (detectedTerm.hasPendingSubmission && !canReplaceUnlockedPending) {
+    if (existing && existing.status !== SubmissionStatus.RETURNED_FOR_EDIT) {
       return NextResponse.json(
-        { error: "Your requirements for this term are already under SK Admin review." },
+        { error: "This submission can only be updated when an SK Admin requests edits." },
         { status: 409 }
       );
     }
 
     const { window: termWindow } = await getAcademicTermScheduleState();
-    if (
-      existing?.status === SubmissionStatus.PRE_QUALIFIED ||
-      (existing?.status === SubmissionStatus.PENDING && !canReplaceUnlockedPending)
-    ) {
-      return NextResponse.json(
-        { error: "Your requirements for this term are already under SK Admin review." },
-        { status: 409 }
-      );
-    }
     const canSubmitInOpenWindow =
       termWindow.status === "OPEN" &&
       getScheduleSemesterForTargetTerm(detectedTerm) === termWindow.semester;
@@ -143,10 +209,19 @@ export async function POST(request: NextRequest) {
     }
 
     const gradeFileChanged = !existing || mergedGradeFileUrl !== existing.gradeFileUrl;
+    const clientDiagnosticsRequireReview = Boolean(
+      clientGradeDiagnostics &&
+      (
+        clientGradeDiagnostics.hasPossibleFailingGrade ||
+        clientGradeDiagnostics.gwaCheckStatus === "BELOW_REQUIREMENT" ||
+        clientGradeDiagnostics.gwaCheckStatus === "UNAVAILABLE"
+      )
+    );
     const requiresStrictManualReview = gradeFileChanged
-      ? clientRequiresStrictManualReview
+      ? clientRequiresStrictManualReview || clientDiagnosticsRequireReview
       : existing.requiresStrictManualReview ||
-        clientRequiresStrictManualReview;
+        clientRequiresStrictManualReview ||
+        clientDiagnosticsRequireReview;
 
     const resolvedFlaggedFields = new Set<string>();
 
@@ -169,10 +244,7 @@ export async function POST(request: NextRequest) {
       semester,
       gradeFileUrl: mergedGradeFileUrl,
       coeFileUrl: mergedCoeFileUrl,
-      status:
-        existing?.status === "RETURNED_FOR_EDIT" && nextFlaggedFields.length > 0
-          ? SubmissionStatus.RETURNED_FOR_EDIT
-          : SubmissionStatus.PENDING,
+      status: SubmissionStatus.PENDING,
       reviewNotes: nextFlaggedFields.length > 0 ? existing?.reviewNotes : null,
       flaggedFields: nextFlaggedFields,
       resubmittedFields: nextResubmittedFields,
@@ -188,6 +260,7 @@ export async function POST(request: NextRequest) {
           gradeReport: false,
         },
         forcedManualReview: forceSubmit,
+        ...(clientGradeDiagnostics ? { clientGradeDiagnostics } : {}),
       },
       ocrGwa: null,
       ocrTotalUnits: null,
@@ -199,29 +272,44 @@ export async function POST(request: NextRequest) {
     };
 
     const submission = await prisma.$transaction(async (tx) => {
+      const currentLocked = await tx.submission.findFirst({
+        where: {
+          granteeId,
+          semester,
+          status: { in: [SubmissionStatus.PENDING, SubmissionStatus.APPROVED] },
+        },
+        select: { id: true, status: true },
+      });
+      if (currentLocked) {
+        throw new Error("TERM_ALREADY_UNDER_REVIEW");
+      }
+
       const current = await tx.submission.findFirst({
         where: { granteeId, semester },
         orderBy: { submittedAt: "desc" },
-        select: { id: true, status: true, reviewedById: true, reviewedAt: true },
+        select: {
+          id: true,
+          status: true,
+          reviewedById: true,
+          reviewedAt: true,
+          submittedAt: true,
+        },
       });
       if (
-        current?.status === SubmissionStatus.PRE_QUALIFIED ||
-        (current?.status === SubmissionStatus.PENDING &&
-          (current.reviewedById !== null || current.reviewedAt !== null))
-      ) {
-        throw new Error("TERM_ALREADY_SUBMITTED");
-      }
-      if (
-        current?.status === SubmissionStatus.AWAITING_PHYSICAL_CTC ||
+        current?.status === SubmissionStatus.PENDING ||
         current?.status === SubmissionStatus.APPROVED
       ) {
-        throw new Error("TERM_ALREADY_APPROVED");
+        throw new Error("TERM_ALREADY_UNDER_REVIEW");
+      }
+      if (current && current.status !== SubmissionStatus.RETURNED_FOR_EDIT && existing) {
+        throw new Error("TERM_NOT_EDITABLE");
       }
       if (
         (current?.id ?? null) !== (existing?.id ?? null) ||
         (current?.status ?? null) !== (existing?.status ?? null) ||
         (current?.reviewedById ?? null) !== (existing?.reviewedById ?? null) ||
-        (current?.reviewedAt?.getTime() ?? null) !== (existing?.reviewedAt?.getTime() ?? null)
+        (current?.reviewedAt?.getTime() ?? null) !== (existing?.reviewedAt?.getTime() ?? null) ||
+        (current?.submittedAt?.getTime() ?? null) !== (existing?.submittedAt?.getTime() ?? null)
       ) {
         throw new Error("TERM_SUBMISSION_CHANGED");
       }
@@ -257,6 +345,8 @@ export async function POST(request: NextRequest) {
       flaggedFields: submission.flaggedFields,
       coeStatus: submission.coeStatus,
       gradesStatus: submission.gradesStatus,
+      resubmittedFields: submission.resubmittedFields,
+      ocrStatus: submission.ocrStatus,
       coeSubmittedAt: submission.coeSubmittedAt,
       coeApprovedAt: submission.coeApprovedAt,
       gradesSubmittedAt: submission.gradesSubmittedAt,
@@ -270,7 +360,7 @@ export async function POST(request: NextRequest) {
       error.code === "P2034"
     ) {
       return NextResponse.json(
-        { error: "Another submission for this term was saved. Refresh the page to check its status." },
+        { error: "Your submission for this term is already under review." },
         { status: 409 }
       );
     }
@@ -279,22 +369,21 @@ export async function POST(request: NextRequest) {
       error.code === "P2002"
     ) {
       return NextResponse.json(
-        { error: "A submission for this term was saved while you were uploading. Refresh to check its latest status." },
+        { error: "Your submission for this term is already under review." },
         { status: 409 }
       );
     }
     if (
       error instanceof Error &&
-      ["TERM_ALREADY_SUBMITTED", "TERM_ALREADY_APPROVED", "TERM_SUBMISSION_CHANGED"].includes(error.message)
+      ["TERM_ALREADY_UNDER_REVIEW", "TERM_NOT_EDITABLE", "TERM_SUBMISSION_CHANGED"].includes(error.message)
     ) {
-      const conflictMessage =
-        error.message === "TERM_ALREADY_APPROVED"
-          ? "Your submission for this term has already passed initial review and cannot be overwritten."
-          : error.message === "TERM_SUBMISSION_CHANGED"
-            ? "Your submission changed while it was being saved. Refresh the page and try again."
-            : "Your requirements for this term are already under SK Admin review.";
+      const conflictMessages: Record<string, string> = {
+        TERM_ALREADY_UNDER_REVIEW: "Your submission for this term is already under review.",
+        TERM_NOT_EDITABLE: "This submission can only be updated when an SK Admin requests edits.",
+        TERM_SUBMISSION_CHANGED: "Your submission changed while it was being saved. Refresh the page and try again.",
+      };
       return NextResponse.json(
-        { error: conflictMessage },
+        { error: conflictMessages[error.message] },
         { status: 409 }
       );
     }

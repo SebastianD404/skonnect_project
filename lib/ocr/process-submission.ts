@@ -139,6 +139,21 @@ export async function processSubmissionGradeReportOcr(
             ambiguousRows: result.parsed.ambiguousRows,
             conflictingRows: result.parsed.conflictingRows,
             gradingScale: result.parsed.gradingScale,
+            gradeDiagnostics: {
+              detectedScale: result.parsed.detectedScale ?? null,
+              estimatedGwa: result.parsed.estimatedGwa ?? result.parsed.gwa,
+              gwaCheckStatus: result.parsed.gwaCheckStatus ?? "UNAVAILABLE",
+              meetsGwaRequirement: result.parsed.meetsGwaRequirement ?? null,
+              gwaMessage:
+                result.parsed.gwaMessage ??
+                "GWA could not be auto-calculated — SK Admin will verify.",
+              hasPossibleFailingGrade: result.parsed.hasPossibleFailingGrade ?? false,
+              flaggedSubjects:
+                result.parsed.flaggedSubjects ?? result.parsed.flaggedGrades ?? [],
+              flaggedGrades: result.parsed.flaggedGrades ?? [],
+              possibleFailingGradeMessage:
+                result.parsed.possibleFailingGradeMessage ?? null,
+            },
             documentValidation: result.documentValidation,
             ...(manualReviewRequired ? { forcedManualReview: true } : {}),
           },

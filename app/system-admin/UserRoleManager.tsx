@@ -223,6 +223,26 @@ export default function UserRoleManager({
   }, []);
 
   useEffect(() => {
+    let lastRefreshAt = Date.now();
+    const refreshVisiblePage = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastRefreshAt < 3_000) return;
+      lastRefreshAt = now;
+      router.refresh();
+    };
+
+    const interval = window.setInterval(refreshVisiblePage, 15_000);
+    window.addEventListener("focus", refreshVisiblePage);
+    document.addEventListener("visibilitychange", refreshVisiblePage);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshVisiblePage);
+      document.removeEventListener("visibilitychange", refreshVisiblePage);
+    };
+  }, [router]);
+
+  useEffect(() => {
     if (!isPending) {
       setShowDelayedSkeleton(false);
       return;
@@ -353,9 +373,10 @@ export default function UserRoleManager({
 
   function filterByAccountMetric(metric: PlatformAccountMetricKey) {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    setQuery("");
     setOptimisticSegment(metric);
     setRoleFilter("ALL");
-    navigateToList(metric, "ALL", query);
+    navigateToList(metric, "ALL", "");
   }
 
   function filterByRole(role: RoleFilter) {
@@ -782,6 +803,10 @@ export default function UserRoleManager({
                 <Info className="h-3.5 w-3.5" aria-hidden="true" />
               </span>
             </div>
+            <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+              Auto-refreshes every 15 seconds while this tab is open
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3 px-6 pb-6 sm:grid-cols-3 xl:grid-cols-5">
             {accountMetricCards.map(({ key, label, caption, value, Icon, tone }) => {
@@ -1163,11 +1188,44 @@ export default function UserRoleManager({
             </div>
           </>
         ) : (
-          <div className="p-10">
-            <p className="text-lg font-semibold text-slate-900">No users found.</p>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              Once user profiles exist in the database, they will appear here automatically.
+          <div className="p-8 sm:p-10">
+            <p className="text-lg font-semibold text-slate-900">
+              {query.trim() ? "No users match your search." : "No users in this view."}
             </p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {query.trim()
+                ? `No accounts match “${query.trim()}” within the selected filters.`
+                : optimisticSegment && optimisticSegment !== "all"
+                  ? `There are no accounts in ${accountMetricCards.find(({ key }) => key === optimisticSegment)?.label ?? "this metric"} right now.`
+                  : roleFilter !== "ALL"
+                    ? `There are no ${roleFilter.replaceAll("_", " ").toLowerCase()} accounts matching the current filters.`
+                    : "No user profiles are available yet."}
+            </p>
+            {query.trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+                  setQuery("");
+                  navigateToList(optimisticSegment ?? "all", roleFilter, "");
+                }}
+                className="mt-4 inline-flex min-h-10 items-center rounded-lg border border-slate-200 px-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Clear search
+              </button>
+            ) : optimisticSegment !== "all" || roleFilter !== "ALL" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setOptimisticSegment("all");
+                  setRoleFilter("ALL");
+                  navigateToList("all", "ALL", "");
+                }}
+                className="mt-4 inline-flex min-h-10 items-center rounded-lg border border-slate-200 px-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                View all accounts
+              </button>
+            ) : null}
           </div>
         )}
         </div>

@@ -1,4 +1,5 @@
 import { GranteeStatus, Role } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
@@ -249,6 +250,12 @@ export async function POST(
         retentionExpiresAt,
       };
     });
+
+    revalidatePath("/");
+    revalidatePath("/admin");
+    revalidatePath("/admin/grantees");
+    revalidatePath("/admin/skeap-waitlist");
+    revalidatePath("/programs/skeap");
 
     let waitlistOffers;
     try {

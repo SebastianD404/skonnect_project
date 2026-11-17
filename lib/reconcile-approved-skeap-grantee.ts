@@ -2,7 +2,7 @@ import { Role } from "@prisma/client";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { prisma } from "@/lib/prisma";
 import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
-import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 
 export async function reconcileApprovedSkeapGrantee(userId: string, role: Role) {
@@ -10,7 +10,7 @@ export async function reconcileApprovedSkeapGrantee(userId: string, role: Role) 
 
   const result = await prisma.$transaction(async (tx) => {
     await lockSkeapCapacity(tx);
-    const maxSlots = await getSkeapMaxSlots(tx);
+    const capacity = await getSkeapCapacitySnapshot(tx, userId);
     const user = await tx.user.findUnique({
       where: { id: userId },
       select: { role: true, isActive: true },
@@ -41,7 +41,7 @@ export async function reconcileApprovedSkeapGrantee(userId: string, role: Role) 
     ) {
       return { isApprovedGrantee: false, changed: false };
     }
-    if (!grantee && await getSkeapCapacityCount(tx, userId) >= maxSlots) {
+    if (!grantee && capacity.isFull) {
       return { isApprovedGrantee: false, changed: false };
     }
 

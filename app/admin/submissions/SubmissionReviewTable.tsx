@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import RevokeGranteeModal from "./RevokeGranteeModal";
 import type { ReactNode } from "react";
@@ -15,12 +14,14 @@ import {
   FileText,
   GraduationCap,
   Loader2,
+  MapPin,
   Search,
   Undo2,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import type { AcademicTermWindow } from "@/lib/academic-term-schedule";
+import type { GradeReportDiagnostics } from "@/lib/grade-report-parser";
 import { ADMIN_TABLE_PAGE_SIZES, DEFAULT_ADMIN_TABLE_PAGE_SIZE } from "@/lib/admin-pagination";
 import AdminPaginationControls from "../AdminPaginationControls";
 
@@ -30,11 +31,14 @@ interface SubmissionRow {
   gradeFileUrl: string;
   coeFileUrl: string;
   requiresStrictManualReview: boolean;
+  ocrStatus: "OCR_PENDING" | "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED" | null;
+  gradeDiagnostics: GradeReportDiagnostics | null;
   status: SubmissionStatus;
   coeStatus: SubmissionStatus;
   gradesStatus: SubmissionStatus;
   reviewNotes: string | null;
   flaggedFields?: string[];
+  resubmittedFields?: string[];
   submittedAt: string;
   grantee: {
     id: string;
@@ -44,7 +48,7 @@ interface SubmissionRow {
   };
 }
 
-type TabType = "pending" | "returned" | "cleared";
+type TabType = "pending" | "returned" | "resubmitted" | "physical" | "cleared";
 type DocumentReview = { status: "PENDING" | "APPROVED" | "RETURN_FOR_UPDATE"; notes: string };
 type ReviewDraft = { coe: DocumentReview; grades: DocumentReview };
 
@@ -71,7 +75,7 @@ const EMPTY_REVIEW_DRAFT: ReviewDraft = {
 };
 const EMPTY_RESPONSE: SubmissionsResponse = {
   rows: [],
-  counts: { pending: 0, returned: 0, cleared: 0 },
+  counts: { pending: 0, returned: 0, resubmitted: 0, physical: 0, cleared: 0 },
   totalCount: 0,
   page: 1,
   pageSize: DEFAULT_ADMIN_TABLE_PAGE_SIZE,
@@ -89,28 +93,148 @@ function formatWindowDate(value: string | null) {
   }).format(new Date(value));
 }
 const TABS: TabDef[] = [
-  { id: "pending", label: "Pending Review", description: "Digital pre-check and physical verification" },
+  { id: "pending", label: "Pending Review", description: "First-time digital submissions awaiting review" },
   { id: "returned", label: "Returned for Edits", description: "Submissions returned to grantees" },
+  { id: "resubmitted", label: "Resubmitted", description: "Updated documents awaiting admin review" },
+  { id: "physical", label: "For Physical CTC", description: "Digital files verified; original / CTC verification pending at the Barangay Hall" },
   { id: "cleared", label: "Fully Cleared", description: "Submissions approved by an administrator" },
 ];
 const QUEUE_TITLES: Record<TabType, string> = {
   pending: "Review Queue",
   returned: "Returned Submissions",
+  resubmitted: "Resubmitted Review Queue",
+  physical: "For Physical CTC",
   cleared: "Cleared Records",
 };
+const EMPTY_QUEUE_COPY: Record<TabType, { title: string; description: string }> = {
+  pending: {
+    title: "No pending submissions",
+    description: "First-time packages awaiting digital review will appear here.",
+  },
+  returned: {
+    title: "No returned packages",
+    description: "Packages awaiting grantee edits will appear here.",
+  },
+  resubmitted: {
+    title: "No resubmitted packages",
+    description: "Updated packages awaiting review will appear here.",
+  },
+  physical: {
+    title: "No packages awaiting physical CTC",
+    description: "Digitally verified packages awaiting in-person verification will appear here.",
+  },
+  cleared: {
+    title: "No fully cleared packages",
+    description: "Packages that passed digital screening and physical verification will appear here.",
+  },
+};
 
-function getStatusLabel(status: SubmissionStatus) {
-  if (status === "APPROVED") return "Fully Cleared";
-  if (status === "AWAITING_PHYSICAL_CTC") return "Awaiting Original / CTC";
-  if (status === "RETURNED_FOR_EDIT" || status === "REJECTED") return "Returned for Edits";
-  return "Pending Review";
+function getQueueSubtitle(tab: TabType, count: number) {
+  const packages = count === 1 ? "package" : "packages";
+  switch (tab) {
+    case "pending":
+      return `${count} ${packages} pending review`;
+    case "returned":
+      return `${count} ${packages} returned for edits`;
+    case "resubmitted":
+      return `${count} resubmitted ${packages}`;
+    case "physical":
+      return `${count} ${packages} awaiting physical CTC`;
+    case "cleared":
+      return `${count} ${packages} fully cleared`;
+  }
 }
 
-function getStatusClass(status: SubmissionStatus) {
-  if (status === "APPROVED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "AWAITING_PHYSICAL_CTC") return "border-amber-200 bg-amber-50 text-amber-800";
-  if (status === "RETURNED_FOR_EDIT" || status === "REJECTED") return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-sky-200 bg-sky-50 text-sky-700";
+function formatQueueName(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("en")
+    .replace(/(^|[\s'-])(\p{L})/gu, (_match, separator: string, letter: string) =>
+      `${separator}${letter.toLocaleUpperCase("en")}`
+    );
+}
+
+function getQueueInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toLocaleUpperCase("en"))
+    .join("") || "?";
+}
+
+function formatQueueSemester(semester: string) {
+  const yearRange = semester.match(/\b\d{4}\s*[-–]\s*\d{4}\b/)?.[0];
+  if (!yearRange) return semester;
+
+  const normalizedYearRange = yearRange.replace(/\s*[-–]\s*/, "–");
+  const value = semester.toLocaleLowerCase("en");
+  const term = /first|1st/.test(value)
+    ? "1st Sem"
+    : /second|2nd/.test(value)
+      ? "2nd Sem"
+      : /\bsummer\b/.test(value)
+        ? "Summer"
+        : semester.replace(yearRange, "").trim();
+
+  return term ? `${normalizedYearRange} · ${term}` : normalizedYearRange;
+}
+
+const QUEUE_DATE_FORMAT = new Intl.DateTimeFormat("en-PH", {
+  month: "short",
+  day: "numeric",
+  timeZone: "Asia/Manila",
+});
+
+function QueueDocumentBadge({
+  label,
+  status,
+  isResubmitted,
+  submissionStatus,
+  hasPossibleFailingGrade = false,
+}: {
+  label: "COE" | "Grades";
+  status: SubmissionStatus;
+  isResubmitted: boolean;
+  submissionStatus: SubmissionStatus;
+  hasPossibleFailingGrade?: boolean;
+}) {
+  const isApproved = status === "APPROVED" || submissionStatus === "APPROVED";
+  const isReturned = status === "RETURNED_FOR_EDIT" || status === "REJECTED";
+  const state = isApproved ? "approved" : isReturned ? "returned" : isResubmitted ? "resubmitted" : "pending";
+  const stateLabel = {
+    approved: "approved",
+    returned: "returned for edits",
+    resubmitted: "resubmitted",
+    pending: "pending review",
+  }[state];
+  const style = {
+    approved: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    returned: "border-amber-200 bg-amber-50 text-amber-700",
+    resubmitted: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    pending: "border-slate-200 bg-slate-50 text-slate-600",
+  }[state];
+
+  return (
+    <span
+      title={`${label} ${stateLabel}${hasPossibleFailingGrade ? " · Possible failing grade detected" : ""}`}
+      aria-label={`${label} ${stateLabel}${hasPossibleFailingGrade ? ", possible failing grade detected" : ""}`}
+      className={`inline-flex h-[22px] items-center gap-1 rounded-full border px-1.5 text-[10px] font-semibold leading-none ${style}`}
+    >
+      {state === "approved" ? (
+        <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+      ) : state === "pending" ? (
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-hidden="true" />
+      ) : (
+        <Undo2 className="h-3 w-3" aria-hidden="true" />
+      )}
+      {label}
+      {hasPossibleFailingGrade ? (
+        <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
+      ) : null}
+    </span>
+  );
 }
 
 interface DocumentCardProps {
@@ -421,7 +545,6 @@ function SubmissionsSkeleton({ isMobileReviewOpen }: { isMobileReviewOpen: boole
 }
 
 export default function SubmissionReviewTable() {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<TabType>("pending");
   const [page, setPage] = useState(1);
@@ -520,8 +643,16 @@ export default function SubmissionReviewTable() {
   const activeTabRecordLabel = {
     pending: "pending review",
     returned: "returned for edits",
+    resubmitted: "resubmitted",
+    physical: "awaiting physical CTC",
     cleared: "fully cleared",
   }[activeTab];
+  const emptyQueueCopy = query.trim()
+    ? {
+        title: "No matching submissions",
+        description: "Try adjusting the grantee, school, or semester search.",
+      }
+    : EMPTY_QUEUE_COPY[activeTab];
   const pageRangeStart = responseData.totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageRangeEnd = Math.min(page * pageSize, responseData.totalCount);
 
@@ -541,6 +672,39 @@ export default function SubmissionReviewTable() {
         ...updates,
       },
     }));
+  }
+
+  function removeGranteeFromQueue(granteeId: string) {
+    const currentRows = responseData.rows;
+    const granteeIndex = currentRows.findIndex((row) => row.grantee.id === granteeId);
+    const remainingRows = currentRows.filter((row) => row.grantee.id !== granteeId);
+    const hasGranteeInQueue = granteeIndex !== -1;
+    const nextIndex = Math.min(granteeIndex, remainingRows.length - 1);
+    const nextSubmission = hasGranteeInQueue ? remainingRows[nextIndex] ?? null : null;
+
+    setResponseData((current) => ({
+      ...current,
+      rows: current.rows.filter((row) => row.grantee.id !== granteeId),
+    }));
+    if (hasGranteeInQueue) {
+      setSelectedSubmissionId(nextSubmission?.id ?? null);
+      setIsMobileReviewOpen((isOpen) => isOpen && nextSubmission !== null);
+    }
+    setIsRevokeModalOpen(false);
+
+    if (hasGranteeInQueue && remainingRows.length === 0 && page > 1) {
+      setPage((current) => Math.max(1, current - 1));
+    } else {
+      setRefreshToken((current) => current + 1);
+    }
+  }
+
+  function handleActionError(error: unknown, fallback: string, granteeId: string) {
+    const message = error instanceof Error ? error.message : fallback;
+    if (message === "This grantee has already been revoked.") {
+      removeGranteeFromQueue(granteeId);
+    }
+    setActionError(message);
   }
 
   async function postDocumentReview(
@@ -597,7 +761,7 @@ export default function SubmissionReviewTable() {
       }
       return true;
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to process review action.");
+      handleActionError(error, "Unable to process review action.", submission.grantee.id);
       return false;
     } finally {
       setSavingSubmissionId(null);
@@ -613,12 +777,14 @@ export default function SubmissionReviewTable() {
     setActionSuccess(null);
     try {
       await postSubmissionAction(selectedSubmission, "CONFIRM_PHYSICAL_CTC");
-      setActionSuccess("Physical Original / CTC verified. Submission fully approved.");
+      setActionSuccess("Physical Original / CTC verified. Submission fully cleared.");
       changeTab("cleared", selectedSubmission.id);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to confirm physical documents.");
-      setIsLoading(true);
-      setRefreshToken((current) => current + 1);
+      handleActionError(error, "Unable to confirm physical documents.", selectedSubmission.grantee.id);
+      if (!(error instanceof Error && error.message === "This grantee has already been revoked.")) {
+        setIsLoading(true);
+        setRefreshToken((current) => current + 1);
+      }
     } finally {
       setSavingSubmissionId(null);
     }
@@ -672,12 +838,13 @@ export default function SubmissionReviewTable() {
     try {
       await postSubmissionAction(selectedSubmission, "VERIFY_DIGITAL");
       setActionSuccess("Digital pre-check complete. The grantee has been asked to submit the Original / CTC.");
-      setIsLoading(true);
-      setRefreshToken((current) => current + 1);
+      changeTab("physical", selectedSubmission.id);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to process submission review.");
-      setIsLoading(true);
-      setRefreshToken((current) => current + 1);
+      handleActionError(error, "Unable to process submission review.", selectedSubmission.grantee.id);
+      if (!(error instanceof Error && error.message === "This grantee has already been revoked.")) {
+        setIsLoading(true);
+        setRefreshToken((current) => current + 1);
+      }
     } finally {
       setSavingSubmissionId(null);
     }
@@ -703,14 +870,17 @@ export default function SubmissionReviewTable() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (payload?.revocationSaved === true) {
+          removeGranteeFromQueue(granteeId);
+          setActionError(payload?.error || "Grantee revoked, but waitlist offers could not be dispatched.");
+          return;
+        }
         throw new Error(payload?.error || "Unable to revoke grantee.");
       }
 
-      setIsRevokeModalOpen(false);
-      router.push("/admin/grantee-submissions");
-      router.refresh();
+      removeGranteeFromQueue(granteeId);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to revoke grantee.");
+      handleActionError(error, "Unable to revoke grantee.", granteeId);
     } finally {
       setSavingSubmissionId(null);
     }
@@ -721,20 +891,20 @@ export default function SubmissionReviewTable() {
       <div className="p-4 sm:p-5">
         <div className="flex w-full flex-wrap items-center gap-3">
           <label className="relative block w-full min-w-0 sm:w-72 sm:flex-none lg:w-[28rem]">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                placeholder="Search grantee, school or semester..."
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setPage(1);
-                  setSelectedSubmissionId(null);
-                  setIsMobileReviewOpen(false);
-                  setIsLoading(true);
-                }}
-                className="h-10 w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#0a1f33] focus:ring-2 focus:ring-[#0a1f33]/10"
-              />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              placeholder="Search grantee, school or semester..."
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+                setSelectedSubmissionId(null);
+                setIsMobileReviewOpen(false);
+                setIsLoading(true);
+              }}
+              className="h-10 w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#0a1f33] focus:ring-2 focus:ring-[#0a1f33]/10"
+            />
           </label>
 
           <label className="relative block w-full sm:hidden">
@@ -807,7 +977,7 @@ export default function SubmissionReviewTable() {
         {validationError ? (
           <FloatingFeedback message={validationError} type="error" onDismiss={() => setValidationError(null)} />
         ) : null}
-        {actionError ? <FloatingFeedback message={actionError} type="error" onDismiss={() => setActionError(null)} /> : null}
+        {actionError ? <FloatingFeedback message={actionError} type="error" autoDismissMs={5000} onDismiss={() => setActionError(null)} /> : null}
         {actionSuccess ? <FloatingFeedback message={actionSuccess} type="success" autoDismissMs={0} onDismiss={() => setActionSuccess(null)} /> : null}
 
         {isLoading ? <SubmissionsSkeleton isMobileReviewOpen={isMobileReviewOpen} /> : (
@@ -820,21 +990,23 @@ export default function SubmissionReviewTable() {
               <div>
                 <h2 className="text-xs font-bold tracking-wide text-white">{QUEUE_TITLES[activeTab]}</h2>
                 <p className="text-[10px] font-medium tracking-wider text-slate-400">
-                  {responseData.totalCount} {responseData.totalCount === 1 ? "package" : "packages"} {activeTabRecordLabel}
+                  {getQueueSubtitle(activeTab, responseData.totalCount)}
                 </p>
                 </div>
             </div>
 
-            <div className="custom-scroll custom-scroll-visible min-h-0 flex-1 overflow-y-scroll p-4">
+            <div className="custom-scroll custom-scroll-visible min-h-0 flex-1 overflow-y-scroll p-2.5">
               <div className="space-y-2">
               {responseData.rows.length === 0 ? (
                 <div className="px-3 py-12 text-center">
                   <FileText className="mx-auto h-8 w-8 text-slate-300" />
-                  <p className="mt-3 text-sm font-semibold text-slate-700">No submissions found</p>
-                  <p className="mt-1 text-xs text-slate-500">Try another status or search term.</p>
+                  <p className="mt-3 text-sm font-semibold text-slate-700">{emptyQueueCopy.title}</p>
+                  <p className="mt-1 text-xs text-slate-500">{emptyQueueCopy.description}</p>
                 </div>
-              ) : responseData.rows.map((submission) => (
-                <button
+              ) : responseData.rows.map((submission) => {
+                const displayName = formatQueueName(submission.grantee.user.fullName);
+                return (
+                  <button
                   key={submission.id}
                   type="button"
                   onClick={() => {
@@ -845,25 +1017,72 @@ export default function SubmissionReviewTable() {
                     setActionSuccess(null);
                   }}
                   aria-current={selectedSubmissionId === submission.id ? "true" : undefined}
-                  className={`w-full rounded-xl border p-4 text-left transition ${
+                  className={`w-full rounded-xl border p-3.5 text-left transition ${
                     selectedSubmissionId === submission.id
-                      ? "border-[#0a1f33] bg-white shadow-sm ring-1 ring-[#0a1f33]"
-                      : "border-slate-200/80 bg-white hover:border-slate-300 hover:shadow-sm"
+                      ? "border-slate-300 border-l-[3px] border-l-slate-900 bg-slate-50/90 shadow-sm"
+                      : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/60 hover:shadow-sm"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="min-w-0 truncate text-sm font-bold text-slate-900">{submission.grantee.user.fullName}</span>
-                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getStatusClass(submission.status)}`}>
-                      {getStatusLabel(submission.status)}
-                    </span>
-                  </div>
-                  <p className="mt-2 truncate text-xs font-medium text-slate-600">{submission.semester}</p>
-                  <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-400">
-                    <span className="truncate">{normalizeSkeapSchoolName(submission.grantee.school)} · {submission.grantee.yearLevel}</span>
-                    <time className="shrink-0">{formatDate(submission.submittedAt)}</time>
-                  </div>
-                </button>
-              ))}
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                        <span
+                          aria-hidden="true"
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold ${
+                            selectedSubmissionId === submission.id
+                              ? "bg-slate-900 text-white"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {getQueueInitials(displayName)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900" title={displayName}>
+                          {displayName}
+                        </span>
+                      </div>
+                      <time
+                        dateTime={submission.submittedAt}
+                        title={formatDate(submission.submittedAt)}
+                        className="shrink-0 text-xs tabular-nums text-slate-400"
+                      >
+                        {QUEUE_DATE_FORMAT.format(new Date(submission.submittedAt))}
+                      </time>
+                    </div>
+                    <div className="ml-[46px] mt-1.5 flex min-w-0 items-center gap-1 text-[12.5px] text-slate-500">
+                      <span
+                        className="min-w-0 truncate"
+                        title={normalizeSkeapSchoolName(submission.grantee.school)}
+                      >
+                        {normalizeSkeapSchoolName(submission.grantee.school)}
+                      </span>
+                      <span aria-hidden="true" className="shrink-0">·</span>
+                      <span className="shrink-0">{submission.grantee.yearLevel}</span>
+                    </div>
+                    <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
+                      <span
+                        title={submission.semester}
+                        className="inline-flex min-w-0 max-w-[55%] truncate rounded-md border border-slate-200 bg-white/80 px-1.5 py-1 text-[10px] font-semibold text-slate-600"
+                      >
+                        {formatQueueSemester(submission.semester)}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1">
+                        <QueueDocumentBadge
+                          label="COE"
+                          status={submission.coeStatus}
+                          submissionStatus={submission.status}
+                          isResubmitted={submission.resubmittedFields?.includes("COE") ?? false}
+                        />
+                        <QueueDocumentBadge
+                          label="Grades"
+                          status={submission.gradesStatus}
+                          submissionStatus={submission.status}
+                          isResubmitted={submission.resubmittedFields?.includes("GRADE_REPORT") ?? false}
+                          hasPossibleFailingGrade={submission.gradeDiagnostics?.hasPossibleFailingGrade ?? false}
+                        />
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
               </div>
             </div>
 
@@ -873,7 +1092,10 @@ export default function SubmissionReviewTable() {
                 <span className="font-semibold text-slate-900">{pageRangeStart}–{pageRangeEnd}</span>
                 <span>of</span>
                 <span className="font-semibold text-slate-900">{responseData.totalCount.toLocaleString()}</span>
-                <span>{activeTabRecordLabel}</span>
+                <span>{activeTab === "resubmitted"
+                  ? `resubmitted ${responseData.totalCount === 1 ? "package" : "packages"}`
+                  : activeTabRecordLabel}
+                </span>
               </p>
               {responseData.totalPages > 1 ? (
                 <div className="flex flex-wrap items-center gap-4">
@@ -948,7 +1170,7 @@ export default function SubmissionReviewTable() {
                       ) : selectedSubmission.status === "AWAITING_PHYSICAL_CTC" ? (
                         <>
                           <span className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
-                            Awaiting Original / CTC
+                            For Physical CTC
                           </span>
                           <button
                             type="button"
@@ -957,7 +1179,7 @@ export default function SubmissionReviewTable() {
                             className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <CheckCircle2 className="h-4 w-4" />
-                            Confirm Physical CTC &amp; Fully Approve
+                            Confirm Physical CTC &amp; Clear
                           </button>
                         </>
                       ) : (
@@ -1002,6 +1224,15 @@ export default function SubmissionReviewTable() {
                     <span>Submitted {formatDate(selectedSubmission.submittedAt)}</span>
                     <span aria-hidden="true">·</span>
                   </div>
+                  {selectedSubmission.status === "AWAITING_PHYSICAL_CTC" ? (
+                    <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-900">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+                      <p>
+                        <span className="font-bold">Digital screening complete.</span>{" "}
+                        Physical Original / CTC verification is pending at the Barangay Hall.
+                      </p>
+                    </div>
+                  ) : null}
                 </header>
 
                 <div className="review-grid min-h-0 flex-1 px-5 pb-5 pt-4 sm:px-7 sm:pb-7">
@@ -1015,6 +1246,11 @@ export default function SubmissionReviewTable() {
                     badgeContent={(selectedSubmission.flaggedFields ?? []).includes("COE") ? (
                       <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700">
                         Needs correction
+                      </span>
+                    ) : selectedSubmission.resubmittedFields?.includes("COE") ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700">
+                        <Undo2 className="h-3 w-3" aria-hidden="true" />
+                        Resubmitted
                       </span>
                     ) : selectedSubmission.coeStatus === "APPROVED" || selectedSubmission.status === "APPROVED" ? (
                       <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
@@ -1040,17 +1276,27 @@ export default function SubmissionReviewTable() {
                     notesLabel="Grade Report Review Notes"
                     storedFilePath={selectedSubmission.gradeFileUrl}
                     badgeContent={selectedSubmission.gradeFileUrl ? (
-                      selectedSubmission.requiresStrictManualReview ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                          <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                          Manual Review
-                        </span>
-                      ) : gradeReportApproved ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {selectedSubmission.gradeDiagnostics?.hasPossibleFailingGrade ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                            <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                            Possible Failing Grade
+                          </span>
+                        ) : null}
+                        {selectedSubmission.resubmittedFields?.includes("GRADE_REPORT") ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                            <Undo2 className="h-3 w-3" aria-hidden="true" />
+                            Resubmitted
+                          </span>
+                        ) : null}
+                        {gradeReportApproved &&
+                        !selectedSubmission.gradeDiagnostics?.hasPossibleFailingGrade ? (
                         <span className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
                           <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
                           Approved
                         </span>
-                      ) : undefined
+                        ) : null}
+                      </div>
                     ) : undefined}
                     reviewNotesValue={draft.grades.notes || selectedSubmission.reviewNotes || ""}
                     onNotesChange={(value) => updateDraft(selectedSubmission.id, {

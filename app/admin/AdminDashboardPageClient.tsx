@@ -60,7 +60,9 @@ export default function AdminDashboardPageClient({
         href: "/admin/skeap-waitlist",
         label: "SKEAP Slot",
         value: `${analytics.capacityUsed} / ${analytics.maxSlots}`,
-        subtitle: "maximum slots filled",
+        subtitle: analytics.availableSlots > 0
+          ? `${analytics.availableSlots} slot${analytics.availableSlots === 1 ? "" : "s"} available`
+          : "All slots filled",
         icon: FileText,
       },
       {

@@ -177,7 +177,9 @@ export async function processGradeReportOcr(
 ): Promise<GradeReportOcrResult> {
   const { rawText, confidence } = await extractDocumentOcr(input, contentType, "Grade Report");
   const parsed = parseGradeReportText(rawText);
-  const hasFailingGrades = hasFailingGradeIndicators(rawText, parsed);
+  const hasFailingGrades =
+    hasFailingGradeIndicators(rawText, parsed) ||
+    parsed.meetsGwaRequirement === false;
   const requiresStrictManualReview =
     confidence < MIN_OCR_CONFIDENCE ||
     parsed.requiresStrictManualReview ||

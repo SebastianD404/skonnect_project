@@ -211,14 +211,27 @@ describe("processSubmissionGradeReportOcr", () => {
       status: "OCR_NEEDS_REVIEW",
       rawText: "Transcript of Grades\nMATH 101 3 74",
       parsed: {
-        rows: [{ subjectCode: "MATH101", subjectName: "Math", units: 3, grade: null, flag: "FAILED" }],
+        rows: [
+          { subjectCode: "MATH 101", subjectName: "Math", units: 3, grade: null, flag: "FAILED" },
+          { subjectCode: "ENG 102", subjectName: "English", units: 3, grade: 85, flag: null },
+        ],
         unrecognizedRows: [],
         ambiguousRows: [],
         conflictingRows: [],
         gradingScale: "percentage",
+        detectedScale: "PERCENTAGE_100",
+        estimatedGwa: 79.5,
+        gwaCheckStatus: "BELOW_REQUIREMENT",
+        meetsGwaRequirement: false,
+        gwaMessage: "Estimated GWA does not meet the 80% maintenance requirement.",
+        hasPossibleFailingGrade: true,
+        flaggedSubjects: ["MATH 101 Math: 74"],
+        flaggedGrades: ["MATH 101 Math: 74"],
+        possibleFailingGradeMessage:
+          "Possible failing grade detected. An SK Admin will verify your official grade report.",
         requiresStrictManualReview: true,
-        gwa: null,
-        totalUnits: 0,
+        gwa: 79.5,
+        totalUnits: 6,
       },
       confidence: 99,
       requiresStrictManualReview: true,
@@ -229,6 +242,18 @@ describe("processSubmissionGradeReportOcr", () => {
     expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         requiresStrictManualReview: true,
+        ocrGwa: 79.5,
+        ocrParsedRows: expect.objectContaining({
+          gradeDiagnostics: expect.objectContaining({
+            detectedScale: "PERCENTAGE_100",
+            estimatedGwa: 79.5,
+            gwaCheckStatus: "BELOW_REQUIREMENT",
+            meetsGwaRequirement: false,
+            hasPossibleFailingGrade: true,
+            flaggedSubjects: ["MATH 101 Math: 74"],
+            flaggedGrades: ["MATH 101 Math: 74"],
+          }),
+        }),
       }),
     }));
   });

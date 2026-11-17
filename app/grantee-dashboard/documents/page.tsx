@@ -7,6 +7,9 @@ import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import { detectGranteeTargetTerm } from "@/lib/grantee-semester";
 import type { DetectedGranteeTargetTerm } from "@/lib/grantee-semester";
 import type { SubmissionStatus } from "@prisma/client";
+import GranteeDataRefresh from "../GranteeDataRefresh";
+
+export const dynamic = "force-dynamic";
 
 export default async function GranteeDocumentsPage() {
   const supabase = await createClient();
@@ -132,17 +135,20 @@ export default async function GranteeDocumentsPage() {
   }));
 
   return (
-    <main className="px-4 pb-20 pt-12 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
-        <GranteeDocumentsClient
-          key={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}:${detectedTerm?.termLabel ?? "none"}:${detectedTerm?.hasPendingSubmission ?? false}:${detectedTerm?.canReplacePendingSubmission ?? false}`}
-          submissions={serialized}
-          canSubmit={canSubmit}
-          academicTermWindow={academicTermWindow}
-          academicTermSchedules={serializedAcademicTermSchedules}
-          detectedTerm={detectedTerm}
-        />
-      </div>
-    </main>
+    <>
+      <GranteeDataRefresh />
+      <main className="px-4 pb-20 pt-12 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-6xl">
+          <GranteeDocumentsClient
+            key={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}:${detectedTerm?.termLabel ?? "none"}:${detectedTerm?.hasPendingSubmission ?? false}:${detectedTerm?.canReplacePendingSubmission ?? false}`}
+            submissions={serialized}
+            canSubmit={canSubmit}
+            academicTermWindow={academicTermWindow}
+            academicTermSchedules={serializedAcademicTermSchedules}
+            detectedTerm={detectedTerm}
+          />
+        </div>
+      </main>
+    </>
   );
 }

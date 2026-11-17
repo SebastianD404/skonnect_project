@@ -1,4 +1,5 @@
 import { Role } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
@@ -6,8 +7,7 @@ import { prisma } from "@/lib/prisma";
 import {
   DEFAULT_SKEAP_MAX_SLOTS,
   SKEAP_MAX_SLOTS_KEY,
-  getSkeapCapacityCount,
-  getSkeapMaxSlots,
+  getSkeapCapacitySnapshot,
   lockSkeapCapacity,
   setSkeapMaxSlots,
 } from "@/lib/skeap-capacity";
@@ -30,8 +30,8 @@ export async function GET() {
   const auth = await authorizeAdmin();
   if ("error" in auth) return auth.error;
 
-  const maxSlots = await getSkeapMaxSlots();
-  return NextResponse.json({ key: SKEAP_MAX_SLOTS_KEY, value: maxSlots, defaultValue: DEFAULT_SKEAP_MAX_SLOTS });
+  const capacity = await getSkeapCapacitySnapshot();
+  return NextResponse.json({ key: SKEAP_MAX_SLOTS_KEY, value: capacity.maxSlots, defaultValue: DEFAULT_SKEAP_MAX_SLOTS });
 }
 
 export async function PATCH(request: Request) {
@@ -51,11 +51,11 @@ export async function PATCH(request: Request) {
   try {
     saved = await prisma.$transaction(async (tx) => {
       await lockSkeapCapacity(tx);
-      const activeCount = await getSkeapCapacityCount(tx);
-      if (value < activeCount) {
+      const capacity = await getSkeapCapacitySnapshot(tx);
+      if (value < capacity.activeCount) {
         throw new Error("SLOT_LIMIT_BELOW_ACTIVE_COUNT");
       }
-      const previousValue = await getSkeapMaxSlots(tx);
+      const previousValue = capacity.maxSlots;
       const setting = await setSkeapMaxSlots(value, tx);
       return { setting, previousValue };
     });
@@ -70,6 +70,12 @@ export async function PATCH(request: Request) {
     }
     throw error;
   }
+
+  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath("/admin/grantees");
+  revalidatePath("/admin/skeap-waitlist");
+  revalidatePath("/programs/skeap");
 
   let waitlistOffers: Awaited<ReturnType<typeof dispatchWaitlistSlotOffers>> | null = null;
   if (saved.setting.value > saved.previousValue) {

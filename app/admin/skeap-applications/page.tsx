@@ -6,7 +6,7 @@ import { SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
-import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot } from "@/lib/skeap-capacity";
 import {
   getSkeapAdminQueueRows,
   getSkeapAdminViewCounts,
@@ -378,8 +378,7 @@ export default async function SkeapApplicationsPage({
     counts,
     queueRows,
     focusedRows,
-    activeGranteeCount,
-    maxSlots,
+    capacitySnapshot,
   ] = await Promise.all([
     getSkeapAdminViewCounts(academicYearRange),
     getSkeapAdminQueueRows({ range: academicYearRange, filter: "queue", take: 16 }),
@@ -391,8 +390,7 @@ export default async function SkeapApplicationsPage({
           take: 1,
         })
       : Promise.resolve([]),
-    getSkeapCapacityCount(),
-    getSkeapMaxSlots(),
+    getSkeapCapacitySnapshot(),
   ]);
   const queueInquiryIds = queueRows.map((row) => row.inquiryId).filter((id): id is string => Boolean(id));
   const focusedInquiryId = focusedRows[0]?.inquiryId;
@@ -448,7 +446,7 @@ export default async function SkeapApplicationsPage({
           resubmitted: counts.resubmittedCount,
           withdrawn: counts.withdrawnCount,
         }}
-        initialCapacityFull={activeGranteeCount >= maxSlots}
+        initialCapacityFull={capacitySnapshot.isFull}
       />
     </div>
   );

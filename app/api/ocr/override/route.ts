@@ -73,7 +73,40 @@ export async function PATCH(request: NextRequest) {
   }
   const resolvedReportSemester = previousSemester;
   const { gwa, totalUnits } = computeGradeReportGwa(rows);
-  const nextRows = { rows, unrecognizedRows: [] };
+  const detectedScale = rows.some((row) => row.grade !== null && row.grade >= 50)
+    ? "PERCENTAGE_100"
+    : "SCALE_1_TO_5";
+  const flaggedSubjects = rows
+    .filter((row) => row.flag !== null)
+    .map((row) => `${row.subjectCode ? `${row.subjectCode} ` : ""}${row.subjectName}: ${row.flag}`);
+  const hasPossibleFailingGrade = rows.some(
+    (row) => row.flag === "FAILED" || row.flag === "INC" || row.flag === "DRP",
+  );
+  const meetsGwaRequirement = detectedScale === "PERCENTAGE_100" ? gwa >= 80 : gwa <= 2.5;
+  const gwaCheckStatus = meetsGwaRequirement
+    ? "MEETS_REQUIREMENT"
+    : "BELOW_REQUIREMENT";
+  const gradeDiagnostics = {
+    detectedScale,
+    estimatedGwa: gwa,
+    gwaCheckStatus,
+    meetsGwaRequirement,
+    gwaMessage: meetsGwaRequirement
+      ? "Estimated GWA meets the 80% maintenance requirement."
+      : "Estimated GWA does not meet the 80% maintenance requirement.",
+    hasPossibleFailingGrade,
+    flaggedSubjects,
+    flaggedGrades: flaggedSubjects,
+    possibleFailingGradeMessage: hasPossibleFailingGrade
+      ? "Possible failing grade detected. An SK Admin will verify your official grade report."
+      : null,
+  };
+  const nextRows = {
+    rows,
+    unrecognizedRows: [],
+    gradingScale: detectedScale === "PERCENTAGE_100" ? "percentage" : "collegiate",
+    gradeDiagnostics,
+  };
 
   const updated = await prisma.$transaction(async (transaction) => {
     const result = await transaction.submission.update({

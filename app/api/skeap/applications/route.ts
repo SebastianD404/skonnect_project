@@ -8,7 +8,7 @@ import {
   normalizeUploadedFiles,
   SKEAP_UPLOAD_KEY,
 } from "@/lib/skeap-upload";
-import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { isEligibleSkeapApplicantYearLevel, isSkeapEducationLevel } from "@/lib/skeap-education";
@@ -662,9 +662,8 @@ export async function POST(request: NextRequest) {
       });
       if (activeApplication) throw new Error("SKEAP_APPLICATION_IN_PROGRESS");
 
-      const maxSlots = await getSkeapMaxSlots(tx);
-      const activeCount = await getSkeapCapacityCount(tx, appUser.id);
-      const isWaitlisted = activeCount >= maxSlots;
+      const capacity = await getSkeapCapacitySnapshot(tx, appUser.id);
+      const isWaitlisted = capacity.isFull;
       const waitlistPosition = isWaitlisted
         ? (await tx.skeapApplication.count({
             where: {
@@ -686,7 +685,7 @@ export async function POST(request: NextRequest) {
         });
       }
       const applicantMessage = isWaitlisted
-        ? `Your SKEAP application has been received and placed on the waitlist at position ${waitlistPosition} because all ${maxSlots} scholarship slots are currently filled.`
+        ? `Your SKEAP application has been received and placed on the waitlist at position ${waitlistPosition} because all ${capacity.maxSlots} scholarship slots are currently filled.`
         : "Applicant submitted a SKEAP application.";
       const inquiry = await tx.inquiry.create({
         data: {
@@ -710,7 +709,13 @@ export async function POST(request: NextRequest) {
         },
         select: { id: true },
       });
-      return { applicationId: application.id, inquiryId: inquiry.id, isWaitlisted, waitlistPosition, maxSlots };
+      return {
+        applicationId: application.id,
+        inquiryId: inquiry.id,
+        isWaitlisted,
+        waitlistPosition,
+        maxSlots: capacity.maxSlots,
+      };
     });
 
     await refreshSkeapApplicationsAdminView();

@@ -5,8 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import { DEFAULT_ADMIN_TABLE_PAGE_SIZE, normalizeAdminTablePageSize } from "@/lib/admin-pagination";
+import { parseGradeReportText } from "@/lib/grade-report-parser";
+import type { GradeReportDiagnostics } from "@/lib/grade-report-parser";
 
-const STATUS_FILTERS = ["pending", "returned", "cleared"] as const;
+const STATUS_FILTERS = ["pending", "returned", "resubmitted", "physical", "cleared"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
 function getStatusWhere(status: StatusFilter): Prisma.SubmissionWhereInput {
@@ -14,17 +16,41 @@ function getStatusWhere(status: StatusFilter): Prisma.SubmissionWhereInput {
     coeFileUrl: { not: "" },
     gradeFileUrl: { not: "" },
   };
+  const activeGrantee = {
+    grantee: {
+      is: {
+        status: { notIn: ["REMOVED", "REVOKED"] },
+        user: { is: { isActive: true } },
+      },
+    },
+  } satisfies Prisma.SubmissionWhereInput;
 
   switch (status) {
     case "pending":
       return {
         ...hasBothDocuments,
-        status: { in: ["PENDING", "AWAITING_PHYSICAL_CTC"] },
+        ...activeGrantee,
+        status: "PENDING",
+        resubmittedFields: { isEmpty: true },
       };
     case "returned":
       return {
         ...hasBothDocuments,
+        ...activeGrantee,
         status: { in: ["RETURNED_FOR_EDIT", "REJECTED"] },
+      };
+    case "resubmitted":
+      return {
+        ...hasBothDocuments,
+        ...activeGrantee,
+        status: "PENDING",
+        resubmittedFields: { isEmpty: false },
+      };
+    case "physical":
+      return {
+        ...hasBothDocuments,
+        ...activeGrantee,
+        status: "AWAITING_PHYSICAL_CTC",
       };
     case "cleared":
       return { ...hasBothDocuments, status: "APPROVED" };
@@ -43,6 +69,90 @@ function buildSearchWhere(search: string): Prisma.SubmissionWhereInput | null {
       { grantee: { is: { user: { is: { fullName: contains } } } } },
       { grantee: { is: { user: { is: { email: contains } } } } },
     ],
+  };
+}
+
+function getGradeDiagnostics(
+  value: Prisma.JsonValue | null,
+  ocrGwa: number | null,
+  ocrRawText: string | null,
+): GradeReportDiagnostics | null {
+  if (ocrRawText?.trim()) {
+    const parsed = parseGradeReportText(ocrRawText);
+    return {
+      detectedScale: parsed.detectedScale,
+      estimatedGwa: parsed.estimatedGwa,
+      gwaCheckStatus: parsed.gwaCheckStatus,
+      meetsGwaRequirement: parsed.meetsGwaRequirement,
+      gwaMessage: parsed.gwaMessage,
+      hasPossibleFailingGrade: parsed.hasPossibleFailingGrade,
+      flaggedSubjects: parsed.flaggedSubjects,
+      flaggedGrades: parsed.flaggedGrades,
+      possibleFailingGradeMessage: parsed.possibleFailingGradeMessage,
+    };
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const parsedRows = value as Prisma.JsonObject;
+  const diagnosticsValue = parsedRows.gradeDiagnostics;
+  if (!diagnosticsValue || typeof diagnosticsValue !== "object" || Array.isArray(diagnosticsValue)) {
+    return null;
+  }
+
+  const diagnostics = diagnosticsValue as Prisma.JsonObject;
+  const detectedScale =
+    diagnostics.detectedScale === "PERCENTAGE_100" ||
+    diagnostics.detectedScale === "SCALE_1_TO_5"
+      ? diagnostics.detectedScale
+      : null;
+  const estimatedGwa =
+    typeof diagnostics.estimatedGwa === "number" && Number.isFinite(diagnostics.estimatedGwa)
+      ? diagnostics.estimatedGwa
+      : ocrGwa;
+  const flaggedSubjectsValue = Array.isArray(diagnostics.flaggedSubjects)
+    ? diagnostics.flaggedSubjects
+    : diagnostics.flaggedGrades;
+  const flaggedSubjects = Array.isArray(flaggedSubjectsValue)
+    ? flaggedSubjectsValue.filter((subject): subject is string => typeof subject === "string")
+    : [];
+  const hasPossibleFailingGrade =
+    diagnostics.hasPossibleFailingGrade === true || flaggedSubjects.length > 0;
+  const meetsGwaRequirement =
+    typeof diagnostics.meetsGwaRequirement === "boolean"
+      ? diagnostics.meetsGwaRequirement
+      : estimatedGwa === null || detectedScale === null
+        ? null
+        : detectedScale === "PERCENTAGE_100"
+          ? estimatedGwa >= 80
+          : estimatedGwa <= 2.5;
+  const gwaCheckStatus =
+    diagnostics.gwaCheckStatus === "MEETS_REQUIREMENT" ||
+    diagnostics.gwaCheckStatus === "BELOW_REQUIREMENT" ||
+    diagnostics.gwaCheckStatus === "UNAVAILABLE"
+      ? diagnostics.gwaCheckStatus
+      : meetsGwaRequirement === null
+        ? "UNAVAILABLE"
+        : meetsGwaRequirement
+          ? "MEETS_REQUIREMENT"
+          : "BELOW_REQUIREMENT";
+  return {
+    detectedScale,
+    estimatedGwa,
+    gwaCheckStatus,
+    meetsGwaRequirement,
+    gwaMessage:
+      typeof diagnostics.gwaMessage === "string"
+        ? diagnostics.gwaMessage
+        : "GWA could not be auto-calculated — SK Admin will verify.",
+    hasPossibleFailingGrade,
+    flaggedSubjects,
+    flaggedGrades: flaggedSubjects,
+    possibleFailingGradeMessage:
+      typeof diagnostics.possibleFailingGradeMessage === "string"
+        ? diagnostics.possibleFailingGradeMessage
+        : hasPossibleFailingGrade
+          ? "Possible failing grade detected. An SK Admin will verify your official grade report."
+          : null,
   };
 }
 
@@ -85,6 +195,8 @@ export async function GET(request: NextRequest) {
       totalCount,
       pendingReviewCount,
       returnedForEditsCount,
+      resubmittedReviewCount,
+      physicalCtcCount,
       fullyClearedCount,
       semesterRows,
       academicTermState,
@@ -92,6 +204,8 @@ export async function GET(request: NextRequest) {
       prisma.submission.count({ where: currentWhere }),
       prisma.submission.count({ where: countWhere("pending") }),
       prisma.submission.count({ where: countWhere("returned") }),
+      prisma.submission.count({ where: countWhere("resubmitted") }),
+      prisma.submission.count({ where: countWhere("physical") }),
       prisma.submission.count({ where: countWhere("cleared") }),
       statusFilter === "cleared"
         ? prisma.submission.findMany({
@@ -106,16 +220,25 @@ export async function GET(request: NextRequest) {
 
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
     const page = Math.min(pageNumber, totalPages);
-    const selectSubmission = (includeFlaggedFields: boolean, includeStrictManualReview: boolean) => ({
+    const selectSubmission = (
+      includeFlaggedFields: boolean,
+      includeStrictManualReview: boolean,
+      includeResubmittedFields: boolean,
+    ) => ({
       id: true,
       semester: true,
       gradeFileUrl: true,
       coeFileUrl: true,
       ...(includeStrictManualReview ? { requiresStrictManualReview: true } : {}),
+      ocrStatus: true,
+      ocrGwa: true,
+      ocrParsedRows: true,
+      ocrRawText: true,
       status: true,
       coeStatus: true,
       gradesStatus: true,
       reviewNotes: true,
+      ...(includeResubmittedFields ? { resubmittedFields: true } : {}),
       ...(includeFlaggedFields ? { flaggedFields: true } : {}),
       submittedAt: true,
       grantee: {
@@ -135,34 +258,45 @@ export async function GET(request: NextRequest) {
         orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: selectSubmission(true, true),
+        select: selectSubmission(true, true, true),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const missingFlaggedFields = /flaggedFields/i.test(message);
       const missingStrictManualReview = /requiresStrictManualReview/i.test(message);
-      if (!missingFlaggedFields && !missingStrictManualReview) throw error;
+      const missingResubmittedFields = /resubmittedFields/i.test(message);
+      if (!missingFlaggedFields && !missingStrictManualReview && !missingResubmittedFields) {
+        throw error;
+      }
 
       console.warn("Admin submissions query is using a legacy Prisma field selection.", {
         missingFlaggedFields,
         missingStrictManualReview,
+        missingResubmittedFields,
       });
       submissions = await prisma.submission.findMany({
         where: currentWhere,
         orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: selectSubmission(!missingFlaggedFields, !missingStrictManualReview),
+        select: selectSubmission(
+          !missingFlaggedFields,
+          !missingStrictManualReview,
+          !missingResubmittedFields,
+        ),
       });
     }
 
-    const rows = submissions.map((submission) => ({
+    const rows = submissions.map(({ ocrParsedRows, ocrGwa, ocrRawText, ...submission }) => ({
       ...submission,
       flaggedFields: "flaggedFields" in submission ? submission.flaggedFields ?? [] : [],
+      resubmittedFields:
+        "resubmittedFields" in submission ? submission.resubmittedFields ?? [] : [],
       requiresStrictManualReview:
         "requiresStrictManualReview" in submission
           ? submission.requiresStrictManualReview
           : false,
+      gradeDiagnostics: getGradeDiagnostics(ocrParsedRows, ocrGwa, ocrRawText),
       submittedAt: submission.submittedAt.toISOString(),
     }));
 
@@ -171,6 +305,8 @@ export async function GET(request: NextRequest) {
       counts: {
         pending: pendingReviewCount,
         returned: returnedForEditsCount,
+        resubmitted: resubmittedReviewCount,
+        physical: physicalCtcCount,
         cleared: fullyClearedCount,
       },
       totalCount,

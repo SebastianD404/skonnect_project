@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import {
   getSkeapRevocationReasonLabel,
   isSkeapRevocationReason,
@@ -11,7 +12,7 @@ import { writeAuditLog } from "@/lib/audit/logger";
 import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
-import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 import {
   buildIdentityFingerprint,
@@ -212,8 +213,8 @@ export async function PATCH(
         current.status !== "PROBATIONARY"
       ) {
         await lockSkeapCapacity(tx);
-        const maxSlots = await getSkeapMaxSlots(tx);
-        if (await getSkeapCapacityCount(tx, current.userId) >= maxSlots) {
+        const capacity = await getSkeapCapacitySnapshot(tx, current.userId);
+        if (capacity.isFull) {
           const applicationsToWaitlist = await tx.skeapApplication.findMany({
             where: { userId: current.userId, status: { in: ["APPROVED", "PENDING"] } },
             orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
@@ -387,6 +388,12 @@ export async function PATCH(
       { status: 409 }
     );
   }
+
+  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath("/admin/grantees");
+  revalidatePath("/admin/skeap-waitlist");
+  revalidatePath("/programs/skeap");
 
   let notificationStatus = updated.grantee.revocationNotificationStatus;
   let notificationErrorCode:
@@ -572,6 +579,12 @@ export async function DELETE(
     if (deletedGrantee.status === "RETAINED") {
       return NextResponse.json({ error: "Graduated grantee records cannot be deleted during statutory retention." }, { status: 409 });
     }
+
+    revalidatePath("/");
+    revalidatePath("/admin");
+    revalidatePath("/admin/grantees");
+    revalidatePath("/admin/skeap-waitlist");
+    revalidatePath("/programs/skeap");
 
     try {
       await refreshInactiveGranteesView();

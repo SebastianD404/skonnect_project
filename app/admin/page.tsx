@@ -6,6 +6,8 @@ import AdminDashboardPageClient from "./AdminDashboardPageClient";
 import { requireRole } from "@/lib/auth";
 import { supportInboxInquiryWhere } from "@/lib/inquiries/filters";
 
+export const dynamic = "force-dynamic";
+
 export default async function SKOfficialDashboardPage() {
   const adminUser = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
   if (adminUser.role === Role.SUPER_ADMIN) {

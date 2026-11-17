@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { validateRecognizedText } from "@/lib/ocrValidation";
+import {
+  analyzeGradeReportText,
+  validateRecognizedText,
+} from "@/lib/ocrValidation";
 import {
   isKKProfilingManualReview,
   KK_PROFILING_MANUAL_REVIEW_NOTE,
@@ -9,6 +12,24 @@ const validResidencyCertificate = (duration: string) =>
   `CERTIFICATE OF RESIDENCY. Barangay Pico, La Trinidad. Maria Santos has lived here for ${duration}.`;
 
 describe("browser OCR document validation", () => {
+  it("returns non-blocking grade scale, GWA, and failing-grade diagnostics", () => {
+    const result = analyzeGradeReportText(
+      "Course Units Final Grade\nGE 101 Communication Skills 3.00 74\nIT-202 Network Systems 3.00 88",
+    );
+
+    expect(result).toMatchObject({
+      detectedScale: "PERCENTAGE_100",
+      estimatedGwa: 81,
+      gwaCheckStatus: "MEETS_REQUIREMENT",
+      meetsGwaRequirement: true,
+      hasPossibleFailingGrade: true,
+      flaggedSubjects: ["GE 101 Communication Skills: 74"],
+      flaggedGrades: ["GE 101 Communication Skills: 74"],
+      possibleFailingGradeMessage:
+        "Possible failing grade detected. An SK Admin will verify your official grade report.",
+    });
+  });
+
   it("recognizes a readable front ID and checks its name", () => {
     const result = validateRecognizedText(
       "front_id",

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   findLatestApplication: vi.fn(),
   transaction: vi.fn(),
   writeAuditLog: vi.fn(),
+  refreshSystemUsersAdminView: vi.fn(),
+  revalidatePath: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -29,6 +31,14 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/audit/logger", () => ({
   writeAuditLog: mocks.writeAuditLog,
+}));
+
+vi.mock("@/lib/application-admin-view-refresh", () => ({
+  refreshSystemUsersAdminView: mocks.refreshSystemUsersAdminView,
+}));
+
+vi.mock("next/cache", () => ({
+  revalidatePath: mocks.revalidatePath,
 }));
 
 import { PATCH } from "@/app/api/system-admin/users/[id]/role/route";
@@ -70,6 +80,7 @@ describe("system-admin SK Admin role governance", () => {
     }));
     mocks.findLatestApplication.mockResolvedValue({ status: "PENDING" });
     mocks.writeAuditLog.mockResolvedValue({});
+    mocks.refreshSystemUsersAdminView.mockResolvedValue(undefined);
     mocks.transaction.mockImplementation(async (callback) => callback({
       user: { findUnique: mocks.findTarget, update: mocks.updateUser },
       skeapApplication: { findFirst: mocks.findLatestApplication },
@@ -179,6 +190,11 @@ describe("system-admin SK Admin role governance", () => {
         timestamp: expect.any(String),
       }),
     }));
+    expect(mocks.refreshSystemUsersAdminView).toHaveBeenCalledOnce();
+    expect(mocks.revalidatePath.mock.calls.map(([path]) => path)).toEqual([
+      "/system-admin/users",
+      "/system-admin",
+    ]);
   });
 
   it.each([

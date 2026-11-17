@@ -64,7 +64,20 @@ vi.mock("@/lib/academic-term-schedule", () => ({
 import { NextRequest } from "next/server";
 import { POST } from "../app/api/grantee/submissions/route";
 
-function createRequest(forceSubmit = false) {
+function createRequest(
+  forceSubmit = false,
+  gradeDiagnostics?: {
+    detectedScale: "PERCENTAGE_100" | "SCALE_1_TO_5";
+    estimatedGwa: number;
+    gwaCheckStatus: "MEETS_REQUIREMENT" | "BELOW_REQUIREMENT" | "UNAVAILABLE";
+    meetsGwaRequirement: boolean;
+    gwaMessage: string;
+    hasPossibleFailingGrade: boolean;
+    flaggedSubjects: string[];
+    flaggedGrades: string[];
+    possibleFailingGradeMessage: string | null;
+  },
+) {
   return new NextRequest("http://localhost/api/grantee/submissions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -73,6 +86,7 @@ function createRequest(forceSubmit = false) {
       gradeFileUrl: "grantee-submissions/auth-1/grades.pdf",
       coeFileUrl: "grantee-submissions/auth-1/coe.pdf",
       forceSubmit,
+      gradeDiagnostics,
     }),
   });
 }
@@ -140,6 +154,82 @@ describe("grantee requirement submission", () => {
     });
   });
 
+  it.each(["PENDING", "APPROVED"])(
+    "rejects a duplicate %s submission before writing",
+    async (status) => {
+      mocks.submissionFindFirst.mockResolvedValue({ status });
+
+      const response = await POST(createRequest());
+      const payload = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(payload.error).toBe("Your submission for this term is already under review.");
+      expect(mocks.submissionCreate).not.toHaveBeenCalled();
+      expect(mocks.submissionUpdate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a duplicate found again inside the transaction", async () => {
+    mocks.transactionSubmissionFindFirst.mockResolvedValue({
+      id: "submission-1",
+      status: "PENDING",
+      reviewedById: null,
+      reviewedAt: null,
+      submittedAt: new Date(),
+    });
+
+    const response = await POST(createRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toBe("Your submission for this term is already under review.");
+    expect(mocks.submissionCreate).not.toHaveBeenCalled();
+  });
+
+  it("accepts a returned submission and moves it back to pending review", async () => {
+    const submittedAt = new Date(Date.now() - 60_000);
+    const returnedSubmission = {
+      id: "submission-returned",
+      granteeId: "grantee-1",
+      semester: "2026-2027 First Semester",
+      status: "RETURNED_FOR_EDIT",
+      gradeFileUrl: "grantee-submissions/auth-1/old-grades.pdf",
+      coeFileUrl: "grantee-submissions/auth-1/coe.pdf",
+      flaggedFields: ["GRADE_REPORT"],
+      resubmittedFields: [],
+      reviewNotes: "Please replace the grade report.",
+      requiresStrictManualReview: false,
+      reviewedById: null,
+      reviewedAt: null,
+      submittedAt,
+    };
+    mocks.submissionFindFirst
+      .mockResolvedValueOnce(returnedSubmission)
+      .mockResolvedValueOnce(null);
+    mocks.transactionSubmissionFindFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(returnedSubmission);
+    mocks.submissionUpdate.mockImplementation(async ({ data }) => ({
+      ...returnedSubmission,
+      ...data,
+      coeStatus: "PENDING",
+      gradesStatus: "PENDING",
+      coeSubmittedAt: data.submittedAt,
+      coeApprovedAt: null,
+      gradesSubmittedAt: null,
+      gradesApprovedAt: null,
+    }));
+
+    const response = await POST(createRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.submission.status).toBe("PENDING");
+    expect(mocks.submissionUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "PENDING" }),
+    }));
+  });
+
   it("saves a regular submission before scheduling document checks", async () => {
     mocks.processSubmissionGradeReportOcr.mockReturnValue(new Promise<void>(() => {}));
 
@@ -190,6 +280,36 @@ describe("grantee requirement submission", () => {
     }));
     expect(mocks.processSubmissionGradeReportOcr).toHaveBeenCalledWith("submission-1", {
       manualReviewRequired: true,
+    });
+  });
+
+  it("persists upload-time grade diagnostics without blocking submission", async () => {
+    const gradeDiagnostics = {
+      detectedScale: "PERCENTAGE_100" as const,
+      estimatedGwa: 74,
+      gwaCheckStatus: "BELOW_REQUIREMENT" as const,
+      meetsGwaRequirement: false,
+      gwaMessage: "Estimated GWA does not meet the 80% maintenance requirement.",
+      hasPossibleFailingGrade: true,
+      flaggedSubjects: ["GE 101 Communication Skills: 74"],
+      flaggedGrades: ["GE 101 Communication Skills: 74"],
+      possibleFailingGradeMessage:
+        "Possible failing grade detected. An SK Admin will verify your official grade report.",
+    };
+
+    const response = await POST(createRequest(false, gradeDiagnostics));
+
+    expect(response.status).toBe(200);
+    expect(mocks.submissionCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        requiresStrictManualReview: true,
+        ocrParsedRows: expect.objectContaining({
+          clientGradeDiagnostics: gradeDiagnostics,
+        }),
+      }),
+    }));
+    expect(mocks.processSubmissionGradeReportOcr).toHaveBeenCalledWith("submission-1", {
+      manualReviewRequired: false,
     });
   });
 });

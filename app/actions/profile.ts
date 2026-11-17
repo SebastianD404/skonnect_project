@@ -9,7 +9,7 @@ import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
 } from "@/lib/grantee-profile";
-import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 
 const db = prisma;
 
@@ -112,10 +112,7 @@ export async function updateProfileName(
       where: { userId: profile.id },
       select: { id: true },
     });
-    if (
-      !existingGrantee &&
-      (await getSkeapCapacityCount(db, profile.id)) >= (await getSkeapMaxSlots())
-    ) {
+    if (!existingGrantee && (await getSkeapCapacitySnapshot(db, profile.id)).isFull) {
       return {
         error: "All SKEAP slots are occupied and this account has no grant record. Contact an SK official to reconcile the account.",
       };
@@ -168,15 +165,12 @@ export async function updateProfileName(
     await db.$transaction(async (tx) => {
       if (profile.role === "GRANTEE") {
         await lockSkeapCapacity(tx);
-        const granteeSlotLimit = await getSkeapMaxSlots(tx);
+        const capacity = await getSkeapCapacitySnapshot(tx, profile.id);
         const existingGrantee = await tx.grantee.findUnique({
           where: { userId: profile.id },
           select: { id: true },
         });
-        if (
-          !existingGrantee &&
-          (await getSkeapCapacityCount(tx, profile.id)) >= granteeSlotLimit
-        ) {
+        if (!existingGrantee && capacity.isFull) {
           throw new Error("SKEAP_CAPACITY_FULL");
         }
       }

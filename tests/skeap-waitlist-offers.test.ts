@@ -2,8 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
-  activeCount: vi.fn(),
-  maxSlots: vi.fn(),
+  capacitySnapshot: vi.fn(),
   sendEmail: vi.fn(),
   updateMany: vi.fn(),
   notificationUpsert: vi.fn(),
@@ -28,8 +27,7 @@ vi.mock("@/lib/semester", () => ({
 }));
 
 vi.mock("@/lib/skeap-capacity", () => ({
-  getSkeapCapacityCount: mocks.activeCount,
-  getSkeapMaxSlots: mocks.maxSlots,
+  getSkeapCapacitySnapshot: mocks.capacitySnapshot,
   lockSkeapCapacity: vi.fn(),
 }));
 
@@ -81,8 +79,12 @@ describe("SKEAP waitlist offers", () => {
       notification: { upsert: mocks.notificationUpsert.mockResolvedValue({}) },
     };
     mocks.transaction.mockImplementation(async (callback) => callback(tx));
-    mocks.activeCount.mockResolvedValue(8);
-    mocks.maxSlots.mockResolvedValue(10);
+    mocks.capacitySnapshot.mockResolvedValue({
+      activeCount: 8,
+      maxSlots: 10,
+      availableSlots: 2,
+      isFull: false,
+    });
     mocks.sendEmail.mockResolvedValue(undefined);
   });
 

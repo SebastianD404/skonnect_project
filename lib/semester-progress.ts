@@ -1,6 +1,8 @@
 export type SemesterProgressSubmission = {
   semester: string;
   status: string;
+  coeStatus?: string;
+  gradesStatus?: string;
   gradeFileUrl?: string;
   coeFileUrl?: string;
   submittedAt?: string | Date;
@@ -169,12 +171,21 @@ export function buildSemesterTracker(
     }, null);
 
   let approved = 0;
+  const fullyReviewed =
+    currentSubmission?.status === "APPROVED" ||
+    currentSubmission?.status === "AWAITING_PHYSICAL_CTC";
 
-  if (currentSubmission?.status === "APPROVED" && currentSubmission.coeFileUrl) {
+  if (
+    currentSubmission?.coeFileUrl &&
+    (currentSubmission.coeStatus === "APPROVED" || fullyReviewed)
+  ) {
     approved += 1;
   }
 
-  if (currentSubmission?.status === "APPROVED" && currentSubmission.gradeFileUrl) {
+  if (
+    currentSubmission?.gradeFileUrl &&
+    (currentSubmission.gradesStatus === "APPROVED" || fullyReviewed)
+  ) {
     approved += 1;
   }
 

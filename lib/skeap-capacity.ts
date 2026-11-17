@@ -4,7 +4,12 @@ import { DEFAULT_SKEAP_MAX_SLOTS, SKEAP_MAX_SLOTS_KEY } from "@/lib/skeap-capaci
 
 export { DEFAULT_SKEAP_MAX_SLOTS, SKEAP_MAX_SLOTS_KEY } from "@/lib/skeap-capacity-constants";
 
-type SkeapCapacityReadClient = Pick<Prisma.TransactionClient, "grantee" | "skeapApplication">;
+type SkeapCapacityReadClient = Pick<Prisma.TransactionClient, "grantee">;
+
+export const ACTIVE_GRANTEE_WHERE: Prisma.GranteeWhereInput = {
+  status: "ACTIVE",
+  user: { is: { isActive: true } },
+};
 
 export async function lockSkeapCapacity(tx: Prisma.TransactionClient) {
   const deadline = Date.now() + 10_000;
@@ -22,32 +27,12 @@ export async function getSkeapCapacityCount(
   client: SkeapCapacityReadClient = prisma,
   excludeUserId?: string
 ) {
-  const userFilter = excludeUserId ? { userId: { not: excludeUserId } } : {};
-  const [activeGrantees, approvedApplicants] = await Promise.all([
-    client.grantee.findMany({
-      where: {
-        status: { in: ["ACTIVE", "PROBATIONARY"] },
-        ...userFilter,
-      },
-      select: { userId: true },
-    }),
-    client.skeapApplication.findMany({
-      where: {
-        status: "APPROVED",
-        OR: [
-          { user: { grantee: { is: null } } },
-          { user: { grantee: { is: { status: { in: ["ACTIVE", "PROBATIONARY"] } } } } },
-        ],
-        ...userFilter,
-      },
-      select: { userId: true },
-      distinct: ["userId"],
-    }),
-  ]);
-  return new Set([
-    ...activeGrantees.map(({ userId }) => userId),
-    ...approvedApplicants.map(({ userId }) => userId),
-  ]).size;
+  return client.grantee.count({
+    where: {
+      ...ACTIVE_GRANTEE_WHERE,
+      ...(excludeUserId ? { userId: { not: excludeUserId } } : {}),
+    },
+  });
 }
 
 export async function getSkeapMaxSlots(
@@ -66,6 +51,23 @@ export async function getSkeapMaxSlots(
       ))[0] ?? null;
 
   return Math.min(Math.max(setting?.value ?? DEFAULT_SKEAP_MAX_SLOTS, 1), DEFAULT_SKEAP_MAX_SLOTS);
+}
+
+export async function getSkeapCapacitySnapshot(
+  client: typeof prisma | Prisma.TransactionClient = prisma,
+  excludeUserId?: string,
+) {
+  const [activeCount, maxSlots] = await Promise.all([
+    getSkeapCapacityCount(client, excludeUserId),
+    getSkeapMaxSlots(client),
+  ]);
+  const availableSlots = Math.max(0, maxSlots - activeCount);
+  return {
+    activeCount,
+    maxSlots,
+    availableSlots,
+    isFull: availableSlots === 0,
+  };
 }
 
 export async function setSkeapMaxSlots(

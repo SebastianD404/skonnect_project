@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/audit/logger";
 import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
-import { DEFAULT_SKEAP_MAX_SLOTS, getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { DEFAULT_SKEAP_MAX_SLOTS, getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import {
@@ -86,7 +86,8 @@ export async function POST(
 
     const promoted = await prisma.$transaction(async (tx) => {
       await lockSkeapCapacity(tx);
-      maxSlots = await getSkeapMaxSlots(tx);
+      const currentCapacity = await getSkeapCapacitySnapshot(tx);
+      maxSlots = currentCapacity.maxSlots;
       const application = await tx.skeapApplication.findUnique({
         where: { id },
         select: {
@@ -149,7 +150,7 @@ export async function POST(
       });
       if (existingGrantee?.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
 
-      const activeCount = await getSkeapCapacityCount(tx, application.userId);
+      const applicantCapacity = await getSkeapCapacitySnapshot(tx, application.userId);
       const otherActiveOffers = await tx.skeapApplication.count({
         where: {
           id: { not: application.id },
@@ -159,7 +160,7 @@ export async function POST(
           submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
         },
       });
-      if (activeCount + otherActiveOffers >= maxSlots) throw new Error("CAPACITY_FULL");
+      if (applicantCapacity.activeCount + otherActiveOffers >= maxSlots) throw new Error("CAPACITY_FULL");
 
       await tx.skeapApplication.update({
         where: { id },
@@ -260,6 +261,12 @@ export async function POST(
       };
     });
 
+    revalidatePath("/");
+    revalidatePath("/admin");
+    revalidatePath("/admin/grantees");
+    revalidatePath("/admin/skeap-waitlist");
+    revalidatePath("/programs/skeap");
+
     const { granteeStatusChanged, applicantEmail, entryTerm, ...promotedApplication } = promoted;
     const waitlistSnapshot = await getSkeapWaitlistSnapshot();
     const capacityMetrics = {
@@ -324,14 +331,11 @@ export async function POST(
       },
     });
 
-    revalidatePath("/admin");
     await refreshSkeapApplicationsAdminView();
     revalidatePath("/admin/skeap-applications");
-    revalidatePath("/admin/skeap-waitlist");
     revalidatePath("/applications");
     revalidatePath("/youth-dashboard");
     revalidatePath("/grantee-dashboard");
-    revalidatePath("/admin/grantees");
     revalidatePath("/admin/members");
     revalidatePath("/admin/kk-profiling");
 

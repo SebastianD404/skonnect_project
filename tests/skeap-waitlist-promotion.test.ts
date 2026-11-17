@@ -6,8 +6,7 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   ensureProfile: vi.fn(),
   lockCapacity: vi.fn(),
-  capacityCount: vi.fn(),
-  maxSlots: vi.fn(),
+  capacitySnapshot: vi.fn(),
   reindexWaitlist: vi.fn(),
   getWaitlistSnapshot: vi.fn(),
   sendEmail: vi.fn(),
@@ -71,8 +70,7 @@ vi.mock("@/lib/skeap-payout", () => ({
 
 vi.mock("@/lib/skeap-capacity", () => ({
   DEFAULT_SKEAP_MAX_SLOTS: 55,
-  getSkeapCapacityCount: mocks.capacityCount,
-  getSkeapMaxSlots: mocks.maxSlots,
+  getSkeapCapacitySnapshot: mocks.capacitySnapshot,
   lockSkeapCapacity: mocks.lockCapacity,
 }));
 
@@ -190,8 +188,12 @@ describe("SKEAP waitlist promotion", () => {
         closesAt: new Date(Date.now() + 60_000),
       },
     ]);
-    mocks.capacityCount.mockResolvedValue(10);
-    mocks.maxSlots.mockResolvedValue(55);
+    mocks.capacitySnapshot.mockResolvedValue({
+      activeCount: 10,
+      maxSlots: 55,
+      availableSlots: 45,
+      isFull: false,
+    });
     mocks.getWaitlistSnapshot.mockResolvedValue({
       activeCount: 11,
       maxSlots: 55,

@@ -477,8 +477,24 @@ export async function POST(
           },
         });
         await downgradeInactiveGranteeRole(tx, current.grantee.user.id);
-        const updatedSubmission = await tx.submission.update({
-          where: { id },
+        await tx.submission.updateMany({
+          where: {
+            OR: [
+              {
+                granteeId: current.grantee.id,
+                status: {
+                  in: [
+                    "DRAFT",
+                    "PENDING",
+                    "AWAITING_PHYSICAL_CTC",
+                    "RETURNED_FOR_EDIT",
+                    "REJECTED",
+                  ],
+                },
+              },
+              { id },
+            ],
+          },
           data: {
             status: "REMOVED",
             reviewNotes: revocationReason,
@@ -486,6 +502,7 @@ export async function POST(
             reviewedById: appUser.id,
           },
         });
+        const updatedSubmission = await tx.submission.findUniqueOrThrow({ where: { id } });
 
         await writeAuditLog(tx, {
           action: "GRANTEE_STATUS_CHANGED",
@@ -535,7 +552,10 @@ export async function POST(
       } catch (offerError) {
         console.error("SKEAP grantee was revoked, but waitlist offers could not be dispatched:", offerError);
         return NextResponse.json(
-          { error: "Revocation was recorded, but waitlist offers could not be dispatched. Retry Notify Next Eligible on the waitlist page." },
+          {
+            error: "Revocation was recorded, but waitlist offers could not be dispatched. Retry Notify Next Eligible on the waitlist page.",
+            revocationSaved: true,
+          },
           { status: 503 },
         );
       }
@@ -673,7 +693,7 @@ export async function POST(
       return NextResponse.json({ error: "Graduated scholar submissions are locked for statutory retention." }, { status: 409 });
     }
     if (message === "GRANTEE_ALREADY_REVOKED") {
-      return NextResponse.json({ error: "This grantee has already been removed or revoked." }, { status: 409 });
+      return NextResponse.json({ error: "This grantee has already been revoked." }, { status: 409 });
     }
     if (message === "SUBMISSION_REVIEW_STATE_CHANGED") {
       return NextResponse.json(

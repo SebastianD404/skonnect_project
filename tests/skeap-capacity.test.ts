@@ -1,28 +1,41 @@
 import { describe, expect, it, vi } from "vitest";
-import { getSkeapCapacityCount, getSkeapMaxSlots, setSkeapMaxSlots } from "@/lib/skeap-capacity";
+import {
+  ACTIVE_GRANTEE_WHERE,
+  getSkeapCapacityCount,
+  getSkeapCapacitySnapshot,
+  getSkeapMaxSlots,
+  setSkeapMaxSlots,
+} from "@/lib/skeap-capacity";
 
 describe("SKEAP scholarship capacity", () => {
-  it("counts unique users across approved applications and active grantees", async () => {
+  it("counts only active grantee records attached to active users", async () => {
+    const count = vi.fn().mockResolvedValue(53);
     const client = {
       grantee: {
-        findMany: vi.fn().mockResolvedValue([{ userId: "youth-1" }, { userId: "youth-2" }]),
-      },
-      skeapApplication: {
-        findMany: vi.fn().mockResolvedValue([{ userId: "youth-2" }, { userId: "youth-3" }]),
+        count,
       },
     } as unknown as NonNullable<Parameters<typeof getSkeapCapacityCount>[0]>;
 
-    await expect(getSkeapCapacityCount(client)).resolves.toBe(3);
-    expect(client.skeapApplication.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: [
-            { user: { grantee: { is: null } } },
-            { user: { grantee: { is: { status: { in: ["ACTIVE", "PROBATIONARY"] } } } } },
-          ],
-        }),
-      })
-    );
+    await expect(getSkeapCapacityCount(client)).resolves.toBe(53);
+    expect(count).toHaveBeenCalledWith({ where: ACTIVE_GRANTEE_WHERE });
+    expect(ACTIVE_GRANTEE_WHERE).toEqual({
+      status: "ACTIVE",
+      user: { is: { isActive: true } },
+    });
+  });
+
+  it("returns one normalized capacity snapshot", async () => {
+    const client = {
+      grantee: { count: vi.fn().mockResolvedValue(53) },
+      systemSetting: { findUnique: vi.fn().mockResolvedValue({ value: 55 }) },
+    } as unknown as Parameters<typeof getSkeapCapacitySnapshot>[0];
+
+    await expect(getSkeapCapacitySnapshot(client)).resolves.toEqual({
+      activeCount: 53,
+      maxSlots: 55,
+      availableSlots: 2,
+      isFull: false,
+    });
   });
 
   it("caps configured capacity at 55 even when an older setting is higher", async () => {

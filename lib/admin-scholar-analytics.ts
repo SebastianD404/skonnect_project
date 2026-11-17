@@ -1,7 +1,7 @@
 import { GranteeStatus, Prisma } from "@prisma/client";
 import { PICO_SITIOS } from "@/lib/barangay-sitios";
 import { getProfilingRegistrationCountByStatus, prisma } from "@/lib/prisma";
-import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot } from "@/lib/skeap-capacity";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { skeapPendingApplicationsWhere } from "@/lib/skeap-applications";
 import { getPlatformAccountMetrics } from "@/lib/platform-metrics";
@@ -11,6 +11,7 @@ export type ScholarDistributionAnalytics = {
   activeScholars: number;
   capacityUsed: number;
   maxSlots: number;
+  availableSlots: number;
   pendingApplications: number;
   pendingProfilingApplications: number;
   activeGranteeGenderDistribution: {
@@ -125,8 +126,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
   );
   const [
     granteeStatusRows,
-    capacityUsed,
-    maxSlots,
+    capacitySnapshot,
     pendingApplications,
     platformAccountMetrics,
     scholarRows,
@@ -141,8 +141,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
         by: ["status"],
         _count: { _all: true },
       }),
-      getSkeapCapacityCount(),
-      getSkeapMaxSlots(),
+      getSkeapCapacitySnapshot(),
       prisma.inquiry.count({
         where: skeapPendingApplicationsWhere(currentAcademicYearRange),
       }),
@@ -324,8 +323,9 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
   return {
     totalRegisteredYouth: platformAccountMetrics.activeKkYouthAndGrantees,
     activeScholars: granteeCountsByStatus.get(GranteeStatus.ACTIVE) ?? 0,
-    capacityUsed,
-    maxSlots,
+    capacityUsed: capacitySnapshot.activeCount,
+    maxSlots: capacitySnapshot.maxSlots,
+    availableSlots: capacitySnapshot.availableSlots,
     pendingApplications,
     pendingProfilingApplications,
     activeGranteeGenderDistribution,

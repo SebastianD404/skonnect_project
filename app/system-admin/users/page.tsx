@@ -11,6 +11,8 @@ import {
   isPlatformAccountMetricKey,
 } from "@/lib/platform-metrics";
 
+export const dynamic = "force-dynamic";
+
 const ROLE_FILTERS: Role[] = ["YOUTH", "GRANTEE", "SK_OFFICIAL", "SUPER_ADMIN"];
 
 function isRoleFilter(value: string | undefined): value is Role {

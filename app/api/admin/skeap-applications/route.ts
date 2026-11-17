@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { mapInquiryToApplication, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
-import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot } from "@/lib/skeap-capacity";
 import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
 import {
   countSkeapAdminQueueRows,
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid pagination cursor." }, { status: 400 });
     }
 
-    const [rows, viewCounts, totalCount, activeGranteeCount, maxSlots] = await Promise.all([
+    const [rows, viewCounts, totalCount, capacitySnapshot] = await Promise.all([
       getSkeapAdminQueueRows({
         range,
         filter,
@@ -65,8 +65,7 @@ export async function GET(request: NextRequest) {
       isSearch
         ? countSkeapAdminQueueRows({ range, filter: "search", search: searchTerm })
         : Promise.resolve(null),
-      cursorId ? Promise.resolve(null) : getSkeapCapacityCount(),
-      cursorId ? Promise.resolve(null) : getSkeapMaxSlots(),
+      cursorId ? Promise.resolve(null) : getSkeapCapacitySnapshot(),
     ]);
 
     const hasNextPage = rows.length > PAGE_SIZE;
@@ -90,7 +89,7 @@ export async function GET(request: NextRequest) {
       .filter((inquiry): inquiry is NonNullable<typeof inquiry> => Boolean(inquiry))
       .map((inquiry) => mapInquiryToApplication(inquiry, permanentRecords));
     const lastRow = pageRows[pageRows.length - 1];
-    const metrics = viewCounts && activeGranteeCount !== null && maxSlots !== null
+    const metrics = viewCounts && capacitySnapshot
       ? {
           counts: {
             pending: viewCounts.pendingCount,
@@ -98,7 +97,7 @@ export async function GET(request: NextRequest) {
             resubmitted: viewCounts.resubmittedCount,
             withdrawn: viewCounts.withdrawnCount,
           },
-          capacityFull: activeGranteeCount >= maxSlots,
+          capacityFull: capacitySnapshot?.isFull ?? false,
         }
       : null;
 

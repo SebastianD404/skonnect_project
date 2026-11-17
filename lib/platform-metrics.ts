@@ -57,6 +57,20 @@ const METRIC_SEGMENTS: Record<Exclude<PlatformAccountMetricKey, "all">, string> 
   archived: "ARCHIVED_INACTIVE",
 };
 
+const CATEGORIZED_USERS_CTE = Prisma.sql`
+  WITH categorized_users AS (
+    SELECT
+      account.*,
+      CASE
+        WHEN account."is_active"
+          AND account."role" IN ('SK_OFFICIAL', 'SUPER_ADMIN')
+        THEN 'ADMIN_STAFF'
+        ELSE account."segment"
+      END AS "metric_segment"
+    FROM "public"."system_users_admin_mv" AS account
+  )
+`;
+
 export function getPlatformAccountMetricSegment(metric: PlatformAccountMetricKey) {
   return metric === "all" ? null : METRIC_SEGMENTS[metric];
 }
@@ -73,9 +87,10 @@ export function isPlatformAccountMetricKey(
 
 export async function getPlatformAccountMetrics(): Promise<PlatformAccountMetrics> {
   const groupedCounts = await prisma.$queryRaw<SegmentCount[]>(Prisma.sql`
-    SELECT "segment", COUNT(*) AS "count"
-    FROM "public"."system_users_admin_mv"
-    GROUP BY "segment"
+    ${CATEGORIZED_USERS_CTE}
+    SELECT "metric_segment" AS "segment", COUNT(*) AS "count"
+    FROM categorized_users
+    GROUP BY "metric_segment"
   `);
   const counts = new Map(groupedCounts.map(({ segment, count }) => [segment, Number(count)]));
 
@@ -103,7 +118,7 @@ export async function getPlatformAccountUsersPage({
 }) {
   const filters: Prisma.Sql[] = [];
   const segment = getPlatformAccountMetricSegment(metric);
-  if (segment) filters.push(Prisma.sql`"segment" = ${segment}`);
+  if (segment) filters.push(Prisma.sql`"metric_segment" = ${segment}`);
   if (role) filters.push(Prisma.sql`"role" = ${role}`);
 
   const normalizedQuery = query.trim().slice(0, 100);
@@ -120,6 +135,7 @@ export async function getPlatformAccountUsersPage({
 
   const [rows, countRows] = await Promise.all([
     prisma.$queryRaw<PlatformAccountUserRow[]>(Prisma.sql`
+      ${CATEGORIZED_USERS_CTE}
       SELECT
         "user_id" AS "id",
         "full_name" AS "fullName",
@@ -143,15 +159,16 @@ export async function getPlatformAccountUsersPage({
         "grantee_date_enrolled" AS "granteeDateEnrolled",
         "grantee_archived_at" AS "granteeArchivedAt",
         "grantee_retention_expires_at" AS "granteeRetentionExpiresAt"
-      FROM "public"."system_users_admin_mv"
+      FROM categorized_users
       ${whereClause}
       ORDER BY "created_at" DESC, "user_id" DESC
       LIMIT ${pageSize}
       OFFSET ${offset}
     `),
     prisma.$queryRaw<UserCount[]>(Prisma.sql`
+      ${CATEGORIZED_USERS_CTE}
       SELECT COUNT(*) AS "count"
-      FROM "public"."system_users_admin_mv"
+      FROM categorized_users
       ${whereClause}
     `),
   ]);

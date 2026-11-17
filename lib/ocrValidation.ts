@@ -6,6 +6,27 @@ import {
   MINIMUM_RESIDENCY_MONTHS,
   MINIMUM_RESIDENCY_MONTHS_TEXT,
 } from "@/lib/residency-requirement";
+import {
+  parseGradeReportText,
+  type GradeReportDiagnostics,
+} from "@/lib/grade-report-parser";
+
+export type { GradeReportDiagnostics };
+
+export function analyzeGradeReportText(text: string): GradeReportDiagnostics {
+  const parsed = parseGradeReportText(text);
+  return {
+    detectedScale: parsed.detectedScale,
+    estimatedGwa: parsed.estimatedGwa,
+    gwaCheckStatus: parsed.gwaCheckStatus,
+    meetsGwaRequirement: parsed.meetsGwaRequirement,
+    gwaMessage: parsed.gwaMessage,
+    hasPossibleFailingGrade: parsed.hasPossibleFailingGrade,
+    flaggedSubjects: parsed.flaggedSubjects,
+    flaggedGrades: parsed.flaggedGrades,
+    possibleFailingGradeMessage: parsed.possibleFailingGradeMessage,
+  };
+}
 
 type DocumentType =
   | "validIdFront"

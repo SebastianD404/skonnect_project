@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { getAcademicYearDateRange } from "@/lib/semester";
 import { getExactAge } from "@/lib/skeap-age";
@@ -103,9 +103,8 @@ export async function getSkeapWaitlistSnapshot(
     }),
     getSkeapWaitlistCycleState(cycle),
   ]);
-  const [activeCount, maxSlots, offeredCount] = await Promise.all([
-    getSkeapCapacityCount(),
-    getSkeapMaxSlots(),
+  const [capacitySnapshot, offeredCount] = await Promise.all([
+    getSkeapCapacitySnapshot(),
     prisma.skeapApplication.count({
       where: {
         status: "WAITLISTED",
@@ -117,7 +116,7 @@ export async function getSkeapWaitlistSnapshot(
   ]);
   const openSlots = cycleState.isClosed
     ? 0
-    : Math.max(0, maxSlots - activeCount - offeredCount);
+    : Math.max(0, capacitySnapshot.availableSlots - offeredCount);
   const openUnclaimedCount = Math.min(
     openSlots,
     applications.filter((application) => application.waitlistOfferStatus === "NONE").length,
@@ -125,8 +124,8 @@ export async function getSkeapWaitlistSnapshot(
 
   return {
     cycle,
-    activeCount,
-    maxSlots,
+    activeCount: capacitySnapshot.activeCount,
+    maxSlots: capacitySnapshot.maxSlots,
     offeredCount,
     openUnclaimedCount,
     totalWaitlisted: cycleState.isClosed ? cycleState.totalWaitlisted : applications.length,

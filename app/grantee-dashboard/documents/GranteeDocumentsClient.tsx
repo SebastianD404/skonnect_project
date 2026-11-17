@@ -30,8 +30,11 @@ import {
   validateCertificateOfEnrollment,
   validateGradeReport,
 } from "@/lib/ocr/document-validation";
+import {
+  analyzeGradeReportText,
+  type GradeReportDiagnostics,
+} from "@/lib/ocrValidation";
 import { extractDocxTextFromBuffer } from "@/lib/skeap-document-keywords";
-import { hasFailingGradeIndicators } from "@/lib/ocr/failing-grade-indicators";
 import {
   buildSemesterTracker,
   getCurrentAcademicSemester,
@@ -223,10 +226,19 @@ async function extractSelectedFileText(file: File): Promise<string> {
           const page = await pdf.getPage(pageNumber);
           try {
             const textContent = await page.getTextContent();
+            const textLines = new Map<number, string[]>();
+            for (const item of textContent.items) {
+              if (!("str" in item) || !item.str.trim()) continue;
+              const y = Math.round(item.transform[5]);
+              const line = textLines.get(y) ?? [];
+              line.push(item.str);
+              textLines.set(y, line);
+            }
             pageTexts.push(
-              textContent.items
-                .map((item) => ("str" in item ? item.str : ""))
-                .join(" ")
+              Array.from(textLines.entries())
+                .sort(([firstY], [secondY]) => secondY - firstY)
+                .map(([, line]) => line.join(" "))
+                .join("\n")
             );
           } finally {
             page.cleanup();
@@ -263,13 +275,33 @@ async function extractSelectedFileText(file: File): Promise<string> {
 }
 
 export default function GranteeDocumentsClient({
-  submissions,
+  submissions: initialSubmissions,
   canSubmit,
   academicTermWindow,
   academicTermSchedules,
   detectedTerm,
 }: Props) {
   const router = useRouter();
+  const [optimisticSubmission, setOptimisticSubmission] = useState<SubmissionItem | null>(null);
+  const submissions = useMemo(() => {
+    if (!optimisticSubmission) return initialSubmissions;
+    const serverSubmission = initialSubmissions.find(
+      (submission) => submission.semester === optimisticSubmission.semester,
+    );
+    if (
+      serverSubmission &&
+      new Date(serverSubmission.submittedAt).getTime() >=
+        new Date(optimisticSubmission.submittedAt).getTime()
+    ) {
+      return initialSubmissions;
+    }
+    return [
+      optimisticSubmission,
+      ...initialSubmissions.filter(
+        (submission) => submission.semester !== optimisticSubmission.semester,
+      ),
+    ];
+  }, [initialSubmissions, optimisticSubmission]);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [form, setForm] = useState<UploadState>(() => ({
     ...INITIAL_FORM,
@@ -279,6 +311,7 @@ export default function GranteeDocumentsClient({
   const [coeOcrStatus, setCoeOcrStatus] = useState<OcrStatus>("IDLE");
   const [gradeOcrWarning, setGradeOcrWarning] = useState<string | null>(null);
   const [gradeRequiresStrictReview, setGradeRequiresStrictReview] = useState(false);
+  const [gradeDiagnostics, setGradeDiagnostics] = useState<GradeReportDiagnostics | null>(null);
   const [coeOcrWarning, setCoeOcrWarning] = useState<string | null>(null);
   const [gradeOcrOverride, setGradeOcrOverride] = useState(false);
   const [coeOcrOverride, setCoeOcrOverride] = useState(false);
@@ -292,6 +325,7 @@ export default function GranteeDocumentsClient({
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
   const [ocrWarning, setOcrWarning] = useState<string | null>(null);
   const ocrRunIds = useRef({ grade: 0, coe: 0 });
+  const submissionInFlight = useRef(false);
 
   useEffect(() => {
     if (!submitNotice) return;
@@ -372,20 +406,12 @@ export default function GranteeDocumentsClient({
 
   const hasReturnedSubmission = currentSubmission?.status === "RETURNED_FOR_EDIT";
 
-  // When a submission for the selected semester is already approved and both files are present and not flagged,
-  // treat the form as closed/read-only for that term.
-  const isSubmissionClosed =
-    currentSubmission?.status === "APPROVED" &&
-    hasExistingGradeReport &&
-    hasExistingCoe &&
-    !isGradeReportFlagged &&
-    !isCoeFlagged;
+  const isSubmissionClosed = currentSubmission?.status === "APPROVED";
   const canResubmitReturned =
     currentSubmission?.status === "RETURNED_FOR_EDIT";
   const isAwaitingPhysicalCtc = currentSubmission?.status === "AWAITING_PHYSICAL_CTC";
-  const isPendingSubmissionLocked = Boolean(
-    detectedTerm?.hasPendingSubmission && !detectedTerm.canReplacePendingSubmission
-  );
+  const isPendingSubmissionLocked = currentSubmission?.status === "PENDING";
+  const isSubmissionLocked = Boolean(currentSubmission && !canResubmitReturned);
   const detectedScheduleSemester = detectedTerm
     ? `${detectedTerm.schoolYear} ${
         detectedTerm.semester === "Annual / School Year" ? "First Semester" : detectedTerm.semester
@@ -395,12 +421,11 @@ export default function GranteeDocumentsClient({
     academicTermWindow.status === "OPEN" &&
     detectedScheduleSemester === academicTermWindow.semester;
   const canSubmitForSelectedTerm = isSubmissionWindowOpen || canResubmitReturned;
-  const isTermUploadAvailable = canSubmitForSelectedTerm;
+  const isTermUploadAvailable = canSubmitForSelectedTerm && !isSubmissionLocked;
   const isSubmissionWindowClosed = Boolean(
     detectedTerm &&
       !isSubmissionWindowOpen &&
       !canResubmitReturned &&
-    (!detectedTerm.hasPendingSubmission || detectedTerm.canReplacePendingSubmission) &&
       academicTermWindow.status !== "UNCONFIGURED"
   );
 
@@ -517,7 +542,13 @@ export default function GranteeDocumentsClient({
       const text = await extractSelectedFileText(file);
       if (ocrRunIds.current[kind] !== runId) return false;
       if (kind === "grade") {
-        setGradeRequiresStrictReview(hasFailingGradeIndicators(text));
+        const diagnostics = analyzeGradeReportText(text);
+        setGradeDiagnostics(diagnostics);
+        setGradeRequiresStrictReview(
+          diagnostics.hasPossibleFailingGrade ||
+          diagnostics.meetsGwaRequirement === false ||
+          diagnostics.estimatedGwa === null
+        );
       }
 
       if (kind === "coe") {
@@ -550,6 +581,11 @@ export default function GranteeDocumentsClient({
       console.error("Document check failed for selected file.", error);
       setStatus("WARNING");
       setWarning("We couldn't check this file. You can still submit it for SK admin review.");
+      if (kind === "grade") {
+        const diagnostics = analyzeGradeReportText("");
+        setGradeDiagnostics(diagnostics);
+        setGradeRequiresStrictReview(true);
+      }
       return true;
     }
   }
@@ -567,6 +603,7 @@ export default function GranteeDocumentsClient({
     if (kind === "grade") {
       setForm((prev) => ({ ...prev, gradeFile: file, gradeFileUrl: "" }));
       setGradeRequiresStrictReview(false);
+      setGradeDiagnostics(null);
     } else {
       setForm((prev) => ({ ...prev, coeFile: file, coeFileUrl: "" }));
     }
@@ -637,70 +674,71 @@ export default function GranteeDocumentsClient({
 
   async function handleSubmit(event?: React.FormEvent, forceOverride = false) {
     event?.preventDefault();
-    setSubmitError(null);
-    setOcrWarning(null);
-
-    if (!canSubmit) {
-      setSubmitError("Complete your grantee profile (school and year level) in Profile settings to enable submissions.");
-      return;
-    }
-
-    if (!form.semester || /summer/i.test(form.semester)) {
-      setSubmitError("Please select a supported academic semester.");
-      return;
-    }
-
-    if (!canSubmitForSelectedTerm) {
-      setSubmitError("Document submissions are not open for the selected academic term.");
-      return;
-    }
-
-    if (gradeFileError || coeFileError) {
-      return;
-    }
-
-    if ([form.gradeFile, form.coeFile].some((file) => file && (file.size === 0 || file.size > MAX_GRADE_REPORT_BYTES))) {
-      return;
-    }
-
-    if (gradeOcrStatus === "SCANNING" || coeOcrStatus === "SCANNING") {
-      setSubmitError("Please wait until both files have finished checking before submitting.");
-      return;
-    }
-
-    if (
-      (gradeOcrStatus === "WARNING" && !gradeOcrOverride) ||
-      (coeOcrStatus === "WARNING" && !coeOcrOverride)
-    ) {
-      setSubmitNotice("Please confirm that the flagged file is correct to continue.");
-      return;
-    }
-
-    const referenceSubmission = submissions.find((submission) => submission.semester === form.semester) ?? null;
-    const referenceFlags = new Set(referenceSubmission?.flaggedFields ?? []);
-
-    const finalGradeFileUrl =
-      form.gradeFileUrl ||
-      (referenceSubmission && !referenceFlags.has("GRADE_REPORT") ? referenceSubmission.gradeFileUrl : "");
-    const finalCoeFileUrl =
-      form.coeFileUrl ||
-      (referenceSubmission && !referenceFlags.has("COE") ? referenceSubmission.coeFileUrl : "");
-
-    if (!finalGradeFileUrl || !finalCoeFileUrl) {
-      const missingDocuments = [
-        ...(!finalGradeFileUrl
-          ? [referenceFlags.has("GRADE_REPORT") ? "a corrected Grade Report" : "a Grade Report"]
-          : []),
-        ...(!finalCoeFileUrl
-          ? [referenceFlags.has("COE") ? "a corrected Certificate of Enrollment" : "a Certificate of Enrollment"]
-          : []),
-      ];
-      setSubmitError(`Please upload ${missingDocuments.join(" and ")} before submitting.`);
-      return;
-    }
-
+    if (submissionInFlight.current || submitting || isSubmissionLocked) return;
+    submissionInFlight.current = true;
     setSubmitting(true);
     try {
+      setSubmitError(null);
+      setOcrWarning(null);
+
+      if (!canSubmit) {
+        setSubmitError("Complete your grantee profile (school and year level) in Profile settings to enable submissions.");
+        return;
+      }
+
+      if (!form.semester || /summer/i.test(form.semester)) {
+        setSubmitError("Please select a supported academic semester.");
+        return;
+      }
+
+      if (!canSubmitForSelectedTerm) {
+        setSubmitError("Document submissions are not open for the selected academic term.");
+        return;
+      }
+
+      if (gradeFileError || coeFileError) return;
+
+      if ([form.gradeFile, form.coeFile].some((file) => file && (file.size === 0 || file.size > MAX_GRADE_REPORT_BYTES))) {
+        return;
+      }
+
+      if (gradeOcrStatus === "SCANNING" || coeOcrStatus === "SCANNING") {
+        setSubmitError("Please wait until both files have finished checking before submitting.");
+        return;
+      }
+
+      if (
+        (gradeOcrStatus === "WARNING" && !gradeOcrOverride) ||
+        (coeOcrStatus === "WARNING" && !coeOcrOverride)
+      ) {
+        setSubmitNotice("Please confirm that the flagged file is correct to continue.");
+        return;
+      }
+
+      const referenceSubmission =
+        submissions.find((submission) => submission.semester === form.semester) ?? null;
+      const referenceFlags = new Set(referenceSubmission?.flaggedFields ?? []);
+
+      const finalGradeFileUrl =
+        form.gradeFileUrl ||
+        (referenceSubmission && !referenceFlags.has("GRADE_REPORT") ? referenceSubmission.gradeFileUrl : "");
+      const finalCoeFileUrl =
+        form.coeFileUrl ||
+        (referenceSubmission && !referenceFlags.has("COE") ? referenceSubmission.coeFileUrl : "");
+
+      if (!finalGradeFileUrl || !finalCoeFileUrl) {
+        const missingDocuments = [
+          ...(!finalGradeFileUrl
+            ? [referenceFlags.has("GRADE_REPORT") ? "a corrected Grade Report" : "a Grade Report"]
+            : []),
+          ...(!finalCoeFileUrl
+            ? [referenceFlags.has("COE") ? "a corrected Certificate of Enrollment" : "a Certificate of Enrollment"]
+            : []),
+        ];
+        setSubmitError(`Please upload ${missingDocuments.join(" and ")} before submitting.`);
+        return;
+      }
+
       const response = await fetch("/api/grantee/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -709,6 +747,15 @@ export default function GranteeDocumentsClient({
           coeFileUrl: finalCoeFileUrl,
           forceSubmit: forceOverride || gradeOcrOverride || coeOcrOverride,
           requiresStrictManualReview: gradeRequiresStrictReview,
+          gradeDiagnostics: gradeDiagnostics
+            ? {
+                hasPossibleFailingGrade: gradeDiagnostics.hasPossibleFailingGrade,
+                flaggedSubjects: gradeDiagnostics.flaggedSubjects,
+                estimatedGwa: gradeDiagnostics.estimatedGwa,
+                detectedScale: gradeDiagnostics.detectedScale,
+                gwaCheckStatus: gradeDiagnostics.gwaCheckStatus,
+              }
+            : null,
         }),
       });
 
@@ -721,6 +768,30 @@ export default function GranteeDocumentsClient({
         throw new Error(result?.error || "Failed to submit documents");
       }
 
+      const savedSubmission = result?.submission;
+      if (
+        !savedSubmission ||
+        typeof savedSubmission.id !== "string" ||
+        typeof savedSubmission.semester !== "string"
+      ) {
+        throw new Error("The server did not confirm the saved submission.");
+      }
+      const confirmedSubmission: SubmissionItem = {
+        id: savedSubmission.id,
+        semester: savedSubmission.semester,
+        status: "PENDING",
+        coeStatus: savedSubmission.coeStatus ?? "PENDING",
+        gradesStatus: savedSubmission.gradesStatus ?? "PENDING",
+        ocrStatus: "OCR_PENDING",
+        reviewNotes: savedSubmission.reviewNotes ?? null,
+        flaggedFields: savedSubmission.flaggedFields ?? [],
+        resubmittedFields: savedSubmission.resubmittedFields ?? [],
+        submittedAt: savedSubmission.submittedAt ?? new Date().toISOString(),
+        reviewedAt: null,
+        gradeFileUrl: savedSubmission.gradeFileUrl ?? finalGradeFileUrl,
+        coeFileUrl: savedSubmission.coeFileUrl ?? finalCoeFileUrl,
+      };
+      setOptimisticSubmission(confirmedSubmission);
       setOcrWarning(null);
       setGradeOcrStatus("IDLE");
       setCoeOcrStatus("IDLE");
@@ -728,6 +799,7 @@ export default function GranteeDocumentsClient({
       setCoeOcrWarning(null);
       setGradeOcrOverride(false);
       setGradeRequiresStrictReview(false);
+      setGradeDiagnostics(null);
       setCoeOcrOverride(false);
       setForm((current) => ({
         ...current,
@@ -740,13 +812,14 @@ export default function GranteeDocumentsClient({
       router.refresh();
     } catch (error) {
       const text = error instanceof TypeError
-        ? "We couldn't reach the server to confirm your submission. Your uploaded files are still saved; please try again."
+        ? "We couldn't reach the server to confirm your submission. Check Recent Submissions before trying again."
         : error instanceof Error
           ? error.message
           : "Submission failed. Please try again.";
       setSubmitError(text);
     } finally {
       setSubmitting(false);
+      submissionInFlight.current = false;
     }
   }
 
@@ -820,21 +893,35 @@ export default function GranteeDocumentsClient({
                     {isSubmissionWindowClosed ? "UPCOMING SUBMISSION TERM" : "SUBMISSION TERM"}
                   </p>
                   <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                    isTermUploadAvailable
-                      ? "bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200"
-                      : "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200"
+                    isPendingSubmissionLocked
+                      ? "bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-200"
+                      : isSubmissionClosed
+                        ? "bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200"
+                        : isTermUploadAvailable
+                          ? "bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200"
+                          : "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200"
                   }`}>
-                    {isTermUploadAvailable ? "Open" : "Submission Window Closed"}
+                    {isPendingSubmissionLocked
+                      ? "Under Review"
+                      : isSubmissionClosed
+                        ? "Approved"
+                        : isTermUploadAvailable
+                          ? "Open"
+                          : "Submission Window Closed"}
                   </span>
                 </div>
                 <p className="mt-1 text-sm font-semibold text-slate-900">
                   {detectedTerm ? `${detectedTerm.schoolYear} · ${detectedTerm.semester}` : "Term unavailable"}
                 </p>
-                <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-                  {isSubmissionWindowClosed
-                    ? "Online uploads are currently closed. Please prepare the Original or Certified True Copy (CTC) of your Grade Report and Certificate of Enrollment so you can upload clear scans as soon as the window opens (and submit the physical copies at the SK Office for final approval)."
-                    : "Upload clear scans of the Original or Certified True Copy (CTC) of your Grade Report and Certificate of Enrollment for initial review. Physical copies will be verified at the SK Office before final approval."}
-                </p>
+                {!isPendingSubmissionLocked ? (
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
+                    {isSubmissionClosed
+                      ? "Your documents have been verified and approved."
+                      : isSubmissionWindowClosed
+                        ? "Online uploads are currently closed. Please prepare the Original or Certified True Copy (CTC) of your Grade Report and Certificate of Enrollment so you can upload clear scans as soon as the window opens (and submit the physical copies at the SK Office for final approval)."
+                        : "Upload clear scans of the Original or Certified True Copy (CTC) of your Grade Report and Certificate of Enrollment for initial review. Physical copies will be verified at the SK Office before final approval."}
+                  </p>
+                ) : null}
               </div>
 
               {isAwaitingPhysicalCtc ? (
@@ -856,44 +943,6 @@ export default function GranteeDocumentsClient({
                     </div>
                   </div>
                 </div>
-              ) : isPendingSubmissionLocked ? (
-                <div
-                  role="status"
-                  className="mt-5 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4"
-                >
-                  <Clock className="h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
-                  <div>
-                    <p className="text-sm font-semibold text-amber-900">Under SK Admin Review</p>
-                    <p className="mt-1 text-xs leading-relaxed text-amber-800">
-                      Your {detectedTerm?.termLabel ?? "current term"} submission is already in review. You can follow its progress in Recent Submissions.
-                    </p>
-                  </div>
-                </div>
-              ) : detectedTerm?.canReplacePendingSubmission ? (
-                <div
-                  role="status"
-                  className="mt-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-4"
-                >
-                  <p className="text-sm font-semibold text-sky-950">
-                    Submission received · Editable before review
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-sky-900">
-                    Your files are waiting for initial review. You may replace them while the submission window is open.
-                  </p>
-                </div>
-              ) : null}
-              {hasReturnedSubmission ? (
-                <div
-                  role="status"
-                  className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm"
-                >
-                  <p className="text-sm font-bold text-amber-950">
-                    Action Required · Resubmission Requested
-                  </p>
-                  <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-amber-900">
-                    {correctionNote || "Please replace the document(s) flagged by the SK Admin, then resubmit your requirements."}
-                  </p>
-                </div>
               ) : null}
               {detectedTerm ? (
               <>
@@ -912,6 +961,12 @@ export default function GranteeDocumentsClient({
                     isResubmitted={Boolean(currentSubmission?.resubmittedFields?.includes("GRADE_REPORT")) && currentSubmission?.gradesStatus === "PENDING"}
                     correctionNote={correctionNote}
                     uploading={uploadingGrade}
+                    locked={isSubmissionLocked}
+                    approved={
+                      currentSubmission?.gradesStatus === "APPROVED" ||
+                      isSubmissionClosed ||
+                      isAwaitingPhysicalCtc
+                    }
                     windowClosed={isSubmissionWindowClosed}
                     ocrStatus={gradeOcrStatus}
                     ocrWarning={gradeOcrWarning}
@@ -927,10 +982,11 @@ export default function GranteeDocumentsClient({
                       setGradeOcrWarning(null);
                       setGradeOcrOverride(false);
                       setGradeRequiresStrictReview(false);
+                      setGradeDiagnostics(null);
                       setGradeFileError(null);
                       setForm((prev) => ({ ...prev, gradeFile: null, gradeFileUrl: "" }));
                     }}
-                    disabled={!canSubmit || submitting || uploadingGrade || isSubmissionClosed || !canSubmitForSelectedTerm}
+                    disabled={!canSubmit || submitting || uploadingGrade || isSubmissionLocked || !canSubmitForSelectedTerm}
                   />
                 </Field>
 
@@ -948,6 +1004,12 @@ export default function GranteeDocumentsClient({
                     isResubmitted={Boolean(currentSubmission?.resubmittedFields?.includes("COE")) && currentSubmission?.coeStatus === "PENDING"}
                     correctionNote={correctionNote}
                     uploading={uploadingCoe}
+                    locked={isSubmissionLocked}
+                    approved={
+                      currentSubmission?.coeStatus === "APPROVED" ||
+                      isSubmissionClosed ||
+                      isAwaitingPhysicalCtc
+                    }
                     windowClosed={isSubmissionWindowClosed}
                     ocrStatus={coeOcrStatus}
                     ocrWarning={coeOcrWarning}
@@ -965,7 +1027,7 @@ export default function GranteeDocumentsClient({
                       setCoeFileError(null);
                       setForm((prev) => ({ ...prev, coeFile: null, coeFileUrl: "" }));
                     }}
-                    disabled={!canSubmit || submitting || uploadingCoe || isSubmissionClosed || !canSubmitForSelectedTerm}
+                    disabled={!canSubmit || submitting || uploadingCoe || isSubmissionLocked || !canSubmitForSelectedTerm}
                   />
                 </Field>
               </div>
@@ -979,7 +1041,7 @@ export default function GranteeDocumentsClient({
                     <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-emerald-900">Requirements approved</p>
+                    <p className="text-xs font-semibold text-emerald-900">Verified &amp; Approved</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-emerald-800/80">
                       Both documents for {form.semester || "this academic term"} have been approved.
                     </p>
@@ -991,7 +1053,7 @@ export default function GranteeDocumentsClient({
                 </div>
               )}
 
-              {ocrWarning && !isPendingSubmissionLocked ? (
+              {ocrWarning && !isSubmissionLocked ? (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-2xs" role="alert">
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
@@ -1025,14 +1087,30 @@ export default function GranteeDocumentsClient({
                   Encrypted and securely stored
                 </div>
                 {isPendingSubmissionLocked ? (
-                  <span className="inline-flex h-9 items-center rounded-full bg-amber-50 px-3.5 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
-                    Under SK Admin Review
-                  </span>
+                  <div className="flex flex-col items-center gap-1.5 sm:items-end">
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex h-10 w-40 cursor-not-allowed items-center justify-center gap-1.5 rounded-xl bg-amber-50 text-xs font-bold text-amber-800 ring-1 ring-inset ring-amber-200"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Submitted ✓
+                    </button>
+                    <span className="text-[11px] font-medium text-amber-800">Under Review</span>
+                  </div>
                 ) : isSubmissionClosed ? (
-                  <span className="inline-flex h-9 items-center gap-1.5 rounded-full bg-emerald-50 px-3.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                  <span className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-emerald-50 px-3.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    Approved
+                    Verified &amp; Approved
                   </span>
+                ) : isSubmissionLocked ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="flex h-10 w-40 cursor-not-allowed items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-500"
+                  >
+                    Submitted ✓
+                  </button>
                 ) : isSubmissionWindowClosed ? (
                   <div className="flex flex-col items-center gap-1.5 sm:items-end">
                     <button
@@ -1049,8 +1127,15 @@ export default function GranteeDocumentsClient({
                 ) : (
                   <button
                     type="submit"
-                    disabled={!canSubmit || submitting || uploadingGrade || uploadingCoe || !canSubmitForSelectedTerm}
-                    className="flex h-10 w-32 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#0a1f33] text-xs font-bold text-white shadow-sm transition-all duration-150 hover:bg-[#122e48] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={
+                      !canSubmit ||
+                      submitting ||
+                      uploadingGrade ||
+                      uploadingCoe ||
+                      !canSubmitForSelectedTerm ||
+                      (hasReturnedSubmission && !form.gradeFileUrl && !form.coeFileUrl)
+                    }
+                    className="inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#0a1f33] px-5 text-xs font-bold text-white shadow-sm transition-all duration-150 hover:bg-[#122e48] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a1f33] focus-visible:ring-offset-2 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-36"
                   >
                     {submitting ? (
                       <>
@@ -1059,7 +1144,7 @@ export default function GranteeDocumentsClient({
                       </>
                     ) : (
                       <>
-                        <span>{hasReturnedSubmission ? "Resubmit" : "Submit"}</span>
+                        <span>{hasReturnedSubmission ? "Resubmit Requirements" : "Submit"}</span>
                         <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
                       </>
                     )}
@@ -1215,6 +1300,8 @@ function FileDrop({
   isResubmitted = false,
   correctionNote,
   uploading,
+  locked = false,
+  approved = false,
   windowClosed = false,
   ocrStatus = "IDLE",
   ocrWarning,
@@ -1235,6 +1322,8 @@ function FileDrop({
   isResubmitted?: boolean;
   correctionNote?: string;
   uploading?: boolean;
+  locked?: boolean;
+  approved?: boolean;
   windowClosed?: boolean;
   ocrStatus?: OcrStatus;
   ocrWarning?: string | null;
@@ -1364,7 +1453,7 @@ function FileDrop({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="relative h-[215px] w-full shrink-0"
+      className="relative min-h-[215px] w-full shrink-0"
     >
       <input
         ref={inputRef}
@@ -1399,7 +1488,7 @@ function FileDrop({
           </p>
         </div>
         ) : (
-        <div className={`flex h-[215px] w-full flex-col justify-between rounded-2xl border p-4 shadow-2xs transition-colors duration-200 ${fileCardTone}`}>
+        <div className={`flex min-h-[215px] w-full flex-col gap-2 rounded-2xl border p-4 shadow-2xs transition-colors duration-200 ${fileCardTone}`}>
           {/* TOP SLOT: File identity */}
           <div className="flex h-[68px] shrink-0 items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3 overflow-hidden">
@@ -1419,6 +1508,11 @@ function FileDrop({
                   <p className="min-w-0 flex-1 truncate text-xs font-bold text-slate-900">
                     {file?.name ?? existingFileName}
                   </p>
+                  {approved ? (
+                    <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold leading-none text-emerald-800">
+                      Verified &amp; Approved
+                    </span>
+                  ) : null}
                   {isResubmissionFile || isResubmitted ? (
                     <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[9px] font-bold leading-none text-sky-700">
                       {isResubmitted ? "Resubmitted" : "Replacement"}
@@ -1454,7 +1548,7 @@ function FileDrop({
                 </div>
               </div>
             </div>
-            {file ? (
+            {file && !locked ? (
               <button
                 type="button"
                 onClick={removeSelectedFile}
@@ -1531,7 +1625,7 @@ function FileDrop({
           </div>
 
           <div className="flex h-8 shrink-0 items-center gap-2">
-            {ocrStatus === "WARNING" && file && !errorText ? (
+            {ocrStatus === "WARNING" && file && !errorText && !locked ? (
               <>
                 <button
                   type="button"
@@ -1578,14 +1672,16 @@ function FileDrop({
                     View File
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={openFilePicker}
-                  disabled={disabled}
-                  className="h-8 flex-1 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Replace file
-                </button>
+                {!locked ? (
+                  <button
+                    type="button"
+                    onClick={openFilePicker}
+                    disabled={disabled}
+                    className="h-8 flex-1 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Replace file
+                  </button>
+                ) : null}
               </>
             )}
           </div>

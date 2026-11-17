@@ -12,6 +12,8 @@ import {
   Users,
 } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 export default async function SystemAdminDashboardPage() {
   const [activeUsersCount, auditEntriesRows, adminAccountsCount, recentAudits, roleCounts] = await Promise.all([
     prisma.user.count({

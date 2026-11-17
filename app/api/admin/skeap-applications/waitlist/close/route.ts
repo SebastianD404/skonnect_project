@@ -6,7 +6,7 @@ import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-emai
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { getAcademicYearDateRange } from "@/lib/semester";
-import { getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import {
   getSkeapWaitlistCycle,
   getSkeapWaitlistCycleSettingKey,
@@ -82,11 +82,8 @@ export async function POST() {
           };
         }
         if (!cycleState.isClosed) {
-          const [activeCount, maxSlots] = await Promise.all([
-            getSkeapCapacityCount(tx),
-            getSkeapMaxSlots(tx),
-          ]);
-          if (activeCount < maxSlots) throw new Error("SLOTS_NOT_FULL");
+          const capacity = await getSkeapCapacitySnapshot(tx);
+          if (!capacity.isFull) throw new Error("SLOTS_NOT_FULL");
         }
         if (waitlisted.length === 0) throw new Error("WAITLIST_EMPTY");
 

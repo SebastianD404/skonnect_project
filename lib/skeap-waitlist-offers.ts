@@ -8,8 +8,7 @@ import {
   SKEAP_WAITLIST_OFFER_DAYS_KEY,
 } from "@/lib/skeap-capacity-constants";
 import {
-  getSkeapCapacityCount,
-  getSkeapMaxSlots,
+  getSkeapCapacitySnapshot,
   lockSkeapCapacity,
 } from "@/lib/skeap-capacity";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
@@ -415,10 +414,9 @@ export async function dispatchWaitlistSlotOffers(now = new Date()) {
     if (!cycleRange) throw new Error("Unable to determine the active SKEAP waitlist cycle.");
 
     const cycleState = await getSkeapWaitlistCycleState(cycle, tx);
-    const [activeGranteesCount, maxSlots, waitlistOfferDays, activeUnexpiredOffersCount] =
+    const [capacitySnapshot, waitlistOfferDays, activeUnexpiredOffersCount] =
       await Promise.all([
-        getSkeapCapacityCount(tx),
-        getSkeapMaxSlots(tx),
+        getSkeapCapacitySnapshot(tx),
         getSkeapWaitlistOfferDays(tx),
         tx.skeapApplication.count({
           where: {
@@ -431,12 +429,12 @@ export async function dispatchWaitlistSlotOffers(now = new Date()) {
       ]);
     const availableSlots = cycleState.isClosed
       ? 0
-      : Math.max(0, maxSlots - activeGranteesCount - activeUnexpiredOffersCount);
+      : Math.max(0, capacitySnapshot.availableSlots - activeUnexpiredOffersCount);
 
     if (availableSlots === 0) {
       return {
         offers: [] as OfferEmail[],
-        activeGranteesCount,
+        activeGranteesCount: capacitySnapshot.activeCount,
         activeUnexpiredOffersCount,
         availableSlots,
         waitlistOfferDays,
@@ -510,7 +508,7 @@ export async function dispatchWaitlistSlotOffers(now = new Date()) {
 
     return {
       offers,
-      activeGranteesCount,
+      activeGranteesCount: capacitySnapshot.activeCount,
       activeUnexpiredOffersCount,
       availableSlots,
       waitlistOfferDays,

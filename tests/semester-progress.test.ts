@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSemesterTracker,
   getAcademicSemesterOrder,
   getCurrentManilaAcademicSemester,
   getNextAcademicSemester,
@@ -7,6 +8,45 @@ import {
 } from "../lib/semester-progress";
 
 describe("academic term ordering", () => {
+  it("counts individually approved documents before the whole submission is approved", () => {
+    expect(
+      buildSemesterTracker(
+        [
+          {
+            semester: "2026-2027 Second Semester",
+            status: "PENDING",
+            coeStatus: "APPROVED",
+            gradesStatus: "PENDING",
+            coeFileUrl: "coe.pdf",
+            gradeFileUrl: "grades.pdf",
+          },
+        ],
+        "2026-2027 Second Semester",
+      ),
+    ).toEqual({
+      current: "2026-2027 Second Semester",
+      approved: 1,
+      total: 2,
+      pct: 50,
+    });
+  });
+
+  it("counts both documents for submissions awaiting physical verification", () => {
+    expect(
+      buildSemesterTracker(
+        [
+          {
+            semester: "2026-2027 Second Semester",
+            status: "AWAITING_PHYSICAL_CTC",
+            coeFileUrl: "coe.pdf",
+            gradeFileUrl: "grades.pdf",
+          },
+        ],
+        "2026-2027 Second Semester",
+      ).approved,
+    ).toBe(2);
+  });
+
   it("orders semesters sequentially across academic years", () => {
     expect(
       getAcademicSemesterOrder("2026-2027 Second Semester")!,

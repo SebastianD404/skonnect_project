@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   sendEmail: vi.fn(),
   refreshView: vi.fn(),
   downgradeRole: vi.fn(),
+  revalidatePath: vi.fn(),
+  dispatchWaitlistOffers: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -33,6 +35,10 @@ vi.mock("@/lib/auth", () => ({
   ensureProfile: mocks.ensureProfile,
 }));
 
+vi.mock("next/cache", () => ({
+  revalidatePath: mocks.revalidatePath,
+}));
+
 vi.mock("@/lib/audit/logger", () => ({
   writeAuditLog: mocks.writeAuditLog,
 }));
@@ -46,9 +52,12 @@ vi.mock("@/lib/grantee-archive-view", () => ({
 }));
 
 vi.mock("@/lib/skeap-capacity", () => ({
-  getSkeapCapacityCount: vi.fn(),
-  getSkeapMaxSlots: vi.fn(),
+  getSkeapCapacitySnapshot: vi.fn(),
   lockSkeapCapacity: vi.fn(),
+}));
+
+vi.mock("@/lib/skeap-waitlist-offers", () => ({
+  dispatchWaitlistSlotOffers: mocks.dispatchWaitlistOffers,
 }));
 
 vi.mock("@/lib/skeap-waitlist", () => ({
@@ -191,6 +200,7 @@ describe("active grantee revocation", () => {
     mocks.transaction.mockImplementation(async (callback) => callback(createTransactionClient()));
     mocks.sendEmail.mockResolvedValue(undefined);
     mocks.refreshView.mockResolvedValue(undefined);
+    mocks.dispatchWaitlistOffers.mockResolvedValue({ offeredCount: 0 });
   });
 
   it("revokes, audits, notifies, and refreshes the archive", async () => {
@@ -214,6 +224,13 @@ describe("active grantee revocation", () => {
     expect(mocks.writeAuditLog).toHaveBeenCalledOnce();
     expect(mocks.sendEmail).toHaveBeenCalledOnce();
     expect(mocks.refreshView).toHaveBeenCalledOnce();
+    expect(mocks.revalidatePath.mock.calls.map(([path]) => path)).toEqual([
+      "/",
+      "/admin",
+      "/admin/grantees",
+      "/admin/skeap-waitlist",
+      "/programs/skeap",
+    ]);
   });
 
   it("persists an explicit permanent disqualification", async () => {

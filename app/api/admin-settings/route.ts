@@ -21,7 +21,7 @@ import {
   setActiveSkeapEducationLevels,
 } from "@/lib/skeap-program-config";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
-import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot } from "@/lib/skeap-capacity";
 import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
@@ -154,7 +154,7 @@ export async function GET() {
     const cycle = getCurrentAcademicYear();
     const cycleRange = getAcademicYearDateRange(cycle);
     if (!cycleRange) throw new Error("Unable to determine the active SKEAP cycle.");
-    const [waitlistCycleState, totalWaitlisted, activeCount, maxSlots, waitlistOfferDays] = await Promise.all([
+    const [waitlistCycleState, totalWaitlisted, capacitySnapshot, waitlistOfferDays] = await Promise.all([
       getSkeapWaitlistCycleState(cycle),
       prisma.skeapApplication.count({
         where: {
@@ -162,8 +162,7 @@ export async function GET() {
           submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
         },
       }),
-      getSkeapCapacityCount(),
-      getSkeapMaxSlots(),
+      getSkeapCapacitySnapshot(),
       getSkeapWaitlistOfferDays(),
     ]);
 
@@ -187,7 +186,7 @@ export async function GET() {
         totalWaitlisted: waitlistCycleState.isClosed
           ? waitlistCycleState.totalWaitlisted
           : totalWaitlisted,
-        isFull: activeCount >= maxSlots,
+        isFull: capacitySnapshot.isFull,
       },
     });
   } catch (error) {

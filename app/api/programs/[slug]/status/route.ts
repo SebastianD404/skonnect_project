@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
+import { getSkeapCapacitySnapshot } from "@/lib/skeap-capacity";
 import { getCurrentAcademicYear } from "@/lib/semester";
 import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 
@@ -19,17 +19,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
     return NextResponse.json({ error: "Program status not available" }, { status: 404 });
   }
 
-  const [activeScholars, probationaryScholars, graduatedScholars, removedScholars, pendingApplications, maxSlots, activeScholarsCount] = await Promise.all([
+  const [activeScholars, probationaryScholars, graduatedScholars, removedScholars, pendingApplications, capacitySnapshot] = await Promise.all([
     prisma.grantee.count({ where: { status: "ACTIVE" } }),
     prisma.grantee.count({ where: { status: "PROBATIONARY" } }),
     prisma.grantee.count({ where: { status: "GRADUATED" } }),
     prisma.grantee.count({ where: { status: { in: ["REMOVED", "REVOKED"] } } }),
     prisma.submission.count({ where: { status: "PENDING" } }),
-    getSkeapMaxSlots(),
-    getSkeapCapacityCount(),
+    getSkeapCapacitySnapshot(),
   ]);
 
-  const remainingSlots = Math.max(0, maxSlots - activeScholarsCount);
+  const remainingSlots = capacitySnapshot.availableSlots;
   const waitlistCycleState = await getSkeapWaitlistCycleState(getCurrentAcademicYear());
   const isCycleClosedAndFull = waitlistCycleState.isClosed;
   const totalScholars = activeScholars + probationaryScholars + graduatedScholars;
@@ -45,8 +44,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
     summary,
     granteeCount: activeScholars,
     activeScholars,
-    activeScholarsCount,
-    maxSlots,
+    activeScholarsCount: capacitySnapshot.activeCount,
+    maxSlots: capacitySnapshot.maxSlots,
     remainingSlots,
     isCycleClosedAndFull,
     removedScholars,

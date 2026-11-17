@@ -4,8 +4,7 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   count: vi.fn(),
   findUniqueSetting: vi.fn(),
-  capacityCount: vi.fn(),
-  maxSlots: vi.fn(),
+  capacitySnapshot: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -16,8 +15,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/skeap-capacity", () => ({
-  getSkeapCapacityCount: mocks.capacityCount,
-  getSkeapMaxSlots: mocks.maxSlots,
+  getSkeapCapacitySnapshot: mocks.capacitySnapshot,
 }));
 
 import { getSkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
@@ -63,8 +61,12 @@ describe("SKEAP waitlist positions", () => {
     ]);
     mocks.findUniqueSetting.mockResolvedValue(null);
     mocks.count.mockResolvedValue(0);
-    mocks.capacityCount.mockResolvedValue(52);
-    mocks.maxSlots.mockResolvedValue(55);
+    mocks.capacitySnapshot.mockResolvedValue({
+      activeCount: 52,
+      maxSlots: 55,
+      availableSlots: 3,
+      isFull: false,
+    });
   });
 
   it("assigns visible queue positions when stored positions are missing", async () => {
