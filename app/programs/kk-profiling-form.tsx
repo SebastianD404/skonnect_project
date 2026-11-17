@@ -1404,12 +1404,12 @@ export default function KKProfilingForm({
           >
             <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
             <p>
-              Automated document pre-check limit reached. You may still submit your application—an SK Admin will verify your uploaded documents directly.
+              Having trouble verifying a document? You can still submit your application—an SK Admin will review your uploaded files directly.
             </p>
           </div>
         ) : null}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          <div className="flex flex-1 items-start gap-3">
             <input
               id="kk-profiling-consent"
               type="checkbox"
@@ -1435,7 +1435,7 @@ export default function KKProfilingForm({
           <button
             type="submit"
             disabled={submitting || Boolean(emailError) || (!areDocumentsReady && !manualReviewAvailable)}
-            className="w-full min-w-[7rem] rounded-lg bg-slate-800 px-6 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            className="inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-xl bg-slate-800 px-6 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "Submitting..." : manualReviewAvailable ? "Submit Anyway" : "Submit"}
           </button>
