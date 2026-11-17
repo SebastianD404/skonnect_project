@@ -1,6 +1,5 @@
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
 import { hasExplicitBackIdSideEvidence } from "@/lib/ocrWorker";
-import { verifyBackIdBirthdate } from "@/lib/verifyBackIdBirthdate";
 import {
   extractResidencyDuration,
   hasBarangayPicoIssuer,
@@ -8,7 +7,13 @@ import {
   MINIMUM_RESIDENCY_MONTHS_TEXT,
 } from "@/lib/residency-requirement";
 
-type DocumentType = "front_id" | "back_id" | "certificate";
+type DocumentType =
+  | "validIdFront"
+  | "validIdBack"
+  | "front_id"
+  | "back_id"
+  | "certificate";
+type NormalizedDocumentType = "front_id" | "back_id" | "certificate";
 
 type OcrValidationOptions = {
   firstName?: string;
@@ -51,7 +56,7 @@ const ID_KEYWORDS = [
   "License", "PHILHEALTH", "UMID", "TIN", "VOTER", "Student", "School", "University",
   "College", "Campus", "Pico", "La Trinidad", "Benguet", "Contact No", "Emergency",
   "Information", "Identification", "Card", "Contact", "Signature", "Rules", "Birthdate",
-  "Registrar", "Barangay", "Valid", "Issued", "No.",
+  "Registrar", "Barangay", "Valid", "Issued", "No.", "Specimen",
 ];
 const FRONT_ID_TERMS = [
   "Photo", "Nationality", "Height", "Weight", "License No", "Expiration Date",
@@ -59,10 +64,10 @@ const FRONT_ID_TERMS = [
   "University", "School",
 ];
 const BACK_ID_TERMS = [
-  "Magnetic Stripe", "Stripe Code", "Restrictions", "Restriction", "Endorsements",
-  "Organ Donor", "Organ Donation", "Barcode", "QR Code", "Emergency", "Contact",
-  "Signature", "Rules", "Address", "Birthdate", "Registrar", "Barangay", "Valid",
-  "Issued", "No.", "Name", "Card",
+  "ID", "Student", "Identification", "Magnetic Stripe", "Stripe Code", "Restrictions",
+  "Restriction", "Endorsements", "Organ Donor", "Organ Donation", "Barcode", "QR Code",
+  "Emergency", "Contact", "Signature", "Rules", "Address", "Birthdate", "Registrar",
+  "Barangay", "Valid", "Issued", "No.", "Specimen", "Name", "Card",
 ];
 const CERTIFICATE_TERMS = [
   "Certificate of Residency", "Barangay Pico", "Pico", "resident", "residing",
@@ -83,6 +88,12 @@ type BrowserOcrWorker = Awaited<ReturnType<typeof createBrowserWorker>>;
 let workerPromise: Promise<BrowserOcrWorker> | null = null;
 let scanQueue: Promise<void> = Promise.resolve();
 
+function normalizeDocumentType(documentType: DocumentType): NormalizedDocumentType {
+  if (documentType === "validIdFront") return "front_id";
+  if (documentType === "validIdBack") return "back_id";
+  return documentType;
+}
+
 async function createBrowserWorker() {
   const { createWorker } = await import("tesseract.js");
   return createWorker("eng", 1, {
@@ -101,8 +112,10 @@ function getBrowserWorker() {
 }
 
 function findMatches(text: string, keywords: string[]) {
-  const normalized = text.toLowerCase();
-  return keywords.filter((keyword) => normalized.includes(keyword.toLowerCase()));
+  const normalize = (value: string) =>
+    ` ${value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ")} `;
+  const normalized = normalize(text);
+  return keywords.filter((keyword) => normalized.includes(normalize(keyword)));
 }
 
 function invalidResult(
@@ -128,9 +141,10 @@ export function validateRecognizedText(
   text: string,
   options?: OcrValidationOptions,
 ): ScanResult {
+  const normalizedDocumentType = normalizeDocumentType(documentType);
   const normalizedText = text.trim();
   if (normalizedText.length < 10) {
-    const isId = documentType === "front_id" || documentType === "back_id";
+    const isId = normalizedDocumentType === "front_id" || normalizedDocumentType === "back_id";
     return invalidResult(
       "Unreadable Image",
       isId ? ID_VALIDATION_ERROR_MESSAGE : UNREADABLE_DOCUMENT_MESSAGE,
@@ -139,7 +153,7 @@ export function validateRecognizedText(
     );
   }
 
-  if (documentType === "front_id" || documentType === "back_id") {
+  if (normalizedDocumentType === "front_id" || normalizedDocumentType === "back_id") {
     const matchedKeywords = findMatches(normalizedText, ID_KEYWORDS);
     const frontMatches = findMatches(normalizedText, FRONT_ID_TERMS);
     const backMatches = findMatches(normalizedText, BACK_ID_TERMS);
@@ -147,7 +161,11 @@ export function validateRecognizedText(
     const hasIdCardAnchor = /\b(?:id|identification|student|card|registrar|barangay)\b/i.test(normalizedText);
     const strongFrontMatches = frontMatches.filter((match) => match.toLowerCase() !== "name");
     const looksLikeBackId = backMatches.length > 0 && strongFrontMatches.length === 0;
-    if (documentType === "front_id" && looksLikeBackId && hasExplicitBackIdSideEvidence(normalizedText)) {
+    if (
+      normalizedDocumentType === "front_id" &&
+      looksLikeBackId &&
+      hasExplicitBackIdSideEvidence(normalizedText)
+    ) {
       return invalidResult(
         "Wrong ID Side",
         ID_VALIDATION_ERROR_MESSAGE,
@@ -159,12 +177,13 @@ export function validateRecognizedText(
     const hasSchoolIdText =
       /\b(student|college|university|school|id no\.?|id\s*no\.?|id number)\b/i.test(normalizedText);
     const hasIdSignal = matchedKeywords.length >= 2 || hasSchoolIdText;
-    const isValid = documentType === "front_id"
+    const isClearlyNonIdCertificate =
+      hasCertificateTerms &&
+      !/\b(?:id|identification|student|school|college|university|card)\b/i.test(normalizedText);
+    const isValid = normalizedDocumentType === "front_id"
       ? hasIdSignal && !hasCertificateTerms && (frontMatches.length > 0 || hasSchoolIdText)
-      : hasIdSignal &&
-        !hasCertificateTerms &&
-        hasIdCardAnchor &&
-        (backMatches.length > 0 || hasSchoolIdText);
+      : !isClearlyNonIdCertificate &&
+        (backMatches.length > 0 || hasIdCardAnchor || hasSchoolIdText);
 
     if (!isValid) {
       return invalidResult(
@@ -175,7 +194,11 @@ export function validateRecognizedText(
       );
     }
 
-    if (documentType === "front_id" && options?.firstName && options.lastName) {
+    if (
+      normalizedDocumentType === "front_id" &&
+      options?.firstName &&
+      options.lastName
+    ) {
       const nameMatched = doesOcrTextMatchName(options.firstName, options.lastName, normalizedText);
       if (!nameMatched) {
         return {
@@ -199,31 +222,6 @@ export function validateRecognizedText(
         text: normalizedText,
         nameMatched: true,
       };
-    }
-
-    if (documentType === "back_id" && options?.profileBirthDate) {
-      const birthCheck = verifyBackIdBirthdate(normalizedText, options.profileBirthDate);
-      if (!birthCheck.isValid && (birthCheck.parsedDates?.length ?? 0) > 0) {
-        return {
-          ...invalidResult("Birthdate Mismatch", ID_VALIDATION_ERROR_MESSAGE, normalizedText, "BIRTHDATE_MISMATCH"),
-          parsedDates: birthCheck.parsedDates,
-          birthdateMatched: false,
-        };
-      }
-
-      if (birthCheck.isValid) {
-        return {
-          success: true,
-          status: "success",
-          badgeText: "Verified",
-          message: "ID text verified.",
-          isValid: true,
-          matchedKeywords,
-          text: normalizedText,
-          parsedDates: birthCheck.parsedDates,
-          birthdateMatched: true,
-        };
-      }
     }
 
     return {
@@ -321,8 +319,14 @@ export async function scanDocument(
 ): Promise<ScanResult> {
   try {
     const { text, confidence } = await recognizeFile(file);
-    if (!text.trim() || confidence < MINIMUM_OCR_CONFIDENCE) {
-      const isId = documentType === "front_id" || documentType === "back_id";
+    const normalizedDocumentType = normalizeDocumentType(documentType);
+    if (
+      !text.trim() ||
+      (confidence < MINIMUM_OCR_CONFIDENCE && normalizedDocumentType !== "back_id")
+    ) {
+      const isId =
+        normalizedDocumentType === "front_id" ||
+        normalizedDocumentType === "back_id";
       return invalidResult(
         "Unreadable Image",
         isId ? ID_VALIDATION_ERROR_MESSAGE : UNREADABLE_DOCUMENT_MESSAGE,
@@ -330,7 +334,7 @@ export async function scanDocument(
         "LOW_CONFIDENCE",
       );
     }
-    return validateRecognizedText(documentType, text, options);
+    return validateRecognizedText(normalizedDocumentType, text, options);
   } catch (error) {
     console.error("Browser document scanner failed to initialize or process the file.", error);
     const failedWorker = workerPromise;

@@ -116,6 +116,7 @@ export default function KKProfilingStatusPage() {
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
+  const foregroundRequestRef = useRef<AbortController | null>(null);
   const refreshIntervalMs = 15000;
   
   // RULE 2: Dedicated Primitive State Hook (Never Derived)
@@ -138,9 +139,12 @@ export default function KKProfilingStatusPage() {
   const isProfileDataValid = profile && Object.keys(profile).length > 0;
 
   const fetchProfile = async ({ background = false } = {}) => {
+    if (background && foregroundRequestRef.current) return;
+
     const controller = new AbortController();
     refreshAbortControllerRef.current?.abort();
     refreshAbortControllerRef.current = controller;
+    if (!background) foregroundRequestRef.current = controller;
 
     if (!background) {
       setLoading(true);
@@ -186,13 +190,21 @@ export default function KKProfilingStatusPage() {
       if (!mountedRef.current) return;
       if (profileData && typeof profileData === "object" && Object.keys(profileData).length > 0) {
         setProfile(profileData);
+        setNoProfile(false);
+        setError(null);
+        setAuthRequired(false);
       } else {
         setProfile(null);
+        setNoProfile(true);
+        setError(null);
+        setAuthRequired(false);
       }
     } catch (fetchError) {
       if (!mountedRef.current) return;
-      const msg = String((fetchError as any)?.message || "");
-      const isAbort = (fetchError as any)?.name === "AbortError" || /aborted|abort|signal/i.test(msg);
+      const msg = fetchError instanceof Error ? fetchError.message : "";
+      const isAbort =
+        (fetchError instanceof Error && fetchError.name === "AbortError") ||
+        /aborted|abort|signal/i.test(msg);
       if (isAbort) {
         // Ignore aborts — they are expected when we refresh or unmount
         return;
@@ -202,7 +214,12 @@ export default function KKProfilingStatusPage() {
         setProfile(null);
       }
     } finally {
-      if (!background && mountedRef.current) {
+      if (
+        !background &&
+        mountedRef.current &&
+        foregroundRequestRef.current === controller
+      ) {
+        foregroundRequestRef.current = null;
         setLoading(false);
       }
     }
@@ -211,7 +228,6 @@ export default function KKProfilingStatusPage() {
   const mountedRef = useRef(false);
 
   useEffect(() => {
-    let intervalId: number | undefined;
     let visibleListener: (() => void) | null = null;
 
     mountedRef.current = true;
@@ -223,13 +239,14 @@ export default function KKProfilingStatusPage() {
       }
     };
 
-    intervalId = window.setInterval(() => fetchProfile({ background: true }), refreshIntervalMs);
+    const intervalId = window.setInterval(() => fetchProfile({ background: true }), refreshIntervalMs);
     visibleListener = () => refreshIfVisible();
     document.addEventListener("visibilitychange", visibleListener);
     window.addEventListener("focus", refreshIfVisible);
 
     return () => {
       mountedRef.current = false;
+      foregroundRequestRef.current = null;
       if (intervalId) {
         window.clearInterval(intervalId);
       }
@@ -409,7 +426,7 @@ export default function KKProfilingStatusPage() {
                       href="/programs/kk-profiling"
                       className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-[#0F3D5C] shadow-lg transition hover:-translate-y-0.5 hover:bg-teal-50"
                     >
-                      Begin application
+                      Complete KK Profiling
                       <ArrowRight className="h-4 w-4" aria-hidden="true" />
                     </Link>
                   </div>
@@ -517,7 +534,7 @@ export default function KKProfilingStatusPage() {
                   onClick={() => fetchProfile()}
                   className="mt-6 inline-flex items-center justify-center rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                 >
-                  Try again
+                  Retry
                 </button>
               </div>
             )
@@ -647,7 +664,7 @@ export default function KKProfilingStatusPage() {
                         onClick={() => setShowFormModal(true)}
                         className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
                       >
-                        View form
+                        {isReturnedStatus ? "Update / Resubmit" : "View form"}
                         <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </div>

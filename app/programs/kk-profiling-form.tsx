@@ -1167,13 +1167,12 @@ export default function KKProfilingForm({
                   acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
                   accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
                   maxSize={10 * 1024 * 1024}
-                  ocrStrategy="front-id"
+                  ocrStrategy="validIdFront"
                   compact
                   initialFile={idFiles.front ?? null}
                   firstName={form.firstName}
                   middleInitial={form.middleInitial}
                   lastName={form.lastName}
-                  profileBirthDate={form.birthDate}
                   onUpload={(file) => handleIdFileChange("front", file)}
                   onOcrStateChange={(state) => updateOcrDocumentState("front", state)}
                   onFailedOcrAttempt={() => recordFailedOcrAttempt("front")}
@@ -1184,13 +1183,12 @@ export default function KKProfilingForm({
                   acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
                   accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
                   maxSize={10 * 1024 * 1024}
-                  ocrStrategy="back-id"
+                  ocrStrategy="validIdBack"
                   compact
                   initialFile={idFiles.back ?? null}
                   firstName={form.firstName}
                   middleInitial={form.middleInitial}
                   lastName={form.lastName}
-                  profileBirthDate={form.birthDate}
                   onUpload={(file) => handleIdFileChange("back", file)}
                   onOcrStateChange={(state) => updateOcrDocumentState("back", state)}
                   onFailedOcrAttempt={() => recordFailedOcrAttempt("back")}
@@ -1209,7 +1207,6 @@ export default function KKProfilingForm({
               firstName={form.firstName}
               middleInitial={form.middleInitial}
               lastName={form.lastName}
-              profileBirthDate={form.birthDate}
               onUpload={(file) => handleIdFileChange("residency", file)}
               onOcrStateChange={(state) => updateOcrDocumentState("residency", state)}
               onFailedOcrAttempt={() => recordFailedOcrAttempt("residency")}

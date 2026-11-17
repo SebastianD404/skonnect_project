@@ -7,8 +7,15 @@ import { scanDocument } from "@/lib/ocrValidation";
 import FormFieldLabel from "@/app/components/FormFieldLabel";
 
 export type DocumentOCRKey = "front" | "back" | "residency";
-export type OcrStrategy = "none" | "residency" | "birth-certificate" | "front-id" | "back-id";
-type ScannerDocumentType = "front_id" | "back_id" | "certificate";
+export type OcrStrategy =
+  | "none"
+  | "residency"
+  | "birth-certificate"
+  | "front-id"
+  | "back-id"
+  | "validIdFront"
+  | "validIdBack";
+type ScannerDocumentType = "front_id" | "validIdFront" | "validIdBack" | "certificate";
 
 export type DocumentOCRState = {
   status: "idle" | "scanning" | "success" | "error";
@@ -35,7 +42,6 @@ type DocumentUploadCardProps = {
   firstName?: string;
   middleInitial?: string;
   lastName?: string;
-  profileBirthDate?: string;
   onOcrStateChange?: (state: DocumentOCRState) => void;
   onFailedOcrAttempt?: () => void;
 };
@@ -59,6 +65,8 @@ export function evaluateDocumentOcr(
       return /\b(birth|registry)\b/i.test(normalizedText)
         ? { isValid: true, error: null }
         : { isValid: false, error: "This doesn't look like a valid certificate. Please check your file and try uploading again." };
+    case "validIdFront":
+    case "validIdBack":
     case "front-id":
     case "back-id":
       return scannerIsValid
@@ -70,7 +78,7 @@ export function evaluateDocumentOcr(
 }
 
 export function getCompactIdErrorMessage(
-  _strategy: Extract<OcrStrategy, "front-id" | "back-id">,
+  _strategy: Extract<OcrStrategy, "validIdFront" | "validIdBack" | "front-id" | "back-id">,
   errorCode?: string,
 ) {
   if (errorCode === "SCANNER_UNAVAILABLE") {
@@ -81,10 +89,12 @@ export function getCompactIdErrorMessage(
 
 function getScannerDocumentType(strategy: OcrStrategy): ScannerDocumentType | null {
   switch (strategy) {
+    case "validIdFront":
     case "front-id":
-      return "front_id";
+      return "validIdFront";
+    case "validIdBack":
     case "back-id":
-      return "back_id";
+      return "validIdBack";
     case "residency":
       return "certificate";
     case "birth-certificate":
@@ -171,7 +181,6 @@ export function DocumentUploadCard({
   firstName,
   middleInitial,
   lastName,
-  profileBirthDate,
   onOcrStateChange,
   onFailedOcrAttempt,
 }: DocumentUploadCardProps) {
@@ -239,7 +248,9 @@ export function DocumentUploadCard({
       ocrStrategy === "birth-certificate" ||
       ocrStrategy === "residency" ||
       ocrStrategy === "front-id" ||
-      ocrStrategy === "back-id";
+      ocrStrategy === "back-id" ||
+      ocrStrategy === "validIdFront" ||
+      ocrStrategy === "validIdBack";
     if (!shouldRunOcr) {
       publishOcrState({ status: "success", badgeText: "File validated", file });
       return;
@@ -270,10 +281,9 @@ export function DocumentUploadCard({
             birthdateMatched: undefined,
           }
         : await scanDocument(file, scannerType, {
-            firstName: ocrStrategy === "front-id" || ocrStrategy === "residency" ? firstName : undefined,
-            lastName: ocrStrategy === "front-id" || ocrStrategy === "residency" ? lastName : undefined,
-            middleInitial: ocrStrategy === "front-id" ? middleInitial : undefined,
-            profileBirthDate: ocrStrategy === "back-id" ? profileBirthDate : undefined,
+            firstName: ocrStrategy === "validIdFront" || ocrStrategy === "front-id" || ocrStrategy === "residency" ? firstName : undefined,
+            lastName: ocrStrategy === "validIdFront" || ocrStrategy === "front-id" || ocrStrategy === "residency" ? lastName : undefined,
+            middleInitial: ocrStrategy === "validIdFront" || ocrStrategy === "front-id" ? middleInitial : undefined,
           });
       if (generation !== generationRef.current) return;
 
@@ -310,7 +320,7 @@ export function DocumentUploadCard({
         file,
       });
     }
-  }, [accept, acceptedFormats, firstName, lastName, maxSize, middleInitial, ocrStrategy, onFailedOcrAttempt, onUpload, profileBirthDate, publishOcrState]);
+  }, [accept, acceptedFormats, firstName, lastName, maxSize, middleInitial, ocrStrategy, onFailedOcrAttempt, onUpload, publishOcrState]);
 
   useEffect(() => {
     if (initialFile && initialFile !== selectedFile) {
@@ -336,7 +346,12 @@ export function DocumentUploadCard({
       : ocrStatus.message || "We couldn't check this file automatically. Our team will review it."
     : null;
   const compactIdErrorMessage =
-    compact && (ocrStrategy === "front-id" || ocrStrategy === "back-id") && ocrFailed
+    compact &&
+      (ocrStrategy === "validIdFront" ||
+        ocrStrategy === "validIdBack" ||
+        ocrStrategy === "front-id" ||
+        ocrStrategy === "back-id") &&
+      ocrFailed
       ? getCompactIdErrorMessage(ocrStrategy, ocrStatus.errorCode)
       : null;
   const ocrErrorMessage = compactIdErrorMessage ?? detailedOcrErrorMessage;

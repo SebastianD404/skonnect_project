@@ -85,6 +85,7 @@ async function getKKProfile() {
       orderBy: { submittedAt: "desc" },
       select: {
         id: true,
+        middleName: true,
         fullName: true,
         address: true,
         sex: true,
@@ -138,7 +139,9 @@ async function getKKProfile() {
   const hasAgeOutNotice =
     Boolean(ageOutRegistration) &&
     latestRegistration?.reviewStatus?.trim().toLowerCase() === "archived";
-  if (!profile?.kkProfile || (!hasVerifiedKkProfile && !hasAgeOutNotice)) {
+  const kkProfile = profile?.kkProfile ?? null;
+
+  if (!kkProfile && !latestRegistration && !hasAgeOutNotice) {
     return NextResponse.json({
       profile: null,
       hasVerifiedKkProfile: false,
@@ -150,25 +153,31 @@ async function getKKProfile() {
     ? "Archived"
     : getKKProfilingReviewStatus(
         latestRegistration?.reviewStatus,
-        profile.kkProfile.isVerified,
+        kkProfile?.isVerified ?? false,
       );
 
   return NextResponse.json({
     hasVerifiedKkProfile,
-    requiresKkProfiling: false,
+    requiresKkProfiling: !hasVerifiedKkProfile && !hasAgeOutNotice,
     profile: {
-      id: profile.kkProfile.id,
-      middleName: profile.kkProfile.middleName,
-      fullName: profile.kkProfile.fullName,
-      email: profile.kkProfile.email || profile.email,
-      contactNumber: profile.kkProfile.contactNumber || profile.phoneNumber,
-      purok: profile.kkProfile.purok,
-      addressLine: profile.kkProfile.addressLine,
-      barangay: profile.kkProfile.barangay,
-      birthDate: profile.kkProfile.birthDate,
-      placeOfBirth: profile.kkProfile.placeOfBirth,
-      age: computeAge(profile.kkProfile.birthDate),
-      isVerified: profile.kkProfile.isVerified,
+      id: kkProfile?.id ?? latestRegistration?.id ?? "",
+      middleName: kkProfile?.middleName ?? latestRegistration?.middleName ?? null,
+      fullName: kkProfile?.fullName ?? latestRegistration?.fullName ?? profile?.fullName ?? "",
+      email: kkProfile?.email || latestRegistration?.email || profile?.email || "",
+      contactNumber:
+        kkProfile?.contactNumber ||
+        latestRegistration?.contactNumber ||
+        profile?.phoneNumber ||
+        "",
+      purok: kkProfile?.purok ?? latestRegistration?.address.split(",")[0]?.trim() ?? "",
+      addressLine: kkProfile?.addressLine ?? latestRegistration?.address ?? "",
+      barangay: kkProfile?.barangay ?? "Pico",
+      birthDate: kkProfile?.birthDate ?? latestRegistration?.birthDate ?? null,
+      placeOfBirth: kkProfile?.placeOfBirth ?? null,
+      age: kkProfile
+        ? computeAge(kkProfile.birthDate)
+        : latestRegistration?.age ?? 0,
+      isVerified: kkProfile?.isVerified ?? false,
       status,
       ageOutNotice: ageOutRegistration
         ? { archivedAt: ageOutRegistration.archivedAt }

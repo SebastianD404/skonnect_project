@@ -43,14 +43,17 @@ vi.mock("@/lib/skeap-waitlist-cycle", () => ({
 }));
 
 import {
+  buildWaitlistOfferEmailTemplate,
   dispatchWaitlistSlotOffers,
   getDueWaitlistOfferReminderOffsets,
+  formatWaitlistOfferDeadline,
   getWaitlistOfferExpiresAt,
 } from "@/lib/skeap-waitlist-offers";
 
 describe("SKEAP waitlist offers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://skonnect.example");
     const tx = {
       systemSetting: { findUnique: vi.fn().mockResolvedValue({ value: 7 }) },
       skeapApplication: {
@@ -103,14 +106,48 @@ describe("SKEAP waitlist offers", () => {
     );
     expect(mocks.updateMany).toHaveBeenCalledTimes(2);
     expect(mocks.notificationUpsert).toHaveBeenCalledTimes(2);
+    expect(mocks.sendEmail.mock.calls[0]?.[3]).toContain("On or before November 24, 2026 (7 days)");
+    expect(mocks.sendEmail.mock.calls[0]?.[3]).toContain("8:00 AM – 5:00 PM (Monday – Friday)");
+    expect(mocks.sendEmail.mock.calls[0]?.[5]).toContain("SCHOLARSHIP SLOT OFFER · QUEUE #1");
+    expect(mocks.notificationUpsert.mock.calls[0]?.[0].create.message).toContain(
+      "during office hours: 8:00 AM – 5:00 PM (Monday – Friday), within 7 days, on or before November 24, 2026",
+    );
   });
 
-  it("uses the configured number of calendar days for the offer deadline", () => {
+  it("sets the deadline to 5:00 PM Manila time on the final calendar day", () => {
     const offeredAt = new Date("2026-11-17T09:00:00.000Z");
+    const offeredInTheMorning = new Date("2026-11-17T02:00:00.000Z");
 
     expect(getWaitlistOfferExpiresAt(offeredAt, 7)).toEqual(
       new Date("2026-11-24T09:00:00.000Z"),
     );
+    expect(getWaitlistOfferExpiresAt(offeredInTheMorning, 7)).toEqual(
+      new Date("2026-11-24T09:00:00.000Z"),
+    );
+    expect(formatWaitlistOfferDeadline(getWaitlistOfferExpiresAt(offeredInTheMorning, 7)))
+      .toBe("November 24, 2026");
+  });
+
+  it("builds a responsive offer email with a plain-text fallback and no generic status footer", () => {
+    const template = buildWaitlistOfferEmailTemplate({
+      applicantName: "Mara Santos",
+      queuePosition: 4,
+      waitlistOfferDays: 7,
+      expiresAt: new Date("2026-11-24T09:00:00.000Z"),
+      dashboardUrl: "https://skonnect.example/youth-dashboard",
+    });
+
+    expect(template.text).toContain("Hello Mara,");
+    expect(template.text).toContain("Queue #4");
+    expect(template.text).toContain("Barangay Ordinance No. 1 - 2022");
+    expect(template.text).toContain("Registrar-Issued Grades");
+    expect(template.text).toContain("https://skonnect.example/youth-dashboard");
+    expect(template.html).toContain("max-width:600px");
+    expect(template.html).toContain("SCHOLARSHIP SLOT OFFER · QUEUE #4");
+    expect(template.html).toContain("View Application in SKonnect →");
+    expect(template.html).toContain("This is an automated notice from SKonnect");
+    expect(template.html).not.toContain("Your scholarship record has been updated");
+    expect(template.html).not.toContain("11:59 AM");
   });
 
   it("sends reminders at 48 and 24 hours remaining, without reminders after expiry", () => {

@@ -46,6 +46,27 @@ describe("browser OCR document validation", () => {
     expect(cardStructureResult.status).toBe("success");
   });
 
+  it("uses the distinct validIdBack rule for back-side keywords without front-side or DOB checks", () => {
+    const result = validateRecognizedText(
+      "validIdBack",
+      "PERSON TO CONTACT IN CASE OF EMERGENCY. SIGNATURE. RULES ON USE OF THIS ID. Birthdate: 12/31/2000.",
+      { profileBirthDate: "01/15/2005" },
+    );
+    const specimenCard = validateRecognizedText(
+      "validIdBack",
+      "Specimen. Registrar. Address. Student Identification Card.",
+    );
+    const unrelatedCertificate = validateRecognizedText(
+      "validIdBack",
+      "CERTIFICATE OF RESIDENCY. Barangay Pico. Resident address details are listed here.",
+    );
+
+    expect(result.status).toBe("success");
+    expect(specimenCard.status).toBe("success");
+    expect(unrelatedCertificate.status).toBe("error");
+    expect(unrelatedCertificate.message).toBe("Please Upload a Correct Valid ID.");
+  });
+
   it("rejects unrelated back-side text with the requested ID feedback", () => {
     const result = validateRecognizedText(
       "back_id",

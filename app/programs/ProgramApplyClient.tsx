@@ -132,11 +132,12 @@ function SkeapPrerequisiteModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="skeap-prerequisite-title"
+        aria-describedby="skeap-prerequisite-description"
         tabIndex={-1}
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200 focus:outline-none sm:p-7"
+        className="relative max-h-[calc(100dvh-2rem)] w-[min(calc(100vw-2rem),30rem)] max-w-[30rem] overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-5 shadow-[0_24px_70px_rgba(15,23,42,0.24)] focus:outline-none sm:p-6"
       >
-        <div className="flex items-start gap-4">
-          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${
+        <div className="grid grid-cols-[2.75rem_minmax(0,1fr)] items-start gap-x-4 pr-8">
+          <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
             isMissingProfile
               ? "bg-blue-50 text-[#0F3D5C]"
               : isUnderReview
@@ -146,26 +147,29 @@ function SkeapPrerequisiteModal({
             <Icon className="h-5 w-5" aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <h2 id="skeap-prerequisite-title" className="text-xl font-bold text-slate-900">
+            <h2 id="skeap-prerequisite-title" className="text-lg font-bold leading-snug tracking-tight text-slate-900 sm:text-xl">
               {title}
             </h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
+            <p id="skeap-prerequisite-description" className="mt-2 text-sm leading-6 text-slate-600">
+              {description}
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close dialog"
-            className="ml-auto -mt-1 rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
         </div>
 
-        <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close dialog"
+          className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 sm:right-5 sm:top-5"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+
+        <div className="mt-5 flex flex-col-reverse gap-2.5 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+            className="inline-flex h-11 w-full items-center justify-center whitespace-nowrap rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 sm:w-auto"
           >
             {isMissingProfile ? "Cancel" : "Close"}
           </button>
@@ -174,7 +178,7 @@ function SkeapPrerequisiteModal({
             onClick={() => onAction(
               isMissingProfile ? "kk" : isError ? "retry" : "dashboard",
             )}
-            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+            className="inline-flex h-11 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-[#0F3D5C] px-4 text-sm font-semibold text-white transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 sm:w-auto sm:px-5"
           >
             {isMissingProfile
               ? "Complete KK Profiling →"
