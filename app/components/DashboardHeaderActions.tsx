@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Inbox } from "lucide-react";
+import { ChevronDown, Inbox } from "lucide-react";
 import { useNotificationState } from "./NotificationProvider";
 import { useAuth } from "./AuthProvider";
 import { Avatar } from "@/components/ui/Avatar";
+import { createBrowserClient } from "@/lib/supabase/browser";
 
 interface DashboardHeaderActionsProps {
   notifications?: string[];
@@ -16,9 +17,11 @@ interface DashboardHeaderActionsProps {
 
 type NotificationItem = {
   id: string;
-  text: string;
+  title: string;
+  message: string;
   createdAt?: string;
-  href?: string;
+  link?: string;
+  isRead?: boolean;
 };
 
 type SupportThread = {
@@ -32,6 +35,25 @@ type SupportThread = {
 
 const INITIAL_NOTIFICATION_COUNT = 5;
 const NOTIFICATION_PAGE_SIZE = 10;
+
+function splitNotificationText(text: string) {
+  const [firstLine = "", ...remainingLines] = text.split(/\r?\n/);
+  if (remainingLines.length > 0) {
+    return {
+      title: firstLine.trim() || "Notification",
+      message: remainingLines.join("\n").trim(),
+    };
+  }
+
+  const separator = firstLine.indexOf(": ");
+  if (separator > 0) {
+    return {
+      title: firstLine.slice(0, separator).trim(),
+      message: firstLine.slice(separator + 2).trim(),
+    };
+  }
+  return { title: "Notification", message: text };
+}
 
 function getSupportReplyKey(inquiry: SupportThread) {
   if (inquiry.respondedAt) return `inquiry-reply:${inquiry.id}:${inquiry.respondedAt}`;
@@ -65,12 +87,13 @@ function hasSameAvatarResource(first: string, second: string) {
 
 export function DashboardHeaderActions({ notifications = [], supportInboxPath = "/grantee-dashboard/inquiries" }: DashboardHeaderActionsProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user: authUser } = useAuth();
   const {
     readNotificationIds,
     unreadCount: liveUnreadCount,
+    refreshNotifications,
     markNotificationAsRead,
-    markAllNotificationsAsRead,
   } = useNotificationState();
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "settings">("none");
   const [serverRole, setServerRole] = useState<string | undefined>(authUser?.role);
@@ -89,21 +112,19 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
   const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
   const [broadcastNotifications, setBroadcastNotifications] = useState<NotificationItem[]>([]);
   const [inAppNotifications, setInAppNotifications] = useState<NotificationItem[]>([]);
-  const [expandedNotificationId, setExpandedNotificationId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [visibleCount, setVisibleCount] = useState(INITIAL_NOTIFICATION_COUNT);
-  const [unreadNotifications, setUnreadNotifications] = useState<number>(notifications?.length ?? 0);
-  const [clearedNotifications, setClearedNotifications] = useState(false);
-  const [lastSeenNotificationsCount, setLastSeenNotificationsCount] = useState<number | null>(null);
-  const STORAGE_KEY_BASE = "skonnect-dashboard-badge-state";
+  const [relativeTimeNow, setRelativeTimeNow] = useState<number | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const hasRequestedRead = useRef(false);
+  const notificationRefreshInFlight = useRef(false);
   const isSupportInboxActive =
     pathname === supportInboxPath || pathname.startsWith(`${supportInboxPath}/`);
 
   const formatRelativeTime = (createdAt?: string) => {
     if (!createdAt) return "";
-    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000));
+    if (relativeTimeNow === null) return new Date(createdAt).toLocaleDateString();
+    const elapsedSeconds = Math.max(0, Math.floor((relativeTimeNow - new Date(createdAt).getTime()) / 1000));
     if (elapsedSeconds < 60) return "Just now";
     const elapsedMinutes = Math.floor(elapsedSeconds / 60);
     if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
@@ -116,14 +137,18 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     return new Date(createdAt).toLocaleDateString();
   };
 
-  const truncateMessage = (text: string, limit: number = 160) => {
-    if (!text) return '';
-    return text.length > limit ? text.substring(0, limit).trim() + '...' : text;
-  };
+  const formatFullDateTime = (createdAt: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(createdAt));
 
   const handleNotificationClick = (notification: NotificationItem) => {
-    setExpandedNotificationId((current) => current === notification.id ? null : notification.id);
-    if (!readNotificationIds.has(notification.id)) {
+    setExpandedId((current) => current === notification.id ? null : notification.id);
+    if (!notification.isRead && !readNotificationIds.has(notification.id)) {
       void markNotificationAsRead(notification.id);
     }
     if (filter === "unread") {
@@ -151,22 +176,6 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
-
-  useEffect(() => {
-    if (!profileId) return;
-    try {
-      const state = readStorageState(profileId);
-      if (!state) return;
-      setClearedNotifications(state.clearedNotifications);
-      setLastSeenNotificationsCount(state.lastSeenNotificationsCount);
-
-      if (state.clearedNotifications) {
-        setUnreadNotifications(0);
-      }
-    } catch {
-      // ignore storage read errors
-    }
-  }, [profileId]);
 
   useEffect(() => {
     async function reconcileProfile() {
@@ -209,7 +218,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
         // Notify other tabs/components that profile changed
         window.dispatchEvent(new Event('skonnect-profile-updated'));
 
-      } catch (err) {
+      } catch {
         // ignore
       }
     }
@@ -248,8 +257,20 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     };
   }, [updateProfileAvatar]);
 
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setRelativeTimeNow(Date.now()));
+    const timer = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearInterval(timer);
+    };
+  }, []);
+
   const displayedNotifications: NotificationItem[] = [
-    ...notifications.map<NotificationItem>((notification, index) => ({ id: `provided:${index}:${notification}`, text: notification })),
+    ...notifications.map<NotificationItem>((notification, index) => ({
+      id: `provided:${index}:${notification}`,
+      ...splitNotificationText(notification),
+    })),
     ...inAppNotifications,
     ...broadcastNotifications,
   ].sort((a, b) => {
@@ -262,60 +283,11 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     ? displayedNotifications.filter((notification) => !readNotificationIds.has(notification.id))
     : displayedNotifications;
   const visibleNotifications = filteredNotifications.slice(0, visibleCount);
-  const notificationSignature = displayedNotifications.map((notification) => notification.id).join("|");
-  const notificationCount = displayedNotifications.length;
   const inquiryReplyCount = supportThreads.filter((inquiry) =>
     Boolean(inquiry.response) &&
     !inquiry.isResolved &&
     !readNotificationIds.has(getSupportReplyKey(inquiry))
   ).length;
-
-  useEffect(() => {
-    const isOpen = openPanel === "notifications";
-    if (!isOpen) {
-      hasRequestedRead.current = false;
-      return;
-    }
-
-    if (liveUnreadCount > 0 && !hasRequestedRead.current) {
-      hasRequestedRead.current = true;
-      void markAllNotificationsAsRead(displayedNotifications.map((notification) => notification.id));
-    }
-    // The signature changes when new items arrive, but the ref prevents a
-    // second bulk mutation during the same open session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openPanel, liveUnreadCount, notificationSignature, markAllNotificationsAsRead]);
-
-  const getStorageKey = (userId: string | null) => {
-    return userId ? `${STORAGE_KEY_BASE}:${userId}` : STORAGE_KEY_BASE;
-  };
-
-  const readStorageState = (userId: string | null) => {
-    try {
-      const raw = localStorage.getItem(getStorageKey(userId));
-      if (!raw) return null;
-      return JSON.parse(raw) as {
-        clearedNotifications: boolean;
-        lastSeenNotificationsCount: number | null;
-      };
-    } catch {
-      return null;
-    }
-  };
-
-  const writeStorageState = (
-    state: {
-      clearedNotifications: boolean;
-      lastSeenNotificationsCount: number | null;
-    },
-    userId: string | null,
-  ) => {
-    try {
-      localStorage.setItem(getStorageKey(userId), JSON.stringify(state));
-    } catch {
-      // ignore storage errors
-    }
-  };
 
   useEffect(() => {
     if ((serverRole !== "GRANTEE" && serverRole !== "YOUTH") || !profileId) return;
@@ -324,22 +296,18 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
 
     async function refreshGranteeMessages() {
       try {
-        const [inquiriesResponse, messagesResponse, announcementsResponse, notificationsResponse, remindersResponse] = await Promise.all([
+        const [inquiriesResponse, messagesResponse, announcementsResponse, remindersResponse] = await Promise.all([
           fetch("/api/my/inquiries", { cache: "no-store" }),
           fetch("/api/my/messages", { cache: "no-store" }),
           fetch("/api/announcements", { cache: "no-store" }),
-          fetch("/api/my/notifications", { cache: "no-store" }),
           fetch("/api/my/reminders", { cache: "no-store" }),
         ]);
         if (!active) return;
 
-        const [inquiriesData, messagesData, announcementsData, notificationsData, remindersData]: unknown[] = await Promise.all([
+        const [inquiriesData, messagesData, announcementsData, remindersData]: unknown[] = await Promise.all([
           inquiriesResponse.ok ? inquiriesResponse.json() : { inquiries: [] },
           messagesResponse.ok ? messagesResponse.json() : { messages: [] },
           announcementsResponse.ok ? announcementsResponse.json() : [],
-          notificationsResponse.ok
-            ? notificationsResponse.json()
-            : { notifications: [] },
           remindersResponse.ok ? remindersResponse.json() : { reminders: [] },
         ]);
         const inquiryPayload = asRecord(inquiriesData);
@@ -358,7 +326,8 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
           const subject = getString(item.subject, "Message");
           return [{
             id: `message:${item.id}`,
-            text: `${subject}: ${getString(item.body)}`,
+            title: subject,
+            message: getString(item.body),
             createdAt: getString(item.createdAt),
           }];
         });
@@ -384,28 +353,9 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
           if (!item || (typeof item.id !== "string" && typeof item.id !== "number")) return [];
           return [{
             id: `announcement:${item.id}`,
-            text: `Announcement: ${getString(item.title)}: ${getString(item.content)}`,
+            title: getString(item.title, "Announcement"),
+            message: getString(item.content),
             createdAt: getString(item.publishedAt) || getString(item.createdAt),
-          }];
-        });
-        const notificationPayload = asRecord(notificationsData);
-        const payoutRows: unknown[] = notificationPayload && Array.isArray(notificationPayload.notifications)
-          ? notificationPayload.notifications
-          : [];
-        const payoutNotifications = payoutRows.flatMap((value): NotificationItem[] => {
-          const item = asRecord(value);
-          if (!item || typeof item.id !== "string" || typeof item.text !== "string") return [];
-          return [{
-            id: item.id,
-            text: item.text,
-            createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
-            href: typeof item.href === "string"
-              ? item.href
-              : item.id.startsWith("requirements-upload:")
-                ? "/grantee-dashboard/documents"
-                : item.id.startsWith("payout-disbursed:")
-                  ? "/grantee/payouts"
-                  : undefined,
           }];
         });
         const reminderPayload = asRecord(remindersData);
@@ -426,20 +376,16 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
             getString(item.channel, "You have a reminder.");
           return [{
             id: `reminder:${item.id}`,
-            text: `${subject}: ${body}`,
+            title: subject,
+            message: body,
             createdAt: getString(item.createdAt) || getString(item.sentAt),
           }];
         });
-        const refreshedItems = new Map(
-          [...payoutNotifications, ...reminderNotifications].map((item) => [item.id, item])
-        );
-        const refreshedNotificationIds = new Set(refreshedItems.keys());
+        const refreshedItems = new Map(reminderNotifications.map((item) => [item.id, item]));
         setInAppNotifications((current) => [
           ...current.filter((item) =>
-            !item.text.startsWith("Announcement: ") &&
-            !item.id.startsWith("payout-disbursed:") &&
-            !item.id.startsWith("reminder:") &&
-            !refreshedNotificationIds.has(item.id)
+            !item.id.startsWith("announcement:") &&
+            !item.id.startsWith("reminder:")
           ),
           ...announcementNotifications,
           ...refreshedItems.values(),
@@ -455,7 +401,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     }
 
     refreshGranteeMessages();
-    const refreshTimer = window.setInterval(refreshGranteeMessages, 10000);
+    const refreshTimer = window.setInterval(refreshGranteeMessages, 30000);
     window.addEventListener("focus", refreshGranteeMessages);
     document.addEventListener("visibilitychange", refreshWhenVisible);
 
@@ -467,41 +413,103 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     };
   }, [profileId, serverRole]);
 
+  useEffect(() => {
+    if (serverRole !== "GRANTEE" || !profileId) return;
+
+    const userId = profileId;
+    let active = true;
+    let realtimeClient: ReturnType<typeof createBrowserClient> | null = null;
+    let realtimeChannel: ReturnType<ReturnType<typeof createBrowserClient>["channel"]> | null = null;
+
+    async function refreshGranteeNotifications() {
+      if (!active || document.visibilityState !== "visible" || notificationRefreshInFlight.current) return;
+      notificationRefreshInFlight.current = true;
+      try {
+        const response = await fetch("/api/my/notifications", { cache: "no-store" });
+        if (!active || !response.ok) return;
+        const payload = asRecord(await response.json());
+        const rows: unknown[] = payload && Array.isArray(payload.notifications)
+          ? payload.notifications
+          : [];
+        const items = rows.flatMap((value): NotificationItem[] => {
+          const item = asRecord(value);
+          if (!item || typeof item.id !== "string" || typeof item.text !== "string") return [];
+          const parsedText = splitNotificationText(item.text);
+          return [{
+            id: item.id,
+            title: getString(item.title, parsedText.title),
+            message: getString(item.message, parsedText.message),
+            createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
+            link: typeof item.href === "string"
+              ? item.href
+              : item.id.startsWith("submission:")
+                ? "/grantee-dashboard/documents"
+                : undefined,
+            isRead: item.isRead === true,
+          }];
+        });
+
+        setInAppNotifications((current) => [
+          ...current.filter((item) =>
+            item.id.startsWith("announcement:") || item.id.startsWith("reminder:")
+          ),
+          ...items,
+        ]);
+        await refreshNotifications();
+      } catch {
+        // Keep the last successful notification state when the background request is unavailable.
+      } finally {
+        notificationRefreshInFlight.current = false;
+      }
+    }
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshGranteeNotifications();
+    };
+
+    void refreshGranteeNotifications();
+    const timer = window.setInterval(refreshWhenVisible, 5000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      realtimeClient = createBrowserClient();
+      realtimeChannel = realtimeClient
+        .channel(`grantee-notifications:${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "notifications",
+            filter: `userId=eq.${userId}`,
+          },
+          () => {
+            if (document.visibilityState !== "visible") return;
+            void refreshGranteeNotifications();
+            router.refresh();
+          },
+        )
+        .subscribe();
+    }
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      if (realtimeClient && realtimeChannel) {
+        void realtimeClient.removeChannel(realtimeChannel);
+      }
+    };
+  }, [profileId, refreshNotifications, router, serverRole]);
+
   const markSupportInboxViewed = () => {
     const keys = supportThreads
       .filter((inquiry) => Boolean(inquiry.response))
       .map(getSupportReplyKey);
     void Promise.all(keys.map(markNotificationAsRead));
   };
-
-  // Sync notification count only when new items arrive; clearing hides it until then.
-  useEffect(() => {
-    if (!profileId) return;
-    const next = notificationCount;
-    if (clearedNotifications) {
-      // If the user cleared notifications, only consider counts greater than
-      // the last seen server count at the time of clearing as new.
-      if (lastSeenNotificationsCount === null) {
-        setLastSeenNotificationsCount(next);
-      } else if (next > lastSeenNotificationsCount) {
-        setUnreadNotifications(next);
-        setClearedNotifications(false);
-        setLastSeenNotificationsCount(null);
-      }
-    } else {
-      if (next > unreadNotifications) {
-        setUnreadNotifications(next);
-        setClearedNotifications(false);
-      } else if (unreadNotifications === undefined) {
-        setUnreadNotifications(next);
-      }
-    }
-
-    writeStorageState({
-      clearedNotifications,
-      lastSeenNotificationsCount,
-    }, profileId);
-  }, [notificationCount, clearedNotifications, lastSeenNotificationsCount, profileId, unreadNotifications]);
 
   return (
     <div className="relative flex items-center gap-3" ref={wrapperRef}>
@@ -510,14 +518,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
           type="button"
           onClick={() => {
             const next = openPanel === "notifications" ? "none" : "notifications";
-            const wasClosed = openPanel !== "notifications";
             setOpenPanel(next);
-            if (next === "notifications" && wasClosed) {
-              writeStorageState({
-                clearedNotifications: true,
-                lastSeenNotificationsCount: displayedNotifications.length,
-              }, profileId);
-            }
           }}
           className="relative rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/40 hover:bg-[#0F3D5C]/5 hover:text-[#0F3D5C]"
           aria-expanded={openPanel === "notifications"}
@@ -571,69 +572,88 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
               {visibleNotifications.length > 0 ? (
                 <div className="space-y-2">
                 {visibleNotifications.map((notification, idx) => {
-                  const isRead = readNotificationIds.has(notification.id);
-                  const isExpanded = expandedNotificationId === notification.id;
-                  const cardContent = (
-                    <>
+                  const isRead = notification.isRead || readNotificationIds.has(notification.id);
+                  const isExpanded = expandedId === notification.id;
+                  const isLongMessage = notification.message.length > 100;
+                  const cardClassName = `flex min-w-0 items-start gap-3 rounded-xl p-3 text-left text-sm ${
+                    isRead ? "bg-white text-slate-600" : "bg-blue-50 text-slate-700"
+                  }`;
+                  return (
+                    <div
+                      key={`${notification.id}-${idx}`}
+                      className={`${cardClassName} transition-colors ${isRead ? "hover:bg-gray-50" : "hover:bg-blue-100/50"}`}
+                    >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500" aria-hidden="true">
                         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
                           <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.5 1.5V19h17v-1.5L19 16Z" />
                         </svg>
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <p className={`break-words ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-4"}`}>
-                          {isExpanded ? notification.text : truncateMessage(notification.text, 160)}
-                        </p>
-                        {notification.createdAt || notification.href ? (
-                          <span className="mt-1 flex items-center justify-between gap-2 text-xs">
-                            <span className="text-slate-400">
-                              {notification.createdAt ? formatRelativeTime(notification.createdAt) : null}
-                            </span>
-                            {notification.href ? (
-                              <span className="shrink-0 font-semibold text-[#0F3D5C]">
-                                {notification.id.startsWith("requirements-upload:")
-                                  ? "Upload requirements →"
-                                  : notification.id.startsWith("kk-age-out:")
-                                    ? "View KK profile update →"
-                                    : notification.id.startsWith("graduation-candidate-ready:") ||
-                                        notification.id.startsWith("graduation-exit-clearance:")
-                                      ? "View graduation record →"
-                                      : "View update →"}
-                              </span>
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => handleNotificationClick(notification)}
+                          aria-expanded={isExpanded}
+                          className="block w-full text-left focus-visible:rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C]"
+                        >
+                          <p className="break-words text-sm font-semibold text-slate-900">
+                            {notification.title}
+                          </p>
+                          <p className={`mt-1 break-words text-xs leading-relaxed text-slate-600 ${
+                            isExpanded ? "whitespace-pre-line" : "line-clamp-2"
+                          }`}>
+                            {notification.message}
+                          </p>
+                        </button>
+                        <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                          <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-slate-400">
+                            {notification.createdAt ? (
+                              <>
+                                <span>{formatRelativeTime(notification.createdAt)}</span>
+                                {isExpanded ? (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <time dateTime={notification.createdAt}>
+                                      {formatFullDateTime(notification.createdAt)}
+                                    </time>
+                                  </>
+                                ) : null}
+                              </>
                             ) : null}
                           </span>
-                        ) : null}
-                      </span>
-                      {!isRead && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" aria-label="Unread" />}
-                    </>
-                  );
-                  const cardClassName = `flex w-full min-w-0 items-start gap-3 rounded-xl p-3 text-left text-sm ${
-                    isRead ? "bg-white text-slate-600" : "bg-blue-50 text-slate-700"
-                  }`;
-                  return (
-                    notification.href ? (
-                      <Link
-                        key={`${notification.id}-${idx}`}
-                        href={notification.href}
-                        onClick={() => {
-                          if (!isRead) void markNotificationAsRead(notification.id);
-                          setOpenPanel("none");
-                        }}
-                        className={`${cardClassName} cursor-pointer transition-colors hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0F3D5C]`}
-                      >
-                        {cardContent}
-                      </Link>
-                    ) : (
-                      <button
-                        key={`${notification.id}-${idx}`}
-                        type="button"
-                        onClick={() => handleNotificationClick(notification)}
-                        aria-expanded={isExpanded}
-                        className={`${cardClassName} transition-all ${isRead ? "hover:bg-gray-50" : "hover:bg-blue-100/50"}`}
-                      >
-                        {cardContent}
-                      </button>
-                    )
+                          <span className="flex shrink-0 items-center gap-3">
+                            {isLongMessage ? (
+                              <button
+                                type="button"
+                                onClick={() => handleNotificationClick(notification)}
+                                aria-expanded={isExpanded}
+                                className="inline-flex items-center gap-1 font-medium text-slate-500 transition hover:text-slate-800"
+                              >
+                                {isExpanded ? "Show less" : "Read full message"}
+                                <ChevronDown
+                                  className={`h-3.5 w-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            ) : null}
+                            {notification.link ? (
+                              <Link
+                                href={notification.link}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (!isRead) void markNotificationAsRead(notification.id);
+                                  setExpandedId(null);
+                                  setOpenPanel("none");
+                                }}
+                                className="font-semibold text-[#0F3D5C] hover:underline"
+                              >
+                                View update →
+                              </Link>
+                            ) : null}
+                          </span>
+                        </div>
+                      </div>
+                      {!isRead ? <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" aria-label="Unread" /> : null}
+                    </div>
                   );
                 })}
                 </div>

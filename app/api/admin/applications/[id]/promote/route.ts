@@ -94,6 +94,8 @@ export async function POST(
           id: true,
           status: true,
           submittedAt: true,
+          waitlistOfferStatus: true,
+          waitlistOfferExpiresAt: true,
           dateOfBirth: true,
           physicalDocumentsConfirmed: true,
           userId: true,
@@ -131,6 +133,26 @@ export async function POST(
       }
       const cycleState = await getSkeapWaitlistCycleState(cycle, tx);
       if (cycleState.isClosed) throw new Error("SKEAP_CYCLE_CLOSED");
+      if (
+        (application.waitlistOfferStatus !== "OFFERED" &&
+          application.waitlistOfferStatus !== "EXPIRED") ||
+        !application.waitlistOfferExpiresAt
+      ) {
+        throw new Error("SLOT_OFFER_NOT_ACTIVE");
+      }
+      const manualOfferNotification = await tx.notification.findMany({
+        where: {
+          userId: application.userId,
+          sourceKey: `skeap-waitlist-offer:${application.id}:${application.waitlistOfferExpiresAt.toISOString()}`,
+        },
+        select: { message: true },
+        take: 1,
+      });
+      if (!manualOfferNotification.some(
+        (notification) => typeof notification.message === "string" && notification.message.trim().length > 0,
+      )) {
+        throw new Error("SLOT_OFFER_NOT_ACTIVE");
+      }
       if (!application.physicalDocumentsConfirmed && !confirmPhysicalVerification) {
         throw new Error("PHYSICAL_VERIFICATION_REQUIRED");
       }
@@ -151,16 +173,33 @@ export async function POST(
       if (existingGrantee?.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
 
       const applicantCapacity = await getSkeapCapacitySnapshot(tx, application.userId);
-      const otherActiveOffers = await tx.skeapApplication.count({
+      const otherOffers = await tx.skeapApplication.findMany({
         where: {
           id: { not: application.id },
           status: "WAITLISTED",
-          waitlistOfferStatus: "OFFERED",
-          waitlistOfferExpiresAt: { gt: new Date() },
+          waitlistOfferStatus: { in: ["OFFERED", "EXPIRED"] },
+          waitlistOfferExpiresAt: { not: null },
           submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
         },
+        select: { id: true, userId: true, waitlistOfferExpiresAt: true },
       });
-      if (applicantCapacity.activeCount + otherActiveOffers >= maxSlots) throw new Error("CAPACITY_FULL");
+      const otherOfferNotifications = otherOffers.length > 0
+        ? await tx.notification.findMany({
+            where: {
+              OR: otherOffers.flatMap((offer) => offer.waitlistOfferExpiresAt
+                ? [{
+                    userId: offer.userId,
+                    sourceKey: `skeap-waitlist-offer:${offer.id}:${offer.waitlistOfferExpiresAt.toISOString()}`,
+                  }]
+                : []),
+            },
+            select: { message: true },
+          })
+        : [];
+      const otherManualOffers = otherOfferNotifications.filter(
+        (notification) => typeof notification.message === "string" && notification.message.trim().length > 0,
+      ).length;
+      if (applicantCapacity.activeCount + otherManualOffers >= maxSlots) throw new Error("CAPACITY_FULL");
 
       await tx.skeapApplication.update({
         where: { id },
@@ -273,7 +312,7 @@ export async function POST(
       activeCount: waitlistSnapshot.activeCount,
       maxSlots: waitlistSnapshot.maxSlots,
       offeredCount: waitlistSnapshot.offeredCount,
-      openUnclaimedCount: waitlistSnapshot.openUnclaimedCount,
+      openSlotCount: waitlistSnapshot.openSlotCount,
     };
 
     if (granteeStatusChanged) {
@@ -356,6 +395,9 @@ export async function POST(
     }
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });
     if (message === "NOT_WAITLISTED") return NextResponse.json({ error: "Application is not currently waitlisted." }, { status: 409 });
+    if (message === "SLOT_OFFER_NOT_ACTIVE") {
+      return NextResponse.json({ error: "Applicant must have an active slot offer before admission." }, { status: 409 });
+    }
     if (message === "PHYSICAL_VERIFICATION_REQUIRED") {
       return NextResponse.json({ error: "Confirm that the original/CTC documents were physically verified before promotion." }, { status: 400 });
     }

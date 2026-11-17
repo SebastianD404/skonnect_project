@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAdminSearch } from "./AdminSearchContext";
-import AdminExportButton from "./AdminExportButton";
 import { GranteeStatusTable, type GranteeTableRow } from "./grantees/GranteeStatusTable";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import RevokeGranteeModal from "./submissions/RevokeGranteeModal";
@@ -63,9 +62,6 @@ export default function AdminGranteesPageClient({
 
     return () => window.clearTimeout(timeout);
   }, [pathname, query, router, searchParams, searchQuery, setSearchQuery, startTransition]);
-  const exportParams = new URLSearchParams();
-  if (searchQuery.trim()) exportParams.set("q", searchQuery.trim());
-  const exportHref = `/api/admin/grantees/export${exportParams.size ? `?${exportParams.toString()}` : ""}`;
   const isSearchLoading = searchQuery.trim() !== query;
   const [scholarshipCandidate, setScholarshipCandidate] = useState<GranteeTableRow | null>(null);
   const [isRevokingGrantee, setIsRevokingGrantee] = useState(false);
@@ -157,13 +153,6 @@ export default function AdminGranteesPageClient({
             <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
               See the latest status, academic average, and enrollment details for every approved grantee.
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <AdminExportButton
-              href={exportHref}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#0F3D5C] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47]"
-              iconClassName="h-3.5 w-3.5"
-            />
           </div>
         </header>
 

@@ -24,6 +24,10 @@ export async function POST() {
     });
   } catch (error) {
     console.error("Manual system backup failed:", error);
-    return NextResponse.json({ error: "Unable to generate a system backup." }, { status: 500 });
+    const reason = error instanceof Error ? error.message : String(error);
+    return NextResponse.json(
+      { error: `Unable to generate a system backup: ${reason}` },
+      { status: 500 },
+    );
   }
 }

@@ -21,7 +21,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-import { GET } from "@/app/api/system-admin/audit/route";
+import { GET } from "@/app/api/system-admin/audit/unread-count/route";
 
 describe("system admin audit unread count", () => {
   beforeEach(() => {
@@ -31,9 +31,9 @@ describe("system admin audit unread count", () => {
     mocks.auditCount.mockResolvedValue(3);
   });
 
-  it("serves unread count from the registered audit route", async () => {
+  it("serves unread count from its dedicated route", async () => {
     const request = new NextRequest(
-      "http://localhost/api/system-admin/audit?view=unread-count&since=2026-11-17T00%3A00%3A00.000Z",
+      "http://localhost/api/system-admin/audit/unread-count?since=2026-11-17T00%3A00%3A00.000Z",
     );
 
     const response = await GET(request);
@@ -51,7 +51,7 @@ describe("system admin audit unread count", () => {
 
   it("rejects malformed last-viewed timestamps", async () => {
     const request = new NextRequest(
-      "http://localhost/api/system-admin/audit?view=unread-count&since=not-a-date",
+      "http://localhost/api/system-admin/audit/unread-count?since=not-a-date",
     );
 
     const response = await GET(request);

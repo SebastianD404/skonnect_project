@@ -11,8 +11,6 @@ import { getCurrentAcademicSemester, getPreviousAcademicSemester } from "@/lib/s
 import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
 import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 import {
-  dispatchWaitlistSlotOffers,
-  processExpiredWaitlistOffers,
   processWaitlistOfferReminders,
 } from "@/lib/skeap-waitlist-offers";
 
@@ -57,6 +55,7 @@ export type ReminderRunResult = {
   emailFailed: number;
   emailSkipped: number;
   inAppCreated: number;
+  errors: string[];
 };
 
 const EMPTY_RESULT: ReminderRunResult = {
@@ -65,6 +64,7 @@ const EMPTY_RESULT: ReminderRunResult = {
   emailFailed: 0,
   emailSkipped: 0,
   inAppCreated: 0,
+  errors: [],
 };
 
 export async function loadReminderSettings(): Promise<DeadlineReminderSettings> {
@@ -321,17 +321,12 @@ export async function runDeadlineReminders(now = new Date()) {
 }
 
 export async function runWaitlistOfferJobs(now = new Date()) {
-  const expiredOffers = await processExpiredWaitlistOffers(now);
-  const dispatchResult =
-    expiredOffers.dispatchResult ?? (await dispatchWaitlistSlotOffers(now));
   const reminders = await processWaitlistOfferReminders(now);
-  return { expiredOffers, dispatchResult, reminders };
+  return { reminders };
 }
 
 export async function runGranteeUploadRequirementReminders(now = new Date()) {
   const settings = await loadReminderSettings();
-  if (settings.skeapOffsets.length === 0) return EMPTY_RESULT;
-
   const schedules = await prisma.academicTermSchedule.findMany({
     orderBy: { opensAt: "asc" },
     select: { id: true, semester: true, opensAt: true, closesAt: true },
@@ -345,27 +340,35 @@ export async function runGranteeUploadRequirementReminders(now = new Date()) {
     return EMPTY_RESULT;
   }
 
-  const dueOffsets = getDueOffsets(settings.skeapOffsets, targetTerm.closesAt, now);
-  if (dueOffsets.length === 0) return EMPTY_RESULT;
-
   const match = /^(\d{4}-\d{4})\s+(First Semester|Second Semester)$/.exec(targetTerm.semester);
   if (!match) {
     throw new Error(`The active academic schedule has an invalid term label: "${targetTerm.semester}".`);
   }
 
-  const notificationResult = await notifyGranteesToUploadRequirements({
+  const openNotificationResult = await notifyGranteesToUploadRequirements({
     schoolYear: match[1],
     semester: match[2],
-    deadline: targetTerm.closesAt,
-    trigger: "DEADLINE_REMINDER",
+    now,
+    trigger: "SUBMISSION_OPEN",
   });
+
+  const dueOffsets = getDueOffsets(settings.skeapOffsets, targetTerm.closesAt, now);
+  const reminderResult = dueOffsets.length > 0
+    ? await notifyGranteesToUploadRequirements({
+        schoolYear: match[1],
+        semester: match[2],
+        deadline: targetTerm.closesAt,
+        now,
+        trigger: "DEADLINE_REMINDER",
+      })
+    : null;
 
   return {
     dueOffsets: dueOffsets.map(({ offset }) => offset),
-    emailSent: notificationResult.emailSent,
-    emailFailed: notificationResult.errors.length,
-    emailSkipped: notificationResult.skipped,
-    inAppCreated: notificationResult.notified,
-    errors: notificationResult.errors,
+    emailSent: openNotificationResult.emailSent + (reminderResult?.emailSent ?? 0),
+    emailFailed: openNotificationResult.errors.length + (reminderResult?.errors.length ?? 0),
+    emailSkipped: openNotificationResult.skipped + (reminderResult?.skipped ?? 0),
+    inAppCreated: openNotificationResult.notified + (reminderResult?.notified ?? 0),
+    errors: [...openNotificationResult.errors, ...(reminderResult?.errors ?? [])],
   };
 }

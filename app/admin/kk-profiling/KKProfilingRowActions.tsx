@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { AlertTriangle, Archive, Eye, LockKeyhole, X } from "lucide-react";
@@ -15,7 +15,7 @@ interface RegistrationRowActionsProps {
   registration: KKProfilingRegistration;
   onArchive?: (id: string, reason: KKMemberArchiveReason) => Promise<void>;
   onUpdate: (registration: KKProfilingRegistration) => void;
-  onStatusUpdate: (status: "Approved" | "Returned" | "Rejected", registrationId: string) => void;
+  onStatusUpdate: (status: "Approved" | "Returned" | "Rejected" | "For Physical CTC", registrationId: string) => void;
   compact?: boolean;
   cardView?: boolean;
 }
@@ -33,10 +33,6 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
   const [editForm, setEditForm] = useState<KKProfilingRegistration>(registration);
   const granteeStatus = (registration.user?.grantee?.status ?? registration.skeapStatus)?.toUpperCase();
   const isActiveGrantee = granteeStatus === "ACTIVE" || granteeStatus === "PROBATIONARY";
-
-  useEffect(() => {
-    setEditForm(registration);
-  }, [registration]);
 
   const handleConfirmAction = async () => {
     if (!onArchive || !archiveReason) return;
@@ -87,11 +83,20 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
       <button
         type="button"
         onClick={() => setShowDetails(true)}
-        className={`inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2`}
+        className={`inline-flex ${
+          onArchive
+            ? cardView
+              ? "h-9 w-9 rounded-lg"
+              : compact
+                ? "h-8 w-8 rounded-full"
+                : "h-10 w-10 rounded-full"
+            : "gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium"
+        } items-center justify-center text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600`}
         title={`View details for ${registration.fullName} application`}
         aria-label={`View details for ${registration.fullName} application`}
       >
         <Eye className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} transition`} aria-hidden="true" />
+        {!onArchive ? <span className="leading-none">View</span> : null}
       </button>
       {onArchive ? (
         isActiveGrantee ? (
@@ -124,7 +129,10 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
         <AdminKKProfilingFormView
           registration={registration}
           onClose={() => setShowDetails(false)}
-          onEdit={() => setShowEdit(true)}
+          onEdit={() => {
+            setEditForm(registration);
+            setShowEdit(true);
+          }}
           onReturn={(updatedRegistration) => {
             onUpdate(updatedRegistration);
           }}

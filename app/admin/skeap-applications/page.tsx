@@ -2,7 +2,7 @@
 import { requireRole } from "@/lib/auth";
 import { Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { getUploadGroups } from "@/lib/skeap-upload";
-import { SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
+import { normalizeSkeapGrades, SKEAP_APPLICATION_SELECT } from "@/lib/skeap-applications";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
@@ -165,6 +165,7 @@ function mapInquiryToApplication(inquiry: {
     currentCourse: string;
     yearLevel: string;
     gwa?: number | null;
+    grades?: Prisma.JsonValue | null;
     applicantName?: string | null;
     permanentAddress?: string | null;
     dateOfBirth?: Date | null;
@@ -325,6 +326,7 @@ function mapInquiryToApplication(inquiry: {
           currentCourse: inquiry.application.currentCourse,
           yearLevel: inquiry.application.yearLevel,
           gwa: inquiry.application.gwa,
+          grades: normalizeSkeapGrades(inquiry.application.grades),
           applicantName: inquiry.user?.fullName || inquiry.application.applicantName || undefined,
           permanentAddress: formatSkeapPermanentAddress({
             sitio: inquiry.user?.kkProfile?.purok,
@@ -442,6 +444,7 @@ export default async function SkeapApplicationsPage({
         }
         counts={{
           pending: counts.pendingCount,
+          returned: counts.returnedCount,
           physicalCtc: counts.physicalCtcCount,
           resubmitted: counts.resubmittedCount,
           withdrawn: counts.withdrawnCount,

@@ -104,6 +104,7 @@ export const SKEAP_APPLICATION_SELECT = {
       currentCourse: true,
       yearLevel: true,
       gwa: true,
+      grades: true,
       applicantName: true,
       permanentAddress: true,
       dateOfBirth: true,
@@ -126,6 +127,22 @@ export const SKEAP_APPLICATION_SELECT = {
     },
   },
 } satisfies Prisma.InquirySelect;
+
+export function normalizeSkeapGrades(
+  value: unknown,
+): Array<{ subject?: string; grade?: string | number }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const grades = value.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || !("grade" in entry)) return [];
+    const grade = entry.grade;
+    if (typeof grade !== "string" && typeof grade !== "number") return [];
+    return [{
+      ...("subject" in entry && typeof entry.subject === "string" ? { subject: entry.subject } : {}),
+      grade,
+    }];
+  });
+  return grades.length ? grades : undefined;
+}
 
 export function skeapStatusWhere(patterns: readonly string[]): Prisma.InquiryWhereInput {
   return {
@@ -757,6 +774,7 @@ export function mapInquiryToApplication(
           currentCourse: inquiry.application.currentCourse,
           yearLevel: inquiry.application.yearLevel,
           gwa: inquiry.application.gwa,
+          grades: normalizeSkeapGrades(inquiry.application.grades),
           applicantName,
           permanentAddress: formatSkeapPermanentAddress({
             sitio: inquiry.user?.kkProfile?.purok,

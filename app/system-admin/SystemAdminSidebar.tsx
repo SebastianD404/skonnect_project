@@ -81,11 +81,15 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
     countRequest.current = true;
     try {
       const lastViewed = window.localStorage.getItem(AUDIT_LAST_VIEWED_KEY);
-      const params = new URLSearchParams({ view: "unread-count" });
+      const params = new URLSearchParams();
       if (lastViewed) params.set("since", lastViewed);
-      const response = await fetch(`/api/system-admin/audit?${params.toString()}`, {
-        cache: "no-store",
-      });
+      const query = params.toString();
+      const response = await fetch(
+        `/api/system-admin/audit/unread-count${query ? `?${query}` : ""}`,
+        {
+          cache: "no-store",
+        },
+      );
       if (response.status === 401 || response.status === 403) {
         const next = `${window.location.pathname}${window.location.search}`;
         const reason = response.status === 401 ? "session_expired" : "access_denied";

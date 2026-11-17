@@ -39,6 +39,7 @@ export type SkeapWaitlistApplication = {
   waitlistOfferStatus: "NONE" | "OFFERED" | "EXPIRED";
   waitlistOfferedAt: string | null;
   waitlistOfferExpiresAt: string | null;
+  waitlistOfferMessage?: string | null;
   physicalDocumentsConfirmed: boolean;
   submittedAt: string;
   applicantName: string;
@@ -56,7 +57,7 @@ export type SkeapWaitlistSnapshot = {
   activeCount: number;
   maxSlots: number;
   offeredCount: number;
-  openUnclaimedCount: number;
+  openSlotCount: number;
   totalWaitlisted: number;
   isClosed: boolean;
   applications: SkeapWaitlistApplication[];
@@ -77,6 +78,7 @@ export async function getSkeapWaitlistSnapshot(
       orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
       select: {
         id: true,
+        userId: true,
         waitlistPosition: true,
         waitlistFinalPosition: true,
         waitlistOfferStatus: true,
@@ -103,49 +105,99 @@ export async function getSkeapWaitlistSnapshot(
     }),
     getSkeapWaitlistCycleState(cycle),
   ]);
-  const [capacitySnapshot, offeredCount] = await Promise.all([
-    getSkeapCapacitySnapshot(),
-    prisma.skeapApplication.count({
-      where: {
-        status: "WAITLISTED",
-        waitlistOfferStatus: "OFFERED",
-        waitlistOfferExpiresAt: { gt: new Date() },
-        submittedAt: { gte: range.start, lt: range.end },
-      },
-    }),
-  ]);
+  const capacitySnapshot = await getSkeapCapacitySnapshot();
+  type OfferApplicationWithDeadline = (typeof applications)[number] & {
+    waitlistOfferExpiresAt: Date;
+  };
+  const offerApplications = applications.filter(
+    (application): application is OfferApplicationWithDeadline =>
+      application.waitlistOfferStatus !== "NONE" &&
+      application.waitlistOfferExpiresAt !== null,
+  );
+  const offerNotifications = offerApplications.length > 0
+    ? await prisma.notification.findMany({
+        where: {
+          OR: offerApplications.map((application) => ({
+            userId: application.userId,
+            sourceKey: `skeap-waitlist-offer:${application.id}:${application.waitlistOfferExpiresAt.toISOString()}`,
+          })),
+        },
+        select: { userId: true, sourceKey: true, message: true },
+      })
+    : [];
+  const offerMessageBySource = new Map(
+    offerNotifications.map((notification) => [
+      `${notification.userId}:${notification.sourceKey}`,
+      notification.message,
+    ]),
+  );
+  const offerSourceByApplicationId = new Map(
+    offerApplications.map((application) => [
+      application.id,
+      `${application.userId}:skeap-waitlist-offer:${application.id}:${application.waitlistOfferExpiresAt.toISOString()}`,
+    ]),
+  );
+  const offerMessageByApplicationId = new Map(
+    offerApplications.map((application) => [
+      application.id,
+      offerMessageBySource.get(offerSourceByApplicationId.get(application.id) ?? "") ?? null,
+    ]),
+  );
+  const manualNoticeIds = new Set(
+    offerApplications
+      .filter((application) => Boolean(offerMessageByApplicationId.get(application.id)?.trim()))
+      .map((application) => application.id),
+  );
+  const manualHeldOfferIds = new Set(
+    offerApplications
+      .filter((application) =>
+        (application.waitlistOfferStatus === "OFFERED" ||
+          application.waitlistOfferStatus === "EXPIRED") &&
+        manualNoticeIds.has(application.id)
+      )
+      .map((application) => application.id),
+  );
+  const offeredCount = manualHeldOfferIds.size;
   const openSlots = cycleState.isClosed
     ? 0
     : Math.max(0, capacitySnapshot.availableSlots - offeredCount);
-  const openUnclaimedCount = Math.min(
-    openSlots,
-    applications.filter((application) => application.waitlistOfferStatus === "NONE").length,
-  );
 
   return {
     cycle,
     activeCount: capacitySnapshot.activeCount,
     maxSlots: capacitySnapshot.maxSlots,
     offeredCount,
-    openUnclaimedCount,
+    openSlotCount: openSlots,
     totalWaitlisted: cycleState.isClosed ? cycleState.totalWaitlisted : applications.length,
     isClosed: cycleState.isClosed,
-    applications: applications.map((application, index) => ({
-      id: application.id,
-      waitlistPosition: application.waitlistFinalPosition ?? index + 1,
-      waitlistOfferStatus: application.waitlistOfferStatus,
-      waitlistOfferedAt: application.waitlistOfferedAt?.toISOString() ?? null,
-      waitlistOfferExpiresAt: application.waitlistOfferExpiresAt?.toISOString() ?? null,
-      physicalDocumentsConfirmed: application.physicalDocumentsConfirmed,
-      submittedAt: application.submittedAt.toISOString(),
-      applicantName: application.applicantName || application.user.fullName || application.user.email,
-      emailAddress: application.emailAddress || application.user.email,
-      contactNumber: application.contactNumber,
-      school: normalizeSkeapSchoolName(application.school),
-      educationLevel: application.educationLevel,
-      currentCourse: application.currentCourse,
-      yearLevel: application.yearLevel,
-      age: getExactAge(application.user.kkProfile?.birthDate ?? application.dateOfBirth),
-    })),
+    applications: applications.map((application, index) => {
+      const hasManualOffer = manualHeldOfferIds.has(application.id);
+      return {
+        id: application.id,
+        waitlistPosition: application.waitlistFinalPosition ?? index + 1,
+        waitlistOfferStatus: hasManualOffer
+          ? "OFFERED"
+          : "NONE",
+        waitlistOfferedAt: hasManualOffer
+          ? application.waitlistOfferedAt?.toISOString() ?? null
+          : null,
+        waitlistOfferExpiresAt: hasManualOffer
+          ? application.waitlistOfferExpiresAt?.toISOString() ?? null
+          : null,
+        waitlistOfferMessage: hasManualOffer
+          ? offerMessageByApplicationId.get(application.id) ?? null
+          : null,
+        physicalDocumentsConfirmed: application.physicalDocumentsConfirmed,
+        submittedAt: application.submittedAt.toISOString(),
+        applicantName: application.applicantName || application.user.fullName || application.user.email,
+        emailAddress: application.emailAddress || application.user.email,
+        contactNumber: application.contactNumber,
+        school: normalizeSkeapSchoolName(application.school),
+        educationLevel: application.educationLevel,
+        currentCourse: application.currentCourse,
+        yearLevel: application.yearLevel,
+        age: getExactAge(application.user.kkProfile?.birthDate ?? application.dateOfBirth),
+      };
+    }),
   };
 }

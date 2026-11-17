@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   revalidatePath: vi.fn(),
   findPriorAgeOut: vi.fn(),
   findApplication: vi.fn(),
-  countActiveOffers: vi.fn(),
+  findOtherOffers: vi.fn(),
+  findOfferNotifications: vi.fn(),
   findGrantee: vi.fn(),
   updateApplication: vi.fn(),
   updateInquiry: vi.fn(),
@@ -132,9 +133,10 @@ function createTransactionClient() {
     systemSetting: { findUnique: vi.fn() },
     skeapApplication: {
       findUnique: mocks.findApplication,
-      count: mocks.countActiveOffers,
+      findMany: mocks.findOtherOffers,
       update: mocks.updateApplication,
     },
+    notification: { findMany: mocks.findOfferNotifications },
     grantee: {
       findUnique: mocks.findGrantee,
       upsert: mocks.upsertGrantee,
@@ -162,6 +164,8 @@ describe("SKEAP waitlist promotion", () => {
       id: "application-1",
       status: "WAITLISTED",
       submittedAt: new Date(),
+      waitlistOfferStatus: "OFFERED",
+      waitlistOfferExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       dateOfBirth: new Date("2000-01-01T00:00:00.000Z"),
       physicalDocumentsConfirmed: false,
       userId: "user-1",
@@ -198,12 +202,13 @@ describe("SKEAP waitlist promotion", () => {
       activeCount: 11,
       maxSlots: 55,
       offeredCount: 1,
-      openUnclaimedCount: 0,
+      openSlotCount: 0,
     });
     mocks.sendEmail.mockResolvedValue(true);
     mocks.notifyRequirements.mockResolvedValue({ notified: 1, emailSent: 1, skipped: 0, errors: [] });
     mocks.findPriorAgeOut.mockResolvedValue(null);
-    mocks.countActiveOffers.mockResolvedValue(0);
+    mocks.findOtherOffers.mockResolvedValue([]);
+    mocks.findOfferNotifications.mockResolvedValue([{ message: "Please present your CTC documents." }]);
     mocks.sweepAgedOut.mockResolvedValue({ removedCount: 0, removedApplicants: [] });
     mocks.sweepClosedCycles.mockResolvedValue({ closedCount: 0 });
     mocks.transaction.mockImplementation(async (callback) => callback(createTransactionClient()));
@@ -221,18 +226,47 @@ describe("SKEAP waitlist promotion", () => {
     expect(mocks.upsertGrantee).not.toHaveBeenCalled();
   });
 
-  it("confirms documents and promotes the applicant in the transaction", async () => {
+  it("does not admit an applicant without an active slot offer", async () => {
+    mocks.findApplication.mockResolvedValue({
+      id: "application-1",
+      status: "WAITLISTED",
+      submittedAt: new Date(),
+      waitlistOfferStatus: "NONE",
+      waitlistOfferExpiresAt: null,
+      dateOfBirth: new Date("2000-01-01T00:00:00.000Z"),
+      physicalDocumentsConfirmed: true,
+      userId: "user-1",
+      applicantName: "Sample Applicant",
+      user: { email: "applicant@example.com", kkProfile: { birthDate: new Date("2000-01-01T00:00:00.000Z") } },
+      school: "Example University",
+      currentCourse: "Computer Science",
+      yearLevel: "1st Year",
+      inquiry: { id: "inquiry-1" },
+    });
+
     const response = await POST(createRequest(true), {
       params: Promise.resolve({ id: "application-1" }),
     });
 
+    if (!response) throw new Error("Promotion endpoint did not return a response.");
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Applicant must have an active slot offer before admission.",
+    });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("confirms documents and promotes the applicant in the transaction", async () => {
+    const response = await POST(createRequest(true), {
+      params: Promise.resolve({ id: "application-1" }),
+    });
     if (!response) throw new Error("Promotion endpoint did not return a response.");
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       activeCount: 11,
       maxSlots: 55,
       offeredCount: 1,
-      openUnclaimedCount: 0,
+      openSlotCount: 0,
     });
     expect(mocks.getWaitlistSnapshot).toHaveBeenCalledTimes(1);
     expect(mocks.updateApplication).toHaveBeenCalledWith({
@@ -283,6 +317,39 @@ describe("SKEAP waitlist promotion", () => {
       trigger: "GRANTEE_APPROVED",
     });
     expect(mocks.reindexWaitlist).toHaveBeenCalled();
+  });
+
+  it("allows an overdue manual offer to be promoted after physical verification", async () => {
+    mocks.findApplication.mockResolvedValue({
+      id: "application-1",
+      status: "WAITLISTED",
+      submittedAt: new Date(),
+      waitlistOfferStatus: "EXPIRED",
+      waitlistOfferExpiresAt: new Date(Date.now() - 60 * 60 * 1000),
+      dateOfBirth: new Date("2000-01-01T00:00:00.000Z"),
+      physicalDocumentsConfirmed: true,
+      userId: "user-1",
+      applicantName: "Sample Applicant",
+      user: {
+        email: "applicant@example.com",
+        kkProfile: { birthDate: new Date("2000-01-01T00:00:00.000Z") },
+      },
+      school: "Example University",
+      currentCourse: "Computer Science",
+      yearLevel: "1st Year",
+      inquiry: { id: "inquiry-1" },
+    });
+
+    const response = await POST(createRequest(true), {
+      params: Promise.resolve({ id: "application-1" }),
+    });
+
+    if (!response) throw new Error("Promotion endpoint did not return a response.");
+    expect(response.status).toBe(200);
+    expect(mocks.updateApplication).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "application-1" },
+      data: expect.objectContaining({ status: "APPROVED" }),
+    }));
   });
 
   it("corrects an unfiled payout to the grantee's persisted entry semester", async () => {

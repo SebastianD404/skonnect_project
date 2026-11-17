@@ -94,7 +94,7 @@ function getGradeDiagnostics(
 
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const parsedRows = value as Prisma.JsonObject;
-  const diagnosticsValue = parsedRows.gradeDiagnostics;
+  const diagnosticsValue = parsedRows.gradeDiagnostics ?? parsedRows.clientGradeDiagnostics;
   if (!diagnosticsValue || typeof diagnosticsValue !== "object" || Array.isArray(diagnosticsValue)) {
     return null;
   }
@@ -109,14 +109,17 @@ function getGradeDiagnostics(
     typeof diagnostics.estimatedGwa === "number" && Number.isFinite(diagnostics.estimatedGwa)
       ? diagnostics.estimatedGwa
       : ocrGwa;
-  const flaggedSubjectsValue = Array.isArray(diagnostics.flaggedSubjects)
+  const flaggedSubjects = Array.isArray(diagnostics.flaggedSubjects)
     ? diagnostics.flaggedSubjects
-    : diagnostics.flaggedGrades;
-  const flaggedSubjects = Array.isArray(flaggedSubjectsValue)
-    ? flaggedSubjectsValue.filter((subject): subject is string => typeof subject === "string")
+        .filter((subject): subject is string => typeof subject === "string")
     : [];
+  const flaggedGrades = Array.isArray(diagnostics.flaggedGrades)
+    ? diagnostics.flaggedGrades.filter((grade): grade is string => typeof grade === "string")
+    : flaggedSubjects;
   const hasPossibleFailingGrade =
-    diagnostics.hasPossibleFailingGrade === true || flaggedSubjects.length > 0;
+    diagnostics.hasPossibleFailingGrade === true ||
+    flaggedSubjects.length > 0 ||
+    flaggedGrades.length > 0;
   const meetsGwaRequirement =
     typeof diagnostics.meetsGwaRequirement === "boolean"
       ? diagnostics.meetsGwaRequirement
@@ -146,7 +149,7 @@ function getGradeDiagnostics(
         : "GWA could not be auto-calculated — SK Admin will verify.",
     hasPossibleFailingGrade,
     flaggedSubjects,
-    flaggedGrades: flaggedSubjects,
+    flaggedGrades,
     possibleFailingGradeMessage:
       typeof diagnostics.possibleFailingGradeMessage === "string"
         ? diagnostics.possibleFailingGradeMessage

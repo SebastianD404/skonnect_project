@@ -68,6 +68,116 @@ export function buildBroadcastHtml(subject: string, body: string) {
 </html>`;
 }
 
+export type SubmissionReviewEmailStage =
+  | "FOR_PHYSICAL_CTC"
+  | "RETURNED_FOR_EDITS"
+  | "FULLY_CLEARED";
+
+export interface SubmissionReviewEmailInput {
+  stage: SubmissionReviewEmailStage;
+  granteeFullName: string;
+  semesterLabel: string;
+  documentLabel?: string;
+  reviewerNotes?: string | null;
+  appUrl: string;
+}
+
+export function buildSubmissionReviewEmail({
+  stage,
+  granteeFullName,
+  semesterLabel,
+  documentLabel = "submission",
+  reviewerNotes,
+  appUrl,
+}: SubmissionReviewEmailInput) {
+  const trimmedNotes = reviewerNotes?.trim() || "";
+  const safeName = escapeHtml(granteeFullName);
+  const safeSemester = escapeHtml(semesterLabel);
+  const safeDocument = escapeHtml(documentLabel);
+  const appLink = new URL("/grantee-dashboard/documents", appUrl);
+  if (appLink.protocol !== "https:" && appLink.protocol !== "http:") {
+    throw new Error("The submission review URL must use HTTP or HTTPS.");
+  }
+  const safeAppLink = escapeHtml(appLink.toString());
+
+  const title = stage === "FOR_PHYSICAL_CTC"
+    ? "Action Required: Submit Original / CTC"
+    : stage === "RETURNED_FOR_EDITS"
+      ? `Action Required: Update ${semesterLabel} ${documentLabel}`
+      : "SKEAP Requirements Fully Approved";
+  const stageMessage = stage === "FOR_PHYSICAL_CTC"
+    ? `Your digital documents for ${semesterLabel} have passed initial review. To complete your final verification, please present your physical documents at the Barangay Pico SK Office.`
+    : stage === "RETURNED_FOR_EDITS"
+      ? `Your ${semesterLabel} ${documentLabel} was returned for edits. Please review the feedback below and upload the corrected document in SKonnect.`
+      : `Your physical Original / CTC documents for ${semesterLabel} have been verified. Your SKEAP requirements are now fully approved.`;
+  const notesText = trimmedNotes ? `\n\nREVIEWER NOTES\n${trimmedNotes}` : "";
+  const text = [
+    `Dear ${granteeFullName},`,
+    "",
+    stageMessage,
+    "",
+    stage === "FOR_PHYSICAL_CTC"
+      ? [
+          `Academic Term: ${semesterLabel}`,
+          "Documents to Bring: Original or Certified True Copy (CTC) of Grade Report & Certificate of Enrollment",
+          "Drop-Off Location: Barangay Pico SK Office, La Trinidad, Benguet",
+        ].join("\n")
+      : stage === "RETURNED_FOR_EDITS"
+        ? [`Academic Term: ${semesterLabel}`, `Document: ${documentLabel}`, "Next Step: Upload the corrected document in SKonnect."].join("\n")
+        : [`Academic Term: ${semesterLabel}`, "Verification Status: Fully cleared"].join("\n"),
+    notesText,
+    "",
+    `View Submission in SKonnect: ${appLink.toString()}`,
+  ].filter(Boolean).join("\n");
+  const notesHtml = trimmedNotes
+    ? `<div style="margin:20px 0 0;background:#f8fafc;border-left:3px solid #0f766e;padding:12px 14px;border-radius:8px;">
+        <p style="margin:0 0 6px;color:#475569;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;">REVIEWER NOTES</p>
+        <p style="margin:0;color:#334155;font-size:14px;line-height:1.65;white-space:pre-line;">${escapeHtml(trimmedNotes)}</p>
+      </div>`
+    : "";
+  const detailsHtml = stage === "FOR_PHYSICAL_CTC"
+    ? `<div style="margin:24px 0 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;">
+        <h2 style="margin:0 0 12px;color:#0f172a;font-size:15px;line-height:1.4;">Physical Verification Details</h2>
+        <p style="margin:0 0 10px;color:#475569;font-size:13px;line-height:1.6;"><strong style="color:#0f172a;">Academic Term:</strong> ${safeSemester}</p>
+        <p style="margin:0 0 10px;color:#475569;font-size:13px;line-height:1.6;"><strong style="color:#0f172a;">Documents to Bring:</strong> Original or Certified True Copy (CTC) of Grade Report &amp; Certificate of Enrollment</p>
+        <p style="margin:0;color:#475569;font-size:13px;line-height:1.6;"><strong style="color:#0f172a;">Drop-Off Location:</strong> Barangay Pico SK Office, La Trinidad, Benguet</p>
+      </div>`
+    : stage === "RETURNED_FOR_EDITS"
+      ? `<div style="margin:24px 0 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;">
+          <h2 style="margin:0 0 12px;color:#0f172a;font-size:15px;line-height:1.4;">Review Details</h2>
+          <p style="margin:0 0 10px;color:#475569;font-size:13px;line-height:1.6;"><strong style="color:#0f172a;">Academic Term:</strong> ${safeSemester}</p>
+          <p style="margin:0 0 10px;color:#475569;font-size:13px;line-height:1.6;"><strong style="color:#0f172a;">Document:</strong> ${safeDocument}</p>
+          <p style="margin:0;color:#475569;font-size:13px;line-height:1.6;"><strong style="color:#0f172a;">Next Step:</strong> Upload the corrected document in SKonnect.</p>
+        </div>`
+      : `<div style="margin:24px 0 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;">
+          <h2 style="margin:0 0 12px;color:#0f172a;font-size:15px;line-height:1.4;">Verification Details</h2>
+          <p style="margin:0 0 10px;color:#475569;font-size:13px;line-height:1.6;"><strong style="color:#0f172a;">Academic Term:</strong> ${safeSemester}</p>
+          <p style="margin:0;color:#475569;font-size:13px;line-height:1.6;"><strong style="color:#0f172a;">Verification Status:</strong> Fully cleared</p>
+        </div>`;
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;background:#eef5f8;padding:40px 16px;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #d7e3e8;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(15,61,92,0.08);">
+      <div style="height:5px;background:#16a3b8;font-size:0;line-height:0;">&nbsp;</div>
+      <div style="padding:28px 32px 24px;background:#0f3d5c;color:#ffffff;">
+        <p style="margin:0;font-size:11px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;color:#9fe4eb;">SKONNECT · SKEAP</p>
+        <h1 style="margin:12px 0 0;font-size:25px;line-height:1.25;color:#ffffff;">${escapeHtml(title)}</h1>
+      </div>
+      <div style="padding:30px 32px 32px;">
+        <p style="margin:0 0 16px;color:#0f172a;font-size:15px;line-height:1.6;">Dear ${safeName},</p>
+        <p style="margin:0;color:#475569;font-size:14px;line-height:1.75;">${escapeHtml(stageMessage)}</p>
+        ${detailsHtml}
+        ${notesHtml}
+        <a href="${safeAppLink}" style="display:block;margin:24px 0 0;border-radius:8px;background:#0f3d56;padding:14px 20px;color:#ffffff;text-align:center;text-decoration:none;font-size:14px;font-weight:700;">View Submission in SKonnect</a>
+      </div>
+      <div style="border-top:1px solid #d7e3e8;padding:18px 32px;color:#64748b;font-size:12px;line-height:1.5;">Sangguniang Kabataan of Barangay Pico · La Trinidad, Benguet</div>
+    </div>
+  </body>
+</html>`;
+
+  return { subject: title, text, html };
+}
+
 export async function sendBroadcastEmail(
   transporter: nodemailer.Transporter,
   userId: string,

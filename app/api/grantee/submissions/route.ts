@@ -30,17 +30,20 @@ function getClientGradeDiagnostics(value: unknown): GradeReportDiagnostics | nul
         ? estimatedGwa >= 1 && estimatedGwa <= 5
         : false);
   const normalizedEstimatedGwa = isValidEstimatedGwa ? estimatedGwa : null;
-  const flaggedSubjectsValue = Array.isArray(record.flaggedSubjects)
+  const flaggedSubjects = Array.isArray(record.flaggedSubjects)
     ? record.flaggedSubjects
-    : record.flaggedGrades;
-  const flaggedSubjects = Array.isArray(flaggedSubjectsValue)
-    ? flaggedSubjectsValue
         .filter((grade): grade is string => typeof grade === "string")
         .map((grade) => grade.slice(0, 160))
         .slice(0, 30)
     : [];
+  const flaggedGrades = Array.isArray(record.flaggedGrades)
+    ? record.flaggedGrades
+        .filter((grade): grade is string => typeof grade === "string")
+        .map((grade) => grade.slice(0, 160))
+        .slice(0, 30)
+    : flaggedSubjects;
   const hasPossibleFailingGrade =
-    record.hasPossibleFailingGrade === true || flaggedSubjects.length > 0;
+    record.hasPossibleFailingGrade === true || flaggedSubjects.length > 0 || flaggedGrades.length > 0;
   const meetsGwaRequirement =
     normalizedEstimatedGwa === null
       ? null
@@ -68,7 +71,7 @@ function getClientGradeDiagnostics(value: unknown): GradeReportDiagnostics | nul
         : "GWA could not be auto-calculated — SK Admin will verify.",
     hasPossibleFailingGrade,
     flaggedSubjects,
-    flaggedGrades: flaggedSubjects,
+    flaggedGrades,
     possibleFailingGradeMessage:
       hasPossibleFailingGrade
         ? "Possible failing grade detected. An SK Admin will verify your official grade report."
@@ -121,6 +124,21 @@ export async function POST(request: NextRequest) {
     const forceSubmit = body.forceSubmit === true;
     const clientRequiresStrictManualReview = body.requiresStrictManualReview === true;
     const clientGradeDiagnostics = getClientGradeDiagnostics(body.gradeDiagnostics);
+    if (
+      body.ocrStatus !== undefined &&
+      body.ocrStatus !== null &&
+      body.ocrStatus !== "OCR_DONE" &&
+      body.ocrStatus !== "OCR_NEEDS_REVIEW" &&
+      body.ocrStatus !== "OCR_FAILED"
+    ) {
+      return NextResponse.json({ error: "The Grade Report OCR status is invalid." }, { status: 400 });
+    }
+    const clientOcrStatus =
+      body.ocrStatus === "OCR_DONE" ||
+      body.ocrStatus === "OCR_NEEDS_REVIEW" ||
+      body.ocrStatus === "OCR_FAILED"
+        ? body.ocrStatus
+        : null;
 
     const detectedTerm = await detectGranteeTargetTerm(appUser.id);
     if (!detectedTerm) {
@@ -209,6 +227,12 @@ export async function POST(request: NextRequest) {
     }
 
     const gradeFileChanged = !existing || mergedGradeFileUrl !== existing.gradeFileUrl;
+    if (gradeFileChanged && (!clientGradeDiagnostics || !clientOcrStatus)) {
+      return NextResponse.json(
+        { error: "Run the Grade Report check before submitting the replacement file." },
+        { status: 400 },
+      );
+    }
     const clientDiagnosticsRequireReview = Boolean(
       clientGradeDiagnostics &&
       (
@@ -261,6 +285,7 @@ export async function POST(request: NextRequest) {
         },
         forcedManualReview: forceSubmit,
         ...(clientGradeDiagnostics ? { clientGradeDiagnostics } : {}),
+        ...(clientOcrStatus ? { clientOcrStatus } : {}),
       },
       ocrGwa: null,
       ocrTotalUnits: null,

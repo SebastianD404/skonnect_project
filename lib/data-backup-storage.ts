@@ -36,23 +36,46 @@ async function ensurePrivateBackupBucket() {
   return storage;
 }
 
+function isMissingBackupBucketError(error: { message: string; statusCode?: string }) {
+  const message = error.message.toLowerCase();
+  return error.statusCode === "404" ||
+    message.includes("bucket not found") ||
+    message.includes("no such bucket");
+}
+
 export async function persistScheduledBackup(fileName: string, jsonString: string) {
-  const storage = await ensurePrivateBackupBucket();
+  let storage = await ensurePrivateBackupBucket();
   const path = `scheduled/${fileName}`;
-  const { error } = await storage.from(SYSTEM_BACKUP_BUCKET).upload(
+  const uploadOptions = {
+    contentType: "application/json",
+    upsert: true,
+  };
+  let { error } = await storage.from(SYSTEM_BACKUP_BUCKET).upload(
     path,
     Buffer.from(jsonString, "utf8"),
-    { contentType: "application/json", upsert: true },
+    uploadOptions,
   );
+  if (error && isMissingBackupBucketError(error)) {
+    storage = await ensurePrivateBackupBucket();
+    ({ error } = await storage.from(SYSTEM_BACKUP_BUCKET).upload(
+      path,
+      Buffer.from(jsonString, "utf8"),
+      uploadOptions,
+    ));
+  }
   if (error) throw error;
   return path;
 }
 
-export async function downloadScheduledBackup(fileName: string) {
+export async function downloadScheduledBackup(fileName: string, storagePath?: string | null) {
   const storage = getStorage();
+  const path = storagePath ?? `scheduled/${fileName}`;
+  if (!/^scheduled\/[a-zA-Z0-9._-]+\.json$/.test(path)) {
+    throw new Error("Stored backup path is invalid.");
+  }
   const { data, error } = await storage
     .from(SYSTEM_BACKUP_BUCKET)
-    .download(`scheduled/${fileName}`);
+    .download(path);
   if (error) throw error;
   return data;
 }

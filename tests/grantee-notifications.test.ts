@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   userFindMany: vi.fn(),
   notificationCreate: vi.fn(),
+  academicTermScheduleFindMany: vi.fn(),
   detectGranteeTargetTerm: vi.fn(),
   createGmailTransporter: vi.fn(),
   sendTransactionalEmail: vi.fn(),
@@ -13,11 +14,14 @@ vi.mock("../lib/prisma", () => ({
   prisma: {
     user: { findMany: mocks.userFindMany },
     notification: { create: mocks.notificationCreate },
+    academicTermSchedule: { findMany: mocks.academicTermScheduleFindMany },
   },
 }));
 
 vi.mock("../lib/grantee-semester", () => ({
   detectGranteeTargetTerm: mocks.detectGranteeTargetTerm,
+  getScheduleSemesterForTargetTerm: (term: { schoolYear: string; semester: string }) =>
+    `${term.schoolYear} ${term.semester === "Annual / School Year" ? "First Semester" : term.semester}`,
 }));
 
 vi.mock("../lib/broadcast-email", () => ({
@@ -38,6 +42,12 @@ beforeEach(() => {
     { id: "user-1", email: "scholar@example.com", emailNotifications: true },
   ]);
   mocks.notificationCreate.mockResolvedValue({ id: "notification-1" });
+  mocks.academicTermScheduleFindMany.mockResolvedValue([
+    {
+      semester: "2026-2027 Second Semester",
+      opensAt: new Date("2020-01-01T00:00:00.000Z"),
+    },
+  ]);
   mocks.detectGranteeTargetTerm.mockResolvedValue({
     schoolYear: "2026-2027",
     semester: "Second Semester",
@@ -51,6 +61,36 @@ beforeEach(() => {
 });
 
 describe("notifyGranteesToUploadRequirements", () => {
+  it("does not notify grantees before the target schedule opens", async () => {
+    mocks.academicTermScheduleFindMany.mockResolvedValueOnce([
+      {
+        semester: "2026-2027 Second Semester",
+        opensAt: new Date(Date.now() + 60_000),
+      },
+    ]);
+
+    await expect(
+      notifyGranteesToUploadRequirements({ trigger: "SUBMISSION_OPEN" }),
+    ).resolves.toMatchObject({ notified: 0, skipped: 1 });
+    expect(mocks.notificationCreate).not.toHaveBeenCalled();
+    expect(mocks.sendTransactionalEmail).not.toHaveBeenCalled();
+  });
+
+  it("allows the submission-open notice at the scheduled opening time", async () => {
+    const opensAt = new Date("2027-01-04T00:00:00.000Z");
+    mocks.academicTermScheduleFindMany.mockResolvedValueOnce([
+      { semester: "2026-2027 Second Semester", opensAt },
+    ]);
+
+    await expect(
+      notifyGranteesToUploadRequirements({
+        now: opensAt,
+        trigger: "SUBMISSION_OPEN",
+      }),
+    ).resolves.toMatchObject({ notified: 1, skipped: 0 });
+    expect(mocks.notificationCreate).toHaveBeenCalledOnce();
+  });
+
   it("creates an in-app notification with the detected term and a stable trigger key", async () => {
     const result = await notifyGranteesToUploadRequirements({
       targetUserIds: ["user-1"],
@@ -62,7 +102,7 @@ describe("notifyGranteesToUploadRequirements", () => {
     expect(mocks.notificationCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: "user-1",
-        sourceKey: "requirements-upload:2026-2027:Second%20Semester:ADMIN_SETTINGS",
+        sourceKey: "requirements-upload:2026-2027:Second%20Semester:SUBMISSION_OPEN",
         message: expect.stringContaining(
           "Action Required: Upload 2026-2027 Second Semester Requirements",
         ),
@@ -100,7 +140,7 @@ describe("notifyGranteesToUploadRequirements", () => {
       "scholar@example.com",
       "Action Required: Upload 2026-2027 Second Semester Requirements",
       expect.stringContaining("https://skonnect.example/grantee-dashboard/documents"),
-      expect.stringContaining("GRANTEE_APPROVED"),
+      expect.stringContaining("SUBMISSION_OPEN"),
     );
     delete process.env.NEXT_PUBLIC_APP_URL;
   });

@@ -7,7 +7,6 @@ import { createClient } from "@/lib/supabase/server";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import { lockSkeapCapacity } from "@/lib/skeap-capacity";
-import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -92,17 +91,7 @@ export async function DELETE(
     });
 
     await refreshSkeapApplicationsAdminView();
-    let waitlistOffers;
-    try {
-      waitlistOffers = await dispatchWaitlistSlotOffers();
-    } catch (offerError) {
-      console.error("Waitlist removal was recorded, but slot offers could not be dispatched:", offerError);
-      return NextResponse.json(
-        { error: "Application was removed from the waitlist, but slot offers could not be dispatched. Retry Notify Next Eligible on the waitlist page." },
-        { status: 503 },
-      );
-    }
-    return NextResponse.json({ success: true, application: result, waitlistOffers });
+    return NextResponse.json({ success: true, application: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to remove applicant from the waitlist.";
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });

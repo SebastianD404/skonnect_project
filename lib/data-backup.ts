@@ -67,7 +67,7 @@ const USER_BACKUP_SELECT = {
 } satisfies PrismaTypes.UserSelect;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
-export type BackupTriggerInput = "MANUAL" | "SCHEDULED";
+export type BackupTriggerInput = "MANUAL" | "AUTOMATED" | "SCHEDULED";
 export type BackupCounts = Record<BackupTable, number>;
 
 type BackupRow = Record<string, unknown>;
@@ -108,14 +108,30 @@ function createFileName(date: Date) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hourCycle: "h23",
   }).formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `skonnect-backup-${values.year}-${values.month}-${values.day}-${values.hour}${values.minute}.json`;
+  const milliseconds = String(date.getMilliseconds()).padStart(3, "0");
+  return `skonnect-backup-${values.year}-${values.month}-${values.day}-${values.hour}${values.minute}${values.second}${milliseconds}.json`;
 }
 
 function checksumFor(meta: BackupSnapshot["meta"], data: BackupData) {
   return createHash("sha256").update(JSON.stringify({ meta, data })).digest("hex");
+}
+
+function getBackupErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return "Unknown backup error.";
 }
 
 async function readAllBackupData(): Promise<BackupData> {
@@ -274,6 +290,13 @@ export async function generateSystemBackupSnapshot({
   let recordCounts: Record<string, number> = {};
   let fileSizeBytes = 0;
   let checksumSha256 = "";
+  let storagePath: string | null = null;
+  const triggerType =
+    trigger === "MANUAL" ? BackupTrigger.MANUAL : BackupTrigger.AUTOMATED;
+  const createdByLabel = trigger !== "MANUAL"
+    ? "System (Cron)"
+    : null;
+  const snapshotTrigger = trigger === "MANUAL" ? "MANUAL" : "AUTOMATED";
 
   try {
     const data = await readAllBackupData();
@@ -284,46 +307,56 @@ export async function generateSystemBackupSnapshot({
       barangay: BARANGAY_NAME,
       version: BACKUP_VERSION,
       createdAt: createdAt.toISOString(),
-      trigger,
+      trigger: snapshotTrigger,
       recordCounts: counts,
     };
     checksumSha256 = checksumFor(meta, data);
     const snapshot: BackupSnapshot = { meta, data, checksumSha256 };
     const jsonString = JSON.stringify(snapshot, null, 2);
     fileSizeBytes = Buffer.byteLength(jsonString, "utf8");
-    if (trigger === "SCHEDULED") {
-      await persistScheduledBackup(fileName, jsonString);
+    if (trigger !== "MANUAL") {
+      storagePath = await persistScheduledBackup(fileName, jsonString);
     }
 
-    const log = await prisma.backupLog.create({
-      data: {
-        fileName,
-        trigger: trigger === "MANUAL" ? BackupTrigger.MANUAL : BackupTrigger.SCHEDULED,
-        status: BackupStatus.COMPLETED,
-        recordCounts,
-        fileSizeBytes,
-        checksumSha256,
-        createdById: actorId,
-      },
-      include: { createdBy: { select: { fullName: true } } },
-    });
+    try {
+      const log = await prisma.backupLog.create({
+        data: {
+          fileName,
+          trigger: triggerType,
+          status: BackupStatus.COMPLETED,
+          recordCounts,
+          fileSizeBytes,
+          checksumSha256,
+          storagePath,
+          createdByLabel,
+          createdById: actorId,
+        },
+        include: { createdBy: { select: { fullName: true } } },
+      });
 
-    return { fileName, jsonString, log };
+      return { fileName, jsonString, log };
+    } catch (logError) {
+      console.error("Failed to insert completed backup metadata:", logError);
+      throw logError;
+    }
   } catch (error) {
     try {
       await prisma.backupLog.create({
         data: {
           fileName,
-          trigger: trigger === "MANUAL" ? BackupTrigger.MANUAL : BackupTrigger.SCHEDULED,
+          trigger: triggerType,
           status: BackupStatus.FAILED,
           recordCounts,
           fileSizeBytes,
           checksumSha256,
+          storagePath,
+          createdByLabel,
+          errorMessage: getBackupErrorMessage(error).slice(0, 1000),
           createdById: actorId,
         },
       });
     } catch (logError) {
-      console.error("Failed to record unsuccessful backup:", logError);
+      console.error("Failed to record unsuccessful backup; preserving the original backup error:", logError);
     }
     throw error;
   }
@@ -368,7 +401,9 @@ export function parseAndVerifyBackupSnapshot(rawContent: string): BackupSnapshot
     meta.version !== BACKUP_VERSION ||
     typeof meta.createdAt !== "string" ||
     Number.isNaN(Date.parse(meta.createdAt)) ||
-    (meta.trigger !== "MANUAL" && meta.trigger !== "SCHEDULED")
+    (meta.trigger !== "MANUAL" &&
+      meta.trigger !== "AUTOMATED" &&
+      meta.trigger !== "SCHEDULED")
   ) {
     throw new BackupSnapshotValidationError("Backup file metadata is invalid or unsupported.");
   }

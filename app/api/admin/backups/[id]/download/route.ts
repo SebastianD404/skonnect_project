@@ -21,10 +21,11 @@ export async function GET(
     });
     if (
       !log ||
-      log.trigger !== BackupTrigger.SCHEDULED ||
+      (log.trigger !== BackupTrigger.AUTOMATED &&
+        log.trigger !== BackupTrigger.SCHEDULED) ||
       log.status !== BackupStatus.COMPLETED
     ) {
-      return NextResponse.json({ error: "Scheduled backup file was not found." }, { status: 404 });
+      return NextResponse.json({ error: "Stored automated backup file was not found." }, { status: 404 });
     }
 
     const file = await downloadScheduledBackup(log.fileName);

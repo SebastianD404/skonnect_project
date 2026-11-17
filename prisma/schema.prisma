@@ -563,6 +563,9 @@ model BackupLog {
   recordCounts    Json
   fileSizeBytes   Int
   checksumSha256  String
+  storagePath     String?
+  createdByLabel  String?
+  errorMessage    String?
   createdById     String?
   createdAt       DateTime      @default(now())
   createdBy       User?         @relation("BackupLogCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -693,6 +696,7 @@ enum Role {
 enum BackupTrigger {
   MANUAL
   SCHEDULED
+  AUTOMATED
 }
 
 enum BackupStatus {

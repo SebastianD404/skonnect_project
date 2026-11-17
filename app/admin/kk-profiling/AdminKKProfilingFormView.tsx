@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, LoaderCircle, Pencil, X } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, Loader2, LoaderCircle, Pencil, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { rejectKKProfilingApplication } from "./actions";
@@ -65,7 +65,7 @@ export function AdminKKProfilingFormView({
   onClose: () => void;
   onEdit?: () => void;
   onReturn?: (updatedRegistration: KKProfilingRegistration) => void;
-  onStatusUpdate?: (status: "Approved" | "Returned" | "Rejected", registrationId: string) => void;
+  onStatusUpdate?: (status: "Approved" | "Returned" | "Rejected" | "For Physical CTC", registrationId: string) => void;
 }) {
   const [registration, setRegistration] = useState(initialRegistration);
   const [detailsLoading, setDetailsLoading] = useState(true);
@@ -82,15 +82,22 @@ export function AdminKKProfilingFormView({
   const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
   const [isReopening, setIsReopening] = useState(false);
   const [reopenError, setReopenError] = useState<string | null>(null);
-  const [isApproving, setIsApproving] = useState(false);
+  const [isPassingDigitalReview, setIsPassingDigitalReview] = useState(false);
+  const [isConfirmingPhysicalCtc, setIsConfirmingPhysicalCtc] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
 
-  const isApproved = registration.reviewStatus?.toLowerCase() === "approved";
-  const isRejected = registration.reviewStatus?.toLowerCase() === "rejected";
-  const isWithdrawn = registration.reviewStatus?.toLowerCase() === "withdrawn";
+  const normalizedReviewStatus = (registration.reviewStatus ?? "pending").trim().toLowerCase().replace(/_/g, " ");
+  const isApproved = normalizedReviewStatus === "approved";
+  const isRejected = normalizedReviewStatus === "rejected";
+  const isWithdrawn = normalizedReviewStatus === "withdrawn";
+  const isReturned = normalizedReviewStatus === "returned";
+  const isForPhysicalCtc = normalizedReviewStatus === "for physical ctc";
+  const canReviewDigitally = ["pending", "pending review", "manual review", "resubmitted"].includes(
+    normalizedReviewStatus,
+  );
   const isLocked = isApproved || isRejected || isWithdrawn;
-  const canReturn = !isLocked;
+  const canReturn = canReviewDigitally;
   const initialRegistrationId = initialRegistration.id;
 
   useEffect(() => {
@@ -161,10 +168,10 @@ export function AdminKKProfilingFormView({
         ? "Not specified"
         : registration.sex;
 
-  const handleApprove = async () => {
+  const handlePassDigitalReview = async () => {
     setApproveError(null);
     setApproveSuccess(null);
-    setIsApproving(true);
+    setIsPassingDigitalReview(true);
 
     try {
       const response = await fetch(`/api/admin/kk-profiling/${registration.id}`, {
@@ -173,6 +180,41 @@ export function AdminKKProfilingFormView({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          reviewAction: "PASS_DIGITAL_REVIEW",
+          reviewStatus: "For Physical CTC",
+          reviewNotes: "",
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to pass digital review.");
+      }
+
+      setApproveSuccess("Digital screening is complete. The applicant has been asked to present their Original / CTC.");
+      if (onReturn) {
+        onReturn(data as KKProfilingRegistration);
+      }
+      onClose();
+      onStatusUpdate?.("For Physical CTC", registration.id);
+    } catch (error) {
+      setApproveError(error instanceof Error ? error.message : "Failed to pass digital review.");
+    } finally {
+      setIsPassingDigitalReview(false);
+    }
+  };
+
+  const handleConfirmPhysicalCtc = async () => {
+    setApproveError(null);
+    setApproveSuccess(null);
+    setIsConfirmingPhysicalCtc(true);
+
+    try {
+      const response = await fetch(`/api/admin/kk-profiling/${registration.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reviewAction: "CONFIRM_PHYSICAL_CTC",
           reviewStatus: "Approved",
           reviewNotes: "",
         }),
@@ -180,19 +222,17 @@ export function AdminKKProfilingFormView({
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data?.error || "Failed to approve registration.");
+        throw new Error(data?.error || "Failed to confirm physical CTC.");
       }
 
-      setApproveSuccess("This registration was approved successfully. The applicant can now apply for SKEAP and register for events.");
-      if (onReturn) {
-        onReturn(data as KKProfilingRegistration);
-      }
+      setApproveSuccess("Physical Original / CTC verification is complete. This KK profile is now approved.");
+      onReturn?.(data as KKProfilingRegistration);
       onClose();
       onStatusUpdate?.("Approved", registration.id);
     } catch (error) {
-      setApproveError(error instanceof Error ? error.message : "Failed to approve registration.");
+      setApproveError(error instanceof Error ? error.message : "Failed to confirm physical CTC.");
     } finally {
-      setIsApproving(false);
+      setIsConfirmingPhysicalCtc(false);
     }
   };
 
@@ -215,6 +255,7 @@ export function AdminKKProfilingFormView({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          reviewAction: "RETURN_FOR_EDITS",
           reviewStatus: "Returned",
           reviewNotes: notes,
         }),
@@ -272,6 +313,7 @@ export function AdminKKProfilingFormView({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          reviewAction: "REOPEN",
           reviewStatus: "Returned",
           reviewNotes: "This application has been reopened for resubmission. Please review and update your registration, then submit it again.",
         }),
@@ -317,7 +359,9 @@ export function AdminKKProfilingFormView({
                       ? "border border-slate-200 bg-slate-100 text-slate-600"
                       : isRejected
                       ? "bg-rose-100 text-rose-800"
-                      : registration.reviewStatus === "Returned"
+                      : isForPhysicalCtc
+                      ? "border border-sky-200 bg-sky-50 text-sky-700"
+                      : isReturned
                       ? "bg-rose-100 text-rose-800"
                       : "bg-amber-100 text-amber-800"
                   }`}
@@ -351,6 +395,12 @@ export function AdminKKProfilingFormView({
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4 [scrollbar-gutter:stable]">
+          {isForPhysicalCtc ? (
+            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" aria-hidden="true" />
+              <p>Digital screening complete. Physical Original / CTC verification is pending at the Barangay Pico SK Office.</p>
+            </div>
+          ) : null}
           {detailsLoading ? (
             <div
               className="flex min-h-full flex-col items-center justify-center gap-3 py-8 text-center"
@@ -555,7 +605,7 @@ export function AdminKKProfilingFormView({
                 <button
                   type="button"
                   onClick={handleReturn}
-                  disabled={isReturning || isRejecting || isApproving}
+                  disabled={isReturning || isRejecting || isPassingDigitalReview || isConfirmingPhysicalCtc}
                   className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {isReturning ? "Returning..." : "Confirm Return"}
@@ -607,6 +657,16 @@ export function AdminKKProfilingFormView({
                 Reopen for Resubmission
               </button>
             ) : null}
+            {isReturned ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-400"
+              >
+                <Clock className="h-4 w-4" aria-hidden="true" />
+                Awaiting Youth Re-upload
+              </button>
+            ) : null}
             {canReturn && !isCorrectionOpen ? (
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 {!isRejectionOpen ? (
@@ -629,22 +689,34 @@ export function AdminKKProfilingFormView({
                       setIsCorrectionOpen(false);
                       setReturnError(null);
                     }}
-                    disabled={detailsLoading}
+                    disabled={detailsLoading || isPassingDigitalReview || isConfirmingPhysicalCtc}
                     className="inline-flex justify-center rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
                   >
                     Reject Application
                   </button>
                   <button
                     type="button"
-                    onClick={handleApprove}
-                    disabled={detailsLoading || isApproving}
-                    className="inline-flex justify-center rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                    onClick={handlePassDigitalReview}
+                    disabled={detailsLoading || isPassingDigitalReview || isConfirmingPhysicalCtc}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    {isApproving ? "Approving..." : "Approve Registration"}
+                    {isPassingDigitalReview ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                    {isPassingDigitalReview ? "Passing..." : "Pass Digital Review"}
                   </button>
                 </>
                 ) : null}
               </div>
+            ) : null}
+            {isForPhysicalCtc ? (
+              <button
+                type="button"
+                onClick={handleConfirmPhysicalCtc}
+                disabled={detailsLoading || isConfirmingPhysicalCtc || isPassingDigitalReview}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isConfirmingPhysicalCtc ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="h-4 w-4" aria-hidden="true" />}
+                {isConfirmingPhysicalCtc ? "Confirming..." : "Confirm Physical CTC"}
+              </button>
             ) : null}
 
           </div>
@@ -736,7 +808,13 @@ export function AdminKKProfilingFormView({
                       </button>
                       <button
                         type="submit"
-                        disabled={isRejecting || isReturning || isApproving || !rejectionNotes.trim()}
+                        disabled={
+                          isRejecting ||
+                          isReturning ||
+                          isPassingDigitalReview ||
+                          isConfirmingPhysicalCtc ||
+                          !rejectionNotes.trim()
+                        }
                         className="inline-flex justify-center rounded-xl border border-rose-300 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {isRejecting ? "Rejecting..." : "Confirm Rejection"}

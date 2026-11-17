@@ -169,14 +169,38 @@ describe("send-reminders scheduler", () => {
       runGranteeUploadRequirementReminders(new Date("2026-07-24T00:00:00.000Z")),
     ).resolves.toMatchObject({
       dueOffsets: [7],
-      emailSent: 1,
-      inAppCreated: 1,
+      emailSent: 2,
+      inAppCreated: 2,
+    });
+    expect(mockNotifyGranteesToUploadRequirements).toHaveBeenCalledWith({
+      schoolYear: "2026-2027",
+      semester: "First Semester",
+      now: new Date("2026-07-24T00:00:00.000Z"),
+      trigger: "SUBMISSION_OPEN",
     });
     expect(mockNotifyGranteesToUploadRequirements).toHaveBeenCalledWith({
       schoolYear: "2026-2027",
       semester: "First Semester",
       deadline: activeSchedule.closesAt,
+      now: new Date("2026-07-24T00:00:00.000Z"),
       trigger: "DEADLINE_REMINDER",
+    });
+
+  });
+
+  it("sends the submission-open notice as soon as a window opens even when reminders are disabled", async () => {
+    mockReminderSettingFindUnique.mockResolvedValueOnce({ active: false, offsets: [] });
+    mockAcademicTermScheduleFindMany.mockResolvedValueOnce([activeSchedule]);
+
+    await expect(
+      runGranteeUploadRequirementReminders(activeSchedule.opensAt),
+    ).resolves.toMatchObject({ dueOffsets: [], inAppCreated: 1 });
+    expect(mockNotifyGranteesToUploadRequirements).toHaveBeenCalledOnce();
+    expect(mockNotifyGranteesToUploadRequirements).toHaveBeenCalledWith({
+      schoolYear: "2026-2027",
+      semester: "First Semester",
+      now: activeSchedule.opensAt,
+      trigger: "SUBMISSION_OPEN",
     });
   });
 

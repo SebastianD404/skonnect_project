@@ -4,7 +4,12 @@ import { isSkeapApplicationRejected, isSkeapApplicationReturned } from "@/lib/sk
 import { removePrivateDocument, uploadPrivateDocument } from "@/lib/private-documents";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { CORE_UPLOAD_KEYS, mergeSkeapDraftReplacement } from "@/lib/skeap-upload";
+import {
+  CORE_UPLOAD_KEYS,
+  isClientGradeOcrStatus,
+  isGradeReportDiagnostics,
+  mergeSkeapDraftReplacement,
+} from "@/lib/skeap-upload";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 const ALLOWED_TYPES = new Set([
@@ -92,6 +97,30 @@ export async function POST(
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json({ error: "File size must not exceed 15MB." }, { status: 400 });
     }
+    let gradeDiagnostics: import("@/lib/grade-report-parser").GradeReportDiagnostics | null | undefined;
+    let ocrStatus: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED" | undefined;
+    if (slotId === "gradeReport") {
+      const diagnosticsValue = formData.get("gradeDiagnostics");
+      const statusValue = formData.get("ocrStatus");
+      if (typeof diagnosticsValue !== "string" || typeof statusValue !== "string") {
+        return NextResponse.json(
+          { error: "Grade Report OCR results are required for replacement uploads." },
+          { status: 400 },
+        );
+      }
+      try {
+        gradeDiagnostics = JSON.parse(diagnosticsValue);
+      } catch {
+        return NextResponse.json({ error: "Grade Report OCR results are invalid." }, { status: 400 });
+      }
+      if (
+        (gradeDiagnostics !== null && !isGradeReportDiagnostics(gradeDiagnostics)) ||
+        !isClientGradeOcrStatus(statusValue)
+      ) {
+        return NextResponse.json({ error: "Grade Report OCR results are invalid." }, { status: 400 });
+      }
+      ocrStatus = statusValue;
+    }
 
     const storedFile = fileType === "image/jfif" || isGenericJfif
       ? new File([file], file.name, { type: "image/jpeg", lastModified: file.lastModified })
@@ -131,6 +160,7 @@ export async function POST(
           fileUrl,
           fileName: file.name,
           fileType: storedFile.type,
+          ...(slotId === "gradeReport" ? { gradeDiagnostics, ocrStatus } : {}),
         });
         await tx.skeapApplication.update({
           where: { id: inquiry.applicationId! },
@@ -159,7 +189,13 @@ export async function POST(
     }
 
     await refreshSkeapApplicationsAdminView();
-    return NextResponse.json({ success: true, url: fileUrl, fileName: file.name, fileType: storedFile.type });
+    return NextResponse.json({
+      success: true,
+      url: fileUrl,
+      fileName: file.name,
+      fileType: storedFile.type,
+      ...(slotId === "gradeReport" ? { gradeDiagnostics, ocrStatus } : {}),
+    });
   } catch (error) {
     console.error("SKEAP replacement upload failed:", error);
     const message = error instanceof Error ? error.message : "Upload failed.";

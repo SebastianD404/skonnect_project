@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, BellRing, CheckCircle2, FileCheck, Info, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileCheck, Info, LoaderCircle, Mail, MoreHorizontal, Plus, Search, Send, Trash2, UserCheck, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -16,6 +17,8 @@ type CapacityState = {
   maxSlots: number;
 };
 
+const PHT_OFFSET_MS = 8 * 60 * 60 * 1000;
+
 function formatDate(value: string) {
   return new Date(value).toLocaleString("en-US", {
     year: "numeric",
@@ -23,25 +26,86 @@ function formatDate(value: string) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "Asia/Manila",
   });
 }
 
-function OfferStatusBadge({ application }: { application: SkeapWaitlistApplication }) {
-  if (application.waitlistOfferStatus === "OFFERED" && application.waitlistOfferExpiresAt) {
-    const expiresAt = new Date(application.waitlistOfferExpiresAt);
-    const remainingMs = Math.max(0, expiresAt.getTime() - Date.now());
-    const remaining = remainingMs >= 24 * 60 * 60 * 1000
-      ? `${Math.ceil(remainingMs / (24 * 60 * 60 * 1000))} days`
-      : `${Math.max(1, Math.ceil(remainingMs / (60 * 60 * 1000)))} hours`;
+function getDefaultOfferDeadlineInput() {
+  const manilaDate = new Date(Date.now() + PHT_OFFSET_MS);
+  manilaDate.setUTCDate(manilaDate.getUTCDate() + 7);
+  manilaDate.setUTCHours(17, 0, 0, 0);
+  return manilaDate.toISOString().slice(0, 16);
+}
+
+function toManilaDateTimeInput(value: string) {
+  return new Date(Date.parse(value) + PHT_OFFSET_MS).toISOString().slice(0, 16);
+}
+
+function manilaDateTimeInputToIso(value: string) {
+  return new Date(`${value}:00+08:00`).toISOString();
+}
+
+function formatManilaDateTimeInput(value: string) {
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(new Date(manilaDateTimeInputToIso(value)));
+}
+
+function getDefaultOfferMessage(
+  application: SkeapWaitlistApplication,
+  deadlineInput: string,
+) {
+  return `Dear ${application.applicantName},
+
+A SKEAP scholarship slot is now available for you (Queue Position #${application.waitlistPosition ?? "—"}).
+
+Please present your original / Certified True Copy (CTC) documents at the Barangay Pico Hall on or before ${formatManilaDateTimeInput(deadlineInput)} PHT to complete your physical verification.
+
+Sangguniang Kabataan of Barangay Pico`;
+}
+
+function OfferStatusBadge({
+  application,
+  now,
+}: {
+  application: SkeapWaitlistApplication;
+  now: number | null;
+}) {
+  if (application.waitlistOfferMessage && application.waitlistOfferExpiresAt) {
+    const deadline = new Date(application.waitlistOfferExpiresAt).getTime();
+    const diffMs = now === null ? null : deadline - now;
+    const isOverdue = diffMs !== null && diffMs <= 0;
+    const isUrgent = diffMs !== null && diffMs > 0 && diffMs <= 48 * 60 * 60 * 1000;
+    let countdownLabel = "Notice Sent";
+
+    if (isOverdue) {
+      countdownLabel = "Notice Sent · Overdue";
+    } else if (diffMs !== null && diffMs <= 24 * 60 * 60 * 1000) {
+      const totalMinutes = Math.ceil(diffMs / (60 * 1000));
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      countdownLabel = `Notice Sent · ${hours}h ${minutes}m left`;
+    } else if (isUrgent && diffMs !== null) {
+      countdownLabel = `Notice Sent · ${Math.floor(diffMs / (60 * 60 * 1000))}h left`;
+    } else if (diffMs !== null) {
+      const totalHours = Math.floor(diffMs / (60 * 60 * 1000));
+      countdownLabel = `Notice Sent · ${Math.floor(totalHours / 24)}d ${totalHours % 24}h left`;
+    }
+
+    const badgeTone = isOverdue
+      ? "border-rose-200 bg-rose-50 text-rose-700"
+      : isUrgent
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-emerald-200 bg-emerald-50 text-emerald-700";
     return (
-      <div className="mt-1 flex flex-col items-start gap-0.5">
-        <span
-          title={`Offer expires ${formatDate(application.waitlistOfferExpiresAt)}`}
-          className="inline-flex w-fit items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800"
-        >
-          Slot Offered · {remaining} left for CTC
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${badgeTone}`}>
+          {!isOverdue && !isUrgent ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+          {countdownLabel}
         </span>
-        <span className="text-[10px] text-slate-500">Deadline: {formatDate(application.waitlistOfferExpiresAt)}</span>
+        <span className="text-xs text-slate-500">Due {formatDate(application.waitlistOfferExpiresAt)}</span>
       </div>
     );
   }
@@ -61,15 +125,21 @@ function OfferStatusBadge({ application }: { application: SkeapWaitlistApplicati
   );
 }
 
+function hasActiveOffer(application: SkeapWaitlistApplication) {
+  return (
+    application.waitlistOfferStatus === "OFFERED" &&
+    application.waitlistOfferExpiresAt !== null
+  );
+}
+
 function getPromotionOfferGuidance(application: SkeapWaitlistApplication) {
   const expiresAt = application.waitlistOfferExpiresAt
     ? new Date(application.waitlistOfferExpiresAt)
     : null;
-  if (
-    application.waitlistOfferStatus === "OFFERED" &&
-    expiresAt &&
-    expiresAt.getTime() > Date.now()
-  ) {
+  if (application.waitlistOfferStatus === "OFFERED" && expiresAt) {
+    if (expiresAt.getTime() <= Date.now()) {
+      return `Notice deadline passed on ${formatDate(expiresAt.toISOString())}. The slot remains held until an SK Official decides how to proceed.`;
+    }
     const offeredAt = application.waitlistOfferedAt
       ? new Date(application.waitlistOfferedAt)
       : null;
@@ -79,6 +149,24 @@ function getPromotionOfferGuidance(application: SkeapWaitlistApplication) {
     return `Active ${durationDays}-day slot offer expires ${formatDate(expiresAt.toISOString())}.`;
   }
   return "This applicant is being verified on-site without an active slot offer.";
+}
+
+type UpdatedWaitlistOffer = {
+  waitlistOfferStatus: "OFFERED";
+  waitlistOfferedAt: string;
+  waitlistOfferExpiresAt: string;
+  waitlistOfferMessage: string;
+};
+
+function isUpdatedWaitlistOffer(value: unknown): value is UpdatedWaitlistOffer {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const offer = value as Record<string, unknown>;
+  return (
+    offer.waitlistOfferStatus === "OFFERED" &&
+    typeof offer.waitlistOfferedAt === "string" &&
+    typeof offer.waitlistOfferExpiresAt === "string" &&
+    typeof offer.waitlistOfferMessage === "string"
+  );
 }
 
 async function readJsonResponse(response: Response) {
@@ -100,6 +188,9 @@ export default function SkeapWaitlistClient({
 }) {
   const router = useRouter();
   const waitlistRefreshSequenceRef = useRef(0);
+  const actionMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  const [countdownNow, setCountdownNow] = useState<number | null>(null);
   const [applications, setApplications] = useState<SkeapWaitlistApplication[]>(initialData.applications);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
@@ -112,7 +203,16 @@ export default function SkeapWaitlistClient({
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<SkeapWaitlistApplication | null>(null);
   const [waitlistActionId, setWaitlistActionId] = useState<string | null>(null);
-  const [notifyingEligible, setNotifyingEligible] = useState(false);
+  const [offerApplicant, setOfferApplicant] = useState<SkeapWaitlistApplication | null>(null);
+  const [offerDeadline, setOfferDeadline] = useState("");
+  const [offerMessage, setOfferMessage] = useState("");
+  const [isCustomMessage, setIsCustomMessage] = useState(false);
+  const displayedOfferMessage = offerApplicant && offerDeadline && !isCustomMessage
+    ? getDefaultOfferMessage(offerApplicant, offerDeadline)
+    : offerMessage;
+  const [sendingOffer, setSendingOffer] = useState(false);
+  const [openActionsMenuId, setOpenActionsMenuId] = useState<string | null>(null);
+  const [actionsMenuPosition, setActionsMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [capacityWarning, setCapacityWarning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAgeOutBannerDismissed, setIsAgeOutBannerDismissed] = useState(false);
@@ -123,7 +223,7 @@ export default function SkeapWaitlistClient({
     maxSlots: initialData.maxSlots,
   });
   const [offeredCount, setOfferedCount] = useState(initialData.offeredCount);
-  const [openUnclaimedCount, setOpenUnclaimedCount] = useState(initialData.openUnclaimedCount);
+  const [openSlotCount, setOpenSlotCount] = useState(initialData.openSlotCount);
   const [editingCapacity, setEditingCapacity] = useState(false);
   const [slotLimitDraft, setSlotLimitDraft] = useState(String(initialData.maxSlots));
   const [savingCapacity, setSavingCapacity] = useState(false);
@@ -175,12 +275,12 @@ export default function SkeapWaitlistClient({
       const activeCount = typeof body.activeCount === "number" ? body.activeCount : 0;
       const maxSlots = typeof body.maxSlots === "number" ? body.maxSlots : 55;
       const offeredCount = typeof body.offeredCount === "number" ? body.offeredCount : 0;
-      const openUnclaimedCount = typeof body.openUnclaimedCount === "number" ? body.openUnclaimedCount : 0;
+      const openSlotCount = typeof body.openSlotCount === "number" ? body.openSlotCount : 0;
       setIsWaitlistClosed(body.isClosed === true);
       if (typeof body.cycle === "string") setCycle(body.cycle);
       setCapacity({ activeCount, maxSlots });
       setOfferedCount(offeredCount);
-      setOpenUnclaimedCount(openUnclaimedCount);
+      setOpenSlotCount(openSlotCount);
       setCapacityWarning(false);
       if (!editingCapacity) setSlotLimitDraft(String(maxSlots));
     } catch (loadError) {
@@ -188,6 +288,13 @@ export default function SkeapWaitlistClient({
       setError(loadError instanceof Error ? loadError.message : "Unable to load the waitlist.");
     }
   }, [editingCapacity]);
+
+  useEffect(() => {
+    const updateCountdown = () => setCountdownNow(Date.now());
+    updateCountdown();
+    const interval = window.setInterval(updateCountdown, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const refreshWhenVisible = () => {
@@ -203,6 +310,67 @@ export default function SkeapWaitlistClient({
       window.removeEventListener("focus", refreshWhenVisible);
     };
   }, [loadWaitlist]);
+
+  useEffect(() => {
+    if (!openActionsMenuId) return;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (
+        actionMenuRef.current?.contains(event.target) ||
+        actionMenuTriggerRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      setOpenActionsMenuId(null);
+      setActionsMenuPosition(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenActionsMenuId(null);
+        setActionsMenuPosition(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openActionsMenuId]);
+
+  useEffect(() => {
+    if (!openActionsMenuId) return;
+
+    const updateMenuPosition = () => {
+      const trigger = actionMenuTriggerRef.current;
+      const menu = actionMenuRef.current;
+      if (!trigger || !menu) return;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const margin = 8;
+      const left = Math.max(
+        margin,
+        Math.min(triggerRect.right - menuRect.width, window.innerWidth - menuRect.width - margin),
+      );
+      const fitsBelow = triggerRect.bottom + menuRect.height + margin <= window.innerHeight;
+      const top = fitsBelow
+        ? triggerRect.bottom + 4
+        : Math.max(margin, triggerRect.top - menuRect.height - 4);
+
+      setActionsMenuPosition({ top, left });
+    };
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [openActionsMenuId]);
 
   useEffect(() => {
     if (!isAddModalOpen || candidateQuery.trim().length < 2) {
@@ -249,16 +417,6 @@ export default function SkeapWaitlistClient({
         body: JSON.stringify({ value: Number(slotLimitDraft) }),
       });
       const body = await readJsonResponse(response);
-      if (
-        body.code === "CAPACITY_UPDATED_OFFERS_NOT_DISPATCHED" &&
-        typeof body.value === "number"
-      ) {
-        const updatedMaxSlots = body.value;
-        setCapacity((current) => ({ ...current, maxSlots: updatedMaxSlots }));
-        setSlotLimitDraft(String(updatedMaxSlots));
-        setEditingCapacity(false);
-        await loadWaitlist();
-      }
       if (!response.ok) throw new Error(String(body.error || "Unable to update the slot limit."));
       const maxSlots = Number(body.value);
       setCapacity((current) => ({ ...current, maxSlots }));
@@ -273,37 +431,120 @@ export default function SkeapWaitlistClient({
     }
   }
 
-  async function notifyNextEligible() {
-    setNotifyingEligible(true);
+  function openOfferModal(application: SkeapWaitlistApplication) {
+    const hasOffer = hasActiveOffer(application);
+    const deadlineIsFuture = application.waitlistOfferExpiresAt !== null &&
+      countdownNow !== null &&
+      new Date(application.waitlistOfferExpiresAt).getTime() > countdownNow;
+    const deadlineInput = hasOffer && deadlineIsFuture && application.waitlistOfferExpiresAt
+      ? toManilaDateTimeInput(application.waitlistOfferExpiresAt)
+      : getDefaultOfferDeadlineInput();
+    setOfferApplicant(application);
+    setOfferDeadline(deadlineInput);
+    setOfferMessage(getDefaultOfferMessage(application, deadlineInput));
+    setIsCustomMessage(false);
+    setActionError(null);
+  }
+
+  function toggleActionsMenu(
+    applicationId: string,
+    trigger: HTMLButtonElement,
+  ) {
+    if (openActionsMenuId === applicationId) {
+      setOpenActionsMenuId(null);
+      setActionsMenuPosition(null);
+      return;
+    }
+
+    actionMenuTriggerRef.current = trigger;
+    setActionsMenuPosition(null);
+    setOpenActionsMenuId(applicationId);
+  }
+
+  function closeActionsMenu() {
+    setOpenActionsMenuId(null);
+    setActionsMenuPosition(null);
+  }
+
+  function renderActionsTrigger(application: SkeapWaitlistApplication) {
+    const isOpen = openActionsMenuId === application.id;
+    return (
+      <button
+        type="button"
+        onClick={(event) => toggleActionsMenu(application.id, event.currentTarget)}
+        aria-label="Applicant actions"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? `waitlist-actions-${application.id}` : undefined}
+        className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 ${
+          isOpen ? "bg-slate-100 text-slate-900" : ""
+        }`}
+      >
+        <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+      </button>
+    );
+  }
+
+  async function sendOffer() {
+    if (!offerApplicant || !offerDeadline) return;
+    const messageToSend = isCustomMessage
+      ? offerMessage
+      : getDefaultOfferMessage(offerApplicant, offerDeadline);
+    setSendingOffer(true);
     setActionError(null);
     setToastMessage(null);
     try {
-      const response = await fetch("/api/admin/skeap-applications/waitlist/offers", {
+      const response = await fetch(`/api/admin/skeap-applications/waitlist/${offerApplicant.id}/offer`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deadline: manilaDateTimeInputToIso(offerDeadline),
+          message: messageToSend,
+        }),
       });
       const body = await readJsonResponse(response);
-      if (!response.ok) throw new Error(String(body.error || "Unable to notify eligible applicants."));
-      const offered = typeof body.offeredCount === "number" ? body.offeredCount : 0;
-      const emailFailed = typeof body.emailFailed === "number" ? body.emailFailed : 0;
-      const emailSkipped = typeof body.emailSkipped === "number" ? body.emailSkipped : 0;
-      if (emailFailed > 0) {
-        setActionError(
-          `${offered} offer${offered === 1 ? "" : "s"} were created with in-app notifications, but email delivery failed for ${emailFailed} applicant${emailFailed === 1 ? "" : "s"}.`,
-        );
-      } else {
-        setToastMessage(
-          offered === 1
-            ? emailSkipped > 0
-              ? "A waitlist slot offer was created in-app; the applicant has no email address on file."
-              : "A waitlist slot offer was sent to the next eligible applicant."
-            : `${offered} waitlist slot offers were sent${emailSkipped > 0 ? `; email was unavailable for ${emailSkipped} applicant${emailSkipped === 1 ? "" : "s"}` : ""}.`,
-        );
+      if (!response.ok) throw new Error(String(body.error || "Unable to send the notice."));
+      const updatedOffer = body.application;
+      if (!isUpdatedWaitlistOffer(updatedOffer)) {
+        throw new Error("The notice was sent, but the updated waitlist status was incomplete.");
       }
+      const offeredApplicant = offerApplicant;
+      const applicantName = offeredApplicant.applicantName;
+      const wasAlreadyOffered = hasActiveOffer(offeredApplicant);
+      setApplications((current) => current.map((application) =>
+        application.id === offeredApplicant.id
+          ? {
+              ...application,
+              waitlistOfferStatus: updatedOffer.waitlistOfferStatus,
+              waitlistOfferedAt: updatedOffer.waitlistOfferedAt,
+              waitlistOfferExpiresAt: updatedOffer.waitlistOfferExpiresAt,
+              waitlistOfferMessage: updatedOffer.waitlistOfferMessage,
+            }
+          : application
+      ));
+      if (!wasAlreadyOffered) {
+        setOfferedCount((count) => count + 1);
+        setOpenSlotCount((count) => Math.max(0, count - 1));
+      }
+      setOfferApplicant(null);
       await loadWaitlist();
-    } catch (notifyError) {
-      setActionError(notifyError instanceof Error ? notifyError.message : "Unable to notify eligible applicants.");
+      const warnings = [
+        typeof body.emailError === "string" ? body.emailError : null,
+        body.emailSkipped === true
+          ? "The offer and in-app notification were recorded, but no email address is on file."
+          : null,
+        typeof body.viewRefreshError === "string" ? body.viewRefreshError : null,
+      ].filter((warning): warning is string => warning !== null);
+      if (warnings.length > 0) {
+        setActionError(warnings.join(" "));
+      } else {
+        setToastMessage(`${applicantName} was sent a SKEAP slot notice.`);
+      }
+      router.refresh();
+    } catch (offerError) {
+      setActionError(offerError instanceof Error ? offerError.message : "Unable to send the notice.");
     } finally {
-      setNotifyingEligible(false);
+      setSendingOffer(false);
     }
   }
 
@@ -343,15 +584,15 @@ export default function SkeapWaitlistClient({
         typeof body.activeCount === "number" &&
         typeof body.maxSlots === "number" &&
         typeof body.offeredCount === "number" &&
-        typeof body.openUnclaimedCount === "number"
+        typeof body.openSlotCount === "number"
       ) {
         setCapacity({ activeCount: body.activeCount, maxSlots: body.maxSlots });
         setOfferedCount(body.offeredCount);
-        setOpenUnclaimedCount(body.openUnclaimedCount);
+        setOpenSlotCount(body.openSlotCount);
         setCapacityWarning(false);
       }
       closePromotionModal();
-      setToastMessage(`${application.applicantName} was promoted to an active grantee.`);
+      setToastMessage(`${application.applicantName} was promoted to Grantee.`);
       router.refresh();
       void loadWaitlist();
     } catch (promoteError) {
@@ -463,24 +704,10 @@ export default function SkeapWaitlistClient({
                 <span className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
                   Full
                 </span>
-              ) : (
-                <span className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
-                  {offeredCount} Offered · {openUnclaimedCount} Open
-                </span>
-              )}
-              {!isWaitlistClosed &&
-              openUnclaimedCount > 0 &&
-              capacity.activeCount < capacity.maxSlots ? (
-                <button
-                  type="button"
-                  onClick={() => void notifyNextEligible()}
-                  disabled={notifyingEligible}
-                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-cyan-800 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
-                  {notifyingEligible ? "Notifying..." : "Notify Next Eligible"}
-                </button>
               ) : null}
+              <span className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                {offeredCount} Offered · {openSlotCount} Open
+              </span>
             </div>
             {canIncreaseConfiguredCapacity ? (
               <>
@@ -565,7 +792,7 @@ export default function SkeapWaitlistClient({
       ) : null}
 
       <section className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="flex flex-col items-center justify-between gap-4 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row">
+        <div className="flex flex-col items-center justify-between gap-4 border-b border-slate-100 bg-slate-50/50 p-4 sm:flex-row sm:pr-6">
           <div className="relative w-full sm:w-80">
             <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
             <input
@@ -612,7 +839,7 @@ export default function SkeapWaitlistClient({
                       <h3 className="truncate text-sm font-bold leading-tight text-slate-900">{application.applicantName}</h3>
                       <p className="mt-0.5 break-all text-xs text-slate-500">{application.emailAddress}</p>
                       <p className="text-xs text-slate-500">{application.contactNumber || "No phone number"}</p>
-                      <OfferStatusBadge application={application} />
+                      <OfferStatusBadge application={application} now={countdownNow} />
                     </div>
                   </div>
 
@@ -629,28 +856,8 @@ export default function SkeapWaitlistClient({
                     <p className="mt-1 text-slate-500">Submitted: {formatDate(application.submittedAt)}</p>
                   </div>
 
-                  <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
-                    <button
-                      type="button"
-                      onClick={() => openPromotionModal(application)}
-                      disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
-                      title={isCapacityExceeded ? capacityTooltip : application.physicalDocumentsConfirmed ? "Promote to active Grantee" : "Verify documents and promote to Grantee"}
-                      className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <UserCheck className="h-4 w-4" aria-hidden="true" />
-                      {application.physicalDocumentsConfirmed ? "Promote" : "Verify & Promote"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingRemoval(application)}
-                      disabled={waitlistActionId !== null}
-                      aria-label={`Remove ${application.applicantName} from the waitlist`}
-                      title="Remove from waitlist and return to pending review"
-                      className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      Remove
-                    </button>
+                  <div className="flex items-center justify-end border-t border-slate-100 pt-3">
+                    {renderActionsTrigger(application)}
                   </div>
                 </article>
               ))}
@@ -660,28 +867,29 @@ export default function SkeapWaitlistClient({
             <table className="w-full border-collapse whitespace-nowrap text-left text-sm">
               <thead className="bg-gradient-to-r from-slate-900 to-cyan-900">
                 <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
-                  <th className="px-6 py-4">Position</th>
-                  <th className="px-6 py-4">Applicant</th>
-                  <th className="px-6 py-4">Program Details</th>
-                  <th className="px-6 py-4">Submitted</th>
-                  <th className="px-6 py-4 text-right">Action</th>
+                  <th className="px-6 py-4 align-top">Position</th>
+                  <th className="px-6 py-4 align-top">Applicant</th>
+                  <th className="px-6 py-4 align-top">Program Details</th>
+                  <th className="px-6 py-4 align-top">Submitted</th>
+                  <th className="w-28 px-4 py-4 text-center align-top">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white text-sm">
                 {visibleApplications.map((application) => (
                   <tr key={application.id} className="group align-top transition-colors hover:bg-slate-50/50">
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 align-top">
                       <span className="text-lg font-black text-slate-900">#{application.waitlistPosition ?? "-"}</span>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col gap-0.5">
-                        <p className="font-semibold text-slate-900">{application.applicantName}</p>
-                        <p className="text-xs text-slate-500">{application.emailAddress}</p>
-                        {application.contactNumber ? <p className="text-xs text-slate-400">{application.contactNumber}</p> : null}
-                        <OfferStatusBadge application={application} />
+                    <td className="px-6 py-4 align-top">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">{application.applicantName}</p>
+                        <p className="truncate text-xs text-slate-500">
+                          {application.emailAddress} · {application.contactNumber || "No phone number"}
+                        </p>
+                        <OfferStatusBadge application={application} now={countdownNow} />
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-700">
+                    <td className="px-6 py-4 align-top text-slate-700">
                       <div className="flex flex-col gap-0.5">
                         <p>{normalizeSkeapSchoolName(application.school)}</p>
                         <p className="text-xs font-medium text-slate-500">
@@ -694,29 +902,10 @@ export default function SkeapWaitlistClient({
                         </p>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-600">{formatDate(application.submittedAt)}</td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openPromotionModal(application)}
-                          disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
-                          aria-label={application.physicalDocumentsConfirmed ? "Promote to Grantee" : "Verify documents and promote to Grantee"}
-                          title={isCapacityExceeded ? capacityTooltip : application.physicalDocumentsConfirmed ? "Promote to active Grantee" : "Verify documents and promote to Grantee"}
-                          className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <UserCheck className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPendingRemoval(application)}
-                          disabled={waitlistActionId !== null}
-                          aria-label={`Remove ${application.applicantName} from the waitlist`}
-                          title="Remove from waitlist and return to pending review"
-                          className="flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </button>
+                    <td className="px-6 py-4 align-top text-slate-600">{formatDate(application.submittedAt)}</td>
+                    <td className="w-28 px-4 py-4 text-center align-top">
+                      <div className="relative inline-block">
+                        {renderActionsTrigger(application)}
                       </div>
                     </td>
                   </tr>
@@ -763,6 +952,99 @@ export default function SkeapWaitlistClient({
           />
         </div>
       </section>
+
+      {openActionsMenuId && typeof document !== "undefined"
+        ? (() => {
+            const application = applications.find((entry) => entry.id === openActionsMenuId);
+            if (!application) return null;
+            const offered = hasActiveOffer(application);
+            return createPortal(
+              <div
+                ref={actionMenuRef}
+                id={`waitlist-actions-${application.id}`}
+                role="menu"
+                aria-label={`${application.applicantName} actions`}
+                className="fixed z-50 w-52 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                style={{
+                  top: actionsMenuPosition?.top ?? 0,
+                  left: actionsMenuPosition?.left ?? 0,
+                  visibility: actionsMenuPosition ? "visible" : "hidden",
+                }}
+              >
+                {offered ? (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        closeActionsMenu();
+                        openPromotionModal(application);
+                      }}
+                      disabled={isCapacityExceeded || promotingId !== null || waitlistActionId !== null}
+                      title={isCapacityExceeded ? capacityTooltip : "Confirm physical CTCs and promote to Grantee"}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <UserCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      Promote to Grantee
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        closeActionsMenu();
+                        openOfferModal(application);
+                      }}
+                      disabled={sendingOffer}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Mail className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      Send Updated Notice
+                    </button>
+                    <div className="my-1 border-t border-slate-100" />
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        closeActionsMenu();
+                        openOfferModal(application);
+                      }}
+                      disabled={openSlotCount === 0 || sendingOffer || isWaitlistClosed}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed ${
+                        openSlotCount === 0 || isWaitlistClosed
+                          ? "text-slate-400"
+                          : "text-cyan-800 hover:bg-cyan-50"
+                      }`}
+                    >
+                      <Send className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>Send Notice</span>
+                      {openSlotCount === 0 ? (
+                        <span className="ml-auto text-[10px] text-slate-400">No open slots</span>
+                      ) : null}
+                    </button>
+                    <div className="my-1 border-t border-slate-100" />
+                  </>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeActionsMenu();
+                    setPendingRemoval(application);
+                  }}
+                  disabled={waitlistActionId !== null}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  Remove from Waitlist
+                </button>
+              </div>,
+              document.body,
+            );
+          })()
+        : null}
 
       {isPromoteModalOpen && selectedApplicant ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
@@ -891,7 +1173,7 @@ export default function SkeapWaitlistClient({
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <h3 id="promote-modal-title" className="text-[17px] font-black leading-none text-slate-900">
-                    Promote to grantee?
+                    Promote to Grantee?
                   </h3>
                   <p className="px-2 text-[13px] leading-snug text-slate-500">
                     You&apos;re promoting <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span>. This uses <span className="font-bold text-slate-900">1 slot</span> and sends an automated email.
@@ -922,6 +1204,115 @@ export default function SkeapWaitlistClient({
               </>
             )}
           </div>
+        </div>
+      ) : null}
+
+      {offerApplicant ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm"
+            aria-label="Close offer slot dialog"
+            onClick={() => {
+              if (!sendingOffer) setOfferApplicant(null);
+            }}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="offer-slot-title"
+            className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <header className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <h2 id="offer-slot-title" className="text-base font-bold text-slate-900">
+                  Send Slot Offer Notice
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Review the deadline and customize the message before notifying this applicant.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOfferApplicant(null)}
+                disabled={sendingOffer}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </header>
+            <div className="flex-1 space-y-5 overflow-y-auto p-5">
+              <dl className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+                <div>
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Full Name</dt>
+                  <dd className="mt-1 text-sm font-semibold text-slate-900">{offerApplicant.applicantName}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Queue Position</dt>
+                  <dd className="mt-1 text-sm font-semibold text-slate-900">#{offerApplicant.waitlistPosition ?? "—"}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Email</dt>
+                  <dd className="mt-1 break-all text-sm text-slate-700">{offerApplicant.emailAddress || "No email address on file"}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Contact Number</dt>
+                  <dd className="mt-1 text-sm text-slate-700">{offerApplicant.contactNumber || "No contact number on file"}</dd>
+                </div>
+              </dl>
+
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-800">Compliance Deadline <span className="text-xs font-medium text-slate-500">(Philippine Time)</span></span>
+                <input
+                  type="datetime-local"
+                  value={offerDeadline}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setOfferDeadline(value);
+                  }}
+                  className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                  required
+                />
+                <span className="mt-1 block text-xs text-slate-500">The deadline is stored and sent using Asia/Manila time.</span>
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-800">Notification Message</span>
+                <textarea
+                  value={displayedOfferMessage}
+                  onChange={(event) => {
+                    setOfferMessage(event.target.value);
+                    setIsCustomMessage(true);
+                  }}
+                  rows={8}
+                  maxLength={5000}
+                  className="mt-1.5 w-full resize-y rounded-lg border border-slate-300 px-3 py-2.5 text-sm leading-relaxed text-slate-800 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                  required
+                />
+                <span className="mt-1 block text-right text-xs text-slate-400">{displayedOfferMessage.length}/5000</span>
+              </label>
+            </div>
+            <footer className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setOfferApplicant(null)}
+                disabled={sendingOffer}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void sendOffer()}
+                disabled={sendingOffer || !offerDeadline || !displayedOfferMessage.trim()}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-800 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sendingOffer ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Send className="h-3.5 w-3.5" aria-hidden="true" />}
+                {sendingOffer ? "Sending Notice..." : "Send Notice"}
+              </button>
+            </footer>
+          </section>
         </div>
       ) : null}
 

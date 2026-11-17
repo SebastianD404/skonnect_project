@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   refreshView: vi.fn(),
   downgradeRole: vi.fn(),
   revalidatePath: vi.fn(),
-  dispatchWaitlistOffers: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -54,10 +53,6 @@ vi.mock("@/lib/grantee-archive-view", () => ({
 vi.mock("@/lib/skeap-capacity", () => ({
   getSkeapCapacitySnapshot: vi.fn(),
   lockSkeapCapacity: vi.fn(),
-}));
-
-vi.mock("@/lib/skeap-waitlist-offers", () => ({
-  dispatchWaitlistSlotOffers: mocks.dispatchWaitlistOffers,
 }));
 
 vi.mock("@/lib/skeap-waitlist", () => ({
@@ -200,7 +195,6 @@ describe("active grantee revocation", () => {
     mocks.transaction.mockImplementation(async (callback) => callback(createTransactionClient()));
     mocks.sendEmail.mockResolvedValue(undefined);
     mocks.refreshView.mockResolvedValue(undefined);
-    mocks.dispatchWaitlistOffers.mockResolvedValue({ offeredCount: 0 });
   });
 
   it("revokes, audits, notifies, and refreshes the archive", async () => {

@@ -1,4 +1,5 @@
 import {
+  getKkProfilingAdminViewCounts,
   getKkProfilingAdminViewCount,
   listKkProfilingAdminViewRows,
   type KkProfilingAdminViewRow,
@@ -40,27 +41,30 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
   const requestedPageSize = Number(rawPageSize);
   const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const requestedStatus = String(rawStatus || "pending").toLowerCase();
-  const statusParam = ["pending", "returned", "resubmitted", "withdrawn", "rejected"].includes(requestedStatus)
-    ? requestedStatus
-    : "pending";
+  const statusParam = requestedStatus === "rejected"
+    ? "withdrawn"
+    : ["pending", "returned", "resubmitted", "withdrawn", "physical-ctc"].includes(requestedStatus)
+      ? requestedStatus
+      : "pending";
   const skip = (page - 1) * pageSize;
   const statusLabel =
     statusParam === "returned"
       ? "Returned"
       : statusParam === "resubmitted"
         ? "Resubmitted"
+        : statusParam === "physical-ctc"
+          ? "For Physical CTC"
         : statusParam === "withdrawn"
           ? "Withdrawn"
-          : statusParam === "rejected"
-            ? "Rejected"
-            : "Pending";
+          : "Pending";
 
-  const [totalCount, rows, focusedRows] = await Promise.all([
-    getKkProfilingAdminViewCount(statusLabel),
-    listKkProfilingAdminViewRows({ status: statusLabel, take: pageSize, skip }),
+  const [totalCount, rows, focusedRows, statusCounts] = await Promise.all([
+    getKkProfilingAdminViewCount(statusParam),
+    listKkProfilingAdminViewRows({ status: statusParam, take: pageSize, skip }),
     focusId
-      ? listKkProfilingAdminViewRows({ status: statusLabel, id: focusId, take: 1, skip: 0 })
+      ? listKkProfilingAdminViewRows({ status: statusParam, id: focusId, take: 1, skip: 0 })
       : Promise.resolve([]),
+    getKkProfilingAdminViewCounts(),
   ]);
   const registrations = rows.map(toKKProfilingRegistration);
   const focusedRegistrations = focusedRows.map(toKKProfilingRegistration);
@@ -88,22 +92,14 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
           </div>
         </div>
 
+        <KKProfilingStatusTabs currentStatus={statusParam} counts={statusCounts} />
+
         <div className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
           <div className="flex flex-col justify-between gap-3 border-b border-slate-100 bg-slate-50/50 px-5 py-4 sm:flex-row sm:items-center">
             <KKProfilingTableSearchField />
-            <KKProfilingStatusTabs
-              currentStatus={
-                statusParam === "returned"
-                  ? "returned"
-                  : statusParam === "resubmitted"
-                  ? "resubmitted"
-                  : statusParam === "withdrawn"
-                  ? "withdrawn"
-                  : statusParam === "rejected"
-                  ? "rejected"
-                  : "pending"
-              }
-            />
+            <p className="shrink-0 text-xs font-medium text-slate-500">
+              Showing {totalCount} registrations
+            </p>
           </div>
 
           <div className="w-full overflow-x-auto">

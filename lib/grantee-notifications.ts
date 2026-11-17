@@ -1,12 +1,16 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
-import { detectGranteeTargetTerm } from "@/lib/grantee-semester";
+import {
+  detectGranteeTargetTerm,
+  getScheduleSemesterForTargetTerm,
+} from "@/lib/grantee-semester";
 
 export type GranteeUploadNotificationTrigger =
   | "ADMIN_SETTINGS"
   | "REQUIREMENT_APPROVED"
   | "GRANTEE_APPROVED"
+  | "SUBMISSION_OPEN"
   | "DEADLINE_REMINDER";
 
 export type NotifyGranteesToUploadRequirementsInput = {
@@ -14,6 +18,7 @@ export type NotifyGranteesToUploadRequirementsInput = {
   schoolYear?: string;
   semester?: string;
   deadline?: Date | string;
+  now?: Date;
   trigger: GranteeUploadNotificationTrigger;
 };
 
@@ -77,6 +82,7 @@ export async function notifyGranteesToUploadRequirements({
   schoolYear,
   semester,
   deadline,
+  now = new Date(),
   trigger,
 }: NotifyGranteesToUploadRequirementsInput): Promise<GranteeUploadNotificationResult> {
   const result: GranteeUploadNotificationResult = {
@@ -93,6 +99,9 @@ export async function notifyGranteesToUploadRequirements({
       grantee: { is: { status: { in: ["ACTIVE", "PROBATIONARY"] } } },
     },
     select: { id: true, email: true, emailNotifications: true },
+  });
+  const schedules = await prisma.academicTermSchedule.findMany({
+    select: { semester: true, opensAt: true },
   });
 
   let transporter: ReturnType<typeof createGmailTransporter> | null = null;
@@ -111,9 +120,17 @@ export async function notifyGranteesToUploadRequirements({
         continue;
       }
 
+      const scheduleSemester = getScheduleSemesterForTargetTerm(targetTerm);
+      const targetSchedule = schedules.find((schedule) => schedule.semester === scheduleSemester);
+      if (!targetSchedule || targetSchedule.opensAt > now) {
+        result.skipped += 1;
+        continue;
+      }
+
       const title = `Action Required: Upload ${targetTerm.schoolYear} ${targetTerm.semester} Requirements`;
       const message = `Your SKEAP requirement submission for ${targetTerm.schoolYear} (${targetTerm.semester}) is now open. Please upload your latest grades and enrollment documents${deadline ? ` before ${formatDeadline(deadline)}` : ""}.`;
-      const sourceKey = `requirements-upload:${encodeURIComponent(targetTerm.schoolYear)}:${encodeURIComponent(targetTerm.semester)}:${trigger}`;
+      const sourceKeyTrigger = trigger === "DEADLINE_REMINDER" ? trigger : "SUBMISSION_OPEN";
+      const sourceKey = `requirements-upload:${encodeURIComponent(targetTerm.schoolYear)}:${encodeURIComponent(targetTerm.semester)}:${sourceKeyTrigger}`;
 
       try {
         await prisma.notification.create({

@@ -18,7 +18,6 @@ import {
   buildIdentityFingerprint,
   parseSkeapApplicantName,
 } from "@/lib/skeap-application-guard";
-import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 
 async function authorizeUser() {
   const supabase = await createClient();
@@ -432,17 +431,6 @@ export async function PATCH(
     });
   }
 
-  let waitlistOffers: Awaited<ReturnType<typeof dispatchWaitlistSlotOffers>> | null = null;
-  let waitlistOfferDispatchFailed = false;
-  if (updated.grantee.status === "REVOKED") {
-    try {
-      waitlistOffers = await dispatchWaitlistSlotOffers();
-    } catch (error) {
-      waitlistOfferDispatchFailed = true;
-      console.error("SKEAP grantee was revoked, but waitlist offers could not be dispatched:", error);
-    }
-  }
-
   const errors: string[] = [];
   if (notificationStatus === "FAILED") {
     errors.push(
@@ -456,17 +444,12 @@ export async function PATCH(
   if (archiveRefreshStatus === "FAILED") {
     errors.push("The revocation was saved, but the archive report could not be refreshed. Retry to refresh it.");
   }
-  if (waitlistOfferDispatchFailed) {
-    errors.push("The revocation was saved, but waitlist offers could not be dispatched. Retry Notify Next Eligible on the waitlist page.");
-  }
-
   const responseBody = {
     success: errors.length === 0,
     revocationStatus: updated.grantee.status,
     notificationStatus,
     notificationErrorCode,
     archiveRefreshStatus,
-    waitlistOffers,
     grantee: {
       id: updated.grantee.id,
       userId: updated.grantee.userId,
@@ -487,9 +470,7 @@ export async function PATCH(
         ? 202
         : archiveRefreshStatus === "FAILED"
           ? 503
-          : waitlistOfferDispatchFailed
-            ? 503
-            : 200;
+        : 200;
   return NextResponse.json(responseBody, { status: responseStatus });
 }
 
@@ -568,8 +549,6 @@ export async function DELETE(
 
       return {
         status: "DELETED" as const,
-        freedSlot:
-          current.status === "ACTIVE" || current.status === "PROBATIONARY",
       };
     });
 
@@ -594,17 +573,6 @@ export async function DELETE(
         { error: "Grantee record was deleted, but the archive report could not be refreshed." },
         { status: 503 }
       );
-    }
-    if (deletedGrantee.freedSlot) {
-      try {
-        await dispatchWaitlistSlotOffers();
-      } catch (error) {
-        console.error("Grantee record was deleted, but waitlist offers could not be dispatched:", error);
-        return NextResponse.json(
-          { error: "Grantee record was deleted, but waitlist offers could not be dispatched. Retry Notify Next Eligible on the waitlist page." },
-          { status: 503 },
-        );
-      }
     }
     return NextResponse.json({ success: true });
   } catch (error) {

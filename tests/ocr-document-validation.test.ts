@@ -50,6 +50,19 @@ describe("submission OCR document validation", () => {
     expect(validateGradeReport("FORM 138")).toBe(true);
   });
 
+  it("verifies cropped grade tables from structural signals without a title", () => {
+    expect(validateGradeReport("DESCRIPTION UNITS")).toBe(true);
+    expect(validateGradeReport("WMAD305")).toBe(true);
+    expect(
+      validateGradeReport(
+        "Prerequisites:\nIntroduction to Computing 3.0 1.75\nCollege Algebra 3.0 2.00",
+      ),
+    ).toBe(true);
+    expect(
+      validateGradeReport("Prerequisites:\nIntroduction to Computing 3.0 1.75"),
+    ).toBe(false);
+  });
+
   it("uses a descriptive grade-report filename when OCR cannot read the title", () => {
     expect(validateGradeReport("", "report card.jpg")).toBe(true);
     expect(validateGradeReport("", "grade_report.pdf")).toBe(true);

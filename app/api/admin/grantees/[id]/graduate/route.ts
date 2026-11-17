@@ -11,7 +11,6 @@ import { GRADE_REPORT_MIME_TYPES, hasGradeReportSignature, MAX_GRADE_REPORT_BYTE
 import { uploadPrivateDocument, removePrivateDocument } from "@/lib/private-documents";
 import { createClient } from "@/lib/supabase/server";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
-import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 
 type GraduationInput = {
   schoolClearanceVerified: boolean;
@@ -257,17 +256,6 @@ export async function POST(
     revalidatePath("/admin/skeap-waitlist");
     revalidatePath("/programs/skeap");
 
-    let waitlistOffers;
-    try {
-      waitlistOffers = await dispatchWaitlistSlotOffers();
-    } catch (offerError) {
-      console.error("Grantee graduation was recorded, but waitlist offers could not be dispatched:", offerError);
-      return NextResponse.json(
-        { error: "Graduation was recorded, but waitlist offers could not be dispatched. Retry Notify Next Eligible on the waitlist page." },
-        { status: 503 },
-      );
-    }
-
     try {
       await Promise.all([
         refreshInactiveGranteesView(),
@@ -281,7 +269,7 @@ export async function POST(
       );
     }
 
-    return NextResponse.json({ success: true, grantee: graduation, waitlistOffers });
+    return NextResponse.json({ success: true, grantee: graduation });
   } catch (error) {
     if (uploadedPath) {
       try {

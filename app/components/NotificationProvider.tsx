@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 type NotificationContextValue = {
   readNotificationIds: Set<string>;
   unreadCount: number;
+  refreshNotifications: () => Promise<void>;
   markNotificationAsRead: (notificationId: string) => Promise<void>;
   markAllNotificationsAsRead: (notificationIds: string[]) => Promise<void>;
 };
@@ -16,7 +17,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [serverUnreadCount, setServerUnreadCount] = useState<number | null>(null);
   const mutationVersion = useRef(0);
 
-  const refresh = async () => {
+  const refreshNotifications = useCallback(async () => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     const requestVersion = mutationVersion.current;
     try {
       const [readResponse, countResponse] = await Promise.all([
@@ -35,11 +37,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     } catch {
       // Keep the last known notification state when polling is unavailable.
     }
-  };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshNotifications();
+    };
 
     async function startPollingIfAuthenticated() {
       try {
@@ -48,10 +54,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         const sessionData = await sessionResponse.json();
         if (cancelled || !sessionData.user) return;
 
-        await refresh();
+        await refreshNotifications();
         if (cancelled) return;
-        timer = window.setInterval(refresh, 30000);
-        window.addEventListener("focus", refresh);
+        timer = window.setInterval(refreshWhenVisible, 5000);
+        window.addEventListener("focus", refreshWhenVisible);
+        document.addEventListener("visibilitychange", refreshWhenVisible);
       } catch {
         // Keep notification polling disabled when session lookup is unavailable.
       }
@@ -62,9 +69,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     return () => {
       cancelled = true;
       if (timer !== undefined) window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, []);
+  }, [refreshNotifications]);
 
   const markNotificationAsRead = useCallback(async (notificationId: string) => {
     mutationVersion.current += 1;
@@ -101,9 +109,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const value = useMemo<NotificationContextValue>(() => ({
     readNotificationIds,
     unreadCount: serverUnreadCount ?? 0,
+    refreshNotifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,
-  }), [readNotificationIds, serverUnreadCount, markNotificationAsRead, markAllNotificationsAsRead]);
+  }), [readNotificationIds, serverUnreadCount, refreshNotifications, markNotificationAsRead, markAllNotificationsAsRead]);
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }

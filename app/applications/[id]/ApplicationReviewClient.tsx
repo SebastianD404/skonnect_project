@@ -13,6 +13,8 @@ import {
   isSkeapUploadMarkedForCorrection,
 } from "@/lib/skeap-application-status";
 import { formatActivityTimestamp } from "@/lib/utils";
+import { scanGradeReportFile } from "@/lib/ocr/client-grade-report";
+import type { GradeReportDiagnostics } from "@/lib/grade-report-parser";
 
 type ReviewAttachment = {
   fileId: string;
@@ -89,6 +91,8 @@ type StagedReplacement = {
   previewUrl: string;
   status: "uploading" | "uploaded";
   uploadedUrl?: string;
+  gradeDiagnostics?: GradeReportDiagnostics | null;
+  ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED";
 };
 
 type SubmittedFile = {
@@ -102,6 +106,8 @@ type SubmittedFile = {
   fileName: string;
   pendingResubmission?: boolean;
   isMissing?: boolean;
+  gradeDiagnostics?: GradeReportDiagnostics | null;
+  ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED";
 };
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
@@ -265,10 +271,20 @@ function DetailItem({ label, value }: { label: string; value?: string }) {
   );
 }
 
-async function uploadDocument(applicationId: string, slotId: string, file: File) {
+async function uploadDocument(
+  applicationId: string,
+  slotId: string,
+  file: File,
+  gradeDiagnostics?: GradeReportDiagnostics | null,
+  ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED",
+) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("slotId", slotId);
+  if (slotId === "gradeReport") {
+    formData.append("gradeDiagnostics", JSON.stringify(gradeDiagnostics ?? null));
+    formData.append("ocrStatus", ocrStatus ?? "OCR_FAILED");
+  }
   const response = await fetch(`/api/applications/${applicationId}/resubmit/upload`, {
     method: "POST",
     body: formData,
@@ -321,6 +337,8 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         fileName: upload?.name || (upload?.url ? getFilenameFromUrl(upload.url) : ""),
         pendingResubmission: upload?.pendingResubmission,
         isMissing: !upload?.url,
+        gradeDiagnostics: upload?.gradeDiagnostics,
+        ocrStatus: upload?.ocrStatus,
       };
     });
   }, [coreUploads]);
@@ -472,12 +490,36 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     ]);
 
     try {
-      const uploadedUrl = await uploadDocument(application.id, slotId, file);
+      let gradeDiagnostics: GradeReportDiagnostics | null = null;
+      let ocrStatus: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED" | undefined;
+      if (slotId === "gradeReport") {
+        try {
+          const scan = await scanGradeReportFile(file);
+          gradeDiagnostics = scan.diagnostics;
+          ocrStatus = scan.ocrStatus;
+        } catch (scanError) {
+          console.error("Grade Report OCR failed during SKEAP resubmission.", scanError);
+          ocrStatus = "OCR_FAILED";
+        }
+      }
+      const uploadedUrl = await uploadDocument(
+        application.id,
+        slotId,
+        file,
+        gradeDiagnostics,
+        ocrStatus,
+      );
       URL.revokeObjectURL(previewUrl);
       setStagedReplacements((current) =>
         current.map((replacement) =>
           replacement.slotId === slotId
-            ? { ...replacement, previewUrl: "", uploadedUrl, status: "uploaded" }
+            ? {
+                ...replacement,
+                previewUrl: "",
+                uploadedUrl,
+                status: "uploaded",
+                ...(slotId === "gradeReport" ? { gradeDiagnostics, ocrStatus } : {}),
+              }
             : replacement
         )
       );
@@ -519,6 +561,12 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
             fileUrl: staged.uploadedUrl,
             fileName: staged.file.name,
             fileType: staged.file.type || getFileTypeLabel(staged.file.name),
+            ...(file.slotId === "gradeReport"
+              ? {
+                  gradeDiagnostics: staged.gradeDiagnostics,
+                  ocrStatus: staged.ocrStatus,
+                }
+              : {}),
           }];
         }
         if (file.pendingResubmission) {

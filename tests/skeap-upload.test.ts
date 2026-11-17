@@ -457,6 +457,44 @@ describe("SKEAP upload verification state", () => {
     });
   });
 
+  it("preserves Grade Report diagnostics and OCR status through resubmission", () => {
+    const gradeDiagnostics = {
+      detectedScale: "PERCENTAGE_100" as const,
+      estimatedGwa: 78,
+      gwaCheckStatus: "BELOW_REQUIREMENT" as const,
+      meetsGwaRequirement: false,
+      gwaMessage: "Estimated GWA does not meet the 80% maintenance requirement.",
+      hasPossibleFailingGrade: true,
+      flaggedSubjects: ["WMADE1: 74"],
+      flaggedGrades: ["WMADE1: 74"],
+      possibleFailingGradeMessage:
+        "Possible failing grade detected. An SK Admin will verify your official grade report.",
+    };
+    const draft = mergeSkeapDraftReplacement(
+      {},
+      {
+        slotId: "gradeReport",
+        fileUrl: "https://example.com/new-grades.pdf",
+        fileName: "new-grades.pdf",
+        fileType: "application/pdf",
+        gradeDiagnostics,
+        ocrStatus: "OCR_NEEDS_REVIEW",
+      },
+    );
+
+    const replacement = getPendingSkeapDraftReplacements(draft);
+    expect(replacement[0]).toMatchObject({
+      gradeDiagnostics,
+      ocrStatus: "OCR_NEEDS_REVIEW",
+    });
+    const submittedGradeReport = mergeSkeapResubmittedFiles(draft, replacement).gradeReport;
+    expect(submittedGradeReport).toMatchObject({
+      gradeDiagnostics,
+      ocrStatus: "OCR_NEEDS_REVIEW",
+    });
+    expect(submittedGradeReport?.pendingResubmission).toBeUndefined();
+  });
+
   it("keeps saved verification state when a persisted replacement matches the resubmission activity", () => {
     const replacements = [{
       slotId: "incomeCertificate",

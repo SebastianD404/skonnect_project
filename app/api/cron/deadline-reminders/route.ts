@@ -20,11 +20,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [result, waitlistOffers] = await Promise.all([
+    const [result, waitlistJobs] = await Promise.all([
       runGranteeUploadRequirementReminders(),
       runWaitlistOfferJobs(),
     ]);
-    return NextResponse.json({ ok: true, ...result, waitlistOffers });
+    return NextResponse.json({ ok: true, ...result, waitlistJobs });
   } catch (error) {
     console.error("Scheduled deadline reminder run failed:", error);
     return NextResponse.json({ error: "Deadline reminder run failed." }, { status: 500 });

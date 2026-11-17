@@ -44,7 +44,9 @@ export async function GET(request: NextRequest) {
       ? "search"
       : params.get("filter") === "withdrawn"
         ? "withdrawn"
-        : "queue";
+        : params.get("filter") === "returned"
+          ? "returned"
+          : "queue";
 
     if (!range) {
       return NextResponse.json({ error: "Invalid academic year." }, { status: 400 });
@@ -93,6 +95,7 @@ export async function GET(request: NextRequest) {
       ? {
           counts: {
             pending: viewCounts.pendingCount,
+            returned: viewCounts.returnedCount,
             physicalCtc: viewCounts.physicalCtcCount,
             resubmitted: viewCounts.resubmittedCount,
             withdrawn: viewCounts.withdrawnCount,
@@ -108,6 +111,7 @@ export async function GET(request: NextRequest) {
       totalCount,
       hasNextPage,
       pendingCount: viewCounts?.pendingCount,
+      returnedCount: viewCounts?.returnedCount,
       resubmittedCount: viewCounts?.resubmittedCount,
       physicalCtcCount: viewCounts?.physicalCtcCount,
       withdrawnCount: viewCounts?.withdrawnCount,

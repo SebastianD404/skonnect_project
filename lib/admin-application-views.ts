@@ -9,6 +9,7 @@ export interface SkeapAdminQueueRow {
 
 export interface SkeapAdminViewCounts {
   pendingCount: number;
+  returnedCount: number;
   resubmittedCount: number;
   physicalCtcCount: number;
   withdrawnCount: number;
@@ -62,7 +63,15 @@ export interface KkProfilingAdminViewRow {
   granteeId: string | null;
 }
 
-export type SkeapAdminQueueFilter = "queue" | "withdrawn" | "search";
+export interface KkProfilingAdminViewCounts {
+  pendingCount: number;
+  returnedCount: number;
+  resubmittedCount: number;
+  physicalCtcCount: number;
+  withdrawnCount: number;
+}
+
+export type SkeapAdminQueueFilter = "queue" | "returned" | "withdrawn" | "search";
 
 function getSkeapAdminWhere(
   range: { start: Date; end: Date },
@@ -77,7 +86,16 @@ function getSkeapAdminWhere(
     conditions.push(Prisma.sql`"inquiryCreatedAt" >= ${range.start} AND "inquiryCreatedAt" < ${range.end}`);
   }
 
-  if (filter === "withdrawn") {
+  if (filter === "returned") {
+    conditions.push(Prisma.sql`
+      "reviewStatus" ILIKE ANY (ARRAY['%return%', '%correction%', '%required%', '%revise%', '%revision%'])
+      AND "status" NOT IN ('APPROVED', 'REJECTED', 'WITHDRAWN')
+      AND COALESCE("reviewStatus", '') NOT ILIKE '%approve%'
+      AND COALESCE("reviewStatus", '') NOT ILIKE '%reject%'
+      AND COALESCE("reviewStatus", '') NOT ILIKE '%withdraw%'
+      AND COALESCE("reviewStatus", '') NOT ILIKE '%cancel%'
+    `);
+  } else if (filter === "withdrawn") {
     conditions.push(Prisma.sql`
       (
         "status" = 'WITHDRAWN'
@@ -134,6 +152,20 @@ export async function getSkeapAdminViewCounts(
       )::INTEGER AS "resubmittedCount",
       COUNT(*) FILTER (
         WHERE (
+            "reviewStatus" ILIKE '%return%'
+            OR "reviewStatus" ILIKE '%correction%'
+            OR "reviewStatus" ILIKE '%required%'
+            OR "reviewStatus" ILIKE '%revise%'
+            OR "reviewStatus" ILIKE '%revision%'
+          )
+          AND "status" NOT IN ('APPROVED', 'REJECTED', 'WITHDRAWN')
+          AND COALESCE("reviewStatus", '') NOT ILIKE '%approve%'
+          AND COALESCE("reviewStatus", '') NOT ILIKE '%reject%'
+          AND COALESCE("reviewStatus", '') NOT ILIKE '%withdraw%'
+          AND COALESCE("reviewStatus", '') NOT ILIKE '%cancel%'
+      )::INTEGER AS "returnedCount",
+      COUNT(*) FILTER (
+        WHERE (
             "reviewStatus" ILIKE '%pre_qual%'
             OR "reviewStatus" ILIKE '%pre-qual%'
           )
@@ -153,6 +185,7 @@ export async function getSkeapAdminViewCounts(
   `);
   return rows[0] ?? {
     pendingCount: 0,
+    returnedCount: 0,
     resubmittedCount: 0,
     physicalCtcCount: 0,
     withdrawnCount: 0,
@@ -214,9 +247,51 @@ export async function countSkeapAdminQueueRows({
 
 function getKkProfilingWhere(status?: string, id?: string) {
   const conditions: Prisma.Sql[] = [];
-  if (status) conditions.push(Prisma.sql`LOWER("status") = LOWER(${status})`);
+  const normalizedStatus = status?.trim().toLowerCase().replace(/_/g, "-");
+  if (normalizedStatus === "pending") {
+    conditions.push(Prisma.sql`LOWER(TRIM("status")) IN ('pending', 'pending review', 'manual review')`);
+  } else if (normalizedStatus === "returned") {
+    conditions.push(Prisma.sql`LOWER(TRIM("status")) = 'returned'`);
+  } else if (normalizedStatus === "resubmitted") {
+    conditions.push(Prisma.sql`LOWER(TRIM("status")) = 'resubmitted'`);
+  } else if (normalizedStatus === "physical-ctc" || normalizedStatus === "for physical ctc") {
+    conditions.push(Prisma.sql`LOWER(TRIM("status")) IN ('for physical ctc', 'for_physical_ctc')`);
+  } else if (normalizedStatus === "withdrawn" || normalizedStatus === "rejected") {
+    conditions.push(Prisma.sql`LOWER(TRIM("status")) IN ('withdrawn', 'rejected')`);
+  } else if (status) {
+    conditions.push(Prisma.sql`LOWER("status") = LOWER(${status})`);
+  }
   if (id) conditions.push(Prisma.sql`"id" = ${id}`);
   return conditions.length ? Prisma.join(conditions, " AND ") : null;
+}
+
+export async function getKkProfilingAdminViewCounts(): Promise<KkProfilingAdminViewCounts> {
+  const rows = await prisma.$queryRaw<KkProfilingAdminViewCounts[]>(Prisma.sql`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE LOWER(TRIM("status")) IN ('pending', 'pending review', 'manual review')
+      )::INTEGER AS "pendingCount",
+      COUNT(*) FILTER (
+        WHERE LOWER(TRIM("status")) = 'returned'
+      )::INTEGER AS "returnedCount",
+      COUNT(*) FILTER (
+        WHERE LOWER(TRIM("status")) = 'resubmitted'
+      )::INTEGER AS "resubmittedCount",
+      COUNT(*) FILTER (
+        WHERE LOWER(TRIM("status")) IN ('for physical ctc', 'for_physical_ctc')
+      )::INTEGER AS "physicalCtcCount",
+      COUNT(*) FILTER (
+        WHERE LOWER(TRIM("status")) IN ('withdrawn', 'rejected')
+      )::INTEGER AS "withdrawnCount"
+    FROM "public"."kk_profiling_applications_admin_mv"
+  `);
+  return rows[0] ?? {
+    pendingCount: 0,
+    returnedCount: 0,
+    resubmittedCount: 0,
+    physicalCtcCount: 0,
+    withdrawnCount: 0,
+  };
 }
 
 export async function getKkProfilingAdminViewCount(status?: string): Promise<number> {

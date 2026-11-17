@@ -11,7 +11,6 @@ import {
   lockSkeapCapacity,
   setSkeapMaxSlots,
 } from "@/lib/skeap-capacity";
-import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -46,7 +45,6 @@ export async function PATCH(request: Request) {
 
   let saved: {
     setting: { key: string; value: number; updatedAt: Date };
-    previousValue: number;
   };
   try {
     saved = await prisma.$transaction(async (tx) => {
@@ -55,9 +53,8 @@ export async function PATCH(request: Request) {
       if (value < capacity.activeCount) {
         throw new Error("SLOT_LIMIT_BELOW_ACTIVE_COUNT");
       }
-      const previousValue = capacity.maxSlots;
       const setting = await setSkeapMaxSlots(value, tx);
-      return { setting, previousValue };
+      return { setting };
     });
   } catch (error) {
     if (error instanceof Error && error.message === "SLOT_LIMIT_BELOW_ACTIVE_COUNT") {
@@ -77,28 +74,9 @@ export async function PATCH(request: Request) {
   revalidatePath("/admin/skeap-waitlist");
   revalidatePath("/programs/skeap");
 
-  let waitlistOffers: Awaited<ReturnType<typeof dispatchWaitlistSlotOffers>> | null = null;
-  if (saved.setting.value > saved.previousValue) {
-    try {
-      waitlistOffers = await dispatchWaitlistSlotOffers();
-    } catch (error) {
-      console.error("SKEAP capacity was increased, but waitlist offers could not be dispatched:", error);
-      return NextResponse.json(
-        {
-          code: "CAPACITY_UPDATED_OFFERS_NOT_DISPATCHED",
-          error: "The slot limit was updated, but waitlist offers could not be sent. Retry Notify Next Eligible on the waitlist page.",
-          key: saved.setting.key,
-          value: saved.setting.value,
-        },
-        { status: 503 },
-      );
-    }
-  }
-
   return NextResponse.json({
     key: saved.setting.key,
     value: saved.setting.value,
     updatedAt: saved.setting.updatedAt.toISOString(),
-    waitlistOffers,
   });
 }

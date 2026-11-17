@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import RevokeGranteeModal from "./RevokeGranteeModal";
 import type { ReactNode } from "react";
@@ -9,18 +9,20 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
-  ChevronDown,
+  Clock,
   ExternalLink,
   FileText,
   GraduationCap,
   Loader2,
   MapPin,
+  RefreshCw,
   Search,
+  ShieldCheck,
   Undo2,
+  type LucideIcon,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
-import type { AcademicTermWindow } from "@/lib/academic-term-schedule";
 import type { GradeReportDiagnostics } from "@/lib/grade-report-parser";
 import { ADMIN_TABLE_PAGE_SIZES, DEFAULT_ADMIN_TABLE_PAGE_SIZE } from "@/lib/admin-pagination";
 import AdminPaginationControls from "../AdminPaginationControls";
@@ -60,13 +62,25 @@ interface SubmissionsResponse {
   pageSize: number;
   totalPages: number;
   semesters: string[];
-  academicTermWindow: AcademicTermWindow;
 }
 
 interface TabDef {
   id: TabType;
   label: string;
+  subtitle: string;
+  icon: LucideIcon;
+}
+
+interface ActionConfirmation {
+  title: string;
   description: string;
+  confirmLabel: string;
+  intent: "primary" | "warning";
+  notes: string | null;
+  notesRequired: boolean;
+  notesError?: string;
+  onNotesChange?: (value: string) => void;
+  onConfirm: (notes?: string) => Promise<unknown>;
 }
 
 const EMPTY_REVIEW_DRAFT: ReviewDraft = {
@@ -81,23 +95,14 @@ const EMPTY_RESPONSE: SubmissionsResponse = {
   pageSize: DEFAULT_ADMIN_TABLE_PAGE_SIZE,
   totalPages: 1,
   semesters: [],
-  academicTermWindow: { status: "UNCONFIGURED", semester: null, opensAt: null, closesAt: null },
 };
 
-function formatWindowDate(value: string | null) {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("en-PH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Manila",
-  }).format(new Date(value));
-}
 const TABS: TabDef[] = [
-  { id: "pending", label: "Pending Review", description: "First-time digital submissions awaiting review" },
-  { id: "returned", label: "Returned for Edits", description: "Submissions returned to grantees" },
-  { id: "resubmitted", label: "Resubmitted", description: "Updated documents awaiting admin review" },
-  { id: "physical", label: "For Physical CTC", description: "Digital files verified; original / CTC verification pending at the Barangay Hall" },
-  { id: "cleared", label: "Fully Cleared", description: "Submissions approved by an administrator" },
+  { id: "pending", label: "Pending Review", subtitle: "in queue", icon: Clock },
+  { id: "returned", label: "Returned for Edits", subtitle: "awaiting grantee re-upload", icon: Undo2 },
+  { id: "resubmitted", label: "Resubmitted", subtitle: "updated digital files", icon: RefreshCw },
+  { id: "physical", label: "For Physical CTC", subtitle: "awaiting in-person verification", icon: CheckCircle2 },
+  { id: "cleared", label: "Fully Cleared", subtitle: "approved for payout", icon: ShieldCheck },
 ];
 const QUEUE_TITLES: Record<TabType, string> = {
   pending: "Review Queue",
@@ -155,91 +160,10 @@ function formatQueueName(value: string) {
     );
 }
 
-function getQueueInitials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toLocaleUpperCase("en"))
-    .join("") || "?";
-}
-
-function formatQueueSemester(semester: string) {
-  const yearRange = semester.match(/\b\d{4}\s*[-–]\s*\d{4}\b/)?.[0];
-  if (!yearRange) return semester;
-
-  const normalizedYearRange = yearRange.replace(/\s*[-–]\s*/, "–");
-  const value = semester.toLocaleLowerCase("en");
-  const term = /first|1st/.test(value)
-    ? "1st Sem"
-    : /second|2nd/.test(value)
-      ? "2nd Sem"
-      : /\bsummer\b/.test(value)
-        ? "Summer"
-        : semester.replace(yearRange, "").trim();
-
-  return term ? `${normalizedYearRange} · ${term}` : normalizedYearRange;
-}
-
-const QUEUE_DATE_FORMAT = new Intl.DateTimeFormat("en-PH", {
-  month: "short",
-  day: "numeric",
-  timeZone: "Asia/Manila",
-});
-
-function QueueDocumentBadge({
-  label,
-  status,
-  isResubmitted,
-  submissionStatus,
-  hasPossibleFailingGrade = false,
-}: {
-  label: "COE" | "Grades";
-  status: SubmissionStatus;
-  isResubmitted: boolean;
-  submissionStatus: SubmissionStatus;
-  hasPossibleFailingGrade?: boolean;
-}) {
-  const isApproved = status === "APPROVED" || submissionStatus === "APPROVED";
-  const isReturned = status === "RETURNED_FOR_EDIT" || status === "REJECTED";
-  const state = isApproved ? "approved" : isReturned ? "returned" : isResubmitted ? "resubmitted" : "pending";
-  const stateLabel = {
-    approved: "approved",
-    returned: "returned for edits",
-    resubmitted: "resubmitted",
-    pending: "pending review",
-  }[state];
-  const style = {
-    approved: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    returned: "border-amber-200 bg-amber-50 text-amber-700",
-    resubmitted: "border-indigo-200 bg-indigo-50 text-indigo-700",
-    pending: "border-slate-200 bg-slate-50 text-slate-600",
-  }[state];
-
-  return (
-    <span
-      title={`${label} ${stateLabel}${hasPossibleFailingGrade ? " · Possible failing grade detected" : ""}`}
-      aria-label={`${label} ${stateLabel}${hasPossibleFailingGrade ? ", possible failing grade detected" : ""}`}
-      className={`inline-flex h-[22px] items-center gap-1 rounded-full border px-1.5 text-[10px] font-semibold leading-none ${style}`}
-    >
-      {state === "approved" ? (
-        <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
-      ) : state === "pending" ? (
-        <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-hidden="true" />
-      ) : (
-        <Undo2 className="h-3 w-3" aria-hidden="true" />
-      )}
-      {label}
-      {hasPossibleFailingGrade ? (
-        <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
-      ) : null}
-    </span>
-  );
-}
-
 interface DocumentCardProps {
   submissionId: string;
   documentKind: "coe" | "grade";
+  docKey: "COE" | "GRADE_REPORT";
   title: string;
   notesLabel: string;
   storedFilePath: string | null | undefined;
@@ -248,6 +172,10 @@ interface DocumentCardProps {
   onNotesChange: (value: string) => void;
   onApprove: () => void;
   onReturn: () => Promise<boolean>;
+  pendingAction: string | null;
+  documentReturned: boolean;
+  awaitingReupload: boolean;
+  canReview: boolean;
   disabled: boolean;
   approved: boolean;
   reviewLocked?: boolean;
@@ -256,6 +184,7 @@ interface DocumentCardProps {
 function DocumentCard({
   submissionId,
   documentKind,
+  docKey,
   title,
   notesLabel,
   storedFilePath,
@@ -264,10 +193,16 @@ function DocumentCard({
   onNotesChange,
   onApprove,
   onReturn,
+  pendingAction,
+  documentReturned,
+  awaitingReupload,
+  canReview,
   disabled,
   approved,
   reviewLocked = false,
 }: DocumentCardProps) {
+  const isReturning = pendingAction === `${docKey}:RETURN`;
+  const isApproving = pendingAction === `${docKey}:APPROVE`;
   const viewerUrl = `/api/submissions/${submissionId}/file?kind=${documentKind}`;
   const [previewType, setPreviewType] = useState<"pdf" | "image" | "unsupported" | "missing" | null>(null);
   const [rawStorageUrl, setRawStorageUrl] = useState<string | null>(null);
@@ -315,21 +250,29 @@ function DocumentCard({
 
   return (
     <article className="review-card flex h-full flex-col">
-      <div className="review-card__header flex h-9 items-center justify-between mb-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
+      <div className="review-card__header !h-auto min-h-9 items-start gap-2">
+        <div className="flex min-w-fit shrink-0 items-center gap-2">
           {documentKind === "grade" ? (
             <GraduationCap className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
           ) : (
             <FileText className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
           )}
           <h3
-            className="review-card__title min-w-0 flex-1"
+            className="review-card__title shrink-0"
             title={title}
           >
             {documentKind === "coe" && badgeContent ? "COE" : title}
           </h3>
         </div>
-        {badgeContent ? <div className="shrink-0">{badgeContent}</div> : null}
+        {badgeContent || documentReturned ? (
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1">
+            {documentReturned ? (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                Returned for Edits
+              </span>
+            ) : badgeContent}
+          </div>
+        ) : null}
       </div>
 
       <div className={`review-card__preview group relative h-44 w-full flex items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 p-3 ${storedFilePath && previewType !== null && previewType !== "missing" ? "cursor-pointer" : ""}`}>
@@ -411,25 +354,50 @@ function DocumentCard({
                 rows={5}
                 placeholder="Add feedback for the grantee..."
                 value={reviewNotesValue}
-                disabled={disabled}
+                disabled={disabled || pendingAction !== null}
+                readOnly={awaitingReupload}
                 onChange={(event) => onNotesChange(event.target.value)}
-                className="flex-1 w-full min-h-[140px] resize-none text-slate-900 placeholder:text-slate-400"
+                className={`flex-1 w-full min-h-[140px] resize-none placeholder:text-slate-400 ${
+                  awaitingReupload
+                    ? "cursor-default bg-slate-50/70 text-slate-600"
+                    : "text-slate-900"
+                }`}
               />
             </div>
           </>
         )}
       </div>
 
-      {approved ? (
+      {awaitingReupload ? (
+        <div className="review-card__actions review-card__actions--single">
+          <button
+            type="button"
+            disabled
+            className="review-button w-full !cursor-not-allowed border border-slate-200 bg-slate-50 text-slate-400"
+          >
+            <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
+            Awaiting Grantee Re-upload
+          </button>
+        </div>
+      ) : approved ? (
         <div className="review-card__actions review-card__actions--single">
           <button
             type="button"
             onClick={onReturn}
-            disabled={disabled}
-            className="review-button review-button--return"
+            disabled={!canReview || disabled || pendingAction !== null}
+            className="review-button review-button--return inline-flex items-center justify-center gap-2 whitespace-nowrap"
           >
-            <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-            <span>Return / Undo</span>
+            {isReturning ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden="true" />
+                <span>Returning...</span>
+              </>
+            ) : (
+              <>
+                <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+                <span>Return / Undo</span>
+              </>
+            )}
           </button>
         </div>
       ) : documentKind === "grade" ? (
@@ -437,20 +405,38 @@ function DocumentCard({
           <button
             type="button"
             onClick={onReturn}
-            disabled={disabled}
-            className="review-button review-button--return"
+            disabled={!canReview || disabled || pendingAction !== null}
+            className="review-button review-button--return inline-flex items-center justify-center gap-2 whitespace-nowrap"
           >
-            <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-            Return
+            {isReturning ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden="true" />
+                <span>Returning...</span>
+              </>
+            ) : (
+              <>
+                <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+                Return
+              </>
+            )}
           </button>
           <button
             type="button"
             onClick={onApprove}
-            disabled={disabled}
-            className="review-button review-button--approve"
+            disabled={!canReview || disabled || pendingAction !== null}
+            className="review-button review-button--approve inline-flex items-center justify-center gap-2 whitespace-nowrap"
           >
-            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            Approve Grades
+            {isApproving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden="true" />
+                <span>Approving...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                Approve Grades
+              </>
+            )}
           </button>
         </div>
       ) : (
@@ -458,20 +444,38 @@ function DocumentCard({
           <button
             type="button"
             onClick={onReturn}
-            disabled={disabled}
-            className="review-button review-button--return"
+            disabled={!canReview || disabled || pendingAction !== null}
+            className="review-button review-button--return inline-flex items-center justify-center gap-2 whitespace-nowrap"
           >
-            <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-            <span>Return</span>
+            {isReturning ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden="true" />
+                <span>Returning...</span>
+              </>
+            ) : (
+              <>
+                <Undo2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+                <span>Return</span>
+              </>
+            )}
           </button>
           <button
             type="button"
             onClick={onApprove}
-            disabled={disabled}
-            className="review-button review-button--approve"
+            disabled={!canReview || disabled || pendingAction !== null}
+            className="review-button review-button--approve inline-flex items-center justify-center gap-2 whitespace-nowrap"
           >
-            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{approved ? "Approved" : "Approve"}</span>
+            {isApproving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden="true" />
+                <span>Approving...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{approved ? "Approved" : "Approve"}</span>
+              </>
+            )}
           </button>
         </div>
       )}
@@ -556,11 +560,43 @@ export default function SubmissionReviewTable() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft>>({});
   const [savingSubmissionId, setSavingSubmissionId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
+  const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
+  const [isConfirmingAction, setIsConfirmingAction] = useState(false);
+
+  const refreshSubmissionState = useCallback(async (
+    tab: TabType,
+    requestedPage: number,
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams({
+      status: tab,
+      page: String(requestedPage),
+      limit: String(pageSize),
+      search: query.trim(),
+    });
+    const result = await fetch(`/api/admin/submissions?${params}`, {
+      cache: "no-store",
+      signal,
+    });
+    const body = await result.json().catch(() => ({}));
+    if (!result.ok) throw new Error(body?.error || "Unable to load submissions.");
+    const nextResponse = body as SubmissionsResponse;
+    setResponseData(nextResponse);
+    setSelectedSubmissionId((current) =>
+      current && nextResponse.rows.some((row) => row.id === current)
+        ? current
+        : nextResponse.rows[0]?.id ?? null
+    );
+    setLoadError(null);
+    setPage(nextResponse.page ?? requestedPage);
+  }, [pageSize, query]);
+
   useEffect(() => {
     if (!actionSuccess) return;
     const timeout = window.setTimeout(() => setActionSuccess(null), 5000);
@@ -585,28 +621,8 @@ export default function SubmissionReviewTable() {
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      const params = new URLSearchParams({
-        status: activeTab,
-        page: String(page),
-        limit: String(pageSize),
-        search: query.trim(),
-      });
       try {
-        const result = await fetch(`/api/admin/submissions?${params}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        const body = await result.json().catch(() => ({}));
-        if (!result.ok) throw new Error(body?.error || "Unable to load submissions.");
-        const nextResponse = body as SubmissionsResponse;
-        setResponseData(nextResponse);
-        setSelectedSubmissionId((current) =>
-          current && nextResponse.rows.some((row) => row.id === current)
-            ? current
-            : nextResponse.rows[0]?.id ?? null
-        );
-        setLoadError(null);
-        setPage(nextResponse.page ?? page);
+        await refreshSubmissionState(activeTab, page, controller.signal);
       } catch (error) {
         if (controller.signal.aborted) return;
         setLoadError(error instanceof Error ? error.message : "Unable to load submissions.");
@@ -619,10 +635,14 @@ export default function SubmissionReviewTable() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeTab, page, pageSize, query, refreshToken]);
+  }, [activeTab, page, pageSize, query, refreshToken, refreshSubmissionState]);
 
   const selectedSubmission =
     responseData.rows.find((submission) => submission.id === selectedSubmissionId) ?? null;
+  const submissionAwaitingReupload = selectedSubmission?.status === "RETURNED_FOR_EDIT";
+  const coeReturned = selectedSubmission?.coeStatus === "RETURNED_FOR_EDIT";
+  const gradeReportReturned = selectedSubmission?.gradesStatus === "RETURNED_FOR_EDIT";
+  const canReviewDocuments = selectedSubmission?.status === "PENDING";
   const canShowPrimaryRevoke =
     selectedSubmission !== null &&
     selectedSubmission.status !== "APPROVED" &&
@@ -741,6 +761,9 @@ export default function SubmissionReviewTable() {
       return false;
     }
 
+    const docKey = docType === "coe" ? "COE" : "GRADE_REPORT";
+    const actionKey = `${docKey}:${action === "APPROVE" ? "APPROVE" : "RETURN"}`;
+    setPendingAction(actionKey);
     setSavingSubmissionId(submission.id);
     setActionError(null);
     setValidationError(null);
@@ -748,23 +771,25 @@ export default function SubmissionReviewTable() {
     try {
       await postDocumentReview(submission, docType, action, reviewNotes.trim());
       updateDraft(submission.id, { [docType]: { status: "PENDING", notes: "" } });
+      if (action === "RETURN_FOR_UPDATE") {
+        changeTab("returned");
+        await refreshSubmissionState("returned", 1);
+      } else {
+        await refreshSubmissionState(activeTab, page);
+      }
       setActionSuccess(
         action === "APPROVE"
           ? `${docType === "coe" ? "Certificate of Enrollment" : "Grade Report"} approved.`
           : `${docType === "coe" ? "Certificate of Enrollment" : "Grade Report"} returned for edits.`
       );
-      if (action === "RETURN_FOR_UPDATE") {
-        changeTab("returned");
-      } else {
-        setIsLoading(true);
-        setRefreshToken((current) => current + 1);
-      }
       return true;
     } catch (error) {
       handleActionError(error, "Unable to process review action.", submission.grantee.id);
       return false;
     } finally {
       setSavingSubmissionId(null);
+      setPendingAction(null);
+      setIsLoading(false);
     }
   }
 
@@ -807,6 +832,71 @@ export default function SubmissionReviewTable() {
     );
     if (notes === null) return Promise.resolve(false);
     return submitDocumentReview(submission, docType, "RETURN_FOR_UPDATE", notes);
+  }
+
+  function requestDocumentReviewConfirmation(
+    submission: SubmissionRow,
+    docType: "coe" | "grades",
+    action: "APPROVE" | "RETURN_FOR_UPDATE",
+  ): Promise<boolean> {
+    const documentName = docType === "coe" ? "Certificate of Enrollment" : "Grade Report";
+    if (action === "APPROVE") {
+      setActionConfirmation({
+        title: `Approve ${documentName}?`,
+        description: "This will approve the resubmitted digital document and update the review queue.",
+        confirmLabel: `Approve ${docType === "coe" ? "COE" : "Grades"}`,
+        intent: "primary",
+        notes: null,
+        notesRequired: false,
+        onConfirm: () => submitDocumentReview(submission, docType, action),
+      });
+      return Promise.resolve(false);
+    }
+
+    const documentDraft = reviewDrafts[submission.id]?.[docType] ?? EMPTY_REVIEW_DRAFT[docType];
+    const initialNotes = documentDraft.notes || submission.reviewNotes || "";
+    setValidationError(null);
+    setActionConfirmation({
+      title: `Return ${documentName} for edits?`,
+      description: "The grantee will need to correct and re-upload this document. Add or review the feedback before returning it.",
+      confirmLabel: "Return for Edits",
+      intent: "warning",
+      notes: initialNotes,
+      notesRequired: true,
+      onNotesChange: (value) => {
+        setActionConfirmation((current) => current ? { ...current, notes: value } : current);
+        if (docType === "coe") {
+          updateDraft(submission.id, {
+            coe: { ...documentDraft, notes: value },
+          });
+        } else {
+          updateDraft(submission.id, {
+            grades: { ...documentDraft, notes: value },
+          });
+        }
+      },
+      onConfirm: (notes) => submitDocumentReview(submission, docType, action, notes),
+    });
+    return Promise.resolve(false);
+  }
+
+  async function confirmAction() {
+    const confirmation = actionConfirmation;
+    if (!confirmation || isConfirmingAction) return;
+    if (confirmation.notesRequired && !confirmation.notes?.trim()) {
+      setActionConfirmation((current) => current
+        ? { ...current, notesError: "Add review notes before returning a document for edits." }
+        : current);
+      return;
+    }
+
+    setIsConfirmingAction(true);
+    try {
+      await confirmation.onConfirm(confirmation.notes?.trim());
+    } finally {
+      setActionConfirmation(null);
+      setIsConfirmingAction(false);
+    }
   }
 
   async function postSubmissionAction(
@@ -872,7 +962,7 @@ export default function SubmissionReviewTable() {
       if (!response.ok) {
         if (payload?.revocationSaved === true) {
           removeGranteeFromQueue(granteeId);
-          setActionError(payload?.error || "Grantee revoked, but waitlist offers could not be dispatched.");
+          setActionError(payload?.error || "Grantee was revoked, but a follow-up notification failed.");
           return;
         }
         throw new Error(payload?.error || "Unable to revoke grantee.");
@@ -889,93 +979,65 @@ export default function SubmissionReviewTable() {
   return (
     <section className="w-full">
       <div className="p-4 sm:p-5">
-        <div className="flex w-full flex-wrap items-center gap-3">
-          <label className="relative block w-full min-w-0 sm:w-72 sm:flex-none lg:w-[28rem]">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="search"
-              placeholder="Search grantee, school or semester..."
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPage(1);
-                setSelectedSubmissionId(null);
-                setIsMobileReviewOpen(false);
-                setIsLoading(true);
-              }}
-              className="h-10 w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#0a1f33] focus:ring-2 focus:ring-[#0a1f33]/10"
-            />
-          </label>
-
-          <label className="relative block w-full sm:hidden">
-            <span className="sr-only">Filter submissions by status</span>
-            <select
-              value={activeTab}
-              onChange={(event) => changeTab(event.target.value as TabType)}
-              className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-10 text-xs font-semibold text-slate-700 outline-none focus:border-[#0a1f33] focus:ring-2 focus:ring-[#0a1f33]/10"
-            >
-              {TABS.map((tab) => (
-                <option key={tab.id} value={tab.id}>
-                  {tab.label} ({responseData.counts[tab.id]})
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              aria-hidden="true"
-              className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
-            />
-          </label>
-
-          <div className="hidden max-w-full items-center gap-1.5 overflow-x-auto rounded-xl bg-slate-100 p-1 sm:ml-auto sm:flex">
-            {TABS.map((tab) => (
+        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => changeTab(tab.id)}
-                aria-pressed={activeTab === tab.id}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                  activeTab === tab.id
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
+                aria-pressed={isActive}
+                className={`group relative flex w-full flex-col gap-2 overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-[0_6px_24px_-6px_rgba(14,116,144,0.09)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
+                  isActive
+                    ? "border-[1.5px] border-[#0a1f33]"
+                    : "border-slate-200/75 hover:border-slate-300"
                 }`}
-                title={tab.description}
               >
-                {tab.label}
-                <span className={`rounded-full px-2 py-0.5 text-[10px] ${activeTab === tab.id ? "bg-white/15" : "bg-slate-100"}`}>
-                  {responseData.counts[tab.id]}
-                </span>
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    background:
+                      "radial-gradient(ellipse 58% 70% at 95% 5%, rgba(56, 189, 248, 0.16) 0%, rgba(103, 232, 249, 0.06) 42%, transparent 100%)",
+                  }}
+                />
+                <div className="relative z-10 flex min-w-0 items-center justify-between gap-2 sm:gap-3">
+                  <span className={`min-w-0 truncate text-[10px] font-bold uppercase tracking-widest ${isActive ? "text-[#0891b2]" : "text-slate-400"}`}>
+                    {tab.label}
+                  </span>
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-transform duration-300 group-hover:scale-110 ${
+                    isActive
+                      ? "bg-[#0891b2] text-white shadow-[0_0_0_5px_rgba(8,145,178,0.10)]"
+                      : "border border-sky-100 bg-sky-50/90 text-cyan-600"
+                  }`}>
+                    <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  </span>
+                </div>
+                <div className="relative z-10">
+                  <h3 className="text-2xl font-extrabold tabular-nums leading-none tracking-tight text-slate-950">
+                    {responseData.counts[tab.id]}
+                  </h3>
+                  <p className={`mt-1 text-[11px] font-medium ${isActive ? "text-slate-500" : "text-slate-400"}`}>
+                    {tab.subtitle}
+                  </p>
+                </div>
               </button>
-            ))}
-          </div>
-
-        </div>
-        <div className="mt-3 flex justify-start lg:justify-end">
-          <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
-            <span
-              aria-hidden="true"
-              className={`h-1.5 w-1.5 rounded-full ${
-                responseData.academicTermWindow.status === "OPEN"
-                  ? "bg-emerald-500"
-                  : responseData.academicTermWindow.status === "UPCOMING"
-                    ? "bg-sky-500"
-                    : "bg-slate-400"
-              }`}
-            />
-            {responseData.academicTermWindow.status === "OPEN"
-              ? `${responseData.academicTermWindow.semester} documents open until ${formatWindowDate(responseData.academicTermWindow.closesAt)}`
-              : responseData.academicTermWindow.status === "UPCOMING"
-                ? `${responseData.academicTermWindow.semester} documents open ${formatWindowDate(responseData.academicTermWindow.opensAt)}`
-                : responseData.academicTermWindow.status === "CLOSED"
-                  ? `Latest document window closed: ${responseData.academicTermWindow.semester}`
-                  : "Academic document schedule not configured"}
-          </p>
+            );
+          })}
         </div>
       </div>
 
       <div className="space-y-3 p-4 sm:p-5" aria-busy={isLoading}>
         {loadError ? <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
         {validationError ? (
-          <FloatingFeedback message={validationError} type="error" onDismiss={() => setValidationError(null)} />
+          <FloatingFeedback
+            message={validationError}
+            type="error"
+            autoDismissMs={5000}
+            onDismiss={() => setValidationError(null)}
+          />
         ) : null}
         {actionError ? <FloatingFeedback message={actionError} type="error" autoDismissMs={5000} onDismiss={() => setActionError(null)} /> : null}
         {actionSuccess ? <FloatingFeedback message={actionSuccess} type="success" autoDismissMs={0} onDismiss={() => setActionSuccess(null)} /> : null}
@@ -992,7 +1054,27 @@ export default function SubmissionReviewTable() {
                 <p className="text-[10px] font-medium tracking-wider text-slate-400">
                   {getQueueSubtitle(activeTab, responseData.totalCount)}
                 </p>
-                </div>
+              </div>
+            </div>
+
+            <div className="shrink-0 border-b border-slate-100 bg-white p-3">
+              <label className="relative block">
+                <span className="sr-only">Search grantee, school or semester</span>
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  placeholder="Search grantee, school or semester..."
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setPage(1);
+                    setSelectedSubmissionId(null);
+                    setIsMobileReviewOpen(false);
+                    setIsLoading(true);
+                  }}
+                  className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-xs text-slate-900 placeholder:text-slate-400 outline-none focus:border-cyan-600 focus:bg-white"
+                />
+              </label>
             </div>
 
             <div className="custom-scroll custom-scroll-visible min-h-0 flex-1 overflow-y-scroll p-2.5">
@@ -1017,69 +1099,35 @@ export default function SubmissionReviewTable() {
                     setActionSuccess(null);
                   }}
                   aria-current={selectedSubmissionId === submission.id ? "true" : undefined}
-                  className={`w-full rounded-xl border p-3.5 text-left transition ${
+                  className={`w-full rounded-xl border p-3 text-left transition ${
                     selectedSubmissionId === submission.id
-                      ? "border-slate-300 border-l-[3px] border-l-slate-900 bg-slate-50/90 shadow-sm"
+                      ? "border-[1.5px] border-slate-900 bg-slate-50/70 shadow-sm"
                       : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/60 hover:shadow-sm"
                   }`}
                 >
-                    <div className="flex min-w-0 items-center justify-between gap-2">
-                      <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                        <span
-                          aria-hidden="true"
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold ${
-                            selectedSubmissionId === submission.id
-                              ? "bg-slate-900 text-white"
-                              : "bg-slate-100 text-slate-600"
-                          }`}
-                        >
-                          {getQueueInitials(displayName)}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900" title={displayName}>
-                          {displayName}
-                        </span>
-                      </div>
+                  <div className="space-y-0.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900" title={displayName}>
+                        {displayName}
+                      </span>
                       <time
                         dateTime={submission.submittedAt}
                         title={formatDate(submission.submittedAt)}
                         className="shrink-0 text-xs tabular-nums text-slate-400"
                       >
-                        {QUEUE_DATE_FORMAT.format(new Date(submission.submittedAt))}
+                        {formatDate(submission.submittedAt)}
                       </time>
                     </div>
-                    <div className="ml-[46px] mt-1.5 flex min-w-0 items-center gap-1 text-[12.5px] text-slate-500">
-                      <span
-                        className="min-w-0 truncate"
-                        title={normalizeSkeapSchoolName(submission.grantee.school)}
-                      >
-                        {normalizeSkeapSchoolName(submission.grantee.school)}
-                      </span>
-                      <span aria-hidden="true" className="shrink-0">·</span>
-                      <span className="shrink-0">{submission.grantee.yearLevel}</span>
+                    <div className="truncate text-xs text-slate-500">
+                      {submission.grantee.user.email}
                     </div>
-                    <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
-                      <span
-                        title={submission.semester}
-                        className="inline-flex min-w-0 max-w-[55%] truncate rounded-md border border-slate-200 bg-white/80 px-1.5 py-1 text-[10px] font-semibold text-slate-600"
-                      >
-                        {formatQueueSemester(submission.semester)}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1">
-                        <QueueDocumentBadge
-                          label="COE"
-                          status={submission.coeStatus}
-                          submissionStatus={submission.status}
-                          isResubmitted={submission.resubmittedFields?.includes("COE") ?? false}
-                        />
-                        <QueueDocumentBadge
-                          label="Grades"
-                          status={submission.gradesStatus}
-                          submissionStatus={submission.status}
-                          isResubmitted={submission.resubmittedFields?.includes("GRADE_REPORT") ?? false}
-                          hasPossibleFailingGrade={submission.gradeDiagnostics?.hasPossibleFailingGrade ?? false}
-                        />
-                      </span>
+                    <div className="truncate text-xs font-medium text-slate-600">
+                      {submission.semester}
                     </div>
+                    <div className="truncate text-xs text-slate-400">
+                      {normalizeSkeapSchoolName(submission.grantee.school)} · {submission.grantee.yearLevel}
+                    </div>
+                  </div>
                   </button>
                 );
               })}
@@ -1161,7 +1209,7 @@ export default function SubmissionReviewTable() {
                         {selectedSubmission.grantee.user.fullName}
                       </h2>
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <div className="inline-flex shrink-0 flex-wrap items-center gap-2.5">
                       {selectedSubmission.status === "APPROVED" ? (
                         <span className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
                           <CheckCircle2 className="h-4 w-4" />
@@ -1169,17 +1217,26 @@ export default function SubmissionReviewTable() {
                         </span>
                       ) : selectedSubmission.status === "AWAITING_PHYSICAL_CTC" ? (
                         <>
-                          <span className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
-                            For Physical CTC
-                          </span>
                           <button
                             type="button"
-                            onClick={() => void confirmPhysicalCtc()}
+                            onClick={() => setActionConfirmation({
+                              title: "Confirm physical CTC and clear submission?",
+                              description: "Confirm that the grantee's physical Original / CTC has been verified. This will fully clear the submission.",
+                              confirmLabel: "Confirm",
+                              intent: "primary",
+                              notes: null,
+                              notesRequired: false,
+                              onConfirm: confirmPhysicalCtc,
+                            })}
                             disabled={isSaving}
-                            className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold whitespace-nowrap text-white shadow-xs transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <CheckCircle2 className="h-4 w-4" />
-                            Confirm Physical CTC &amp; Clear
+                            {isSaving ? (
+                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            )}
+                            {isSaving ? "Confirming..." : "Confirm Physical CTC"}
                           </button>
                         </>
                       ) : (
@@ -1187,7 +1244,21 @@ export default function SubmissionReviewTable() {
                           {selectedSubmission.status === "PENDING" ? (
                             <button
                               type="button"
-                              onClick={() => void verifyDigitalAndRequestPhysicalCtc()}
+                              onClick={() => {
+                                if (activeTab === "resubmitted") {
+                                  setActionConfirmation({
+                                    title: "Verify digital documents and request physical CTC?",
+                                    description: "This will complete the digital pre-check and move the submission to the Physical CTC queue.",
+                                    confirmLabel: "Verify & Request CTC",
+                                    intent: "primary",
+                                    notes: null,
+                                    notesRequired: false,
+                                    onConfirm: verifyDigitalAndRequestPhysicalCtc,
+                                  });
+                                } else {
+                                  void verifyDigitalAndRequestPhysicalCtc();
+                                }
+                              }}
                               disabled={isSaving || !canVerifyDigital}
                               title={!canVerifyDigital ? "Approve both digital documents and clear all correction flags first." : undefined}
                               className="inline-flex items-center gap-2 rounded-xl bg-[#0a1f33] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#122e48] disabled:cursor-not-allowed disabled:opacity-50"
@@ -1203,7 +1274,7 @@ export default function SubmissionReviewTable() {
                           type="button"
                           onClick={() => setIsRevokeModalOpen(true)}
                           disabled={isSaving}
-                          className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-semibold whitespace-nowrap text-white shadow-xs transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                           Revoke Grantee
@@ -1222,7 +1293,6 @@ export default function SubmissionReviewTable() {
                     <span>{selectedSubmission.semester}</span>
                     <span aria-hidden="true">·</span>
                     <span>Submitted {formatDate(selectedSubmission.submittedAt)}</span>
-                    <span aria-hidden="true">·</span>
                   </div>
                   {selectedSubmission.status === "AWAITING_PHYSICAL_CTC" ? (
                     <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-900">
@@ -1240,6 +1310,7 @@ export default function SubmissionReviewTable() {
                     key={`${selectedSubmission.id}-coe`}
                     submissionId={selectedSubmission.id}
                     documentKind="coe"
+                    docKey="COE"
                     title="Certificate of Enrollment"
                     notesLabel="CoE Review Notes"
                     storedFilePath={selectedSubmission.coeFileUrl}
@@ -1257,12 +1328,26 @@ export default function SubmissionReviewTable() {
                         Approved
                       </span>
                     ) : undefined}
-                    reviewNotesValue={draft.coe.notes || selectedSubmission.reviewNotes || ""}
+                    reviewNotesValue={coeReturned
+                      ? selectedSubmission.reviewNotes || ""
+                      : draft.coe.notes || selectedSubmission.reviewNotes || ""}
                     onNotesChange={(value) => updateDraft(selectedSubmission.id, {
                       coe: { ...draft.coe, notes: value },
                     })}
-                    onApprove={() => void submitDocumentReview(selectedSubmission, "coe", "APPROVE")}
-                    onReturn={() => returnDocumentForUpdate(selectedSubmission, "coe")}
+                    onApprove={() => {
+                      if (activeTab === "resubmitted") {
+                        void requestDocumentReviewConfirmation(selectedSubmission, "coe", "APPROVE");
+                      } else {
+                        void submitDocumentReview(selectedSubmission, "coe", "APPROVE");
+                      }
+                    }}
+                    onReturn={() => activeTab === "resubmitted"
+                      ? requestDocumentReviewConfirmation(selectedSubmission, "coe", "RETURN_FOR_UPDATE")
+                      : returnDocumentForUpdate(selectedSubmission, "coe")}
+                    pendingAction={pendingAction}
+                    documentReturned={coeReturned}
+                    awaitingReupload={submissionAwaitingReupload || coeReturned}
+                    canReview={canReviewDocuments}
                     disabled={isSaving}
                     approved={selectedSubmission.coeStatus === "APPROVED" || selectedSubmission.status === "APPROVED"}
                     reviewLocked={selectedSubmission.status === "AWAITING_PHYSICAL_CTC"}
@@ -1272,38 +1357,57 @@ export default function SubmissionReviewTable() {
                     key={`${selectedSubmission.id}-grade`}
                     submissionId={selectedSubmission.id}
                     documentKind="grade"
+                    docKey="GRADE_REPORT"
                     title="Grade Report"
                     notesLabel="Grade Report Review Notes"
                     storedFilePath={selectedSubmission.gradeFileUrl}
                     badgeContent={selectedSubmission.gradeFileUrl ? (
-                      <div className="flex flex-wrap items-center gap-2">
+                      <>
                         {selectedSubmission.gradeDiagnostics?.hasPossibleFailingGrade ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                          <span
+                            title={
+                              selectedSubmission.gradeDiagnostics.flaggedGrades.length > 0
+                                ? `${selectedSubmission.semester}: ${selectedSubmission.gradeDiagnostics.flaggedGrades.join("; ")}`
+                                : `${selectedSubmission.semester}: ${
+                                    selectedSubmission.gradeDiagnostics.possibleFailingGradeMessage ??
+                                    "OCR detected a grade requiring review."
+                                  }`
+                            }
+                            className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap text-amber-800"
+                          >
                             <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
                             Possible Failing Grade
                           </span>
                         ) : null}
-                        {selectedSubmission.resubmittedFields?.includes("GRADE_REPORT") ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                            <Undo2 className="h-3 w-3" aria-hidden="true" />
-                            Resubmitted
-                          </span>
-                        ) : null}
                         {gradeReportApproved &&
                         !selectedSubmission.gradeDiagnostics?.hasPossibleFailingGrade ? (
-                        <span className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold whitespace-nowrap text-emerald-700">
                           <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
                           Approved
                         </span>
                         ) : null}
-                      </div>
+                      </>
                     ) : undefined}
-                    reviewNotesValue={draft.grades.notes || selectedSubmission.reviewNotes || ""}
+                    reviewNotesValue={gradeReportReturned
+                      ? selectedSubmission.reviewNotes || ""
+                      : draft.grades.notes || selectedSubmission.reviewNotes || ""}
                     onNotesChange={(value) => updateDraft(selectedSubmission.id, {
                       grades: { ...draft.grades, notes: value },
                     })}
-                    onApprove={() => void submitDocumentReview(selectedSubmission, "grades", "APPROVE")}
-                    onReturn={() => returnDocumentForUpdate(selectedSubmission, "grades")}
+                    onApprove={() => {
+                      if (activeTab === "resubmitted") {
+                        void requestDocumentReviewConfirmation(selectedSubmission, "grades", "APPROVE");
+                      } else {
+                        void submitDocumentReview(selectedSubmission, "grades", "APPROVE");
+                      }
+                    }}
+                    onReturn={() => activeTab === "resubmitted"
+                      ? requestDocumentReviewConfirmation(selectedSubmission, "grades", "RETURN_FOR_UPDATE")
+                      : returnDocumentForUpdate(selectedSubmission, "grades")}
+                    pendingAction={pendingAction}
+                    documentReturned={gradeReportReturned}
+                    awaitingReupload={submissionAwaitingReupload || gradeReportReturned}
+                    canReview={canReviewDocuments}
                     disabled={isSaving || !selectedSubmission.gradeFileUrl}
                     approved={gradeReportApproved}
                     reviewLocked={selectedSubmission.status === "AWAITING_PHYSICAL_CTC"}
@@ -1315,6 +1419,97 @@ export default function SubmissionReviewTable() {
         </div>
         )}
       </div>
+      {actionConfirmation ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !isConfirmingAction) {
+              setActionConfirmation(null);
+            }
+          }}
+        >
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="submission-action-confirmation-title"
+            aria-describedby="submission-action-confirmation-description"
+            className="w-full max-w-md space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                  actionConfirmation.intent === "warning"
+                    ? "border border-amber-200 bg-amber-50 text-amber-700"
+                    : "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                }`}>
+                  {actionConfirmation.intent === "warning"
+                    ? <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+                    : <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
+                </span>
+                <h2 id="submission-action-confirmation-title" className="text-base font-bold text-slate-900">
+                  {actionConfirmation.title}
+                </h2>
+              </div>
+              <p id="submission-action-confirmation-description" className="text-sm leading-relaxed text-slate-600">
+                {actionConfirmation.description}
+              </p>
+            </div>
+
+            {actionConfirmation.notesRequired ? (
+              <label className="block space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Review notes <span className="text-rose-600" aria-hidden="true">*</span>
+                </span>
+                <textarea
+                  autoFocus
+                  rows={4}
+                  required
+                  value={actionConfirmation.notes ?? ""}
+                  onChange={(event) => {
+                    actionConfirmation.onNotesChange?.(event.currentTarget.value);
+                    setActionConfirmation((current) => current
+                      ? { ...current, notesError: undefined }
+                      : current);
+                  }}
+                  disabled={isConfirmingAction}
+                  placeholder="Explain what the grantee needs to correct..."
+                  className="w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/15 disabled:cursor-not-allowed disabled:bg-slate-50"
+                />
+                {actionConfirmation.notesError ? (
+                  <span role="alert" className="block text-xs font-medium text-rose-700">
+                    {actionConfirmation.notesError}
+                  </span>
+                ) : null}
+              </label>
+            ) : null}
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setActionConfirmation(null)}
+                disabled={isConfirmingAction}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmAction()}
+                disabled={isConfirmingAction}
+                autoFocus={!actionConfirmation.notesRequired}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  actionConfirmation.intent === "warning"
+                    ? "bg-amber-600 hover:bg-amber-700"
+                    : "bg-emerald-700 hover:bg-emerald-800"
+                }`}
+              >
+                {isConfirmingAction ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                {isConfirmingAction ? "Processing..." : actionConfirmation.confirmLabel}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       <RevokeGranteeModal
         granteeId={selectedSubmission?.grantee.id ?? ""}
         open={isRevokeModalOpen && selectedSubmission !== null}

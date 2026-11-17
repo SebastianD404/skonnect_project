@@ -11,10 +11,12 @@ import {
   isSkeapRevocationReason,
 } from "@/lib/skeap-revocation";
 import { sendSkeapRevocationEmail } from "@/lib/skeap-revocation-email";
-import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
-import { notifyGranteePhysicalCtcStatus } from "@/lib/grantee-submission-notifications";
+import {
+  notifyGranteePhysicalCtcStatus,
+  sendGranteeSubmissionReviewEmail,
+  writeGranteeSubmissionNotification,
+} from "@/lib/grantee-submission-notifications";
 import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
-import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 import {
   buildIdentityFingerprint,
   parseSkeapApplicantName,
@@ -66,7 +68,8 @@ export async function POST(
     const body = (await request.json().catch(() => ({}))) as ReviewBody;
     const documentType = body.documentType || "coe";
     const action = body.action;
-    const reviewNotes = String(body.reviewNotes ?? "").trim();
+    const trimmedNotes = body.reviewNotes?.trim() || "";
+    const reviewNotes = trimmedNotes;
     const revocationReasonValue = String(body.reason ?? "").trim();
     const additionalNotes = String(body.additionalNotes ?? "").trim();
     const isPermanentlyDisqualified = body.isPermanentlyDisqualified === true;
@@ -205,8 +208,10 @@ export async function POST(
         stage: "requested",
         submissionId: id,
         userId: existing.grantee.user.id,
+        granteeFullName: existing.grantee.user.fullName,
         email: existing.grantee.user.email,
         semester: existing.semester,
+        reviewerNotes: trimmedNotes,
       });
       if (notificationErrors.length > 0) {
         console.error("Digital pre-check completed with notification errors:", notificationErrors);
@@ -373,24 +378,13 @@ export async function POST(
         stage: "approved",
         submissionId: id,
         userId: existing.grantee.user.id,
+        granteeFullName: existing.grantee.user.fullName,
         email: existing.grantee.user.email,
         semester: existing.semester,
+        reviewerNotes: trimmedNotes,
       });
       if (notificationErrors.length > 0) {
         console.error("Physical CTC approval completed with notification errors:", notificationErrors);
-      }
-      if (!approvalResult.graduationCandidate) {
-        try {
-          const nextTermResult = await notifyGranteesToUploadRequirements({
-            targetUserIds: [existing.grantee.userId],
-            trigger: "REQUIREMENT_APPROVED",
-          });
-          if (nextTermResult.errors.length > 0) {
-            console.error("Physical CTC approval completed with next-term notification errors:", nextTermResult.errors);
-          }
-        } catch (error) {
-          console.error("Physical CTC approval completed, but next-term notifications failed:", error);
-        }
       }
       return NextResponse.json({
         success: true,
@@ -547,23 +541,20 @@ export async function POST(
         additionalNotes: additionalNotes || null,
       });
 
-      try {
-        await dispatchWaitlistSlotOffers();
-      } catch (offerError) {
-        console.error("SKEAP grantee was revoked, but waitlist offers could not be dispatched:", offerError);
-        return NextResponse.json(
-          {
-            error: "Revocation was recorded, but waitlist offers could not be dispatched. Retry Notify Next Eligible on the waitlist page.",
-            revocationSaved: true,
-          },
-          { status: 503 },
-        );
-      }
-
       return NextResponse.json({ success: true, submission: revoked.submission });
     }
     const existingDocumentStatus =
       documentType === "coe" ? existing.coeStatus : existing.gradesStatus;
+    if (
+      action === "RETURN_FOR_UPDATE" &&
+      (existing.status === "RETURNED_FOR_EDIT" ||
+        existingDocumentStatus === "RETURNED_FOR_EDIT")
+    ) {
+      return NextResponse.json(
+        { error: "This document has already been returned and is awaiting grantee re-upload." },
+        { status: 400 }
+      );
+    }
     if (existingDocumentStatus === "APPROVED" && action !== "RETURN_FOR_UPDATE") {
       return NextResponse.json(
         { error: "This document has already been approved and cannot be changed." },
@@ -640,6 +631,17 @@ export async function POST(
       });
       if (transition.count !== 1) throw new Error("SUBMISSION_REVIEW_STATE_CHANGED");
       const saved = await tx.submission.findUniqueOrThrow({ where: { id } });
+      if (action === "RETURN_FOR_UPDATE" && existing.grantee?.user.id) {
+        await writeGranteeSubmissionNotification(tx.notification, {
+          stage: "returned",
+          submissionId: id,
+          userId: existing.grantee.user.id,
+          semester: existing.semester,
+          documentLabel: documentType === "coe" ? "Certificate of Enrollment" : "Grade Report",
+          reviewerNotes: trimmedNotes,
+          createdAt: reviewedAt,
+        });
+      }
       const flaggedField = documentType === "coe" ? "COE" : "GRADE_REPORT";
       const manualOverride =
         action === "APPROVE" &&
@@ -685,6 +687,21 @@ export async function POST(
 
       return saved;
     });
+
+    if (action === "RETURN_FOR_UPDATE") {
+      const notificationErrors = await sendGranteeSubmissionReviewEmail({
+        stage: "returned",
+        submissionId: id,
+        granteeFullName: existing.grantee.user.fullName,
+        email: existing.grantee.user.email,
+        semester: existing.semester,
+        documentLabel: documentType === "coe" ? "Certificate of Enrollment" : "Grade Report",
+        reviewerNotes: trimmedNotes,
+      });
+      if (notificationErrors.length > 0) {
+        console.error("Document returned for edits with notification errors:", notificationErrors);
+      }
+    }
 
     return NextResponse.json({ success: true, submission: updated });
   } catch (error) {

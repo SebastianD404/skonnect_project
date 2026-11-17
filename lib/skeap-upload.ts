@@ -1,3 +1,5 @@
+import type { GradeReportDiagnostics } from "@/lib/grade-report-parser";
+
 export const SKEAP_UPLOAD_KEY = {
   BIRTH_CERTIFICATE: "birthCertificate",
   BARANGAY_RESIDENCY: "barangayResidency",
@@ -35,6 +37,8 @@ export type SkeapUploadValue = {
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
+  gradeDiagnostics?: GradeReportDiagnostics | null;
+  ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED";
 };
 
 export type SkeapUploadGroup = {
@@ -51,6 +55,8 @@ export type SkeapUploadGroup = {
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
+  gradeDiagnostics?: GradeReportDiagnostics | null;
+  ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED";
 };
 
 export function getSupportedSkeapDocumentType(
@@ -84,6 +90,8 @@ export type SkeapResubmissionReplacement = {
   fileUrl: string;
   fileName: string;
   fileType: string;
+  gradeDiagnostics?: GradeReportDiagnostics | null;
+  ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED";
 };
 
 export function buildSkeapResubmissionActivity(replacements: SkeapResubmissionReplacement[]) {
@@ -166,6 +174,8 @@ export function mergeSkeapResubmittedFiles(
       verified: false,
       adminRemark: "",
       fileType: replacement.fileType,
+      gradeDiagnostics: replacement.gradeDiagnostics,
+      ocrStatus: replacement.ocrStatus,
     };
   }
   return merged;
@@ -183,6 +193,8 @@ export function mergeSkeapDraftReplacement(
     adminRemark: "",
     pendingResubmission: true,
     fileType: replacement.fileType,
+    gradeDiagnostics: replacement.gradeDiagnostics,
+    ocrStatus: replacement.ocrStatus,
   };
   return merged;
 }
@@ -199,6 +211,10 @@ export function getPendingSkeapDraftReplacements(existingFiles: unknown): SkeapR
       fileUrl: upload.url,
       fileName: upload.name,
       fileType: upload.fileType,
+      ...(upload.gradeDiagnostics !== undefined
+        ? { gradeDiagnostics: upload.gradeDiagnostics }
+        : {}),
+      ...(upload.ocrStatus ? { ocrStatus: upload.ocrStatus } : {}),
     }];
   });
 }
@@ -308,6 +324,37 @@ function isSkeapOcrNameStatus(value: unknown): value is SkeapOcrNameStatus {
     value === "NAME_MISMATCH";
 }
 
+export function isClientGradeOcrStatus(
+  value: unknown,
+): value is NonNullable<SkeapUploadValue["ocrStatus"]> {
+  return value === "OCR_DONE" || value === "OCR_NEEDS_REVIEW" || value === "OCR_FAILED";
+}
+
+export function isGradeReportDiagnostics(value: unknown): value is GradeReportDiagnostics {
+  if (!isObject(value)) return false;
+  return (
+    (value.detectedScale === null ||
+      value.detectedScale === "PERCENTAGE_100" ||
+      value.detectedScale === "SCALE_1_TO_5") &&
+    (value.estimatedGwa === null ||
+      (typeof value.estimatedGwa === "number" && Number.isFinite(value.estimatedGwa))) &&
+    (value.gwaCheckStatus === "MEETS_REQUIREMENT" ||
+      value.gwaCheckStatus === "BELOW_REQUIREMENT" ||
+      value.gwaCheckStatus === "UNAVAILABLE") &&
+    (value.meetsGwaRequirement === null || typeof value.meetsGwaRequirement === "boolean") &&
+    typeof value.gwaMessage === "string" &&
+    typeof value.hasPossibleFailingGrade === "boolean" &&
+    Array.isArray(value.flaggedSubjects) &&
+    value.flaggedSubjects.length <= 100 &&
+    value.flaggedSubjects.every((item) => typeof item === "string") &&
+    Array.isArray(value.flaggedGrades) &&
+    value.flaggedGrades.length <= 100 &&
+    value.flaggedGrades.every((item) => typeof item === "string") &&
+    (value.possibleFailingGradeMessage === null ||
+      typeof value.possibleFailingGradeMessage === "string")
+  );
+}
+
 function isValidUploadEntry(value: unknown): value is {
   url: string;
   name?: string;
@@ -318,6 +365,8 @@ function isValidUploadEntry(value: unknown): value is {
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
+  gradeDiagnostics?: GradeReportDiagnostics | null;
+  ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED";
 } {
   return (
     isObject(value) &&
@@ -330,7 +379,11 @@ function isValidUploadEntry(value: unknown): value is {
     (value.ocrNameStatus === undefined || isSkeapOcrNameStatus(value.ocrNameStatus)) &&
     (value.adminRemark === undefined || typeof value.adminRemark === "string") &&
     (value.pendingResubmission === undefined || typeof value.pendingResubmission === "boolean") &&
-    (value.fileType === undefined || typeof value.fileType === "string")
+    (value.fileType === undefined || typeof value.fileType === "string") &&
+    (value.gradeDiagnostics === undefined ||
+      value.gradeDiagnostics === null ||
+      isGradeReportDiagnostics(value.gradeDiagnostics)) &&
+    (value.ocrStatus === undefined || isClientGradeOcrStatus(value.ocrStatus))
   );
 }
 
@@ -364,6 +417,12 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         adminRemark: typeof item.adminRemark === "string" ? item.adminRemark : undefined,
         pendingResubmission: typeof item.pendingResubmission === "boolean" ? item.pendingResubmission : undefined,
         fileType: typeof item.fileType === "string" ? item.fileType : undefined,
+        gradeDiagnostics: isGradeReportDiagnostics(item.gradeDiagnostics)
+          ? item.gradeDiagnostics
+          : item.gradeDiagnostics === null
+            ? null
+            : undefined,
+        ocrStatus: isClientGradeOcrStatus(item.ocrStatus) ? item.ocrStatus : undefined,
       };
       return acc;
     }, {});
@@ -386,6 +445,8 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         adminRemark?: unknown;
         pendingResubmission?: unknown;
         fileType?: unknown;
+        gradeDiagnostics?: unknown;
+        ocrStatus?: unknown;
       };
       let normalizedKey = normalizeUploadRequirement(key);
       if (normalizedKey === "other") {
@@ -409,6 +470,12 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         pendingResubmission:
           typeof value.pendingResubmission === "boolean" ? value.pendingResubmission : undefined,
         fileType: typeof value.fileType === "string" ? value.fileType : undefined,
+        gradeDiagnostics: isGradeReportDiagnostics(value.gradeDiagnostics)
+          ? value.gradeDiagnostics
+          : value.gradeDiagnostics === null
+            ? null
+            : undefined,
+        ocrStatus: isClientGradeOcrStatus(value.ocrStatus) ? value.ocrStatus : undefined,
       };
       return acc;
     }, {});
@@ -488,6 +555,8 @@ export function getUploadGroups(uploadedFiles: unknown): SkeapUploadGroup[] {
         adminRemark: item.adminRemark,
         pendingResubmission: item.pendingResubmission,
         fileType: item.fileType,
+        gradeDiagnostics: item.gradeDiagnostics,
+        ocrStatus: item.ocrStatus,
       },
     ];
   });
@@ -520,6 +589,10 @@ export function getApplicantUploadedFiles(uploadedFiles: unknown) {
         ...(upload.ocrNameStatus !== undefined ? { ocrNameStatus: upload.ocrNameStatus } : {}),
         ...(upload.pendingResubmission !== undefined ? { pendingResubmission: upload.pendingResubmission } : {}),
         ...(upload.fileType !== undefined ? { fileType: upload.fileType } : {}),
+        ...(upload.gradeDiagnostics !== undefined
+          ? { gradeDiagnostics: upload.gradeDiagnostics }
+          : {}),
+        ...(upload.ocrStatus !== undefined ? { ocrStatus: upload.ocrStatus } : {}),
       },
     ])
   );

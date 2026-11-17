@@ -45,6 +45,7 @@ interface ApplicationMessage {
 
 interface ApplicationCounts {
   pending: number;
+  returned: number;
   physicalCtc: number;
   resubmitted?: number;
   withdrawn: number;
@@ -102,6 +103,7 @@ interface ApplicationRecord {
     currentCourse?: string;
     yearLevel?: string;
     gwa?: number | null;
+    grades?: Array<{ subject?: string; grade?: string | number }>;
     applicantName?: string;
     permanentAddress?: string;
     dateOfBirth?: string;
@@ -132,34 +134,40 @@ interface ApplicationMetricCardProps {
   icon: LucideIcon;
   active: boolean;
   onClick: () => void;
-  tone?: "default" | "slate";
 }
 
-function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onClick, tone = "default" }: ApplicationMetricCardProps) {
+function ApplicationMetricCard({ label, value, subtitle, icon: Icon, active, onClick }: ApplicationMetricCardProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`group relative w-full overflow-hidden bg-white rounded-2xl border p-3.5 sm:p-5 shadow-sm flex flex-col gap-2 sm:gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${active ? "border-slate-900 ring-1 ring-inset ring-slate-900 shadow-md" : "border-slate-200/80 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"}`}
+      className={`group relative flex w-full flex-col gap-2 overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-[0_6px_24px_-6px_rgba(14,116,144,0.09)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
+        active
+          ? "border-[1.5px] border-[#0a1f33]"
+          : "border-slate-200/75 hover:border-slate-300"
+      }`}
     >
-      <div aria-hidden="true" className="pointer-events-none absolute -top-10 -right-10 w-32 h-32 bg-cyan-50/50 rounded-full blur-2xl transition-colors duration-500 group-hover:bg-cyan-100/50" />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 58% 70% at 95% 5%, rgba(56, 189, 248, 0.16) 0%, rgba(103, 232, 249, 0.06) 42%, transparent 100%)",
+        }}
+      />
       <div className="relative z-10 flex min-w-0 items-center justify-between gap-2 sm:gap-3">
-        <span className={`min-w-0 truncate text-[10px] font-bold tracking-widest uppercase ${active ? "text-cyan-700" : "text-slate-400"}`}>{label}</span>
-        <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-transform duration-300 group-hover:scale-110 ${
-          tone === "slate"
-            ? active
-              ? "bg-slate-600 text-white"
-              : "bg-slate-100 border border-slate-200 text-slate-500"
-            : active
-              ? "bg-cyan-600 text-white"
-              : "bg-cyan-50/70 border border-cyan-100 text-cyan-600"
+        <span className={`min-w-0 truncate text-[10px] font-bold uppercase tracking-widest ${active ? "text-[#0891b2]" : "text-slate-400"}`}>{label}</span>
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-transform duration-300 group-hover:scale-110 ${
+          active
+            ? "bg-[#0891b2] text-white shadow-[0_0_0_5px_rgba(8,145,178,0.10)]"
+            : "border border-sky-100 bg-sky-50/90 text-cyan-600"
         }`}>
-          <Icon className="w-3.5 h-3.5 shrink-0 sm:w-5 sm:h-5" />
+          <Icon className="w-4 h-4 shrink-0" />
         </div>
       </div>
       <div className="relative z-10">
-        <h3 className="text-xl font-black text-slate-900 tracking-tight leading-none sm:text-3xl">
+        <h3 className="text-2xl font-extrabold tabular-nums leading-none tracking-tight text-slate-950">
           {value}
         </h3>
         <p className={`text-[11px] font-medium mt-1 ${active ? "text-slate-500" : "text-slate-400"}`}>{subtitle}</p>
@@ -207,13 +215,53 @@ function normalizeApplicationStatus(status: string) {
 
 function matchesApplicationFilter(
   application: ApplicationRecord,
-  filter: "pending" | "physical-ctc" | "resubmitted" | "withdrawn",
+  filter: "pending" | "returned" | "physical-ctc" | "resubmitted" | "withdrawn",
 ) {
   const status = normalizeApplicationStatus(application.status);
   if (filter === "pending") return status === "Pending Review";
+  if (filter === "returned") return status === "Returned";
   if (filter === "physical-ctc") return status === "Pre-qualified";
   if (filter === "resubmitted") return status === "Resubmitted";
   return status === "Withdrawn";
+}
+
+function getOcrGradeCheck(grades: unknown) {
+  if (!Array.isArray(grades) || grades.length === 0) return "Pending Scan";
+
+  const parsedGrades = grades.map((entry): boolean | null => {
+    if (typeof entry !== "object" || entry === null || !("grade" in entry)) return null;
+    const rawGrade = entry.grade;
+    if (typeof rawGrade !== "string" && typeof rawGrade !== "number") return null;
+    const normalized = String(rawGrade).trim().toUpperCase();
+    if (!normalized) return null;
+    if (/^(F|FAIL|FAILED|FAILURE|DRP|DROP|DROPPED|INC|INCOMPLETE)$/.test(normalized)) {
+      return true;
+    }
+
+    const value = Number(normalized);
+    if (!Number.isFinite(value)) return null;
+    if ((value >= 1 && value <= 5 && value > 3.01) || (value >= 50 && value < 75)) {
+      return true;
+    }
+    if ((value >= 1 && value <= 3.01) || (value >= 75 && value <= 100)) {
+      return false;
+    }
+    return null;
+  });
+
+  if (parsedGrades.length === 0 || parsedGrades.some((grade) => grade === null)) return "Pending Scan";
+  return parsedGrades.some(Boolean) ? "Failing Grade Flagged" : "No Failing Grades";
+}
+
+function getDigitallyScreenedCount(application: ApplicationRecord) {
+  return CORE_UPLOAD_KEYS.filter((key) => {
+    const group = application.uploadGroups?.find((item) => item.key === key);
+    if (group?.verified !== undefined) return group.verified;
+    const document = application.documents.find(
+      (item) => item.id === key || areDocumentLabelsEquivalent(item.label, SKEAP_UPLOAD_LABELS[key])
+    );
+    return document?.verified ?? false;
+  }).length;
 }
 
 function getQueueStatusLabel(status: string) {
@@ -469,7 +517,7 @@ export default function SkeapApplicationsClient({
     initialSelectedApplicationId ?? initialApplications[0]?.id ?? "",
   );
   const [showMobileDetails, setShowMobileDetails] = useState(Boolean(initialSelectedApplicationId));
-  const [viewFilter, setViewFilter] = useState<"pending" | "physical-ctc" | "resubmitted" | "withdrawn">(initialFilter);
+  const [viewFilter, setViewFilter] = useState<"pending" | "returned" | "physical-ctc" | "resubmitted" | "withdrawn">(initialFilter);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSearchQuery, setActiveSearchQuery] = useState("");
   const [searchResultCount, setSearchResultCount] = useState<number | null>(null);
@@ -551,9 +599,11 @@ export default function SkeapApplicationsClient({
       ? applicationCounts?.pending ?? displayedApplications.length
       : viewFilter === "physical-ctc"
         ? applicationCounts?.physicalCtc ?? displayedApplications.length
-        : viewFilter === "resubmitted"
-          ? applicationCounts?.resubmitted ?? displayedApplications.length
-          : applicationCounts?.withdrawn ?? displayedApplications.length;
+        : viewFilter === "returned"
+          ? applicationCounts?.returned ?? displayedApplications.length
+          : viewFilter === "resubmitted"
+            ? applicationCounts?.resubmitted ?? displayedApplications.length
+            : applicationCounts?.withdrawn ?? displayedApplications.length;
   const totalPages = Math.ceil(totalApplicantCount / itemsPerPage);
   const visiblePage = Math.min(currentPage, Math.max(totalPages, 1));
   const paginatedApplications = useMemo(
@@ -659,13 +709,13 @@ export default function SkeapApplicationsClient({
     ? "Search Results"
     : viewFilter === "pending"
       ? "Digital Screening"
+      : viewFilter === "returned"
+        ? "Returned for Edits"
       : viewFilter === "physical-ctc"
-      ? "For Physical CTC"
-      : viewFilter === "resubmitted"
-      ? "Resubmitted Digital Files"
-      : viewFilter === "withdrawn"
-        ? "Withdrawn Applications"
-        : "Search Results";
+        ? "Physical CTC Queue"
+        : viewFilter === "resubmitted"
+          ? "Resubmitted Review"
+          : "Withdrawn";
   const isQueueLoading = isRefreshing || isFetchingNextPage;
   const isQueueEmpty =
     displayedApplications.length === 0 && totalApplicantCount === 0 && !isQueueLoading && !isSearching;
@@ -687,7 +737,7 @@ export default function SkeapApplicationsClient({
     setCursor(null);
     setHasNextPage(false);
     void handleRefresh(selectedAcademicYear, {
-      filter: filter === "withdrawn" ? "withdrawn" : undefined,
+      filter: filter === "returned" || filter === "withdrawn" ? filter : undefined,
     });
   }
 
@@ -697,6 +747,7 @@ export default function SkeapApplicationsClient({
         const status = normalizeApplicationStatus(app.status);
         return status === "Pending Review";
       }).length,
+      returned: applications.filter((app) => normalizeApplicationStatus(app.status) === "Returned").length,
       physicalCtc: applications.filter((app) => normalizeApplicationStatus(app.status) === "Pre-qualified").length,
       resubmitted: applications.filter((app) => normalizeApplicationStatus(app.status) === "Resubmitted").length,
       withdrawn: applications.filter((app) => normalizeApplicationStatus(app.status) === "Withdrawn").length,
@@ -708,6 +759,7 @@ export default function SkeapApplicationsClient({
 
     return {
       pending: applicationCounts.pending,
+      returned: applicationCounts.returned,
       physicalCtc: applicationCounts.physicalCtc,
       resubmitted: applicationCounts.resubmitted ?? 0,
       withdrawn: applicationCounts.withdrawn,
@@ -930,7 +982,7 @@ export default function SkeapApplicationsClient({
       refreshServerData?: boolean;
       silent?: boolean;
       preserveApplication?: ApplicationRecord;
-      filter?: "withdrawn";
+      filter?: "returned" | "withdrawn";
     } = {}
   ) => {
     if (isRefreshingRef.current || isFetchingNextPageRef.current) return;
@@ -962,6 +1014,7 @@ export default function SkeapApplicationsClient({
         typeof payload.counts !== "object" || payload.counts === null ||
         !("pending" in payload.counts) || typeof payload.counts.pending !== "number" ||
         !("physicalCtc" in payload.counts) || typeof payload.counts.physicalCtc !== "number" ||
+          !("returned" in payload.counts) || typeof payload.counts.returned !== "number" ||
         !("withdrawn" in payload.counts) || typeof payload.counts.withdrawn !== "number" ||
         !("capacityFull" in payload) || typeof payload.capacityFull !== "boolean" ||
         !("hasNextPage" in payload) || typeof payload.hasNextPage !== "boolean" ||
@@ -1100,7 +1153,7 @@ export default function SkeapApplicationsClient({
       await handleRefresh(selectedAcademicYear, {
         refreshServerData: false,
         ...options,
-        ...(viewFilter === "withdrawn" ? { filter: "withdrawn" } : {}),
+        ...(viewFilter === "withdrawn" || viewFilter === "returned" ? { filter: viewFilter } : {}),
       });
     }
   }, [
@@ -1149,7 +1202,7 @@ export default function SkeapApplicationsClient({
           void handleRefresh(selectedAcademicYear, {
             refreshServerData: false,
             silent: true,
-            ...(viewFilter === "withdrawn" ? { filter: "withdrawn" as const } : {}),
+            ...(viewFilter === "withdrawn" || viewFilter === "returned" ? { filter: viewFilter } : {}),
           });
         }
       }
@@ -1191,8 +1244,8 @@ export default function SkeapApplicationsClient({
         });
         if (isRemoteSearch && activeSearchQuery) {
           params.set("search", activeSearchQuery);
-        } else if (!isRemoteSearch && viewFilter === "withdrawn") {
-          params.set("filter", "withdrawn");
+        } else if (!isRemoteSearch && (viewFilter === "withdrawn" || viewFilter === "returned")) {
+          params.set("filter", viewFilter);
         }
         const response = await fetch(`/api/admin/skeap-applications?${params}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Failed to load more applications.");
@@ -1738,7 +1791,7 @@ export default function SkeapApplicationsClient({
             </div>
           </header>
 
-          <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <ApplicationMetricCard
               label="Pending Review"
               value={stats.pending}
@@ -1748,7 +1801,15 @@ export default function SkeapApplicationsClient({
               onClick={() => changeViewFilter("pending")}
             />
             <ApplicationMetricCard
-              label="Resubmitted Files"
+              label="Returned for Edits"
+              value={stats.returned}
+              subtitle="awaiting applicant re-upload"
+              icon={CornerUpLeft}
+              active={viewFilter === "returned"}
+              onClick={() => changeViewFilter("returned")}
+            />
+            <ApplicationMetricCard
+              label="Resubmitted"
               value={stats.resubmitted}
               subtitle="updated digital files"
               icon={RefreshCcw}
@@ -1770,7 +1831,6 @@ export default function SkeapApplicationsClient({
               icon={X}
               active={viewFilter === "withdrawn"}
               onClick={() => changeViewFilter("withdrawn")}
-              tone="slate"
             />
           </div>
 
@@ -1787,7 +1847,9 @@ export default function SkeapApplicationsClient({
                     onClick={() => isRemoteSearch && activeSearchQuery
                       ? void fetchSearchResults(activeSearchQuery)
                       : void handleRefresh(selectedAcademicYear, {
-                          ...(viewFilter === "withdrawn" ? { filter: "withdrawn" as const } : {}),
+                          ...(viewFilter === "withdrawn" || viewFilter === "returned"
+                            ? { filter: viewFilter }
+                            : {}),
                         })}
                     disabled={isRefreshing || isPolling || isFetchingNextPage || isSearching}
                     title="Refresh queue"
@@ -1899,7 +1961,7 @@ export default function SkeapApplicationsClient({
                       </div>
                       <div className="flex shrink-0 self-start flex-col items-end gap-1 pt-0.5 text-right text-[11px] text-slate-400">
                         <span>{formatQueueDate(application.submittedAt)}</span>
-                        <span>{application.documents.length} docs</span>
+                        <span>{getDigitallyScreenedCount(application)}/{CORE_UPLOAD_KEYS.length} screened</span>
                       </div>
                     </button>
                     );
@@ -2078,9 +2140,9 @@ export default function SkeapApplicationsClient({
                             </span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Email</span>
-                            <span className="break-all text-sm font-medium text-slate-900" title={selectedApplication.applicantEmail}>
-                              {selectedApplication.applicantEmail}
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">OCR Grade Check</span>
+                            <span className="break-words text-sm font-medium text-slate-900">
+                              {getOcrGradeCheck(applicationDetails?.grades)}
                             </span>
                           </div>
                         </div>

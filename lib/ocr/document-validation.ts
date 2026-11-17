@@ -1,5 +1,6 @@
 import { getSkeapDocumentKeywordMatches } from "@/lib/skeap-document-keywords";
 import { SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
+import { hasGradeReportStructuralSignals } from "@/lib/grade-report-parser";
 
 const COE_ENROLLMENT_INDICATORS = ["enrollment", "enrolled", "registration"];
 const COE_CONTEXT_INDICATORS = [
@@ -180,7 +181,14 @@ export function validateGradeReport(text: string, fileName = "") {
   const hasConflictingClinicalContent =
     getClinicalMatchCount(text, GRADE_REPORT_CLINICAL_KEYWORDS) >= 2 &&
     !hasStrongGradeReportTitle;
+  const hasGradeTableStructure = hasGradeReportStructuralSignals(text);
 
   if (hasConflictingClinicalContent) return false;
-  return hasPrimaryKeyword || hasFuzzyGradeReportTitle || secondaryMatchCount >= 3 || hasGradeReportFileName;
+  return (
+    hasPrimaryKeyword ||
+    hasFuzzyGradeReportTitle ||
+    secondaryMatchCount >= 3 ||
+    hasGradeReportFileName ||
+    hasGradeTableStructure
+  );
 }

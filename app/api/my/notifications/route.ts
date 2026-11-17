@@ -33,7 +33,8 @@ export async function GET() {
         text: notification.message ?? "",
         isRead: notification.isRead,
         createdAt: notification.createdAt,
-        href: notification.sourceKey.startsWith("requirements-upload:")
+        href: notification.sourceKey.startsWith("requirements-upload:") ||
+            notification.sourceKey.startsWith("submission:")
           ? "/grantee-dashboard/documents"
           : notification.sourceKey.startsWith("kk-age-out:")
             ? "/programs/kk-profiling/status"

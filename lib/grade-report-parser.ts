@@ -3,7 +3,7 @@ export type GradeReportRow = {
   subjectName: string;
   units: number;
   grade: number | null;
-  flag: "INC" | "DRP" | "W" | "NG" | "NFE" | "FAILED" | null;
+  flag: "INC" | "DRP" | "W" | "UW" | "NG" | "NFE" | "FAILED" | null;
 };
 
 export type DetectedGradingScale = "PERCENTAGE_100" | "SCALE_1_TO_5";
@@ -31,10 +31,10 @@ export type GradeReportParseResult = GradeReportDiagnostics & {
   totalUnits: number;
 };
 
-const FAILING_STATUS = /^(FAILED|FAIL|INC|DRP|DROP|DROPPED)$/i;
-const FLAG_PATTERN = /^(INC|DRP|DROP|DROPPED|W|NG|NFE|FAILED|FAIL)$/i;
+const FAILING_STATUS = /^(FAILED|FAIL|INC|DRP|DROP|DROPPED|UW)$/i;
+const FLAG_PATTERN = /^(INC|DRP|DROP|DROPPED|W|UW|NG|NFE|FAILED|FAIL)$/i;
 const NUMERIC_TOKEN = /(?<![A-Z0-9])([0-9lIoO]+(?:[.,][0-9lIoO]+)?)(?![A-Z0-9])/gi;
-const STATUS_TOKEN = /\s+(PASSED|FAILED|FAIL|INC|DRP|DROP|DROPPED|W|NG|NFE)\s*$/i;
+const STATUS_TOKEN = /\s+(PASSED|FAILED|FAIL|INC|DRP|DROP|DROPPED|W|UW|NG|NFE)\s*$/i;
 const EXPLICIT_GWA_LABEL =
   /\b(?:gwa|gpa|general[ \t]+weighted[ \t]+average|weighted[ \t]+average|term[ \t]+average|average)\b/i;
 const EXPLICIT_GWA_PATTERN =
@@ -42,6 +42,14 @@ const EXPLICIT_GWA_PATTERN =
 const UNIT_HEADER_PATTERN = /\b(?:UNITS?|CREDITS?|HRS?)\b/i;
 const GRADE_HEADER_PATTERN = /\b(?:GRADE|FINAL|RATING|MARK)\b/i;
 const MINIMUM_COMPUTED_ROWS = 2;
+const GRADE_TABLE_HEADER_PATTERNS = [
+  /\bDESCRIPTION\b/i,
+  /\bUNITS?\b/i,
+  /\bCREDITED\b/i,
+  /\bGRADE\s+POINTS?\b/i,
+  /\bGRADE\b(?!\s+POINTS?\b)/i,
+  /\bREMARKS?\b/i,
+];
 
 type PendingGradeRow = {
   line: string;
@@ -58,13 +66,23 @@ function parseNumber(value: string) {
   return Number(value.replace(",", ".").replace(/[oO]/g, "0").replace(/[lI]/g, "1"));
 }
 
+function isLeadingZeroNumericToken(value: string) {
+  return /^0[0-9lIoO]+(?:[.,][0-9lIoO]+)?$/i.test(value);
+}
+
+function getNumericMatches(text: string) {
+  return [...text.matchAll(NUMERIC_TOKEN)].filter(
+    (match) => !isLeadingZeroNumericToken(match[1]),
+  );
+}
+
 function getCourseCode(line: string): { subjectCode: string | null; remaining: string } {
   const spacedCode = line.match(/^([A-Z]{1,8})\s+(\d{1,4})\s+(.+)$/i);
   if (
     spacedCode &&
     (spacedCode[1].length <= 4 || spacedCode[1] === spacedCode[1].toUpperCase()) &&
     (/[a-z]/i.test(spacedCode[3]) ||
-      [...spacedCode[3].matchAll(NUMERIC_TOKEN)].length >= 2)
+      getNumericMatches(spacedCode[3]).length >= 2)
   ) {
     return {
       subjectCode: `${spacedCode[1]} ${spacedCode[2]}`,
@@ -115,7 +133,7 @@ function hasPercentageGradeCandidate(text: string) {
     if (!line || EXPLICIT_GWA_LABEL.test(line)) return false;
     const { remaining } = getCourseCode(line);
     if (!/[a-z]/i.test(remaining)) return false;
-    return [...remaining.matchAll(NUMERIC_TOKEN)].some((match) => {
+    return getNumericMatches(remaining).some((match) => {
       const value = parseNumber(match[1]);
       return value >= 50 && value <= 100;
     });
@@ -140,11 +158,21 @@ function isPossibleFailingGrade(
   scale: DetectedGradingScale | null,
   rawGrade: string | null,
 ): boolean {
-  if (scale === "PERCENTAGE_100") return value >= 50 && value < 75;
+  if (scale === "PERCENTAGE_100") {
+    const normalizedRawGrade = rawGrade?.replace(/[oO]/g, "0").replace(/[lI]/g, "1") ?? null;
+    return value >= 50 && value <= 74 && Boolean(normalizedRawGrade && /^(?:5\d|6\d|7[0-4])$/.test(normalizedRawGrade));
+  }
   if (scale === "SCALE_1_TO_5") {
-    const normalizedRawGrade = rawGrade?.replace(/[oO]/g, "0") ?? null;
-    return value > 3.01 && value < 5 ||
-      value === 5 && Boolean(normalizedRawGrade && /^5[.,]0+$/.test(normalizedRawGrade));
+    const normalizedRawGrade = rawGrade?.replace(/[oO]/g, "0").replace(/[lI]/g, "1") ?? null;
+    if (!normalizedRawGrade || value <= 3 || value > 5) return false;
+
+    const decimalGrade = normalizedRawGrade.replace(",", ".");
+    if (value < 4) {
+      if (!/^\d+\.\d{1,2}$/.test(decimalGrade)) return false;
+      return !["3.08", "3.80", "3.88"].includes(value.toFixed(2));
+    }
+
+    return (value === 4 || value === 5) && /^[45]\.0{1,2}$/.test(decimalGrade);
   }
   return false;
 }
@@ -156,13 +184,112 @@ function detectedScaleFromValue(value: number): DetectedGradingScale | null {
   return null;
 }
 
+function getFragmentedPercentageGradeRows(text: string): PendingGradeRow[] {
+  const lines = text.split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim());
+  const rows: PendingGradeRow[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line || EXPLICIT_GWA_LABEL.test(line) || UNIT_HEADER_PATTERN.test(line) || GRADE_HEADER_PATTERN.test(line)) {
+      continue;
+    }
+
+    const codeOnlyMatch = line.match(/^([A-Z][A-Z0-9.-]*\d[A-Z0-9.-]*)$/i);
+    const parsedCourse = codeOnlyMatch ? null : getCourseCode(line);
+    const subjectCode = codeOnlyMatch?.[1] ?? parsedCourse?.subjectCode;
+    const initialSubjectName = codeOnlyMatch ? "" : parsedCourse?.remaining ?? "";
+    if (!subjectCode) continue;
+
+    let units: number | null = null;
+    let rawUnits: string | null = null;
+    let failingGrade: number | null = null;
+    let rawFailingGrade: string | null = null;
+    let subjectNameEnd = initialSubjectName.length;
+    let foundOnFollowingLine = false;
+
+    for (const match of getNumericMatches(initialSubjectName)) {
+      const value = parseNumber(match[1]);
+      if (isUnitLikeValue(value, match[1])) {
+        units = value;
+        rawUnits = match[1];
+        subjectNameEnd = match.index;
+      } else if (isPossibleFailingGrade(value, "PERCENTAGE_100", match[1])) {
+        failingGrade = value;
+        rawFailingGrade = match[1];
+        subjectNameEnd = Math.min(subjectNameEnd, match.index);
+      }
+    }
+
+    const initialSubjectLabel = initialSubjectName.slice(0, subjectNameEnd).trim();
+    const subjectParts = initialSubjectLabel ? [initialSubjectLabel] : [];
+
+    for (let nextIndex = index + 1; nextIndex < Math.min(lines.length, index + 6); nextIndex += 1) {
+      const nextLine = lines[nextIndex];
+      if (!nextLine || EXPLICIT_GWA_LABEL.test(nextLine)) break;
+      if (
+        getCourseCode(nextLine).subjectCode !== null ||
+        UNIT_HEADER_PATTERN.test(nextLine) ||
+        GRADE_HEADER_PATTERN.test(nextLine)
+      ) {
+        break;
+      }
+
+      const loneValue = nextLine.match(/^([0-9lIoO]+(?:[.,][0-9lIoO]+)?)$/i);
+      if (loneValue) {
+        if (isLeadingZeroNumericToken(loneValue[1])) continue;
+        const value = parseNumber(loneValue[1]);
+        if (isUnitLikeValue(value, loneValue[1])) {
+          units = value;
+          rawUnits = loneValue[1];
+          foundOnFollowingLine = true;
+        } else if (isPossibleFailingGrade(value, "PERCENTAGE_100", loneValue[1])) {
+          failingGrade = value;
+          rawFailingGrade = loneValue[1];
+          foundOnFollowingLine = true;
+        }
+        if (units !== null && failingGrade !== null) break;
+        continue;
+      }
+
+      if (/[a-z]/i.test(nextLine)) {
+        subjectParts.push(nextLine);
+        continue;
+      }
+      break;
+    }
+
+    if (
+      !foundOnFollowingLine ||
+      units === null ||
+      failingGrade === null ||
+      rawFailingGrade === null
+    ) {
+      continue;
+    }
+    rows.push({
+      line: [line, ...subjectParts.slice(initialSubjectLabel ? 1 : 0), rawUnits, rawFailingGrade].join(" "),
+      subjectCode,
+      subjectName: subjectParts.join(" ").trim() || subjectCode,
+      units,
+      grade: failingGrade,
+      rawGrade: rawFailingGrade,
+      flag: null,
+      remarks: null,
+    });
+  }
+
+  return rows;
+}
+
 export function parseGradeReportText(text: string): GradeReportParseResult {
   const rows: GradeReportRow[] = [];
   const unrecognizedRows: string[] = [];
   const ambiguousRows: string[] = [];
   const conflictingRows: string[] = [];
-  const pendingRows: PendingGradeRow[] = [];
-  const percentageGradeCandidateInText = hasPercentageGradeCandidate(text);
+  const fragmentedRows = getFragmentedPercentageGradeRows(text);
+  const pendingRows: PendingGradeRow[] = [...fragmentedRows];
+  const percentageGradeCandidateInText =
+    hasPercentageGradeCandidate(text) || fragmentedRows.length > 0;
   let unitsBeforeGrade: boolean | null = null;
   let hasUnitsColumn = false;
   let hasGradeColumn = false;
@@ -190,7 +317,7 @@ export function parseGradeReportText(text: string): GradeReportParseResult {
     const content = statusMatch
       ? remaining.slice(0, statusMatch.index).trim()
       : remaining;
-    const numericMatches = [...content.matchAll(NUMERIC_TOKEN)];
+    const numericMatches = getNumericMatches(content);
     if (!numericMatches.length && !remarks) continue;
 
     const selectedMatches = numericMatches.slice(-2);
@@ -236,7 +363,13 @@ export function parseGradeReportText(text: string): GradeReportParseResult {
         unitsBeforeGrade === null &&
         firstValue === lastValue &&
         units !== null &&
-        grade !== null
+        grade !== null &&
+        !(
+          firstValue === 3 &&
+          lastValue === 3 &&
+          /^3[.,]0+$/i.test(firstSelected[1]) &&
+          /^3[.,]0+$/i.test(lastSelected[1])
+        )
       ) {
         ambiguousRows.push(line);
         unrecognizedRows.push(line);
@@ -302,7 +435,15 @@ export function parseGradeReportText(text: string): GradeReportParseResult {
     });
   }
 
-  const hasPercentageGradesInRows = pendingRows.some(
+  const collegiateDecimalGradeCount = pendingRows.filter(
+    (row) =>
+      row.grade !== null &&
+      row.grade >= 1 &&
+      row.grade <= 5 &&
+      Boolean(row.rawGrade && /[.,]\d+/.test(row.rawGrade)),
+  ).length;
+  const hasCollegiateDecimalScale = collegiateDecimalGradeCount >= 2;
+  const hasPercentageGradesInRows = !hasCollegiateDecimalScale && pendingRows.some(
     (row) => row.grade !== null && row.grade >= 50 && row.grade <= 100,
   );
   const hasPercentageGradeSignal =
@@ -310,6 +451,7 @@ export function parseGradeReportText(text: string): GradeReportParseResult {
   const gradeSignals = pendingRows.flatMap((row) => {
     if (
       row.grade === null ||
+      (hasCollegiateDecimalScale && row.grade >= 50 && row.grade <= 100) ||
       (hasPercentageGradeSignal && isUnitLikeValue(row.grade, row.rawGrade))
     ) {
       return [];
@@ -329,7 +471,9 @@ export function parseGradeReportText(text: string): GradeReportParseResult {
         ? "SCALE_1_TO_5"
         : null;
   const explicitScale = explicitGwa === null ? null : detectedScaleFromValue(explicitGwa);
-  const detectedScale = scaleFromRows ?? explicitScale;
+  const detectedScale = hasCollegiateDecimalScale
+    ? "SCALE_1_TO_5"
+    : scaleFromRows ?? explicitScale;
   const gradingScale = hasMixedGradeScales
     ? "mixed"
     : detectedScale === "PERCENTAGE_100"
@@ -361,8 +505,7 @@ export function parseGradeReportText(text: string): GradeReportParseResult {
     const failingNumericGrade =
       hasValidNumericGrade &&
       row.grade !== null &&
-      (isPossibleFailingGrade(row.grade, rowScale, row.rawGrade) ||
-        (row.grade >= 50 && row.grade < 75));
+      isPossibleFailingGrade(row.grade, rowScale, row.rawGrade);
     const possibleFailStatus = statusFlag !== null && FAILING_STATUS.test(statusFlag);
 
     if (statusFlag || failingNumericGrade) {
@@ -470,4 +613,13 @@ export function parseGradeReportText(text: string): GradeReportParseResult {
     gwa: estimatedGwa,
     totalUnits,
   };
+}
+
+export function hasGradeReportStructuralSignals(text: string): boolean {
+  const headerCount = GRADE_TABLE_HEADER_PATTERNS.filter((pattern) => pattern.test(text)).length;
+  if (headerCount >= 2 || /\b[A-Z]{2,6}\s*\d{3}\b/i.test(text)) return true;
+
+  if (!/\bPREREQUISITES\s*:/i.test(text)) return false;
+  const parsed = parseGradeReportText(text);
+  return parsed.rows.filter((row) => row.grade !== null && row.flag === null).length >= 2;
 }

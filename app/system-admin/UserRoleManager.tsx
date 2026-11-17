@@ -12,7 +12,6 @@ import {
   Archive,
   BadgeCheck,
   GraduationCap,
-  Info,
   LoaderCircle,
   MoreHorizontal,
   Pencil,
@@ -706,140 +705,136 @@ export default function UserRoleManager({
         />
       ) : null}
 
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 sm:flex sm:items-center sm:justify-between">
-        <div className="relative min-w-0 max-w-md flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={query}
-            onChange={(event) => handleSearchChange(event.target.value)}
-            placeholder="Search by name or email..."
-            className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
-              onClick={() => setShowRoleFilterMenu((prev) => !prev)}
-            >
-              <Filter className="h-4 w-4" />
-              {roleFilter === "ALL"
-                ? "All roles"
-                : ROLE_OPTIONS.find((option) => option.value === roleFilter)?.label ?? roleFilter}
-            </button>
-            {showRoleFilterMenu ? (
-              <div className="absolute right-0 top-11 z-20 w-44 overflow-hidden rounded-xl border border-[#D8E3EC] bg-white shadow-lg">
-                <button
-                  type="button"
-                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                  onClick={() => {
-                    filterByRole("ALL");
-                    setShowRoleFilterMenu(false);
+      <section className="mb-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {accountMetricCards.map(({ key, label, caption, value, Icon, tone }) => {
+            const isSelected = optimisticSegment === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={isSelected}
+                aria-label={`${label}: ${value.toLocaleString()}. Click to filter users.`}
+                onClick={() => filterByAccountMetric(key)}
+                className={`group relative flex min-h-[128px] min-w-0 flex-col justify-between gap-3 overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-[0_6px_24px_-6px_rgba(14,116,144,0.09)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
+                  isSelected
+                    ? "border-blue-600 ring-2 ring-blue-600/20"
+                    : "border-slate-200/75 hover:border-cyan-200 hover:shadow-[0_8px_28px_-6px_rgba(14,116,144,0.14)]"
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    background:
+                      "radial-gradient(ellipse 58% 70% at 95% 5%, rgba(56, 189, 248, 0.16) 0%, rgba(103, 232, 249, 0.06) 42%, transparent 100%)",
                   }}
-                >
-                  All roles
-                </button>
-                {ROLE_OPTIONS.map((option) => (
+                />
+                {isSelected ? (
+                  <span className="absolute right-3 top-3 h-2 w-2 rounded-full bg-blue-600" aria-hidden="true" />
+                ) : null}
+                <span className="relative z-10 flex min-w-0 items-center justify-between gap-2">
+                  <span className={`min-w-0 text-[10px] font-bold uppercase leading-tight tracking-widest ${isSelected ? "text-cyan-700" : "text-slate-400"}`}>
+                    {label}
+                  </span>
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                    isSelected
+                      ? "bg-cyan-700 text-white shadow-[0_0_0_5px_rgba(8,145,178,0.10)]"
+                      : "border border-sky-100 bg-sky-50/90 text-cyan-600"
+                  }`}>
+                    <Icon className={`h-4 w-4 shrink-0 ${isSelected ? "text-white" : tone}`} aria-hidden="true" />
+                  </span>
+                </span>
+                <span className="relative z-10 block text-xl font-black leading-none text-slate-950 tabular-nums">
+                  {value.toLocaleString()}
+                </span>
+                <span className="relative z-10 block text-[10px] leading-snug text-slate-500">
+                  {caption}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full min-w-0 max-w-md flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={query}
+              onChange={(event) => handleSearchChange(event.target.value)}
+              placeholder="Search by name or email..."
+              className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <div className="relative">
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
+                onClick={() => setShowRoleFilterMenu((prev) => !prev)}
+              >
+                <Filter className="h-4 w-4" />
+                {roleFilter === "ALL"
+                  ? "All roles"
+                  : ROLE_OPTIONS.find((option) => option.value === roleFilter)?.label ?? roleFilter}
+              </button>
+              {showRoleFilterMenu ? (
+                <div className="absolute right-0 top-11 z-20 w-44 overflow-hidden rounded-xl border border-[#D8E3EC] bg-white shadow-lg">
                   <button
-                    key={option.value}
                     type="button"
                     className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                     onClick={() => {
-                      filterByRole(option.value);
+                      filterByRole("ALL");
                       setShowRoleFilterMenu(false);
                     }}
                   >
-                    {option.label}
+                    All roles
                   </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <button
-            type="button"
-            disabled={isExporting}
-            aria-busy={isExporting}
-            aria-label="Export current filtered view"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
-            onClick={handleExportUsersExcel}
-          >
-            {isExporting ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            {isExporting ? "Exporting..." : "Export Current View"}
-          </button>
-          <div className="hidden text-xs text-slate-500 sm:block">
-            {isPending ? (
-              "Updating users..."
-            ) : (
-              <>
-                <span className="font-semibold text-slate-900 tabular-nums">{users.length}</span> shown
-                <span className="px-1.5">·</span>
-                <span className="tabular-nums">{totalCount}</span> matching
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="border-b border-slate-100">
-          <div className="p-6 pb-4">
-            <h2 className="text-lg font-black text-slate-900">System Users &amp; Role Management</h2>
-            <div className="mt-1 flex items-center gap-1.5">
-              <p className="text-xs text-slate-500">
-                Grant or revoke SK Admin workspace access for Barangay Pico SK Officials. Youth and Grantee statuses are assigned automatically through KK Profiling and SKEAP workflows.
-              </p>
-              <span
-                className="shrink-0 text-slate-400"
-                aria-label="About account metrics"
-                role="img"
-                title="Total Platform Accounts includes all login identities across roles and statuses, whereas the SK Admin Dashboard counts only active, approved KK Youth profiles."
-              >
-                <Info className="h-3.5 w-3.5" aria-hidden="true" />
-              </span>
+                  {ROLE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                      onClick={() => {
+                        filterByRole(option.value);
+                        setShowRoleFilterMenu(false);
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
-            <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-              Auto-refreshes every 15 seconds while this tab is open
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 px-6 pb-6 sm:grid-cols-3 xl:grid-cols-5">
-            {accountMetricCards.map(({ key, label, caption, value, Icon, tone }) => {
-              const isSelected = optimisticSegment === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={isSelected}
-                  aria-label={`${label}: ${value.toLocaleString()}. Click to filter users.`}
-                  onClick={() => filterByAccountMetric(key)}
-                  className={`relative min-w-0 rounded-2xl p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                    isSelected
-                      ? "border border-blue-600 bg-white ring-2 ring-blue-600/20 shadow-sm transition-colors duration-150"
-                      : "border border-slate-200/80 bg-slate-50/80 hover:bg-white hover:border-slate-300 transition-colors duration-150"
-                  }`}
-                >
-                  {isSelected ? (
-                    <span className="absolute right-3 top-3 h-2 w-2 rounded-full bg-blue-600" aria-hidden="true" />
-                  ) : null}
-                  <Icon className={`h-4 w-4 shrink-0 ${tone}`} aria-hidden="true" />
-                  <span className="mt-2 block text-xl font-black leading-none text-slate-950 tabular-nums">
-                    {value.toLocaleString()}
-                  </span>
-                  <span className="mt-1.5 block text-[11px] font-semibold leading-snug text-slate-700">
-                    {label}
-                  </span>
-                  <span className="mt-1 block text-[10px] leading-snug text-slate-500">
-                    {caption}
-                  </span>
-                </button>
-              );
-            })}
+
+            <button
+              type="button"
+              disabled={isExporting}
+              aria-busy={isExporting}
+              aria-label="Export current filtered view"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+              onClick={handleExportUsersExcel}
+            >
+              {isExporting ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              {isExporting ? "Exporting..." : "Export Current View"}
+            </button>
+            <div className="hidden whitespace-nowrap text-xs text-slate-500 sm:block">
+              {isPending ? (
+                "Updating users..."
+              ) : (
+                <>
+                  <span className="font-semibold text-slate-900 tabular-nums">{users.length}</span> shown
+                  <span className="px-1.5">·</span>
+                  <span className="tabular-nums">{totalCount}</span> matching
+                </>
+              )}
+            </div>
           </div>
         </div>
         <div className="min-h-[540px]">

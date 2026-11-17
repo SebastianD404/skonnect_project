@@ -8,16 +8,10 @@ import {
   SKEAP_WAITLIST_OFFER_DAYS_KEY,
 } from "@/lib/skeap-capacity-constants";
 import {
-  getSkeapCapacitySnapshot,
   lockSkeapCapacity,
 } from "@/lib/skeap-capacity";
-import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
-import {
-  getSkeapWaitlistCycle,
-  getSkeapWaitlistCycleState,
-} from "@/lib/skeap-waitlist-cycle";
+import { getSkeapWaitlistCycle } from "@/lib/skeap-waitlist-cycle";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const REMINDER_OFFSETS_HOURS = [48, 24] as const;
 const OFFER_SUBJECT = "A SKEAP scholarship slot is available";
@@ -35,17 +29,6 @@ const VERIFICATION_DOCUMENTS = [
 ] as const;
 
 type SettingsClient = typeof prisma | Prisma.TransactionClient;
-
-type OfferEmail = {
-  applicationId: string;
-  userId: string;
-  applicantName: string;
-  email: string | null;
-  queuePosition: number;
-  waitlistOfferDays: number;
-  expiresAt: Date;
-  message: string;
-};
 
 export function formatWaitlistOfferDeadline(value: Date) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -105,15 +88,6 @@ function getDateAtTimeZone(
   return new Date(timestamp);
 }
 
-function offerDurationDays(offeredAt: Date | null, expiresAt: Date) {
-  if (!offeredAt) return DEFAULT_SKEAP_WAITLIST_OFFER_DAYS;
-  const offered = getTimeZoneDateParts(offeredAt, MANILA_TIME_ZONE);
-  const expires = getTimeZoneDateParts(expiresAt, MANILA_TIME_ZONE);
-  const offeredDay = Date.UTC(offered.year, offered.month - 1, offered.day);
-  const expiresDay = Date.UTC(expires.year, expires.month - 1, expires.day);
-  return Math.max(1, Math.round((expiresDay - offeredDay) / DAY_MS));
-}
-
 export function getWaitlistOfferExpiresAt(offeredAt: Date, waitlistOfferDays: number) {
   const offered = getTimeZoneDateParts(offeredAt, MANILA_TIME_ZONE);
   const deadlineDay = new Date(
@@ -171,14 +145,6 @@ export async function setSkeapWaitlistOfferDays(
     create: { key: SKEAP_WAITLIST_OFFER_DAYS_KEY, value },
     update: { value },
   });
-}
-
-function buildOfferMessage(
-  queuePosition: number,
-  waitlistOfferDays: number,
-  expiresAt: Date,
-) {
-  return `A SKEAP scholarship slot is now available for you (Queue #${queuePosition}). Please present your Original / Certified True Copy (CTC) documents at the Barangay Pico SK Office during office hours: ${OFFICE_SCHEDULE}, within ${waitlistOfferDays} days, on or before ${formatWaitlistOfferDeadline(expiresAt)}, to finalize your promotion. Unclaimed offers will automatically pass to the next applicant in line.`;
 }
 
 function escapeEmailHtml(value: string) {
@@ -242,11 +208,11 @@ export function buildWaitlistOfferEmailTemplate({
     "Bring these documents for physical verification under Barangay Ordinance No. 1 - 2022:",
     ...VERIFICATION_DOCUMENTS.map((document) => `- ${document}`),
     "",
-    "Your slot offer will automatically pass to the next applicant in line if it is not claimed before the deadline.",
+    "If the offer expires, the slot will return to open availability. Your application remains on the waitlist, and an SK Official must manually send any new offer.",
     "",
     `View Application in SKonnect: ${dashboardUrl}`,
     "",
-    "This is an automated notice from SKonnect · Sangguniang Kabataan of Barangay Pico, La Trinidad, Benguet.",
+    "Prepared by SKonnect · Sangguniang Kabataan of Barangay Pico, La Trinidad, Benguet.",
   ].join("\n");
   const html = `<!doctype html>
 <html lang="en">
@@ -351,7 +317,7 @@ export function buildWaitlistOfferEmailTemplate({
             </tr>
             <tr>
               <td class="offer-pad" style="border-top:1px solid #e2e8f0;padding:17px 36px 20px;font-size:11px;line-height:17px;color:#64748b;">
-                This is an automated notice from SKonnect · Sangguniang Kabataan of Barangay Pico, La Trinidad, Benguet.
+                Prepared by SKonnect · Sangguniang Kabataan of Barangay Pico, La Trinidad, Benguet.
               </td>
             </tr>
           </table>
@@ -364,276 +330,158 @@ export function buildWaitlistOfferEmailTemplate({
   return { text, html };
 }
 
-async function sendOfferEmails(offers: OfferEmail[]) {
-  let emailSent = 0;
-  let emailFailed = 0;
-  let emailSkipped = 0;
-  let transporter: ReturnType<typeof createGmailTransporter> | null = null;
-
-  for (const offer of offers) {
-    if (!offer.email) {
-      emailSkipped += 1;
-      continue;
-    }
-
-    try {
-      transporter ??= createGmailTransporter();
-      const emailTemplate = buildWaitlistOfferEmailTemplate({
-        applicantName: offer.applicantName,
-        queuePosition: offer.queuePosition,
-        waitlistOfferDays: offer.waitlistOfferDays,
-        expiresAt: offer.expiresAt,
-        dashboardUrl: getSkeapDashboardUrl(),
-      });
-      await sendTransactionalEmail(
-        transporter,
-        offer.email,
-        OFFER_SUBJECT,
-        emailTemplate.text,
-        `waitlist-offer-${offer.applicationId}-${offer.expiresAt.toISOString()}`,
-        emailTemplate.html,
-      );
-      emailSent += 1;
-    } catch (error) {
-      emailFailed += 1;
-      console.error("Failed to send SKEAP waitlist slot-offer email:", {
-        applicationId: offer.applicationId,
-        error: error instanceof Error ? error.message : "Unknown email delivery error",
-      });
-    }
+export function buildCustomWaitlistOfferEmailTemplate({
+  message,
+  dashboardUrl,
+  queuePosition,
+  deadline,
+}: {
+  message: string;
+  dashboardUrl: string;
+  queuePosition: number | null;
+  deadline: Date;
+}) {
+  const safeDashboardUrl = escapeEmailHtml(dashboardUrl);
+  const formattedDeadline = new Intl.DateTimeFormat("en-US", {
+    timeZone: MANILA_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(deadline).replace(" at ", ", ");
+  const queuePositionLabel = `#${queuePosition ?? "—"}`;
+  const messageText = message.trim();
+  const messageParagraphs = messageText
+    .split(/\r?\n\s*\r?\n/)
+    .filter((paragraph) => paragraph.trim().length > 0)
+    .map((paragraph) => paragraph.trim());
+  const footer = "Sangguniang Kabataan of Barangay Pico · La Trinidad, Benguet";
+  if (messageParagraphs[messageParagraphs.length - 1] === "Sangguniang Kabataan of Barangay Pico") {
+    messageParagraphs.pop();
   }
+  const messageBodyText = messageParagraphs.join("\n\n");
+  const messageHtml = messageParagraphs
+    .map((paragraph) => `<p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#334155;">${escapeEmailHtml(paragraph).replace(/\r?\n/g, "<br>")}</p>`)
+    .join("");
+  const verificationDetails = [
+    ["Queue Position", queuePositionLabel],
+    ["Compliance Deadline", `${formattedDeadline} PHT`],
+    ["Location", "Barangay Pico Hall, La Trinidad, Benguet"],
+    ["Documents", "Original / Certified True Copy (CTC) Requirements"],
+  ] as const;
+  const detailRows = verificationDetails.map(([label, value], index) => `
+            <tr>
+              <td class="detail-label" valign="top" style="width:38%;padding:${index === 0 ? "0" : "9px"} 12px 0 0;font-size:12px;line-height:18px;color:#64748b;">${escapeEmailHtml(label)}</td>
+              <td valign="top" style="padding:${index === 0 ? "0" : "9px"} 0 0;font-size:13px;font-weight:bold;line-height:18px;color:#0f172a;">${escapeEmailHtml(value)}</td>
+            </tr>`).join("");
+  const plainText = [
+    "SKEAP SCHOLARSHIP NOTICE",
+    "Scholarship Slot Available",
+    "",
+    messageBodyText,
+    "",
+    "Verification Details",
+    ...verificationDetails.map(([label, value]) => `${label}: ${value}`),
+    "",
+    `View Application in SKonnect: ${dashboardUrl}`,
+    "",
+    footer,
+  ].join("\n");
 
-  return { emailSent, emailFailed, emailSkipped };
-}
-
-export async function dispatchWaitlistSlotOffers(now = new Date()) {
-  const dispatch = await prisma.$transaction(async (tx) => {
-    await lockSkeapCapacity(tx);
-    const cycle = getSkeapWaitlistCycle();
-    const cycleRange = getAcademicYearDateRange(cycle);
-    if (!cycleRange) throw new Error("Unable to determine the active SKEAP waitlist cycle.");
-
-    const cycleState = await getSkeapWaitlistCycleState(cycle, tx);
-    const [capacitySnapshot, waitlistOfferDays, activeUnexpiredOffersCount] =
-      await Promise.all([
-        getSkeapCapacitySnapshot(tx),
-        getSkeapWaitlistOfferDays(tx),
-        tx.skeapApplication.count({
-          where: {
-            status: "WAITLISTED",
-            waitlistOfferStatus: "OFFERED",
-            waitlistOfferExpiresAt: { gt: now },
-            submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
-          },
-        }),
-      ]);
-    const availableSlots = cycleState.isClosed
-      ? 0
-      : Math.max(0, capacitySnapshot.availableSlots - activeUnexpiredOffersCount);
-
-    if (availableSlots === 0) {
-      return {
-        offers: [] as OfferEmail[],
-        activeGranteesCount: capacitySnapshot.activeCount,
-        activeUnexpiredOffersCount,
-        availableSlots,
-        waitlistOfferDays,
-      };
-    }
-
-    await reindexSkeapWaitlist(tx, cycle);
-    const candidates = await tx.skeapApplication.findMany({
-      where: {
-        status: "WAITLISTED",
-        waitlistOfferStatus: "NONE",
-        submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
-      },
-      orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
-      take: availableSlots,
-      select: {
-        id: true,
-        userId: true,
-        applicantName: true,
-        emailAddress: true,
-        waitlistPosition: true,
-        user: { select: { fullName: true, email: true } },
-      },
-    });
-
-    const offers: OfferEmail[] = [];
-    for (const [index, application] of candidates.entries()) {
-      const expiresAt = getWaitlistOfferExpiresAt(now, waitlistOfferDays);
-      const applicantName =
-        application.applicantName || application.user.fullName || "SKEAP applicant";
-      const queuePosition = application.waitlistPosition ?? index + 1;
-      const message = buildOfferMessage(queuePosition, waitlistOfferDays, expiresAt);
-      const updated = await tx.skeapApplication.updateMany({
-        where: {
-          id: application.id,
-          status: "WAITLISTED",
-          waitlistOfferStatus: "NONE",
-        },
-        data: {
-          waitlistOfferStatus: "OFFERED",
-          waitlistOfferedAt: now,
-          waitlistOfferExpiresAt: expiresAt,
-          waitlistOfferReminderSentAt: null,
-        },
-      });
-      if (updated.count !== 1) continue;
-
-      const sourceKey = `skeap-waitlist-offer:${application.id}:${expiresAt.toISOString()}`;
-      await tx.notification.upsert({
-        where: {
-          userId_sourceKey: { userId: application.userId, sourceKey },
-        },
-        create: {
-          userId: application.userId,
-          sourceKey,
-          message: `${OFFER_SUBJECT}: ${message}`,
-        },
-        update: { message: `${OFFER_SUBJECT}: ${message}`, isRead: false, readAt: null },
-      });
-      offers.push({
-        applicationId: application.id,
-        userId: application.userId,
-        applicantName,
-        email: application.emailAddress || application.user.email || null,
-        queuePosition,
-        waitlistOfferDays,
-        expiresAt,
-        message,
-      });
-    }
-
-    return {
-      offers,
-      activeGranteesCount: capacitySnapshot.activeCount,
-      activeUnexpiredOffersCount,
-      availableSlots,
-      waitlistOfferDays,
-    };
-  });
-
-  const emailResult = await sendOfferEmails(dispatch.offers);
   return {
-    offeredCount: dispatch.offers.length,
-    availableSlots: dispatch.availableSlots,
-    activeGranteesCount: dispatch.activeGranteesCount,
-    activeUnexpiredOffersCount: dispatch.activeUnexpiredOffersCount,
-    waitlistOfferDays: dispatch.waitlistOfferDays,
-    ...emailResult,
+    text: plainText,
+    html: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      @media only screen and (max-width:620px) {
+        .offer-shell { width:100% !important; }
+        .offer-pad { padding-left:20px !important; padding-right:20px !important; }
+        .detail-label { width:38% !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:24px 12px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+      <tr><td align="center">
+        <table class="offer-shell" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border:1px solid #dbe3eb;border-radius:16px;background:#ffffff;overflow:hidden;">
+          <tr>
+            <td style="padding:18px 24px;background:#0f3d5c;color:#ffffff;font-size:15px;font-weight:bold;line-height:22px;">
+              SKonnect <span style="color:#9fe4eb;">·</span> Barangay Pico
+            </td>
+          </tr>
+          <tr>
+            <td class="offer-pad" style="padding:26px 28px 10px;">
+              <p style="margin:0 0 6px;font-size:11px;font-weight:bold;letter-spacing:1px;color:#0891b2;">SKEAP SCHOLARSHIP NOTICE</p>
+              <h1 style="margin:0 0 16px;font-size:24px;line-height:1.25;color:#0f172a;">Scholarship Slot Available</h1>
+              ${messageHtml}
+            </td>
+          </tr>
+          <tr>
+            <td class="offer-pad" style="padding:4px 28px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;">
+                <tr>
+                  <td style="padding:14px 16px;">
+                    <p style="margin:0 0 10px;font-size:13px;font-weight:bold;line-height:18px;color:#0f172a;">Verification Details</p>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      ${detailRows}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td class="offer-pad" style="padding:20px 28px 24px;">
+              <a href="${safeDashboardUrl}" style="display:inline-block;padding:12px 18px;border-radius:9px;background:#0f3d5c;color:#ffffff;font-size:14px;font-weight:bold;line-height:20px;text-decoration:none;">View Application in SKonnect</a>
+            </td>
+          </tr>
+          <tr>
+            <td class="offer-pad" style="border-top:1px solid #e2e8f0;padding:15px 28px;color:#64748b;font-size:11px;line-height:17px;">
+              ${escapeEmailHtml(footer)}
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`,
   };
 }
 
-export async function processExpiredWaitlistOffers(now = new Date()) {
-  const expiredOffers = await prisma.$transaction(async (tx) => {
-    await lockSkeapCapacity(tx);
-    const expired = await tx.skeapApplication.findMany({
-      where: {
-        status: "WAITLISTED",
-        waitlistOfferStatus: "OFFERED",
-        waitlistOfferExpiresAt: { lte: now },
-      },
-      select: {
-        id: true,
-        userId: true,
-        applicantName: true,
-        emailAddress: true,
-        waitlistOfferedAt: true,
-        waitlistOfferExpiresAt: true,
-        user: { select: { fullName: true, email: true } },
-      },
-    });
-
-    const notifications: Array<{
-      applicationId: string;
-      userId: string;
-      applicantName: string;
-      email: string | null;
-      message: string;
-      expiresAt: Date;
-    }> = [];
-    for (const application of expired) {
-      const expiresAt = application.waitlistOfferExpiresAt;
-      if (!expiresAt) continue;
-      const days = offerDurationDays(application.waitlistOfferedAt, expiresAt);
-      const applicantName =
-        application.applicantName || application.user.fullName || "SKEAP applicant";
-      const message =
-        `Your ${days}-day physical CTC verification window for the SKEAP slot offer expired on ${formatWaitlistOfferDeadline(expiresAt)}. The slot has passed to the next applicant in line. Your application remains on the waitlist.`;
-      const updated = await tx.skeapApplication.updateMany({
-        where: {
-          id: application.id,
-          status: "WAITLISTED",
-          waitlistOfferStatus: "OFFERED",
-          waitlistOfferExpiresAt: { lte: now },
-        },
-        data: { waitlistOfferStatus: "EXPIRED" },
-      });
-      if (updated.count !== 1) continue;
-
-      const sourceKey = `skeap-waitlist-expired:${application.id}:${expiresAt.toISOString()}`;
-      await tx.notification.upsert({
-        where: { userId_sourceKey: { userId: application.userId, sourceKey } },
-        create: {
-          userId: application.userId,
-          sourceKey,
-          message: `SKEAP slot offer expired: ${message}`,
-        },
-        update: { message: `SKEAP slot offer expired: ${message}`, isRead: false, readAt: null },
-      });
-      notifications.push({
-        applicationId: application.id,
-        userId: application.userId,
-        applicantName,
-        email: application.emailAddress || application.user.email || null,
-        message,
-        expiresAt,
-      });
-    }
-
-    return notifications;
+export async function sendWaitlistSlotOfferEmail({
+  applicationId,
+  email,
+  message,
+  sentAt,
+  queuePosition,
+  deadline,
+}: {
+  applicationId: string;
+  email: string;
+  message: string;
+  sentAt: Date;
+  queuePosition: number | null;
+  deadline: Date;
+}) {
+  const template = buildCustomWaitlistOfferEmailTemplate({
+    message,
+    dashboardUrl: getSkeapDashboardUrl(),
+    queuePosition,
+    deadline,
   });
-
-  let emailSent = 0;
-  let emailFailed = 0;
-  let emailSkipped = 0;
-  let transporter: ReturnType<typeof createGmailTransporter> | null = null;
-  for (const expired of expiredOffers) {
-    if (!expired.email) {
-      emailSkipped += 1;
-      continue;
-    }
-    try {
-      transporter ??= createGmailTransporter();
-      await sendTransactionalEmail(
-        transporter,
-        expired.email,
-        "Your SKEAP slot offer has expired",
-        expired.message,
-        `waitlist-expired-${expired.applicationId}-${expired.expiresAt.toISOString()}`,
-      );
-      emailSent += 1;
-    } catch (error) {
-      emailFailed += 1;
-      console.error("Failed to send SKEAP waitlist offer-expiration email:", {
-        applicationId: expired.applicationId,
-        error: error instanceof Error ? error.message : "Unknown email delivery error",
-      });
-    }
-  }
-
-  const dispatchResult = expiredOffers.length > 0
-    ? await dispatchWaitlistSlotOffers(now)
-    : null;
-  return {
-    expiredCount: expiredOffers.length,
-    emailSent,
-    emailFailed,
-    emailSkipped,
-    dispatchResult,
-  };
+  const transporter = createGmailTransporter();
+  return sendTransactionalEmail(
+    transporter,
+    email,
+    OFFER_SUBJECT,
+    template.text,
+    `waitlist-offer-${applicationId}-${sentAt.toISOString()}`,
+    template.html,
+  );
 }
 
 type OfferReminderEmail = {

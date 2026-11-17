@@ -22,10 +22,18 @@ import {
 } from "./KKProfilingTableSkeleton";
 
 function rowsForStatus(registrations: KKProfilingRegistration[], statusLabel?: string) {
-  const normalizedTab = String(statusLabel ?? "").toLowerCase();
-  return normalizedTab
-    ? registrations.filter((registration) => String(registration.reviewStatus ?? "Pending").toLowerCase() === normalizedTab)
-    : registrations;
+  const normalizedTab = String(statusLabel ?? "").trim().toLowerCase().replace(/_/g, " ");
+  if (!normalizedTab) return registrations;
+
+  return registrations.filter((registration) => {
+    const status = String(registration.reviewStatus ?? "Pending").trim().toLowerCase().replace(/_/g, " ");
+    if (normalizedTab === "pending" || normalizedTab === "pending review") {
+      return status === "pending" || status === "pending review" || status === "manual review";
+    }
+    if (normalizedTab === "withdrawn") return status === "withdrawn" || status === "rejected";
+    if (normalizedTab === "for physical ctc") return status === "for physical ctc";
+    return status === normalizedTab;
+  });
 }
 
 export function getSkeapStatusBadge(status?: string | null) {
@@ -121,15 +129,22 @@ export function KKProfilingRegistrationsTable({
     : "whitespace-nowrap px-6 py-4";
   const deferredTableQuery = useDeferredValue(activeTableQuery);
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const requestedStatus = (searchParams.get("status") ?? "pending").toLowerCase();
+  const rawRequestedStatus = (searchParams.get("status") ?? "pending").toLowerCase();
+  const requestedStatus = rawRequestedStatus === "rejected" ? "withdrawn" : rawRequestedStatus;
   const requestedPageValue = Number(searchParams.get("page") ?? "1");
   const requestedPage = Number.isFinite(requestedPageValue) ? Math.max(1, Math.floor(requestedPageValue)) : 1;
   const requestedPageSizeValue = Number(
     searchParams.get("pageSize") ?? String(DEFAULT_ADMIN_TABLE_PAGE_SIZE),
   );
   const requestedPageSize = normalizeAdminTablePageSize(requestedPageSizeValue);
+  const statusLabelToParam: Record<string, string> = {
+    "for physical ctc": "physical-ctc",
+    "pending review": "pending",
+  };
+  const expectedStatus = statusLabelToParam[String(statusLabel ?? "Pending").toLowerCase()] ??
+    String(statusLabel ?? "Pending").toLowerCase();
   const routePending = pathname === "/admin/kk-profiling" && (
-    requestedStatus !== String(statusLabel ?? "Pending").toLowerCase() ||
+    requestedStatus !== expectedStatus ||
     requestedPage !== (pageNumber ?? 1) ||
     requestedPageSize !== (pageSize ?? DEFAULT_ADMIN_TABLE_PAGE_SIZE)
   );
@@ -199,11 +214,24 @@ export function KKProfilingRegistrationsTable({
     }));
   };
 
-  const handleStatusUpdate = (status: "Approved" | "Returned" | "Rejected", registrationId: string) => {
+  const handleStatusUpdate = (status: "Approved" | "Returned" | "Rejected" | "For Physical CTC", registrationId: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set("status", status.toLowerCase());
+    params.set(
+      "status",
+      status === "Approved"
+        ? "pending"
+        : status === "Rejected"
+          ? "withdrawn"
+          : status === "For Physical CTC"
+            ? "physical-ctc"
+            : status.toLowerCase(),
+    );
     params.set("page", "1");
-    params.set("focus", registrationId);
+    if (status === "Approved" || status === "Rejected") {
+      params.delete("focus");
+    } else {
+      params.set("focus", registrationId);
+    }
     router.push(`/admin/kk-profiling?${params.toString()}`, { scroll: false });
   };
 
@@ -254,6 +282,8 @@ export function KKProfilingRegistrationsTable({
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : normalizedStatus === "withdrawn"
                     ? "border-slate-200 bg-slate-100 text-slate-600"
+                    : normalizedStatus === "for physical ctc" || normalizedStatus === "for_physical_ctc"
+                      ? "border-sky-200 bg-sky-50 text-sky-700"
                   : normalizedStatus === "pending" || normalizedStatus === "resubmitted"
                     ? "border-amber-200 bg-amber-50 text-amber-800"
                     : normalizedStatus === "returned" || normalizedStatus === "rejected"
@@ -484,6 +514,12 @@ export function KKProfilingRegistrationsTable({
                       ) : String(registration.reviewStatus || "").toLowerCase() === "withdrawn" ? (
                         <span className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 ${fitContainer ? "px-2.5 py-0.5 text-xs font-medium" : "px-2.5 py-1 text-[10px] font-bold"} text-slate-600`}>
                           Withdrawn
+                        </span>
+                      ) : ["for physical ctc", "for_physical_ctc"].includes(
+                        String(registration.reviewStatus || "").toLowerCase(),
+                      ) ? (
+                        <span className="inline-flex max-w-full items-center whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-700">
+                          For Physical CTC
                         </span>
                       ) : (
                         registration.requiresManualReview || isKKProfilingManualReview(registration.reviewNotes) ? (

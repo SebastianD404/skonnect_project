@@ -124,9 +124,10 @@ export default async function GranteeDocumentsPage() {
   }));
 
   const canSubmit = isGranteeProfileComplete(appUser.grantee);
-  const { schedules, window: academicTermWindow } = await getAcademicTermScheduleState();
+  const now = new Date();
+  const { schedules, window: academicTermWindow } = await getAcademicTermScheduleState(now);
   const detectedTerm: DetectedGranteeTargetTerm | null = appUser.grantee?.id
-    ? await detectGranteeTargetTerm(appUser.id)
+    ? await detectGranteeTargetTerm(appUser.id, { schedules, now })
     : null;
   const serializedAcademicTermSchedules = schedules.map((schedule) => ({
     semester: schedule.semester,
@@ -140,7 +141,7 @@ export default async function GranteeDocumentsPage() {
       <main className="px-4 pb-20 pt-12 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
           <GranteeDocumentsClient
-            key={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}:${detectedTerm?.termLabel ?? "none"}:${detectedTerm?.hasPendingSubmission ?? false}:${detectedTerm?.canReplacePendingSubmission ?? false}`}
+            key={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}:${detectedTerm?.termLabel ?? "none"}:${detectedTerm?.hasPendingSubmission ?? false}:${detectedTerm?.canReplacePendingSubmission ?? false}:${serializedAcademicTermSchedules.map((schedule) => `${schedule.semester}:${schedule.opensAt}:${schedule.closesAt}`).join("|")}`}
             submissions={serialized}
             canSubmit={canSubmit}
             academicTermWindow={academicTermWindow}

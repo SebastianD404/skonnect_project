@@ -34,6 +34,7 @@ import {
   analyzeGradeReportText,
   type GradeReportDiagnostics,
 } from "@/lib/ocrValidation";
+import { scanGradeReportFile } from "@/lib/ocr/client-grade-report";
 import { extractDocxTextFromBuffer } from "@/lib/skeap-document-keywords";
 import {
   buildSemesterTracker,
@@ -42,6 +43,7 @@ import {
 import type { SubmissionStatus } from "@prisma/client";
 import type { AcademicTermWindow } from "@/lib/academic-term-schedule";
 import type { DetectedGranteeTargetTerm } from "@/lib/grantee-semester";
+import { getFullyClearedSubmissionAwaitingNextWindow } from "@/lib/grantee-documents-term";
 
 type SubmissionItem = {
   id: string;
@@ -80,6 +82,7 @@ type UploadState = {
 };
 
 type OcrStatus = "IDLE" | "SCANNING" | "SUCCESS" | "WARNING" | "ERROR";
+type ClientGradeOcrStatus = "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED";
 
 const INITIAL_FORM: UploadState = {
   gradeFile: null,
@@ -99,6 +102,21 @@ function formatTermWindowDate(value: string | null) {
     timeStyle: "short",
     timeZone: "Asia/Manila",
   }).format(new Date(value));
+}
+
+function formatTermDate(value: string) {
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "medium",
+    timeZone: "Asia/Manila",
+  }).format(new Date(value));
+}
+
+function getDetectedScheduleSemester(detectedTerm: DetectedGranteeTargetTerm | null) {
+  if (!detectedTerm) return "";
+  const semester = detectedTerm.semester === "Annual / School Year"
+    ? "First Semester"
+    : detectedTerm.semester;
+  return `${detectedTerm.schoolYear} ${semester}`;
 }
 
 async function openSubmissionFile(viewerUrl: string) {
@@ -305,13 +323,21 @@ export default function GranteeDocumentsClient({
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [form, setForm] = useState<UploadState>(() => ({
     ...INITIAL_FORM,
-    semester: detectedTerm?.termLabel ?? "",
+    semester:
+      getFullyClearedSubmissionAwaitingNextWindow(
+        initialSubmissions,
+        getDetectedScheduleSemester(detectedTerm),
+        academicTermSchedules,
+        new Date(),
+      )?.semester ?? detectedTerm?.termLabel ?? "",
   }));
   const [gradeOcrStatus, setGradeOcrStatus] = useState<OcrStatus>("IDLE");
   const [coeOcrStatus, setCoeOcrStatus] = useState<OcrStatus>("IDLE");
   const [gradeOcrWarning, setGradeOcrWarning] = useState<string | null>(null);
   const [gradeRequiresStrictReview, setGradeRequiresStrictReview] = useState(false);
   const [gradeDiagnostics, setGradeDiagnostics] = useState<GradeReportDiagnostics | null>(null);
+  const [gradeSubmissionOcrStatus, setGradeSubmissionOcrStatus] =
+    useState<ClientGradeOcrStatus | null>(null);
   const [coeOcrWarning, setCoeOcrWarning] = useState<string | null>(null);
   const [gradeOcrOverride, setGradeOcrOverride] = useState(false);
   const [coeOcrOverride, setCoeOcrOverride] = useState(false);
@@ -384,9 +410,33 @@ export default function GranteeDocumentsClient({
     return { pending, approved, needsEdit };
   }, [submissions]);
 
+  const detectedScheduleSemester = getDetectedScheduleSemester(detectedTerm);
+  const selectedTermSchedule = academicTermSchedules.find(
+    (schedule) => schedule.semester === detectedScheduleSemester
+  );
+  const selectedTermOpensAt = selectedTermSchedule
+    ? new Date(selectedTermSchedule.opensAt).getTime()
+    : null;
+  const termViewTime =
+    academicTermWindow.status === "UPCOMING" &&
+    academicTermWindow.semester === detectedScheduleSemester &&
+    selectedTermOpensAt !== null &&
+    currentTime >= selectedTermOpensAt
+      ? new Date(selectedTermOpensAt - 1)
+      : new Date(currentTime);
+  const fullyClearedSubmissionAwaitingNextWindow = getFullyClearedSubmissionAwaitingNextWindow(
+    submissions,
+    detectedScheduleSemester,
+    academicTermSchedules,
+    termViewTime,
+  );
+
   const currentSubmission = useMemo(
-    () => submissions.find((submission) => submission.semester === form.semester) ?? null,
-    [form.semester, submissions]
+    () => submissions.find(
+      (submission) =>
+        submission.semester === (fullyClearedSubmissionAwaitingNextWindow?.semester ?? form.semester),
+    ) ?? null,
+    [form.semester, fullyClearedSubmissionAwaitingNextWindow, submissions]
   );
 
   const currentFlaggedFields = new Set(currentSubmission?.flaggedFields ?? []);
@@ -412,11 +462,9 @@ export default function GranteeDocumentsClient({
   const isAwaitingPhysicalCtc = currentSubmission?.status === "AWAITING_PHYSICAL_CTC";
   const isPendingSubmissionLocked = currentSubmission?.status === "PENDING";
   const isSubmissionLocked = Boolean(currentSubmission && !canResubmitReturned);
-  const detectedScheduleSemester = detectedTerm
-    ? `${detectedTerm.schoolYear} ${
-        detectedTerm.semester === "Annual / School Year" ? "First Semester" : detectedTerm.semester
-      }`
-    : "";
+  const isDisplayingFullyClearedSubmission =
+    Boolean(fullyClearedSubmissionAwaitingNextWindow) &&
+    currentSubmission?.id === fullyClearedSubmissionAwaitingNextWindow?.id;
   const isSubmissionWindowOpen =
     academicTermWindow.status === "OPEN" &&
     detectedScheduleSemester === academicTermWindow.semester;
@@ -478,9 +526,11 @@ export default function GranteeDocumentsClient({
       : { current: "Not scheduled", approved: 0, total: 2, pct: 0 },
     [submissions, form.semester]
   );
-  const selectedTermSchedule = academicTermSchedules.find(
-    (schedule) => schedule.semester === detectedScheduleSemester
-  );
+  const nextSemesterLabel = detectedTerm
+    ? `${detectedTerm.schoolYear} · ${
+        detectedTerm.semester === "Annual / School Year" ? "First Semester" : detectedTerm.semester
+      }`
+    : "";
   const selectedTermStatus: AcademicTermWindow["status"] = selectedTermSchedule
     ? currentTime < new Date(selectedTermSchedule.opensAt).getTime()
       ? "UPCOMING"
@@ -539,15 +589,18 @@ export default function GranteeDocumentsClient({
     else setCoeOcrOverride(false);
 
     try {
-      const text = await extractSelectedFileText(file);
+      const gradeScan = kind === "grade" ? await scanGradeReportFile(file) : null;
+      const text = gradeScan?.rawText ?? await extractSelectedFileText(file);
       if (ocrRunIds.current[kind] !== runId) return false;
       if (kind === "grade") {
-        const diagnostics = analyzeGradeReportText(text);
+        const diagnostics = gradeScan?.diagnostics ?? analyzeGradeReportText(text);
         setGradeDiagnostics(diagnostics);
+        setGradeSubmissionOcrStatus(gradeScan?.ocrStatus ?? "OCR_NEEDS_REVIEW");
         setGradeRequiresStrictReview(
           diagnostics.hasPossibleFailingGrade ||
           diagnostics.meetsGwaRequirement === false ||
-          diagnostics.estimatedGwa === null
+          diagnostics.estimatedGwa === null ||
+          gradeScan?.ocrStatus !== "OCR_DONE"
         );
       }
 
@@ -585,6 +638,7 @@ export default function GranteeDocumentsClient({
         const diagnostics = analyzeGradeReportText("");
         setGradeDiagnostics(diagnostics);
         setGradeRequiresStrictReview(true);
+        setGradeSubmissionOcrStatus("OCR_FAILED");
       }
       return true;
     }
@@ -604,6 +658,7 @@ export default function GranteeDocumentsClient({
       setForm((prev) => ({ ...prev, gradeFile: file, gradeFileUrl: "" }));
       setGradeRequiresStrictReview(false);
       setGradeDiagnostics(null);
+      setGradeSubmissionOcrStatus(null);
     } else {
       setForm((prev) => ({ ...prev, coeFile: file, coeFileUrl: "" }));
     }
@@ -751,11 +806,13 @@ export default function GranteeDocumentsClient({
             ? {
                 hasPossibleFailingGrade: gradeDiagnostics.hasPossibleFailingGrade,
                 flaggedSubjects: gradeDiagnostics.flaggedSubjects,
+                flaggedGrades: gradeDiagnostics.flaggedGrades,
                 estimatedGwa: gradeDiagnostics.estimatedGwa,
                 detectedScale: gradeDiagnostics.detectedScale,
                 gwaCheckStatus: gradeDiagnostics.gwaCheckStatus,
               }
             : null,
+          ocrStatus: gradeSubmissionOcrStatus,
         }),
       });
 
@@ -849,8 +906,9 @@ export default function GranteeDocumentsClient({
         <div className="space-y-2">
           <h1 className="text-2xl font-bold tracking-tight">My Requirements</h1>
           <p className="max-w-2xl text-xs leading-relaxed text-slate-300 sm:text-sm">
-            Upload your Certificate of Enrollment and Grade Report to keep your grantee status active. We check
-            grade reports for common issues before sending them to SK for review.
+            {isDisplayingFullyClearedSubmission
+              ? "Your approved academic documents are available here. The next submission cycle will open on its scheduled date."
+              : "Upload your Certificate of Enrollment and Grade Report to keep your grantee status active. We check grade reports for common issues before sending them to SK for review."}
           </p>
         </div>
       </header>
@@ -873,9 +931,13 @@ export default function GranteeDocumentsClient({
           className="scroll-mt-24 border-b border-slate-200/80 p-5 sm:p-8 lg:col-span-8 lg:border-b-0 lg:border-r"
         >
           <div className="mb-6 space-y-1 border-b border-slate-100 pb-6">
-            <h2 className="text-xl font-bold tracking-tight text-slate-900">Submit Requirements</h2>
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">
+              {isDisplayingFullyClearedSubmission ? "Fully Cleared Requirements" : "Submit Requirements"}
+            </h2>
             <p className="text-xs text-slate-500">
-              Upload your documents for a quick check before SK review.
+              {isDisplayingFullyClearedSubmission
+                ? "Your approved Grade Report and Certificate of Enrollment remain available until the next window opens."
+                : "Upload your documents for a quick check before SK review."}
             </p>
           </div>
           <div className="space-y-0">
@@ -887,6 +949,33 @@ export default function GranteeDocumentsClient({
 
             <form onSubmit={(event) => void handleSubmit(event)} className="space-y-0">
               {submitError ? <p role="alert" className="mb-4 text-sm font-medium text-rose-600">{submitError}</p> : null}
+              {isDisplayingFullyClearedSubmission ? (
+                <div
+                  role="status"
+                  className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4"
+                >
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                    <div className="min-w-0">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-semibold text-white">
+                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        Fully Cleared
+                      </span>
+                      <h3 className="mt-2 text-sm font-bold text-emerald-950">
+                        {currentSubmission?.semester.replace(/^(\d{4}-\d{4})\s+/, "$1 · ")} · Requirements Approved
+                      </h3>
+                      <p className="mt-1 text-xs leading-relaxed text-emerald-900/80">
+                        Both your digital files and physical Original / CTC documents have been verified and cleared by the Barangay Pico SK Council.
+                      </p>
+                    </div>
+                    {selectedTermSchedule ? (
+                      <span className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-full border border-emerald-200 bg-white/80 px-3 py-1.5 text-[11px] font-semibold text-emerald-800 sm:self-center">
+                        <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
+                        Next cycle ({nextSemesterLabel}) opens {formatTermDate(selectedTermSchedule.opensAt)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
               <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
@@ -923,6 +1012,7 @@ export default function GranteeDocumentsClient({
                   </p>
                 ) : null}
               </div>
+              )}
 
               {isAwaitingPhysicalCtc ? (
                 <div
@@ -950,6 +1040,7 @@ export default function GranteeDocumentsClient({
                 <Field label="Grade Report (Original / CTC)" icon={<FileText className="h-4 w-4 text-slate-500" />}>
                   <FileDrop
                     file={form.gradeFile}
+                    approvedLabel="Approved"
                     existingFileName={hasExistingGradeReport && !form.gradeFile ? existingGradeReportName : undefined}
                     existingFileUrl={
                       hasExistingGradeReport && !form.gradeFile && currentSubmission
@@ -967,7 +1058,7 @@ export default function GranteeDocumentsClient({
                       isSubmissionClosed ||
                       isAwaitingPhysicalCtc
                     }
-                    windowClosed={isSubmissionWindowClosed}
+                    windowClosed={isSubmissionWindowClosed && !isDisplayingFullyClearedSubmission}
                     ocrStatus={gradeOcrStatus}
                     ocrWarning={gradeOcrWarning}
                     ocrOverridden={gradeOcrOverride}
@@ -993,6 +1084,7 @@ export default function GranteeDocumentsClient({
                 <Field label="Certificate of Enrollment (Original / CTC)" icon={<GraduationCap className="h-4 w-4 text-slate-500" />}>
                   <FileDrop
                     file={form.coeFile}
+                    approvedLabel="Approved"
                     existingFileName={hasExistingCoe && !form.coeFile && !coeFileError ? existingCoeName : undefined}
                     existingFileUrl={
                       hasExistingCoe && !form.coeFile && !coeFileError && currentSubmission
@@ -1010,7 +1102,7 @@ export default function GranteeDocumentsClient({
                       isSubmissionClosed ||
                       isAwaitingPhysicalCtc
                     }
-                    windowClosed={isSubmissionWindowClosed}
+                    windowClosed={isSubmissionWindowClosed && !isDisplayingFullyClearedSubmission}
                     ocrStatus={coeOcrStatus}
                     ocrWarning={coeOcrWarning}
                     ocrOverridden={coeOcrOverride}
@@ -1032,7 +1124,7 @@ export default function GranteeDocumentsClient({
                 </Field>
               </div>
 
-              {isSubmissionClosed ? (
+              {isSubmissionClosed && !isDisplayingFullyClearedSubmission ? (
                 <div
                   role="status"
                   className="mt-4 flex items-center gap-3 rounded-xl border border-emerald-200/80 bg-emerald-50/60 px-3.5 py-2.5"
@@ -1047,11 +1139,11 @@ export default function GranteeDocumentsClient({
                     </p>
                   </div>
                 </div>
-              ) : (
+              ) : !isDisplayingFullyClearedSubmission ? (
                 <div className="mt-5 border-l-2 border-cyan-600 py-0.5 pl-3 text-xs leading-relaxed text-slate-600">
                   <span className="font-bold text-slate-800">Document review:</span> Upload clear, readable files. If we cannot confirm a file, SK admin will review it.
                 </div>
-              )}
+              ) : null}
 
               {ocrWarning && !isSubmissionLocked ? (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-2xs" role="alert">
@@ -1099,10 +1191,12 @@ export default function GranteeDocumentsClient({
                     <span className="text-[11px] font-medium text-amber-800">Under Review</span>
                   </div>
                 ) : isSubmissionClosed ? (
-                  <span className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-emerald-50 px-3.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
-                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    Verified &amp; Approved
-                  </span>
+                  isDisplayingFullyClearedSubmission ? null : (
+                    <span className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-emerald-50 px-3.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Verified &amp; Approved
+                    </span>
+                  )
                 ) : isSubmissionLocked ? (
                   <button
                     type="button"
@@ -1302,6 +1396,7 @@ function FileDrop({
   uploading,
   locked = false,
   approved = false,
+  approvedLabel,
   windowClosed = false,
   ocrStatus = "IDLE",
   ocrWarning,
@@ -1324,6 +1419,7 @@ function FileDrop({
   uploading?: boolean;
   locked?: boolean;
   approved?: boolean;
+  approvedLabel?: string;
   windowClosed?: boolean;
   ocrStatus?: OcrStatus;
   ocrWarning?: string | null;
@@ -1337,6 +1433,7 @@ function FileDrop({
   disabled?: boolean;
 }) {
   const [isDragging, setIsDragging] = useState(false);
+  const [isOpeningFile, setIsOpeningFile] = useState(false);
   const [docxPreview, setDocxPreview] = useState<{
     fileName: string;
     text?: string;
@@ -1394,6 +1491,26 @@ function FileDrop({
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
+  async function viewFile(selectedFile: File | null) {
+    if (isOpeningFile) return;
+    setIsOpeningFile(true);
+    try {
+      await handleViewFile(selectedFile);
+    } finally {
+      setIsOpeningFile(false);
+    }
+  }
+
+  async function viewExistingFile(viewerUrl: string) {
+    if (isOpeningFile) return;
+    setIsOpeningFile(true);
+    try {
+      await openSubmissionFile(viewerUrl);
+    } finally {
+      setIsOpeningFile(false);
+    }
+  }
+
   function handleDragOver(event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault();
     if (disabled) return;
@@ -1436,7 +1553,7 @@ function FileDrop({
     : isWarning
       ? "border-amber-200 bg-amber-50/20"
     : ocrStatus === "SUCCESS" || (!file && existingFileName)
-      ? "border-emerald-200 bg-emerald-50/20"
+      ? "border-emerald-200 bg-emerald-50/30"
       : "border-slate-200 bg-white";
   const fileIconTone = isError
     ? "border-rose-200 text-rose-600"
@@ -1468,7 +1585,7 @@ function FileDrop({
         }}
       />
       {hasFile ? (
-        ocrStatus === "SCANNING" || uploading ? (
+        ocrStatus === "SCANNING" ? (
         <div
           role="status"
           aria-live="polite"
@@ -1510,7 +1627,7 @@ function FileDrop({
                   </p>
                   {approved ? (
                     <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold leading-none text-emerald-800">
-                      Verified &amp; Approved
+                      {approvedLabel ?? "Verified & Approved"}
                     </span>
                   ) : null}
                   {isResubmissionFile || isResubmitted ? (
@@ -1529,20 +1646,32 @@ function FileDrop({
                   {file && ocrStatus !== "SUCCESS" ? (
                     <button
                       type="button"
-                      onClick={() => handleViewFile(file)}
-                      className={`inline-flex cursor-pointer items-center gap-0.5 text-[10px] font-bold hover:underline ${
+                      onClick={() => void viewFile(file)}
+                      disabled={isOpeningFile}
+                      className={`inline-flex cursor-pointer items-center gap-0.5 text-[10px] font-bold transition-transform active:scale-[0.98] hover:underline disabled:cursor-wait ${
                         isError ? "text-rose-600" : isWarning ? "text-amber-600" : "text-blue-600"
                       }`}
                     >
-                      View File <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                      {isOpeningFile ? (
+                        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                      )}
+                      {isOpeningFile ? "Opening..." : "View File"}
                     </button>
                   ) : !file && existingFileUrl ? (
                     <button
                       type="button"
-                      onClick={() => void openSubmissionFile(existingFileUrl)}
-                      className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-600 hover:underline"
+                      onClick={() => void viewExistingFile(existingFileUrl)}
+                      disabled={isOpeningFile}
+                      className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-600 transition-transform active:scale-[0.98] hover:underline disabled:cursor-wait"
                     >
-                      View File <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                      {isOpeningFile ? (
+                        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                      )}
+                      {isOpeningFile ? "Opening..." : "View File"}
                     </button>
                   ) : null}
                 </div>
@@ -1630,10 +1759,15 @@ function FileDrop({
                 <button
                   type="button"
                   onClick={openFilePicker}
-                  disabled={disabled}
-                  className="h-8 flex-1 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={disabled || uploading}
+                  className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Replace file
+                  {uploading ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      Uploading...
+                    </>
+                  ) : "Replace file"}
                 </button>
                 <button
                   type="button"
@@ -1658,28 +1792,45 @@ function FileDrop({
                 {file ? (
                   <button
                     type="button"
-                    onClick={() => handleViewFile(file)}
-                    className="h-8 flex-1 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50"
+                    onClick={() => void viewFile(file)}
+                    disabled={isOpeningFile}
+                    className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
                   >
-                    View File
+                    {isOpeningFile ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        Opening...
+                      </>
+                    ) : "View File"}
                   </button>
                 ) : existingFileUrl ? (
                   <button
                     type="button"
-                    onClick={() => void openSubmissionFile(existingFileUrl)}
-                    className="flex h-8 flex-1 items-center justify-center rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50"
+                    onClick={() => void viewExistingFile(existingFileUrl)}
+                    disabled={isOpeningFile}
+                    className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
                   >
-                    View File
+                    {isOpeningFile ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        Opening...
+                      </>
+                    ) : "View File"}
                   </button>
                 ) : null}
                 {!locked ? (
                   <button
                     type="button"
                     onClick={openFilePicker}
-                    disabled={disabled}
-                    className="h-8 flex-1 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={disabled || uploading}
+                    className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-center text-[11px] font-bold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Replace file
+                    {uploading ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        Uploading...
+                      </>
+                    ) : "Replace file"}
                   </button>
                 ) : null}
               </>

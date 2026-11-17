@@ -136,4 +136,34 @@ describe('admin review route', () => {
     expect(payload.error).toContain('already been approved');
     expect(mockUpdateMany).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { status: 'PENDING', coeStatus: 'RETURNED_FOR_EDIT' },
+    { status: 'RETURNED_FOR_EDIT', coeStatus: 'PENDING' },
+  ])('prevents returning a document while its submission is awaiting re-upload ($status)', async ({
+    status,
+    coeStatus,
+  }) => {
+    mockFindUnique.mockResolvedValue({
+      id: 's1',
+      status,
+      coeStatus,
+      gradesStatus: 'PENDING',
+      flaggedFields: [],
+      grantee: { status: 'ACTIVE' },
+    });
+
+    const response = await POST(createRequest({
+      documentType: 'coe',
+      action: 'RETURN_FOR_UPDATE',
+      reviewNotes: 'Please correct the document.',
+    }), createContext('s1'));
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe(
+      'This document has already been returned and is awaiting grantee re-upload.'
+    );
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
 });

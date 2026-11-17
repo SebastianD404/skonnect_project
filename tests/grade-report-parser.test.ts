@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseGradeReportText } from "../lib/grade-report-parser";
+import {
+  hasGradeReportStructuralSignals,
+  parseGradeReportText,
+} from "../lib/grade-report-parser";
 
 const fixtures = {
   clean: `SUBJ101 Introduction to Computing 3 1.25
@@ -63,6 +66,34 @@ describe("parseGradeReportText", () => {
     expect(result.unrecognizedRows).toEqual([]);
   });
 
+  it("counts the second 3.0 token as a passing grade when a table has no readable header", () => {
+    const result = parseGradeReportText(
+      [
+        "WMAD306 Web and Mobile Systems 3.0 3.00",
+        "WMAD309 Advanced Applications 3.0 3.0",
+      ].join("\n"),
+    );
+
+    expect(result.rows.map(({ units, grade, flag }) => ({ units, grade, flag }))).toEqual([
+      { units: 3, grade: 3, flag: null },
+      { units: 3, grade: 3, flag: null },
+    ]);
+    expect(result.detectedScale).toBe("SCALE_1_TO_5");
+    expect(result.hasPossibleFailingGrade).toBe(false);
+    expect(result.unrecognizedRows).toEqual([]);
+    expect(result.ambiguousRows).toEqual([]);
+  });
+
+  it("recognizes structural grade-table signals when the title is cropped", () => {
+    expect(hasGradeReportStructuralSignals("DESCRIPTION UNITS")).toBe(true);
+    expect(hasGradeReportStructuralSignals("WMAD305")).toBe(true);
+    expect(
+      hasGradeReportStructuralSignals(
+        "Prerequisites:\nIntroduction to Computing 3.0 1.75\nCollege Algebra 3.0 2.00",
+      ),
+    ).toBe(true);
+  });
+
   it("treats collegiate grades above 3.01 and decimal 5.00 as failing", () => {
     const result = parseGradeReportText("SUBJ101 Introduction to Computing 3.0 3.24");
 
@@ -92,17 +123,108 @@ describe("parseGradeReportText", () => {
     ]);
   });
 
-  it("flags decimal 5.00 but not grades at or below 3.01", () => {
+  it("flags decimal grades above 3.00 through 5.00", () => {
     const result = parseGradeReportText(
-      "Course Units Final Grade\nSUBJ101 Introduction to Computing 3 5.00\nMATH102 College Algebra 3 3.01",
+      "Course Units Final Grade\nSUBJ101 Introduction to Computing 3 5.00\nMATH102 College Algebra 3 3.01\nENG103 Communication Skills 3 3.00",
     );
 
     expect(result.hasPossibleFailingGrade).toBe(true);
-    expect(result.flaggedSubjects).toEqual(["SUBJ101 Introduction to Computing: 5.00"]);
+    expect(result.flaggedSubjects).toEqual([
+      "SUBJ101 Introduction to Computing: 5.00",
+      "MATH102 College Algebra: 3.01",
+    ]);
     expect(result.rows).toMatchObject([
       { units: 3, grade: null, flag: "FAILED" },
-      { units: 3, grade: 3.01, flag: null },
+      { units: 3, grade: null, flag: "FAILED" },
+      { units: 3, grade: 3, flag: null },
     ]);
+  });
+
+  it("does not flag passing grades in a 1.00–5.00 portal table", () => {
+    const result = parseGradeReportText(
+      [
+        "DESCRIPTION UNITS CREDITED GRADE GRADE POINT REMARKS",
+        "WMAD305 Web Development 3.0 3.0 1.50",
+        "WMAD306 Information Systems 3.0 3.0 3.00",
+        "WMAD307 Systems Analysis 3.0 3.0 1.75",
+        "WMAD308 Applications 3.0 3.0 2.75",
+        "WMAD309 Advanced Applications 3.0 3.0 3.0",
+        "Prerequisites: IT206-1, WMAD304",
+      ].join("\n"),
+    );
+
+    expect(result.detectedScale).toBe("SCALE_1_TO_5");
+    expect(result.hasPossibleFailingGrade).toBe(false);
+    expect(result.flaggedGrades).toEqual([]);
+  });
+
+  it("locks to the collegiate scale before evaluating dropped-decimal percentage artifacts", () => {
+    const result = parseGradeReportText(
+      [
+        "Course Units Final Grade",
+        "SUBJ101 Computing 3.0 1.50",
+        "MATH102 Algebra 3.0 1.75",
+        "ENG103 Communication 3.0 50",
+      ].join("\n"),
+    );
+
+    expect(result.detectedScale).toBe("SCALE_1_TO_5");
+    expect(result.hasPossibleFailingGrade).toBe(false);
+    expect(result.flaggedGrades).toEqual([]);
+  });
+
+  it("does not flag dotted-zero OCR artifacts without an explicit failing remark", () => {
+    const result = parseGradeReportText(
+      [
+        "Course Units Final Grade",
+        "SUBJ101 Computing 3.0 1.50",
+        "MATH102 Algebra 3.0 1.75",
+        "ENG103 Communication 3.0 3.08",
+        "SCI104 Science 3.0 3.80",
+        "HIST105 History 3.0 3.88",
+      ].join("\n"),
+    );
+
+    expect(result.hasPossibleFailingGrade).toBe(false);
+    expect(result.flaggedGrades).toEqual([]);
+  });
+
+  it.each(["FAILED", "INC", "DRP", "UW"])(
+    "keeps an explicit %s remark as a failing signal despite dotted-zero OCR",
+    (remark) => {
+      const result = parseGradeReportText(
+        `Course Units Final Grade\nSUBJ101 Computing 3.0 3.08 ${remark}`,
+      );
+
+      expect(result.hasPossibleFailingGrade).toBe(true);
+    },
+  );
+
+  it("ignores leading-zero grades, course-code digits, and integer collegiate values", () => {
+    const result = parseGradeReportText(
+      "Course Units Final Grade\nWMAD304 Web Development 3 04\nSUBJ102 College Algebra 3 4\nSUBJ103 Communication Skills 3 3.00",
+    );
+
+    expect(result.hasPossibleFailingGrade).toBe(false);
+    expect(result.flaggedGrades).toEqual([]);
+  });
+
+  it("does not interpret credit-unit decimals as failing grades", () => {
+    const result = parseGradeReportText(
+      "Course Units\nSUBJ101 Computing 4.0\nMATH102 Algebra 5.0\nENG103 Communication 6.0",
+    );
+
+    expect(result.hasPossibleFailingGrade).toBe(false);
+    expect(result.flaggedGrades).toEqual([]);
+  });
+
+  it("only flags integer percentage grades from 50 through 74", () => {
+    const result = parseGradeReportText(
+      "Course Units Final Grade\nSUBJ101 Computing 3 74\nMATH102 Algebra 3 74.5\nENG103 Communication 3 75",
+    );
+
+    expect(result.hasPossibleFailingGrade).toBe(true);
+    expect(result.flaggedGrades).toEqual(["SUBJ101 Computing: 74"]);
   });
 
   it("uses header order when the grade column comes before the credits column", () => {
@@ -277,6 +399,39 @@ describe("parseGradeReportText", () => {
     expect(result.flaggedSubjects).toEqual([
       "SUBJ101 Introduction to Computing: 74",
     ]);
+  });
+
+  it("detects a percentage failing grade split from its course code and units across lines", () => {
+    const result = parseGradeReportText(
+      [
+        "DESCRIPTION UNITS CREDITED GRADE",
+        "WMADE1",
+        "Web and Mobile Application Development Elective",
+        "3.0",
+        "74",
+      ].join("\n"),
+    );
+
+    expect(result.hasPossibleFailingGrade).toBe(true);
+    expect(result.flaggedGrades).toEqual([
+      "WMADE1 Web and Mobile Application Development Elective: 74",
+    ]);
+  });
+
+  it("detects a failing grade on the next line after its course and units", () => {
+    const result = parseGradeReportText(
+      [
+        "DESCRIPTION UNITS CREDITED GRADE",
+        "WMADE1 Web and Mobile Application Development Elective 1 3.0",
+        "74",
+        "MATH102 College Algebra 3 85",
+      ].join("\n"),
+    );
+
+    expect(result.hasPossibleFailingGrade).toBe(true);
+    expect(result.flaggedGrades).toContain(
+      "WMADE1 Web and Mobile Application Development Elective 1: 74",
+    );
   });
 
   it("flags conflicting numeric grades and remarks for manual review", () => {
