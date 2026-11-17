@@ -1,58 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, LoaderCircle } from "lucide-react";
 
 type Props = {
   open: boolean;
-  signedIn: boolean;
-  existingAccount: boolean;
-  successCredentials: { username: string; temporaryPassword: string } | null;
 };
 
-export default function KkProfilingSuccessInterstitial({
-  open,
-  signedIn,
-  existingAccount,
-  successCredentials,
-}: Props) {
+export default function KkProfilingSuccessInterstitial({ open }: Props) {
   const router = useRouter();
-  const [credentialsCopied, setCredentialsCopied] = useState(false);
-  const [copyError, setCopyError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<"skeap" | "dashboard" | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   if (!open) return null;
 
-  const navigateTo = (action: "skeap" | "dashboard", destination: string) => {
-    setPendingAction(action);
-    router.push(
-      signedIn ? destination : `/login?next=${encodeURIComponent(destination)}`,
-    );
-  };
-
-  const copyTemporaryPassword = async () => {
-    if (!successCredentials) return;
-
-    try {
-      await navigator.clipboard.writeText(successCredentials.temporaryPassword);
-      setCredentialsCopied(true);
-      setCopyError(null);
-    } catch {
-      setCopyError("Unable to copy the temporary password. Select and copy it manually.");
-    }
+  const goToDashboard = () => {
+    setIsNavigating(true);
+    router.push("/youth-dashboard");
   };
 
   return (
-    <>
-    {open ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/70 px-4 py-6">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="kk-profiling-success-title"
-        className="my-auto w-full max-w-[30rem] rounded-3xl bg-white p-4 shadow-2xl ring-1 ring-slate-200 sm:p-5"
+        aria-describedby="kk-profiling-success-description"
+        className="my-auto w-full max-w-[30rem] rounded-2xl bg-white p-4 shadow-2xl ring-1 ring-slate-200 sm:p-5"
       >
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
@@ -63,102 +37,36 @@ export default function KkProfilingSuccessInterstitial({
               id="kk-profiling-success-title"
               className="text-xl font-bold text-slate-900 sm:text-2xl"
             >
-              KK Profile Submitted Successfully!
+              KK Profiling Submitted!
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Thank you for registering with the Katipunan ng Kabataan of Barangay Pico.
+            <p
+              id="kk-profiling-success-description"
+              className="mt-2 text-sm leading-6 text-slate-600"
+            >
+              Your Katipunan ng Kabataan (KK) profile and uploaded documents have been received and are now pending review by the Barangay Pico SK Admin. Once your profile is approved, you will be eligible to apply for SKEAP.
             </p>
           </div>
         </div>
 
-        {successCredentials ? (
-          <div className="mt-6 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left text-sm text-slate-700">
-            <p className="font-semibold text-slate-900">Your default account credentials</p>
-            <div className="mt-3 grid gap-2">
-              <div className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2">
-                <span className="text-slate-600">Email</span>
-                <span className="break-all font-medium text-slate-900">{successCredentials.username}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2">
-                <span className="shrink-0 text-slate-600">Temporary password</span>
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="min-w-0 break-all text-right font-medium text-slate-900">
-                    {successCredentials.temporaryPassword}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void copyTemporaryPassword()}
-                    className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                  >
-                    {credentialsCopied ? "Copied" : "Copy"}
-                  </button>
-                </span>
-              </div>
-            </div>
-            <p className="mt-3 text-xs text-slate-500">
-              Keep these credentials private. Secure your account after signing in.
-            </p>
-            {copyError ? (
-              <p role="alert" className="mt-2 text-xs text-rose-700">
-                {copyError}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {!signedIn ? (
-          <p className="mt-5 text-center text-sm text-slate-600">
-            {existingAccount
-              ? "An account already exists for this email. Sign in with your current password to continue."
-              : "Your registration is complete. Sign in to continue to your next step."}
-          </p>
-        ) : null}
-
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <div className="mt-5">
           <button
             type="button"
-            onClick={() => navigateTo("skeap", "/programs/skeap/apply")}
-            disabled={pendingAction !== null}
-            aria-busy={pendingAction === "skeap"}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-80 sm:w-auto"
+            onClick={goToDashboard}
+            disabled={isNavigating}
+            aria-busy={isNavigating}
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-80"
           >
-            {pendingAction === "skeap" ? (
-              <>
-                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                Opening SKEAP...
-              </>
-            ) : "Apply for SKEAP"}
-          </button>
-          <button
-            type="button"
-            onClick={() => navigateTo("dashboard", "/youth-dashboard")}
-            disabled={pendingAction !== null}
-            aria-busy={pendingAction === "dashboard"}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-80 sm:w-auto"
-          >
-            {pendingAction === "dashboard" ? (
+            {isNavigating ? (
               <>
                 <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
                 Opening dashboard...
               </>
-            ) : "Go to Youth Dashboard"}
+            ) : (
+              "Go to Youth Dashboard →"
+            )}
           </button>
         </div>
-
-        {!signedIn ? (
-          <p className="mt-5 text-center text-sm text-slate-600">
-            Forgot your password?{" "}
-            <Link
-              href="/forgot-password"
-              className="font-semibold text-[#0F3D5C] underline-offset-4 hover:underline"
-            >
-              Reset it
-            </Link>
-          </p>
-        ) : null}
       </section>
     </div>
-    ) : null}
-    </>
   );
 }

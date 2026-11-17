@@ -252,9 +252,6 @@ export default function KKProfilingForm({
   const [successRedirectTo, setSuccessRedirectTo] = useState(
     isFromSkeap ? "/youth/skeap/apply" : "/youth/dashboard",
   );
-  const [successCredentials, setSuccessCredentials] = useState<{ username: string; temporaryPassword: string } | null>(null);
-  const [signedIn, setSignedIn] = useState(false);
-  const [existingAccount, setExistingAccount] = useState(false);
   const [accountExistsFallback, setAccountExistsFallback] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
@@ -833,23 +830,6 @@ export default function KKProfilingForm({
         setSuccessRedirectTo(
           isFromSkeap ? "/youth/skeap/apply" : "/youth/dashboard",
         );
-        const credentials =
-          typeof data.credentials === "object" && data.credentials !== null
-            ? data.credentials as Record<string, unknown>
-            : null;
-        setSuccessCredentials(
-          credentials &&
-          typeof credentials.username === "string" &&
-          typeof credentials.temporaryPassword === "string"
-            ? {
-                username: credentials.username,
-                temporaryPassword: credentials.temporaryPassword,
-              }
-            : null
-        );
-
-        setSignedIn(true);
-        setExistingAccount(true);
         postSubmitModalOpenRef.current = true;
         setShowSuccessModal(true);
       } else {
@@ -1461,9 +1441,6 @@ export default function KKProfilingForm({
 
       <KkProfilingSuccessInterstitial
         open={showSuccessModal}
-        signedIn={signedIn}
-        existingAccount={existingAccount}
-        successCredentials={successCredentials}
       />
         </>
       )}
