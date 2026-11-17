@@ -10,6 +10,7 @@ type GraduationJourneyInput = {
   dateEnrolled: Date;
   journeyStart?: string | null;
   journeyEnd?: string | null;
+  entryTerm?: string;
   now?: Date;
   initialGrant?: AcademicJourneyInitialGrant | null;
 };
@@ -19,6 +20,7 @@ export function getGranteeGraduationProgress({
   dateEnrolled,
   journeyStart,
   journeyEnd,
+  entryTerm,
   now = new Date(),
   initialGrant,
 }: GraduationJourneyInput) {
@@ -31,6 +33,7 @@ export function getGranteeGraduationProgress({
     now,
     totalYears,
     initialGrant,
+    entryTerm,
   );
   const totalRequiredSemesters = progress.nodes.length;
   const validatedCount = progress.validatedSemesterIndexes.length;

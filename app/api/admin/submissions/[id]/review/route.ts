@@ -14,7 +14,6 @@ import { sendSkeapRevocationEmail } from "@/lib/skeap-revocation-email";
 import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 import { notifyGranteePhysicalCtcStatus } from "@/lib/grantee-submission-notifications";
 import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
-import { getCurrentAcademicSemester } from "@/lib/semester-progress";
 import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 import {
   buildIdentityFingerprint,
@@ -241,6 +240,8 @@ export async function POST(
             id: true,
             status: true,
             dateEnrolled: true,
+            entryAcademicYear: true,
+            entrySemester: true,
             journeyStart: true,
             journeyEnd: true,
             ...(hasGraduationReadyAtColumn ? { graduationReadyAt: true } : {}),
@@ -262,38 +263,19 @@ export async function POST(
               select: {
                 id: true,
                 fullName: true,
-                skeapApplications: {
-                  where: { status: "APPROVED" },
-                  orderBy: { submittedAt: "asc" },
-                  take: 1,
-                  select: {
-                    submittedAt: true,
-                    updatedAt: true,
-                    gwa: true,
-                    reportCardFileUrl: true,
-                    enrollmentFileUrl: true,
-                  },
-                },
               },
             },
           },
         });
-        const initialApplication = grantee.user.skeapApplications[0] ?? null;
         const graduationProgress = getGranteeGraduationProgress({
           submissions: grantee.submissions,
-          dateEnrolled: initialApplication?.submittedAt ?? grantee.dateEnrolled,
+          dateEnrolled: grantee.dateEnrolled,
           journeyStart: grantee.journeyStart,
           journeyEnd: grantee.journeyEnd,
+          entryTerm: grantee.entryAcademicYear && grantee.entrySemester
+            ? `${grantee.entryAcademicYear} ${grantee.entrySemester}`
+            : undefined,
           now: physicalVerifiedAt,
-          initialGrant: initialApplication
-            ? {
-                semester: getCurrentAcademicSemester(initialApplication.submittedAt),
-                approvedAt: initialApplication.updatedAt,
-                gwa: initialApplication.gwa,
-                gradeReportUrl: initialApplication.reportCardFileUrl,
-                coeFileUrl: initialApplication.enrollmentFileUrl,
-              }
-            : null,
         });
         let graduationCandidate: {
           granteeId: string;

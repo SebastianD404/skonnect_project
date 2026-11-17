@@ -1,5 +1,10 @@
 import { SubmissionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  getAcademicTermScheduleState,
+  type AcademicTermScheduleRecord,
+} from "@/lib/academic-term-schedule";
+import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
 
 export type GranteeTerm = {
   schoolYear: string;
@@ -15,6 +20,33 @@ export type DetectedGranteeTargetTerm = GranteeTerm & {
   hasPendingSubmission: boolean;
   canReplacePendingSubmission: boolean;
   hasApprovedSubmission: boolean;
+};
+
+export type GranteeTimelineSubmission = {
+  id?: string;
+  semester: string;
+  status: string;
+  submittedAt?: Date | string;
+  reviewedById?: string | null;
+  reviewedAt?: Date | string | null;
+  generalAverage?: number | null;
+  ocrGwa?: number | null;
+  reviewNotes?: string | null;
+  gradeFileUrl?: string | null;
+  coeFileUrl?: string | null;
+};
+
+export type GranteeTimelineProfile = {
+  entryAcademicYear?: string | null;
+  entrySemester?: string | null;
+  dateEnrolled?: Date | null;
+  journeyStart?: string | null;
+  journeyEnd?: string | null;
+};
+
+export type GranteeAcademicTimelineSettings = {
+  schedules: AcademicTermScheduleRecord[];
+  now?: Date;
 };
 
 type ParsedTerm = {
@@ -55,7 +87,7 @@ function termFromDate(date: Date): GranteeTerm {
   const month = Number(parts.find((part) => part.type === "month")?.value);
 
   if (!Number.isInteger(year) || !Number.isInteger(month)) {
-    throw new Error("Unable to determine the academic term from the approved SKEAP application date.");
+    throw new Error("Unable to determine the grantee's entry semester.");
   }
 
   if (month >= 6 && month <= 10) return termFromParts(year, "First Semester");
@@ -63,34 +95,148 @@ function termFromDate(date: Date): GranteeTerm {
   return termFromParts(year - 1, "Second Semester");
 }
 
-function getEducationLevelLabel(value: string | null | undefined) {
-  return (value ?? "").trim().toLocaleLowerCase().replace(/[-_]+/g, " ");
+function termOrder(term: GranteeTerm) {
+  const parsed = parseTermLabel(term.termLabel);
+  if (!parsed || parsed.semester === "Annual / School Year") return null;
+  return parsed.startYear * 2 + (parsed.semester === "Second Semester" ? 1 : 0);
 }
 
-function isJuniorHighSchool(value: string | null | undefined) {
-  const normalized = getEducationLevelLabel(value);
-  return (
-    normalized === "junior high school" ||
-    normalized === "junior high" ||
-    normalized === "jhs" ||
-    /^grade\s*(7|8|9|10)$/.test(normalized)
+function termFromLabel(value: string): GranteeTerm | null {
+  const parsed = parseTermLabel(value);
+  if (!parsed || parsed.semester === "Annual / School Year") return null;
+  return {
+    schoolYear: `${parsed.startYear}-${parsed.endYear}`,
+    semester: parsed.semester,
+    termLabel: `${parsed.startYear}-${parsed.endYear} ${parsed.semester}`,
+  };
+}
+
+function resolveStoredEntryTerm(grantee: GranteeTimelineProfile) {
+  const academicYear = grantee.entryAcademicYear?.trim();
+  const semester = grantee.entrySemester?.trim();
+  if (!academicYear && !semester) return null;
+
+  const term = academicYear && semester
+    ? termFromLabel(`${academicYear} ${semester}`)
+    : null;
+  if (!term) {
+    throw new Error("The grantee's stored entry academic term is invalid.");
+  }
+  return term;
+}
+
+export function resolveGranteeEntryTerm(
+  schedules: AcademicTermScheduleRecord[],
+  now = new Date(),
+): GranteeTerm {
+  const orderedSchedules = [...schedules].sort(
+    (a, b) => a.opensAt.getTime() - b.opensAt.getTime(),
   );
+  const activeSchedule = orderedSchedules.find(
+    (schedule) => schedule.opensAt <= now && schedule.closesAt >= now,
+  );
+  if (activeSchedule) {
+    const activeTerm = termFromLabel(activeSchedule.semester);
+    if (!activeTerm) {
+      throw new Error(`The active academic schedule has an invalid term: "${activeSchedule.semester}".`);
+    }
+    return activeTerm;
+  }
+
+  return termFromDate(now);
 }
 
-function getNextTerm(previousTerm: GranteeTerm, educationLevel: string | null | undefined): GranteeTerm {
-  const parsed = parseTermLabel(previousTerm.termLabel);
-  if (!parsed) {
-    throw new Error(`Unable to determine the next requirement term from "${previousTerm.termLabel}".`);
+function previousApprovedTerm(
+  submissions: GranteeTimelineSubmission[],
+  targetTerm: GranteeTerm,
+) {
+  const targetOrder = termOrder(targetTerm);
+  if (targetOrder === null) return null;
+
+  const approvedTerms = submissions
+    .filter((submission) => submission.status === SubmissionStatus.APPROVED)
+    .map((submission) => termFromLabel(submission.semester))
+    .filter((term): term is GranteeTerm => term !== null)
+    .filter((term) => {
+      const order = termOrder(term);
+      return order !== null && order < targetOrder;
+    })
+    .sort((a, b) => (termOrder(a) ?? 0) - (termOrder(b) ?? 0));
+
+  return approvedTerms[approvedTerms.length - 1] ?? null;
+}
+
+export function resolveGranteeAcademicTimeline(
+  grantee: GranteeTimelineProfile,
+  submissions: GranteeTimelineSubmission[],
+  activeSettings: GranteeAcademicTimelineSettings,
+) {
+  const now = activeSettings.now ?? new Date();
+  const entryTerm =
+    resolveStoredEntryTerm(grantee) ??
+    resolveGranteeEntryTerm(activeSettings.schedules, now);
+  const dateEnrolled = grantee.dateEnrolled ?? now;
+  const journeyProgress = getGranteeGraduationProgress({
+    submissions,
+    dateEnrolled,
+    journeyStart: grantee.journeyStart,
+    journeyEnd: grantee.journeyEnd,
+    entryTerm: entryTerm.termLabel,
+    now,
+  });
+  const targetTerm = termFromLabel(journeyProgress.currentStepSemester);
+  if (!targetTerm) {
+    throw new Error("Unable to determine the grantee's current semester.");
   }
 
-  if (isJuniorHighSchool(educationLevel)) {
-    return termFromParts(parsed.startYear + 1, "Annual / School Year");
-  }
+  const targetSubmissions = submissions.filter(
+    (submission) => submission.semester.trim() === targetTerm.termLabel,
+  );
+  const latestTargetSubmission = targetSubmissions.reduce<GranteeTimelineSubmission | null>(
+    (latest, submission) => {
+      if (!latest) return submission;
+      const latestTime = latest.submittedAt ? new Date(latest.submittedAt).getTime() : 0;
+      const submissionTime = submission.submittedAt ? new Date(submission.submittedAt).getTime() : 0;
+      return submissionTime >= latestTime ? submission : latest;
+    },
+    null,
+  );
+  const isResubmission =
+    latestTargetSubmission?.status === SubmissionStatus.RETURNED_FOR_EDIT;
+  const previousTerm = previousApprovedTerm(submissions, targetTerm);
+  const formattedYear = targetTerm.schoolYear.replace("-", "–");
 
-  if (parsed.semester === "First Semester") {
-    return termFromParts(parsed.startYear, "Second Semester");
-  }
-  return termFromParts(parsed.startYear + 1, "First Semester");
+  return {
+    entryTerm,
+    targetTerm: {
+      ...targetTerm,
+      isResubmission,
+      ...(isResubmission
+        ? { reason: `Resubmitting returned requirements for ${targetTerm.termLabel}` }
+        : {}),
+      detectionSummary: isResubmission
+        ? `Your ${formattedYear} ${targetTerm.semester} requirements were returned for correction.`
+        : previousTerm
+          ? `Automatically detected based on your approved ${previousTerm.schoolYear.replace("-", "–")} ${previousTerm.semester} requirements.`
+          : `Your entry term is ${targetTerm.termLabel}.`,
+      previousApprovedTerm: previousTerm,
+      hasPendingSubmission: targetSubmissions.some((submission) =>
+        submission.status === SubmissionStatus.PENDING ||
+        submission.status === SubmissionStatus.PRE_QUALIFIED ||
+        submission.status === SubmissionStatus.AWAITING_PHYSICAL_CTC
+      ),
+      canReplacePendingSubmission: targetSubmissions.some(
+        (submission) =>
+          submission.status === SubmissionStatus.PENDING &&
+          !submission.reviewedById &&
+          !submission.reviewedAt,
+      ),
+      hasApprovedSubmission: targetSubmissions.some(
+        (submission) => submission.status === SubmissionStatus.APPROVED,
+      ),
+    } satisfies DetectedGranteeTargetTerm,
+    journeyProgress,
+  };
 }
 
 export function getScheduleSemesterForTargetTerm(term: Pick<GranteeTerm, "schoolYear" | "semester">) {
@@ -98,44 +244,35 @@ export function getScheduleSemesterForTargetTerm(term: Pick<GranteeTerm, "school
   return `${term.schoolYear} ${scheduleSemester}`;
 }
 
-function formatSchoolYear(schoolYear: string) {
-  return schoolYear.replace("-", "–");
-}
-
-function getDetectionSummary(previousTerm: GranteeTerm, source: "submission" | "application") {
-  const formattedYear = formatSchoolYear(previousTerm.schoolYear);
-  return source === "submission"
-    ? `Automatically detected based on your approved ${formattedYear} ${previousTerm.semester} requirements.`
-    : `Automatically detected based on your approved SKEAP application term, ${formattedYear} ${previousTerm.semester}.`;
-}
-
-export async function detectGranteeTargetTerm(userId: string): Promise<DetectedGranteeTargetTerm | null> {
+export async function detectGranteeTargetTerm(
+  userId: string,
+  activeSettings?: GranteeAcademicTimelineSettings,
+): Promise<DetectedGranteeTargetTerm | null> {
   const grantee = await prisma.grantee.findFirst({
     where: {
       userId,
       status: { in: ["ACTIVE", "PROBATIONARY"] },
     },
     select: {
-      id: true,
-      yearLevel: true,
-      user: {
-        select: {
-          skeapApplications: {
-            where: { status: SubmissionStatus.APPROVED },
-            orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
-            take: 1,
-            select: { educationLevel: true, submittedAt: true },
-          },
-        },
-      },
+      entryAcademicYear: true,
+      entrySemester: true,
+      dateEnrolled: true,
+      journeyStart: true,
+      journeyEnd: true,
       submissions: {
         orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
         select: {
+          id: true,
           semester: true,
           status: true,
           submittedAt: true,
           reviewedById: true,
           reviewedAt: true,
+          generalAverage: true,
+          ocrGwa: true,
+          reviewNotes: true,
+          gradeFileUrl: true,
+          coeFileUrl: true,
         },
       },
     },
@@ -143,119 +280,14 @@ export async function detectGranteeTargetTerm(userId: string): Promise<DetectedG
 
   if (!grantee) return null;
 
-  const returnedSubmission = [...grantee.submissions]
-    .reverse()
-    .find((submission) => submission.status === SubmissionStatus.RETURNED_FOR_EDIT);
-  if (returnedSubmission) {
-    const returnedTerm = parseTermLabel(returnedSubmission.semester);
-    if (!returnedTerm) {
-      throw new Error(`Returned requirement submission has an invalid term: "${returnedSubmission.semester}".`);
-    }
-
-    const schoolYear = `${returnedTerm.startYear}-${returnedTerm.endYear}`;
-    const semester = returnedTerm.semester;
-    const term = { schoolYear, semester, termLabel: `${schoolYear} ${semester}` };
-    const previousApprovedSubmission = [...grantee.submissions]
-      .reverse()
-      .find(
-        (submission) =>
-          submission.status === SubmissionStatus.APPROVED &&
-          submission.submittedAt <= returnedSubmission.submittedAt
-      );
-    const parsedPreviousApprovedTerm = previousApprovedSubmission
-      ? parseTermLabel(previousApprovedSubmission.semester)
-      : null;
-    if (previousApprovedSubmission && !parsedPreviousApprovedTerm) {
-      throw new Error(
-        `Approved requirement submission has an invalid term: "${previousApprovedSubmission.semester}".`
-      );
-    }
-    const previousApprovedTerm = parsedPreviousApprovedTerm
-      ? {
-          schoolYear: `${parsedPreviousApprovedTerm.startYear}-${parsedPreviousApprovedTerm.endYear}`,
-          semester: parsedPreviousApprovedTerm.semester,
-          termLabel: `${parsedPreviousApprovedTerm.startYear}-${parsedPreviousApprovedTerm.endYear} ${parsedPreviousApprovedTerm.semester}`,
-        }
-      : null;
-    return {
-      ...term,
-      isResubmission: true,
-      reason: `Resubmitting returned requirements for ${schoolYear} ${semester}`,
-      detectionSummary: `Your ${formatSchoolYear(schoolYear)} ${semester} requirements were returned for correction.`,
-      previousApprovedTerm,
-      hasPendingSubmission: grantee.submissions.some(
-        (submission) =>
-          submission.semester === term.termLabel &&
-          (submission.status === SubmissionStatus.PENDING ||
-            submission.status === SubmissionStatus.PRE_QUALIFIED ||
-            submission.status === SubmissionStatus.AWAITING_PHYSICAL_CTC)
-      ),
-      canReplacePendingSubmission: grantee.submissions.some(
-        (submission) =>
-          submission.semester === term.termLabel &&
-          submission.status === SubmissionStatus.PENDING &&
-          !submission.reviewedById &&
-          !submission.reviewedAt
-      ),
-      hasApprovedSubmission: grantee.submissions.some(
-        (submission) =>
-          submission.semester === term.termLabel &&
-          submission.status === SubmissionStatus.APPROVED
-      ),
-    };
-  }
-
-  const latestApprovedSubmission = [...grantee.submissions]
-    .reverse()
-    .find((submission) => submission.status === SubmissionStatus.APPROVED);
-  const approvedApplication = grantee.user.skeapApplications[0];
-  if (!latestApprovedSubmission && !approvedApplication) return null;
-
-  let previousTerm: GranteeTerm;
-  if (latestApprovedSubmission) {
-    const parsed = parseTermLabel(latestApprovedSubmission.semester);
-    if (!parsed) {
-      throw new Error(`Approved requirement submission has an invalid term: "${latestApprovedSubmission.semester}".`);
-    }
-    const schoolYear = `${parsed.startYear}-${parsed.endYear}`;
-    previousTerm = { schoolYear, semester: parsed.semester, termLabel: `${schoolYear} ${parsed.semester}` };
-  } else if (approvedApplication) {
-    previousTerm = termFromDate(approvedApplication.submittedAt);
-  } else {
-    return null;
-  }
-  const educationLevel = approvedApplication?.educationLevel ?? grantee.yearLevel;
-  const targetTerm = getNextTerm(previousTerm, educationLevel);
-  const hasPendingSubmission = grantee.submissions.some(
-    (submission) =>
-      submission.semester === targetTerm.termLabel &&
-      (submission.status === SubmissionStatus.PENDING ||
-        submission.status === SubmissionStatus.PRE_QUALIFIED ||
-        submission.status === SubmissionStatus.AWAITING_PHYSICAL_CTC)
+  const settings = activeSettings ?? (
+    grantee.entryAcademicYear && grantee.entrySemester
+      ? { schedules: [] }
+      : { schedules: (await getAcademicTermScheduleState()).schedules }
   );
-  const canReplacePendingSubmission = grantee.submissions.some(
-    (submission) =>
-      submission.semester === targetTerm.termLabel &&
-      submission.status === SubmissionStatus.PENDING &&
-      !submission.reviewedById &&
-      !submission.reviewedAt
-  );
-  const hasApprovedSubmission = grantee.submissions.some(
-    (submission) =>
-      submission.semester === targetTerm.termLabel &&
-      submission.status === SubmissionStatus.APPROVED
-  );
-
-  return {
-    ...targetTerm,
-    isResubmission: false,
-    detectionSummary: getDetectionSummary(
-      previousTerm,
-      latestApprovedSubmission ? "submission" : "application"
-    ),
-    previousApprovedTerm: previousTerm,
-    hasPendingSubmission,
-    canReplacePendingSubmission,
-    hasApprovedSubmission,
-  };
+  return resolveGranteeAcademicTimeline(
+    grantee,
+    grantee.submissions,
+    settings,
+  ).targetTerm;
 }

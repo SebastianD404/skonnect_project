@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   reindexWaitlist: vi.fn(),
   getWaitlistSnapshot: vi.fn(),
   sendEmail: vi.fn(),
+  notifyRequirements: vi.fn(),
   logAuditEvent: vi.fn(),
   revalidatePath: vi.fn(),
   findPriorAgeOut: vi.fn(),
@@ -21,6 +22,9 @@ const mocks = vi.hoisted(() => ({
   updateInquiry: vi.fn(),
   updateUser: vi.fn(),
   upsertGrantee: vi.fn(),
+  upsertPayout: vi.fn(),
+  findPayout: vi.fn(),
+  findAcademicSchedules: vi.fn(),
   refreshAdminView: vi.fn(),
   sweepAgedOut: vi.fn(),
   sweepClosedCycles: vi.fn(),
@@ -52,9 +56,17 @@ vi.mock("@/lib/broadcast-email", () => ({
   sendBroadcastEmail: mocks.sendEmail,
 }));
 
+vi.mock("@/lib/grantee-notifications", () => ({
+  notifyGranteesToUploadRequirements: mocks.notifyRequirements,
+}));
+
 vi.mock("@/lib/grantee-profile", () => ({
   GRANTEE_PLACEHOLDER_SCHOOL: "Unknown",
   GRANTEE_PLACEHOLDER_YEAR_LEVEL: "Unknown",
+}));
+
+vi.mock("@/lib/skeap-payout", () => ({
+  getSkeapGrantAmount: () => 5000,
 }));
 
 vi.mock("@/lib/skeap-capacity", () => ({
@@ -129,6 +141,11 @@ function createTransactionClient() {
       findUnique: mocks.findGrantee,
       upsert: mocks.upsertGrantee,
     },
+    accountingPayout: {
+      findUnique: mocks.findPayout,
+      upsert: mocks.upsertPayout,
+    },
+    academicTermSchedule: { findMany: mocks.findAcademicSchedules },
     inquiry: { update: mocks.updateInquiry },
     user: { update: mocks.updateUser },
   };
@@ -158,6 +175,21 @@ describe("SKEAP waitlist promotion", () => {
       inquiry: { id: "inquiry-1" },
     });
     mocks.findGrantee.mockResolvedValue(null);
+    mocks.upsertGrantee.mockResolvedValue({
+      id: "grantee-1",
+      entryAcademicYear: "2026-2027",
+      entrySemester: "Second Semester",
+    });
+    mocks.upsertPayout.mockResolvedValue({ id: "payout-1" });
+    mocks.findPayout.mockResolvedValue(null);
+    mocks.findAcademicSchedules.mockResolvedValue([
+      {
+        id: "active-term",
+        semester: "2026-2027 Second Semester",
+        opensAt: new Date(Date.now() - 60_000),
+        closesAt: new Date(Date.now() + 60_000),
+      },
+    ]);
     mocks.capacityCount.mockResolvedValue(10);
     mocks.maxSlots.mockResolvedValue(55);
     mocks.getWaitlistSnapshot.mockResolvedValue({
@@ -167,6 +199,7 @@ describe("SKEAP waitlist promotion", () => {
       openUnclaimedCount: 0,
     });
     mocks.sendEmail.mockResolvedValue(true);
+    mocks.notifyRequirements.mockResolvedValue({ notified: 1, emailSent: 1, skipped: 0, errors: [] });
     mocks.findPriorAgeOut.mockResolvedValue(null);
     mocks.countActiveOffers.mockResolvedValue(0);
     mocks.sweepAgedOut.mockResolvedValue({ removedCount: 0, removedApplicants: [] });
@@ -217,10 +250,63 @@ describe("SKEAP waitlist promotion", () => {
       data: { role: "GRANTEE" },
     });
     expect(mocks.upsertGrantee).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({ status: "ACTIVE" }),
+      create: expect.objectContaining({
+        status: "ACTIVE",
+        entryAcademicYear: "2026-2027",
+        entrySemester: "Second Semester",
+      }),
       update: expect.objectContaining({ status: "ACTIVE" }),
     }));
+    expect(mocks.upsertPayout).toHaveBeenCalledWith({
+      where: { granteeId: "grantee-1" },
+      create: {
+        granteeId: "grantee-1",
+        amount: 5000,
+        semester: "2026-2027 Second Semester",
+        status: "NOT_YET_FILED",
+      },
+      update: {},
+    });
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      "user-1",
+      "applicant@example.com",
+      "Your SKEAP scholarship application was approved",
+      expect.stringContaining("2026-2027 Second Semester"),
+    );
+    expect(mocks.notifyRequirements).toHaveBeenCalledWith({
+      targetUserIds: ["user-1"],
+      schoolYear: "2026-2027",
+      semester: "Second Semester",
+      trigger: "GRANTEE_APPROVED",
+    });
     expect(mocks.reindexWaitlist).toHaveBeenCalled();
+  });
+
+  it("corrects an unfiled payout to the grantee's persisted entry semester", async () => {
+    mocks.findPayout.mockResolvedValue({
+      status: "PENDING",
+      disbursedAt: null,
+    });
+
+    await POST(createRequest(true), {
+      params: Promise.resolve({ id: "application-1" }),
+    });
+
+    expect(mocks.upsertPayout).toHaveBeenCalledWith({
+      where: { granteeId: "grantee-1" },
+      create: {
+        granteeId: "grantee-1",
+        amount: 5000,
+        semester: "2026-2027 Second Semester",
+        status: "NOT_YET_FILED",
+      },
+      update: {
+        amount: 5000,
+        semester: "2026-2027 Second Semester",
+        status: "NOT_YET_FILED",
+      },
+    });
   });
 
   it("removes an applicant who exceeds the age limit instead of promoting them", async () => {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma, Role, SubmissionStatus } from "@prisma/client";
+import { AccountingPayoutStatus, Prisma, Role, SubmissionStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
@@ -12,6 +12,8 @@ import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/li
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
+import { resolveGranteeEntryTerm } from "@/lib/grantee-semester";
+import { getSkeapGrantAmount } from "@/lib/skeap-payout";
 
 interface AttachedFileNote {
   fileId: string;
@@ -228,7 +230,17 @@ export async function PATCH(
               yearLevel: true,
               applicantName: true,
               uploadedFiles: true,
-              user: { select: { grantee: { select: { status: true } } } },
+              user: {
+                select: {
+                  grantee: {
+                    select: {
+                      status: true,
+                      entryAcademicYear: true,
+                      entrySemester: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -411,6 +423,11 @@ export async function PATCH(
         }
 
         if (approvalStatus === "APPROVED") {
+          const promotionTime = new Date();
+          const schedules = await tx.academicTermSchedule.findMany({
+            select: { id: true, semester: true, opensAt: true, closesAt: true },
+          });
+          const entryTerm = resolveGranteeEntryTerm(schedules, promotionTime);
           const school = normalizeSkeapSchoolName(
             currentInquiry.application?.school ||
               currentInquiry.application?.currentCourse ||
@@ -422,21 +439,60 @@ export async function PATCH(
             where: { id: applicantId },
             data: { role: Role.GRANTEE },
           });
-          await tx.grantee.upsert({
+          const grantee = await tx.grantee.upsert({
             where: { userId: applicantId },
             create: {
               userId: applicantId,
               school,
               yearLevel,
               status: "ACTIVE",
-              dateEnrolled: new Date(),
+              dateEnrolled: promotionTime,
+              entryAcademicYear: entryTerm.schoolYear,
+              entrySemester: entryTerm.semester,
             },
             update: {
               school,
               yearLevel,
               status: "ACTIVE",
               dateRemoved: null,
+              ...(currentInquiry.application.user.grantee?.status === "REMOVED" ||
+              currentInquiry.application.user.grantee?.status === "REVOKED" ||
+              !currentInquiry.application.user.grantee?.entryAcademicYear ||
+              !currentInquiry.application.user.grantee.entrySemester
+                ? {
+                    dateEnrolled: promotionTime,
+                    entryAcademicYear: entryTerm.schoolYear,
+                    entrySemester: entryTerm.semester,
+                  }
+                : {}),
             },
+            select: { id: true, entryAcademicYear: true, entrySemester: true },
+          });
+          const persistedEntryTerm = `${grantee.entryAcademicYear ?? entryTerm.schoolYear} ${grantee.entrySemester ?? entryTerm.semester}`;
+          const existingPayout = await tx.accountingPayout.findUnique({
+            where: { granteeId: grantee.id },
+            select: { status: true, disbursedAt: true },
+          });
+          const shouldRefreshUnfiledPayout =
+            !existingPayout?.disbursedAt &&
+            (existingPayout?.status === AccountingPayoutStatus.PENDING ||
+              existingPayout?.status === AccountingPayoutStatus.NOT_YET_FILED);
+          const grantAmount = getSkeapGrantAmount();
+          await tx.accountingPayout.upsert({
+            where: { granteeId: grantee.id },
+            create: {
+              granteeId: grantee.id,
+              amount: grantAmount,
+              semester: persistedEntryTerm,
+              status: AccountingPayoutStatus.NOT_YET_FILED,
+            },
+            update: shouldRefreshUnfiledPayout
+              ? {
+                  amount: grantAmount,
+                  semester: persistedEntryTerm,
+                  status: AccountingPayoutStatus.NOT_YET_FILED,
+                }
+              : {},
           });
         }
       }

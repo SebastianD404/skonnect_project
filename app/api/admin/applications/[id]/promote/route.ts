@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { AccountingPayoutStatus, Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -24,6 +24,8 @@ import { getSkeapMaxEligibleAge } from "@/lib/skeap-program-config";
 import { getAcademicYearDateRange } from "@/lib/semester";
 import { getSkeapWaitlistCycle, getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
+import { resolveGranteeEntryTerm } from "@/lib/grantee-semester";
+import { getSkeapGrantAmount } from "@/lib/skeap-payout";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -62,6 +64,7 @@ export async function POST(
 
   let maxSlots = DEFAULT_SKEAP_MAX_SLOTS;
   try {
+    const grantAmount = getSkeapGrantAmount();
     const ageOutSweep = await sweepAgedOutWaitlistApplicants(auth.user.id);
     await sweepClosedSkeapWaitlistCycles(auth.user.id);
     if (ageOutSweep.removedApplicants.some((application) => application.applicationId === id)) {
@@ -81,6 +84,7 @@ export async function POST(
       );
     }
 
+    const promotionTime = new Date();
     const promoted = await prisma.$transaction(async (tx) => {
       await lockSkeapCapacity(tx);
       maxSlots = await getSkeapMaxSlots(tx);
@@ -130,10 +134,18 @@ export async function POST(
       if (!application.physicalDocumentsConfirmed && !confirmPhysicalVerification) {
         throw new Error("PHYSICAL_VERIFICATION_REQUIRED");
       }
+      const schedules = await tx.academicTermSchedule.findMany({
+        select: { id: true, semester: true, opensAt: true, closesAt: true },
+      });
+      const entryTerm = resolveGranteeEntryTerm(schedules, promotionTime);
 
       const existingGrantee = await tx.grantee.findUnique({
         where: { userId: application.userId },
-        select: { status: true },
+        select: {
+          status: true,
+          entryAcademicYear: true,
+          entrySemester: true,
+        },
       });
       if (existingGrantee?.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
 
@@ -176,21 +188,63 @@ export async function POST(
       }
 
       await tx.user.update({ where: { id: application.userId }, data: { role: Role.GRANTEE } });
-      await tx.grantee.upsert({
+      const grantee = await tx.grantee.upsert({
         where: { userId: application.userId },
         create: {
           userId: application.userId,
           school: normalizeSkeapSchoolName(application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL),
           yearLevel: application.yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL,
           status: "ACTIVE",
-          dateEnrolled: new Date(),
+          dateEnrolled: promotionTime,
+          entryAcademicYear: entryTerm.schoolYear,
+          entrySemester: entryTerm.semester,
         },
         update: {
           school: normalizeSkeapSchoolName(application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL),
           yearLevel: application.yearLevel || GRANTEE_PLACEHOLDER_YEAR_LEVEL,
           status: "ACTIVE",
           dateRemoved: null,
+          ...(existingGrantee?.status === "REMOVED" ||
+          existingGrantee?.status === "REVOKED" ||
+          !existingGrantee?.entryAcademicYear ||
+          !existingGrantee.entrySemester
+            ? {
+                dateEnrolled: promotionTime,
+                entryAcademicYear: entryTerm.schoolYear,
+                entrySemester: entryTerm.semester,
+              }
+            : {}),
         },
+        select: { id: true, entryAcademicYear: true, entrySemester: true },
+      });
+      const persistedEntryTerm = {
+        schoolYear: grantee.entryAcademicYear ?? entryTerm.schoolYear,
+        semester: grantee.entrySemester ?? entryTerm.semester,
+        termLabel: `${grantee.entryAcademicYear ?? entryTerm.schoolYear} ${grantee.entrySemester ?? entryTerm.semester}`,
+      };
+      const existingPayout = await tx.accountingPayout.findUnique({
+        where: { granteeId: grantee.id },
+        select: { status: true, disbursedAt: true },
+      });
+      const shouldRefreshUnfiledPayout =
+        !existingPayout?.disbursedAt &&
+        (existingPayout?.status === AccountingPayoutStatus.PENDING ||
+          existingPayout?.status === AccountingPayoutStatus.NOT_YET_FILED);
+      await tx.accountingPayout.upsert({
+        where: { granteeId: grantee.id },
+        create: {
+          granteeId: grantee.id,
+          amount: grantAmount,
+          semester: persistedEntryTerm.termLabel,
+          status: AccountingPayoutStatus.NOT_YET_FILED,
+        },
+        update: shouldRefreshUnfiledPayout
+          ? {
+              amount: grantAmount,
+              semester: persistedEntryTerm.termLabel,
+              status: AccountingPayoutStatus.NOT_YET_FILED,
+            }
+          : {},
       });
 
       await reindexSkeapWaitlist(tx);
@@ -200,12 +254,13 @@ export async function POST(
         applicantId: application.userId,
         applicantName: application.applicantName,
         applicantEmail: application.user.email,
+        entryTerm: persistedEntryTerm,
         granteeStatusChanged:
           existingGrantee?.status === "REMOVED" || existingGrantee?.status === "REVOKED",
       };
     });
 
-    const { granteeStatusChanged, applicantEmail, ...promotedApplication } = promoted;
+    const { granteeStatusChanged, applicantEmail, entryTerm, ...promotedApplication } = promoted;
     const waitlistSnapshot = await getSkeapWaitlistSnapshot();
     const capacityMetrics = {
       activeCount: waitlistSnapshot.activeCount,
@@ -234,7 +289,7 @@ export async function POST(
         promotedApplication.applicantId,
         applicantEmail,
         "Your SKEAP scholarship application was approved",
-        `Hello ${promotedApplication.applicantName || "Scholar"},\n\nYour SKEAP scholarship application has been promoted from the waitlist and approved. Your account is now active as a Grantee.\n\nPlease sign in to SKonnect to view your scholarship information.\n\nSKEAP Administration`,
+        `Hello ${promotedApplication.applicantName || "Scholar"},\n\nYour SKEAP scholarship application has been promoted from the waitlist and approved. Your account is now active as a Grantee.\n\nYour active entry semester is ${entryTerm.termLabel}.\n\nPlease sign in to SKonnect to view your scholarship information.\n\nSKEAP Administration`,
       );
       emailSent = emailResult !== null;
     } catch (error) {
@@ -244,6 +299,8 @@ export async function POST(
     try {
       const notificationResult = await notifyGranteesToUploadRequirements({
         targetUserIds: [promotedApplication.applicantId],
+        schoolYear: entryTerm.schoolYear,
+        semester: entryTerm.semester,
         trigger: "GRANTEE_APPROVED",
       });
       if (notificationResult.errors.length > 0) {

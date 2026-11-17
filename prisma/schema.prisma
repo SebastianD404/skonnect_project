@@ -89,6 +89,8 @@ model Grantee {
   revocationNotificationError    String?
   revocationNotificationSentAt    DateTime?
   yearLevel          String
+  entryAcademicYear  String?
+  entrySemester      String?
   journeyStart       String?
   journeyEnd         String?
   school             String
@@ -637,6 +639,7 @@ model AccountingPayout {
 }
 
 enum AccountingPayoutStatus {
+  NOT_YET_FILED
   PENDING
   DISBURSED_UNCONFIRMED
   CONFIRMED

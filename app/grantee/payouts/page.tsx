@@ -1,13 +1,14 @@
 import { AlertCircle, CheckCircle2, Clock3, WalletCards } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
+import { resolveGranteeAcademicTimeline, resolveGranteeEntryTerm } from "@/lib/grantee-semester";
+import { getSkeapGrantAmount } from "@/lib/skeap-payout";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getRecentSemesters } from "@/lib/semester";
 import { PayoutConfirmButton } from "./PayoutConfirmButton";
 
-const GRANT_AMOUNT = 5000;
 const currencyFormatter = new Intl.NumberFormat("en-PH", {
   style: "currency",
   currency: "PHP",
@@ -26,10 +27,40 @@ export default async function GranteePayoutsPage() {
 
   const grantee = await db.grantee.findUnique({
     where: { userId: appUser.id },
-    select: { id: true },
+    select: {
+      id: true,
+      entryAcademicYear: true,
+      entrySemester: true,
+      dateEnrolled: true,
+      journeyStart: true,
+      journeyEnd: true,
+      submissions: {
+        orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          semester: true,
+          status: true,
+          submittedAt: true,
+          reviewedById: true,
+          reviewedAt: true,
+          generalAverage: true,
+          ocrGwa: true,
+          reviewNotes: true,
+          gradeFileUrl: true,
+          coeFileUrl: true,
+        },
+      },
+    },
   });
 
-  const currentSemesterName = getRecentSemesters()[0].name;
+  const now = new Date();
+  const { schedules } = await getAcademicTermScheduleState(now);
+  const timeline = grantee
+    ? resolveGranteeAcademicTimeline(grantee, grantee.submissions, { schedules, now })
+    : null;
+  const currentSemesterName =
+    timeline?.targetTerm.termLabel ?? resolveGranteeEntryTerm(schedules, now).termLabel;
+  const grantAmount = getSkeapGrantAmount();
   const payoutWhere = { granteeId: grantee?.id ?? "no-grantee" };
   const [currentPayout, payouts] = await Promise.all([
     db.accountingPayout.findFirst({
@@ -63,7 +94,9 @@ export default async function GranteePayoutsPage() {
       ? "Confirmed"
       : currentPayout.status === "DISBURSED_UNCONFIRMED"
         ? "Awaiting Confirmation"
-        : "Pending"
+        : currentPayout.status === "NOT_YET_FILED"
+          ? "Not yet filed"
+          : "Pending"
     : "Not yet filed";
   const historyRows = payouts.map((payout) => ({
     ...payout,
@@ -72,14 +105,16 @@ export default async function GranteePayoutsPage() {
       ? "Confirmed"
       : payout.status === "DISBURSED_UNCONFIRMED"
         ? "Awaiting Confirmation"
-        : "Pending",
+        : payout.status === "NOT_YET_FILED"
+          ? "Not yet filed"
+          : "Pending",
   }));
   const payoutHistory = currentPayout
     ? historyRows
     : [
         {
           id: `current-${currentSemesterName}`,
-          amount: GRANT_AMOUNT,
+          amount: grantAmount,
           semester: currentSemesterName,
           disbursedAt: null,
           claimedAt: null,
@@ -124,7 +159,7 @@ export default async function GranteePayoutsPage() {
             <div className="sm:text-right">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-200">Standard grant</p>
               <p className="mt-2 text-3xl font-semibold">
-                {currencyFormatter.format(currentPayout?.amount || GRANT_AMOUNT)}
+                {currencyFormatter.format(currentPayout?.amount || grantAmount)}
               </p>
             </div>
           </div>
@@ -180,7 +215,7 @@ export default async function GranteePayoutsPage() {
                         <TableCell className="font-medium text-slate-900">
                           {payout.semester ?? "Current semester"}
                         </TableCell>
-                        <TableCell>{currencyFormatter.format(payout.amount || GRANT_AMOUNT)}</TableCell>
+                        <TableCell>{currencyFormatter.format(payout.amount || grantAmount)}</TableCell>
                         <TableCell>
                           <Badge variant={confirmed ? "received" : "pending"}>
                             {status}

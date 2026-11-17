@@ -21,14 +21,13 @@ import GranteeWelcomeGate from "./GranteeWelcomeGate";
 import AcademicJourneySetup from "./AcademicJourneySetup";
 import ExitClearanceSubmission from "./ExitClearanceSubmission";
 import GraduationCelebrationCard from "./GraduationCelebrationCard";
-import { buildSemesterTracker, getCurrentAcademicSemester } from "@/lib/semester-progress";
+import { buildSemesterTracker } from "@/lib/semester-progress";
 import {
   resolveScheduledJourneyStepStatus,
 } from "@/lib/academic-journey";
-import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import { buildGranteeActivity } from "@/lib/grantee-activity";
-import { detectGranteeTargetTerm, getScheduleSemesterForTargetTerm } from "@/lib/grantee-semester";
+import { resolveGranteeAcademicTimeline, getScheduleSemesterForTargetTerm } from "@/lib/grantee-semester";
 
 export default async function GranteeDashboardContent() {
   const db = prisma;
@@ -59,6 +58,8 @@ export default async function GranteeDashboardContent() {
           id: true,
           status: true,
           yearLevel: true,
+          entryAcademicYear: true,
+          entrySemester: true,
           journeyStart: true,
           journeyEnd: true,
           dateEnrolled: true,
@@ -78,19 +79,6 @@ export default async function GranteeDashboardContent() {
               claimedAt: true,
             },
           },
-        },
-      },
-      skeapApplications: {
-        where: { status: "APPROVED" },
-        orderBy: { submittedAt: "asc" },
-        take: 1,
-        select: {
-          id: true,
-          submittedAt: true,
-          updatedAt: true,
-          gwa: true,
-          enrollmentFileUrl: true,
-          reportCardFileUrl: true,
         },
       },
     },
@@ -140,29 +128,16 @@ export default async function GranteeDashboardContent() {
   const tracker = buildSemesterTracker(submissions);
   const now = new Date();
   const { schedules } = await getAcademicTermScheduleState(now);
-  const detectedTerm = await detectGranteeTargetTerm(appUser.id);
+  const academicTimeline = resolveGranteeAcademicTimeline(
+    appUser.grantee,
+    submissions,
+    { schedules, now },
+  );
+  const detectedTerm = academicTimeline.targetTerm;
   const detectedSchedule = detectedTerm
     ? schedules.find((schedule) => schedule.semester === getScheduleSemesterForTargetTerm(detectedTerm)) ?? null
     : null;
-  const initialApplication = appUser.skeapApplications[0] ?? null;
-  const journeyStartDate = initialApplication?.submittedAt ?? appUser.grantee.dateEnrolled ?? appUser.createdAt;
-  const initialGrant = initialApplication
-    ? {
-        semester: getCurrentAcademicSemester(initialApplication.submittedAt),
-        approvedAt: initialApplication.updatedAt,
-        gwa: initialApplication.gwa,
-        gradeReportUrl: initialApplication.reportCardFileUrl,
-        coeFileUrl: initialApplication.enrollmentFileUrl,
-      }
-    : null;
-  const journeyProgress = getGranteeGraduationProgress({
-    submissions,
-    dateEnrolled: journeyStartDate,
-    journeyStart: appUser.grantee.journeyStart,
-    journeyEnd: appUser.grantee.journeyEnd,
-    now,
-    initialGrant,
-  });
+  const journeyProgress = academicTimeline.journeyProgress;
   const graduationReadyAt =
     "graduationReadyAt" in appUser.grantee
       ? appUser.grantee.graduationReadyAt
@@ -175,14 +150,10 @@ export default async function GranteeDashboardContent() {
     approvedAt: node.approvedAt instanceof Date ? node.approvedAt.toISOString() : node.approvedAt,
     gradeReportUrl: node.submissionId && node.gradeReportUrl
       ? `/api/submissions/${node.submissionId}/file?kind=grade`
-      : node.isInitialGrant && initialApplication?.reportCardFileUrl
-        ? `/api/my/academic-journey-documents/${initialApplication.id}?kind=grade`
-        : null,
+      : null,
     coeFileUrl: node.submissionId && node.coeFileUrl
       ? `/api/submissions/${node.submissionId}/file?kind=coe`
-      : node.isInitialGrant && initialApplication?.enrollmentFileUrl
-        ? `/api/my/academic-journey-documents/${initialApplication.id}?kind=coe`
-        : null,
+      : null,
   }));
   const currentStepSchedule = schedules.find(
     (schedule) => schedule.semester === journeyProgress.currentStepSemester,

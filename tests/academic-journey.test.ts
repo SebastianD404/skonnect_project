@@ -140,6 +140,25 @@ describe("getApprovedSemesterCount", () => {
 });
 
 describe("getAcademicJourneyProgress", () => {
+  it("starts at the configured entry semester without validating an admission grant", () => {
+    const progress = getAcademicJourneyProgress(
+      [],
+      new Date("2026-08-01T00:00:00.000Z"),
+      new Date("2026-11-17T05:00:00.000Z"),
+      4,
+      null,
+      "2026-2027 Second Semester",
+    );
+
+    expect(progress).toMatchObject({
+      currentSemesterIndex: 0,
+      currentStepSemester: "2026-2027 Second Semester",
+      validatedSemesterIndexes: [],
+      currentStepStatus: "open_for_submit",
+    });
+    expect(progress.nodes[0].status).toBe("CURRENT");
+  });
+
   it("advances the current step to the first unvalidated semester", () => {
     const progress = getAcademicJourneyProgress([
       { semester: "2024-2025 First Semester", status: "APPROVED" },

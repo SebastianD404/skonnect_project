@@ -2,8 +2,7 @@ import { AccountingPayoutStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createGmailTransporter, sendPayoutDisbursementEmail } from "@/lib/broadcast-email";
 import { writeAuditLog } from "@/lib/audit/logger";
-
-const GRANT_AMOUNT = 5000;
+import { getSkeapGrantAmount } from "@/lib/skeap-payout";
 
 function getPayoutConfirmationUrl() {
   const vercelUrl = process.env.VERCEL_URL?.trim();
@@ -50,6 +49,7 @@ export async function dispatchPayout({
     },
   });
   if (!grantee) throw new Error("Grantee not found.");
+  const grantAmount = getSkeapGrantAmount();
 
   const transition = await prisma.$transaction(async (tx) => {
     const before = await tx.accountingPayout.findUnique({ where: { granteeId } });
@@ -69,7 +69,7 @@ export async function dispatchPayout({
     const payout = await tx.accountingPayout.upsert({
       where: { granteeId },
       update: {
-        amount: GRANT_AMOUNT,
+        amount: grantAmount,
         semester,
         status: AccountingPayoutStatus.DISBURSED_UNCONFIRMED,
         disbursedAt: now,
@@ -77,7 +77,7 @@ export async function dispatchPayout({
       },
       create: {
         granteeId,
-        amount: GRANT_AMOUNT,
+        amount: grantAmount,
         semester,
         status: AccountingPayoutStatus.DISBURSED_UNCONFIRMED,
         disbursedAt: now,

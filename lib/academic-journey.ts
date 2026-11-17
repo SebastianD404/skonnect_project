@@ -189,10 +189,11 @@ export function getAcademicJourneyProgress(
   now = new Date(),
   totalYears = 4,
   initialGrant?: AcademicJourneyInitialGrant | null,
+  entrySemester?: string,
 ) {
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const termCount = years * 2;
-  const startOrder = getSemesterOrder(getCurrentAcademicSemester(dateEnrolled));
+  const startOrder = getSemesterOrder(entrySemester ?? getCurrentAcademicSemester(dateEnrolled));
   const calendarOrder = getSemesterOrder(getCurrentAcademicSemester(now));
 
   if (startOrder === null || calendarOrder === null) {
