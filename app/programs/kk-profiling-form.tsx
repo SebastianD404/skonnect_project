@@ -1435,7 +1435,7 @@ export default function KKProfilingForm({
           <button
             type="submit"
             disabled={submitting || Boolean(emailError) || (!areDocumentsReady && !manualReviewAvailable)}
-            className="inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-xl bg-slate-800 px-6 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-xl bg-slate-800 px-6 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "Submitting..." : manualReviewAvailable ? "Submit Anyway" : "Submit"}
           </button>
