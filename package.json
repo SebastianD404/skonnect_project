@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next dev",
-    "build": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next build --webpack",
+    "build": "prisma migrate deploy --schema prisma/schema.prisma && prisma generate --schema prisma/schema.prisma && node --max-old-space-size=4096 ./node_modules/next/dist/bin/next build --webpack",
     "start": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next start",
     "lint": "eslint",
     "test": "vitest run",

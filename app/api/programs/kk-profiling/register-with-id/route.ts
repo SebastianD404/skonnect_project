@@ -388,7 +388,7 @@ export async function POST(req: NextRequest) {
     uploads.push({ label: "photo", file: photoFile });
     uploads.push({ label: "birth-certificate", file: birthCertificateFile });
 
-    // Create a temporary Supabase client to upload files with the authenticated user
+    // Private document uploads use the server-side Supabase admin client.
     const idDocumentType = "Valid ID + Certificate of Residency";
     let idFrontFileUrl: string | null = null;
     let idBackFileUrl: string | null = null;
@@ -602,12 +602,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      const error = err.code === "P2022"
+        ? "Database schema mismatch (P2022). Please contact support."
+        : `Database request failed (${err.code}). Please try again.`;
+      return NextResponse.json({ error }, { status: 500 });
+    }
+
     if (err instanceof Error && err.message.includes("currently unavailable")) {
       return NextResponse.json({ error: err.message }, { status: 503 });
     }
 
     return NextResponse.json(
-      { error: "Unable to submit KK Profiling application. Please try again later." },
+      {
+        error: err instanceof Error && err.message
+          ? err.message
+          : "Unable to submit KK Profiling application. Please try again later.",
+      },
       { status: 500 }
     );
   }

@@ -17,7 +17,7 @@ import {
 } from "@/app/components/DocumentOCRValidationExample";
 import FormFieldLabel from "@/app/components/FormFieldLabel";
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
-import { ChevronDown, Eye, EyeOff, MapPin } from "lucide-react";
+import { ChevronDown, Eye, EyeOff, Info, MapPin } from "lucide-react";
 import KkProfilingSuccessInterstitial from "@/app/programs/kk-profiling/KkProfilingSuccessInterstitial";
 import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
 
@@ -53,8 +53,74 @@ const initialForm = {
 const KK_PROFILING_DRAFT_KEY = "skonnect:kk-profiling-draft";
 const KK_PROFILING_FILES_DB = "skonnect-kk-profiling-files";
 const KK_PROFILING_FILES_STORE = "documents";
+const MAX_KK_PROFILING_PAYLOAD_BYTES = 4 * 1024 * 1024;
+const FORM_DATA_PART_OVERHEAD_BYTES = 512;
 type ProfilingDocumentKey = "photo" | "birthCertificate" | "front" | "back" | "residency";
 type NameField = "lastName" | "firstName" | "middleInitial";
+
+async function compressImageForUpload(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    throw new Error("A selected image could not be processed. Please choose another image and try again.");
+  }
+
+  const scale = Math.min(1, 1600 / bitmap.width, 1600 / bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+
+  try {
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) {
+      throw new Error("Unable to prepare a selected image for upload.");
+    }
+
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    const compressedBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => blob
+          ? resolve(blob)
+          : reject(new Error("Unable to compress a selected image.")),
+        "image/jpeg",
+        0.82,
+      );
+    });
+    if (scale === 1 && compressedBlob.size >= file.size) return file;
+
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "document";
+    return new File([compressedBlob], `${baseName}.jpg`, {
+      type: "image/jpeg",
+      lastModified: file.lastModified,
+    });
+  } finally {
+    bitmap.close();
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+function getFormDataPayloadSize(formData: FormData) {
+  let payloadSize = 0;
+  let partCount = 0;
+
+  formData.forEach((value) => {
+    partCount += 1;
+    payloadSize += typeof value === "string"
+      ? new TextEncoder().encode(value).byteLength
+      : value.size;
+  });
+
+  return payloadSize + partCount * FORM_DATA_PART_OVERHEAD_BYTES;
+}
 
 function openProfilingFilesDb() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -691,12 +757,39 @@ export default function KKProfilingForm({
         }),
       );
 
-      // Add ID files
-      formData.append("frontFile", idFiles.front as File);
-      formData.append("backFile", idFiles.back as File);
-      formData.append("residencyFile", idFiles.residency as File);
-      formData.append("photoFile", idFiles.photo as File);
-      formData.append("birthCertificateFile", idFiles.birthCertificate as File);
+      const fileEntries = [
+        { field: "frontFile", file: idFiles.front },
+        { field: "backFile", file: idFiles.back },
+        { field: "residencyFile", file: idFiles.residency },
+        { field: "photoFile", file: idFiles.photo },
+        { field: "birthCertificateFile", file: idFiles.birthCertificate },
+      ];
+      let compressedFiles: Array<{ field: string; file: File }>;
+      try {
+        compressedFiles = await Promise.all(
+          fileEntries.map(async ({ field, file }) => {
+            if (!file) throw new Error("A required document is missing.");
+            return { field, file: await compressImageForUpload(file) };
+          }),
+        );
+      } catch (compressionError) {
+        console.error("KK profiling document compression failed", compressionError);
+        setActionError(
+          "Unable to process one of the selected images. Please choose another image and try again.",
+        );
+        return;
+      }
+
+      for (const { field, file } of compressedFiles) {
+        formData.append(field, file, file.name);
+      }
+
+      if (getFormDataPayloadSize(formData) > MAX_KK_PROFILING_PAYLOAD_BYTES) {
+        setActionError(
+          "Total uploaded file size is too large for server processing. Please upload smaller files.",
+        );
+        return;
+      }
 
       const res = await fetch("/api/programs/kk-profiling/register-with-id", {
         method: "POST",
@@ -704,8 +797,22 @@ export default function KKProfilingForm({
         body: formData,
       });
 
-      const data = await res.json().catch(() => ({}));
+      const rawText = await res.text();
+      let data: Record<string, unknown> | null = null;
+      try {
+        const parsed: unknown = JSON.parse(rawText);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          data = parsed as Record<string, unknown>;
+        }
+      } catch {
+        data = null;
+      }
+
       if (res.ok) {
+        if (!data) {
+          setActionError("The server returned an unexpected response. Please try again.");
+          return;
+        }
         setForm(initialForm);
         window.sessionStorage.removeItem(KK_PROFILING_DRAFT_KEY);
         void clearProfilingFiles().catch((error) => console.warn("Unable to clear KK profiling documents", error));
@@ -726,11 +833,17 @@ export default function KKProfilingForm({
         setSuccessRedirectTo(
           isFromSkeap ? "/youth/skeap/apply" : "/youth/dashboard",
         );
+        const credentials =
+          typeof data.credentials === "object" && data.credentials !== null
+            ? data.credentials as Record<string, unknown>
+            : null;
         setSuccessCredentials(
-          data?.credentials && data.credentials.username && data.credentials.temporaryPassword
+          credentials &&
+          typeof credentials.username === "string" &&
+          typeof credentials.temporaryPassword === "string"
             ? {
-                username: data.credentials.username,
-                temporaryPassword: data.credentials.temporaryPassword,
+                username: credentials.username,
+                temporaryPassword: credentials.temporaryPassword,
               }
             : null
         );
@@ -740,21 +853,28 @@ export default function KKProfilingForm({
         postSubmitModalOpenRef.current = true;
         setShowSuccessModal(true);
       } else {
-        if (data?.emailAlreadyRegistered) {
+        const responseError = res.status === 413
+          ? "Total uploaded file size is too large for server processing. Please upload smaller files."
+          : typeof data?.error === "string"
+            ? data.error
+            : res.status === 504
+              ? "The server took too long to process your application. Please try again."
+              : "The server returned an unexpected response. Please try again.";
+        if (data?.emailAlreadyRegistered === true) {
           setEmailError(
-            data.error ||
+            (typeof data.error === "string" && data.error) ||
               "This email is already registered. Please log in instead."
           );
           return;
         }
 
-        if (data?.accountExists) {
+        if (data?.accountExists === true) {
           setAccountExistsFallback(true);
           setMessage("");
           return;
         }
 
-        setActionError(data?.error ?? "Unable to submit KK Profiling application. Please try again later.");
+        setActionError(responseError);
       }
     } catch (error) {
       console.error("KK profiling submission failed", error);
@@ -1275,43 +1395,50 @@ export default function KKProfilingForm({
           )}
         </div>
       )}
-      <div className="mt-4 flex flex-col items-start justify-between gap-4 border-t border-slate-200 pt-6 md:flex-row md:items-center">
-        <div className="flex items-start gap-3">
-          <input
-            id="kk-profiling-consent"
-            type="checkbox"
-            required
-            aria-required="true"
-            checked={form.consent}
-            onChange={(e) => setField("consent", e.target.checked)}
-            className="mt-1 shrink-0"
-          />
-          <div className="text-sm">
-            <FormFieldLabel htmlFor="kk-profiling-consent" required className="cursor-pointer">
-              I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling.
-            </FormFieldLabel>
-            <button
-              type="button"
-              onClick={() => setShowConsentModal(true)}
-              className="ml-2 inline-flex cursor-pointer items-center rounded-sm text-sm font-medium text-slate-700 underline decoration-slate-400 underline-offset-2 transition-colors hover:text-[#0F3D5C] hover:decoration-[#0F3D5C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
-            >
-              (Read consent)
-            </button>
+      <div className="mt-4 border-t border-slate-200 pt-6">
+        {manualReviewAvailable ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-4 flex items-center gap-2.5 rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-2.5 text-xs text-amber-800"
+          >
+            <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <p>
+              Automated document pre-check limit reached. You may still submit your application—an SK Admin will verify your uploaded documents directly.
+            </p>
           </div>
-        </div>
-        <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
+        ) : null}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <input
+              id="kk-profiling-consent"
+              type="checkbox"
+              required
+              aria-required="true"
+              checked={form.consent}
+              onChange={(e) => setField("consent", e.target.checked)}
+              className="mt-1 shrink-0"
+            />
+            <div className="text-sm">
+              <FormFieldLabel htmlFor="kk-profiling-consent" required className="cursor-pointer">
+                I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling.
+              </FormFieldLabel>
+              <button
+                type="button"
+                onClick={() => setShowConsentModal(true)}
+                className="ml-2 inline-flex cursor-pointer items-center rounded-sm text-sm font-medium text-slate-700 underline decoration-slate-400 underline-offset-2 transition-colors hover:text-[#0F3D5C] hover:decoration-[#0F3D5C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+              >
+                (Read consent)
+              </button>
+            </div>
+          </div>
           <button
             type="submit"
             disabled={submitting || Boolean(emailError) || (!areDocumentsReady && !manualReviewAvailable)}
-            className="w-full min-w-[7rem] rounded-lg bg-slate-800 px-6 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+            className="w-full min-w-[7rem] rounded-lg bg-slate-800 px-6 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
-            {submitting ? "Submitting..." : manualReviewAvailable ? "Submit for Manual Review" : "Submit"}
+            {submitting ? "Submitting..." : manualReviewAvailable ? "Submit Anyway" : "Submit"}
           </button>
-          {manualReviewAvailable ? (
-            <p className="max-w-md text-xs font-medium text-amber-700 md:text-right">
-              Maximum verification attempts reached. You may proceed by submitting your application for manual review by an SK Admin.
-            </p>
-          ) : null}
         </div>
       </div>
       {actionError || message ? (
