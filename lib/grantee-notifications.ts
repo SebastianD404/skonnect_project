@@ -37,13 +37,22 @@ function getRequirementsUrl() {
   const configuredUrl =
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    (vercelUrl ? `https://${vercelUrl}` : null) ||
-    (process.env.NODE_ENV === "development" ? "http://localhost:3000" : null);
+    (vercelUrl ? `https://${vercelUrl}` : null);
   if (!configuredUrl) return null;
 
   const appUrl = new URL(configuredUrl);
   if (appUrl.protocol !== "https:" && appUrl.protocol !== "http:") {
     throw new Error("The grantee requirements URL must use HTTP or HTTPS.");
+  }
+  const hostname = appUrl.hostname.toLowerCase();
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "0.0.0.0" ||
+    hostname.startsWith("127.") ||
+    hostname === "[::1]"
+  ) {
+    return null;
   }
   return new URL("/grantee-dashboard/documents", appUrl).toString();
 }

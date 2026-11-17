@@ -15,24 +15,22 @@ export async function reindexSkeapWaitlist(
 ) {
   const range = getAcademicYearDateRange(getSkeapWaitlistCycle(programIdOrCycle));
   if (!range) throw new Error("Unable to determine the active SKEAP waitlist cycle.");
-  const remaining = await tx.skeapApplication.findMany({
-    where: {
-      status: "WAITLISTED",
-      submittedAt: { gte: range.start, lt: range.end },
-    },
-    orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
-    select: { id: true, waitlistPosition: true },
-  });
-
-  for (const [index, application] of remaining.entries()) {
-    const position = index + 1;
-    if (application.waitlistPosition !== position) {
-      await tx.skeapApplication.update({
-        where: { id: application.id },
-        data: { waitlistPosition: position },
-      });
-    }
-  }
+  await tx.$executeRaw`
+    WITH ranked AS (
+      SELECT
+        "id",
+        ROW_NUMBER() OVER (ORDER BY "submittedAt" ASC, "id" ASC)::INTEGER AS "position"
+      FROM "skeap_applications"
+      WHERE "status" = 'WAITLISTED'
+        AND "submittedAt" >= ${range.start}
+        AND "submittedAt" < ${range.end}
+    )
+    UPDATE "skeap_applications" AS application
+    SET "waitlistPosition" = ranked."position"
+    FROM ranked
+    WHERE application."id" = ranked."id"
+      AND application."waitlistPosition" IS DISTINCT FROM ranked."position"
+  `;
 }
 
 export type SkeapWaitlistApplication = {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, BellRing, CheckCircle2, FileCheck, Info, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
@@ -97,6 +98,8 @@ export default function SkeapWaitlistClient({
   initialData: SkeapWaitlistSnapshot;
   ageOutRemovedCount?: number;
 }) {
+  const router = useRouter();
+  const waitlistRefreshSequenceRef = useRef(0);
   const [applications, setApplications] = useState<SkeapWaitlistApplication[]>(initialData.applications);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
@@ -131,6 +134,7 @@ export default function SkeapWaitlistClient({
   const isOverConfiguredCapacity = capacity.activeCount > capacity.maxSlots;
   const isOverHardCapacity = capacity.activeCount > DEFAULT_SKEAP_MAX_SLOTS;
   const remainingSlots = Math.max(0, capacity.maxSlots - capacity.activeCount);
+  const isCapacityFull = capacity.activeCount >= capacity.maxSlots && offeredCount <= 0;
   const remainingSlotsLabel = isOverConfiguredCapacity
     ? `${capacity.activeCount - capacity.maxSlots} over capacity`
     : `${remainingSlots} remaining ${remainingSlots === 1 ? "slot" : "slots"}`;
@@ -160,11 +164,13 @@ export default function SkeapWaitlistClient({
   const visibleApplications = filteredApplications.slice(firstVisibleIndex, firstVisibleIndex + pageSize);
 
   const loadWaitlist = useCallback(async () => {
+    const requestSequence = ++waitlistRefreshSequenceRef.current;
     setError(null);
     try {
       const response = await fetch("/api/admin/skeap-applications/waitlist", { cache: "no-store" });
       const body = await readJsonResponse(response);
       if (!response.ok) throw new Error(String(body.error || "Unable to load the waitlist."));
+      if (requestSequence !== waitlistRefreshSequenceRef.current) return;
       setApplications(Array.isArray(body.applications) ? body.applications as unknown as SkeapWaitlistApplication[] : []);
       const activeCount = typeof body.activeCount === "number" ? body.activeCount : 0;
       const maxSlots = typeof body.maxSlots === "number" ? body.maxSlots : 55;
@@ -178,6 +184,7 @@ export default function SkeapWaitlistClient({
       setCapacityWarning(false);
       if (!editingCapacity) setSlotLimitDraft(String(maxSlots));
     } catch (loadError) {
+      if (requestSequence !== waitlistRefreshSequenceRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Unable to load the waitlist.");
     }
   }, [editingCapacity]);
@@ -326,9 +333,27 @@ export default function SkeapWaitlistClient({
         }
         throw new Error(message);
       }
+      waitlistRefreshSequenceRef.current += 1;
+      setApplications((current) =>
+        current
+          .filter((entry) => entry.id !== application.id)
+          .map((entry, index) => ({ ...entry, waitlistPosition: index + 1 })),
+      );
+      if (
+        typeof body.activeCount === "number" &&
+        typeof body.maxSlots === "number" &&
+        typeof body.offeredCount === "number" &&
+        typeof body.openUnclaimedCount === "number"
+      ) {
+        setCapacity({ activeCount: body.activeCount, maxSlots: body.maxSlots });
+        setOfferedCount(body.offeredCount);
+        setOpenUnclaimedCount(body.openUnclaimedCount);
+        setCapacityWarning(false);
+      }
       closePromotionModal();
       setToastMessage(`${application.applicantName} was promoted to an active grantee.`);
-      await loadWaitlist();
+      router.refresh();
+      void loadWaitlist();
     } catch (promoteError) {
       closePromotionModal();
       setActionError(promoteError instanceof Error ? promoteError.message : "Unable to promote applicant.");
@@ -434,10 +459,18 @@ export default function SkeapWaitlistClient({
                   </span>
                 </span>
               </div>
-              <span className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
-                {offeredCount} Offered · {openUnclaimedCount} Open
-              </span>
-              {!isWaitlistClosed && openUnclaimedCount > 0 ? (
+              {isCapacityFull ? (
+                <span className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                  Full
+                </span>
+              ) : (
+                <span className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                  {offeredCount} Offered · {openUnclaimedCount} Open
+                </span>
+              )}
+              {!isWaitlistClosed &&
+              openUnclaimedCount > 0 &&
+              capacity.activeCount < capacity.maxSlots ? (
                 <button
                   type="button"
                   onClick={() => void notifyNextEligible()}

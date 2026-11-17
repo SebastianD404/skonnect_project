@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   capacityCount: vi.fn(),
   maxSlots: vi.fn(),
   reindexWaitlist: vi.fn(),
+  getWaitlistSnapshot: vi.fn(),
   sendEmail: vi.fn(),
   logAuditEvent: vi.fn(),
   revalidatePath: vi.fn(),
@@ -73,6 +74,7 @@ vi.mock("@/lib/grantee-archive-view", () => ({
 
 vi.mock("@/lib/skeap-waitlist", () => ({
   reindexSkeapWaitlist: mocks.reindexWaitlist,
+  getSkeapWaitlistSnapshot: mocks.getWaitlistSnapshot,
 }));
 
 vi.mock("@/lib/application-admin-view-refresh", () => ({
@@ -158,6 +160,12 @@ describe("SKEAP waitlist promotion", () => {
     mocks.findGrantee.mockResolvedValue(null);
     mocks.capacityCount.mockResolvedValue(10);
     mocks.maxSlots.mockResolvedValue(55);
+    mocks.getWaitlistSnapshot.mockResolvedValue({
+      activeCount: 11,
+      maxSlots: 55,
+      offeredCount: 1,
+      openUnclaimedCount: 0,
+    });
     mocks.sendEmail.mockResolvedValue(true);
     mocks.findPriorAgeOut.mockResolvedValue(null);
     mocks.countActiveOffers.mockResolvedValue(0);
@@ -185,6 +193,13 @@ describe("SKEAP waitlist promotion", () => {
 
     if (!response) throw new Error("Promotion endpoint did not return a response.");
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      activeCount: 11,
+      maxSlots: 55,
+      offeredCount: 1,
+      openUnclaimedCount: 0,
+    });
+    expect(mocks.getWaitlistSnapshot).toHaveBeenCalledTimes(1);
     expect(mocks.updateApplication).toHaveBeenCalledWith({
       where: { id: "application-1" },
       data: {

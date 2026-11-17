@@ -31,6 +31,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.GMAIL_USER;
   delete process.env.GMAIL_APP_PASSWORD;
+  delete process.env.NEXT_PUBLIC_APP_URL;
+  delete process.env.NEXT_PUBLIC_SITE_URL;
+  delete process.env.VERCEL_URL;
   mocks.userFindMany.mockResolvedValue([
     { id: "user-1", email: "scholar@example.com", emailNotifications: true },
   ]);
@@ -100,6 +103,34 @@ describe("notifyGranteesToUploadRequirements", () => {
       expect.stringContaining("GRANTEE_APPROVED"),
     );
     delete process.env.NEXT_PUBLIC_APP_URL;
+  });
+
+  it("omits unconfigured localhost requirements links from development emails", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    process.env.GMAIL_USER = "mailer@example.com";
+    process.env.GMAIL_APP_PASSWORD = "configured";
+
+    try {
+      await notifyGranteesToUploadRequirements({ trigger: "GRANTEE_APPROVED" });
+
+      const emailBody = mocks.sendTransactionalEmail.mock.calls[0][3] as string;
+      expect(emailBody).not.toContain("localhost");
+      expect(emailBody).not.toContain("Open your requirements:");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("omits requirements links when the configured app URL is loopback", async () => {
+    process.env.GMAIL_USER = "mailer@example.com";
+    process.env.GMAIL_APP_PASSWORD = "configured";
+    process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+
+    await notifyGranteesToUploadRequirements({ trigger: "GRANTEE_APPROVED" });
+
+    const emailBody = mocks.sendTransactionalEmail.mock.calls[0][3] as string;
+    expect(emailBody).not.toContain("localhost");
+    expect(emailBody).not.toContain("Open your requirements:");
   });
 
   it("treats a duplicate database key as an idempotent skip", async () => {

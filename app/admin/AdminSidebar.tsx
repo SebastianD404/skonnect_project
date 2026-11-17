@@ -50,12 +50,8 @@ function deriveDisplayName(fullName?: string | null, email?: string | null) {
   return toTitleCase(cleaned);
 }
 
-function getBadgeClassName(href: string, isActive: boolean) {
-  if (href === "/admin/kk-profiling") {
-    return "bg-rose-600 text-white font-bold shadow-sm ring-2 ring-white";
-  }
-
-  return isActive ? "bg-cyan-100/80 text-cyan-800" : "bg-slate-100 text-slate-600";
+function getBadgeClassName() {
+  return "bg-rose-600 text-white font-bold shadow-sm ring-2 ring-white";
 }
 
 interface AdminSidebarProps {
@@ -379,7 +375,7 @@ export default function AdminSidebar({
                   {badgeCount > 0 ? (
                     <span
                       className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums ${
-                        getBadgeClassName(item.href, isActive)
+                        getBadgeClassName()
                       }`}
                       aria-label={
                         item.href === "/admin/kk-profiling"
@@ -443,7 +439,7 @@ export default function AdminSidebar({
                       !(item.href === "/admin/kk-profiling" && pathname.startsWith("/admin/kk-profiling")) ? (
                         <span
                           className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-center text-[11px] font-medium leading-none tabular-nums transition-colors duration-150 ${
-                            getBadgeClassName(item.href, isActive)
+                            getBadgeClassName()
                           }`}
                           aria-label={
                             item.href === "/admin/kk-profiling"

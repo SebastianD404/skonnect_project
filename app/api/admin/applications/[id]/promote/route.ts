@@ -10,7 +10,10 @@ import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/li
 import { DEFAULT_SKEAP_MAX_SLOTS, getSkeapCapacityCount, getSkeapMaxSlots, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
-import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
+import {
+  getSkeapWaitlistSnapshot,
+  reindexSkeapWaitlist,
+} from "@/lib/skeap-waitlist";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import {
   sweepAgedOutWaitlistApplicants,
@@ -203,6 +206,14 @@ export async function POST(
     });
 
     const { granteeStatusChanged, applicantEmail, ...promotedApplication } = promoted;
+    const waitlistSnapshot = await getSkeapWaitlistSnapshot();
+    const capacityMetrics = {
+      activeCount: waitlistSnapshot.activeCount,
+      maxSlots: waitlistSnapshot.maxSlots,
+      offeredCount: waitlistSnapshot.offeredCount,
+      openUnclaimedCount: waitlistSnapshot.openUnclaimedCount,
+    };
+
     if (granteeStatusChanged) {
       try {
         await refreshInactiveGranteesView();
@@ -267,7 +278,12 @@ export async function POST(
     revalidatePath("/admin/members");
     revalidatePath("/admin/kk-profiling");
 
-    return NextResponse.json({ success: true, emailSent, application: promotedApplication });
+    return NextResponse.json({
+      success: true,
+      emailSent,
+      application: promotedApplication,
+      ...capacityMetrics,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to promote application.";
     if (message === "APPLICANT_AGED_OUT") {
