@@ -190,9 +190,6 @@ export async function POST(req: NextRequest) {
       email: formData.get("email"),
       facebook: formData.get("facebook"),
       contactNumber: formData.get("contactNumber"),
-      guardianOrEmergencyName: formData.get("guardianOrEmergencyName"),
-      guardianRelationship: formData.get("guardianRelationship"),
-      guardianContactNumber: formData.get("guardianContactNumber"),
       civilStatus: formData.get("civilStatus"),
       youthClassification: formData.get("youthClassification"),
       youthAgeGroup: formData.get("youthAgeGroup"),
@@ -208,6 +205,7 @@ export async function POST(req: NextRequest) {
       residencyStatementAcknowledgement: formData.get("residencyStatementAcknowledgement") === "true",
       address: formData.get("address"),
       requiresManualReview:
+        formData.get("manualReview") === "true" ||
         formData.get("requires_manual_review") === "true" ||
         formData.get("manualReviewRequested") === "true",
     };
@@ -282,27 +280,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const guardianOrEmergencyName = String(body.guardianOrEmergencyName || "").trim();
-    const guardianRelationship = String(body.guardianRelationship || "").trim();
-    const guardianContactNumber = String(body.guardianContactNumber || "").trim();
-    if (age >= 15 && age <= 17 &&
-      (!guardianOrEmergencyName || !guardianRelationship || !guardianContactNumber)) {
-      return NextResponse.json(
-        { error: "Parent or guardian name, relationship, and contact number are required for registrants aged 15–17." },
-        { status: 400 }
-      );
-    }
-    if (
-      guardianOrEmergencyName.length > 120 ||
-      guardianRelationship.length > 80 ||
-      (guardianContactNumber && !isValidContactNumber(guardianContactNumber))
-    ) {
-      return NextResponse.json(
-        { error: "Enter valid parent or guardian contact details." },
-        { status: 400 }
-      );
-    }
-
     const identityFingerprint = buildIdentityFingerprint({
       firstName: names.firstName,
       middleName: names.middleName,
@@ -454,7 +431,12 @@ export async function POST(req: NextRequest) {
         throw new Error("KK_PROFILE_DUPLICATE_IDENTITY");
       }
 
-      let kkProfile = await tx.kKProfile.findUnique({ where: { email } });
+      let kkProfile = appUser.kkProfileId
+        ? await tx.kKProfile.findUnique({ where: { id: appUser.kkProfileId } })
+        : null;
+      if (!kkProfile) {
+        kkProfile = await tx.kKProfile.findUnique({ where: { email } });
+      }
       if (kkProfile) {
         const linkedUser = await tx.user.findFirst({
           where: { kkProfileId: kkProfile.id },
@@ -470,15 +452,13 @@ export async function POST(req: NextRequest) {
             middleName: names.middleName ?? "",
             lastName: names.lastName,
             fullName: names.fullName,
+            email,
             purok: resolvedSite,
             addressLine,
             barangay: BARANGAY_PICO,
             birthDate,
             placeOfBirth,
             contactNumber,
-            guardianOrEmergencyName: guardianOrEmergencyName || null,
-            guardianRelationship: guardianRelationship || null,
-            guardianContactNumber: guardianContactNumber || null,
             sex,
             isVerified: false,
           },
@@ -496,9 +476,6 @@ export async function POST(req: NextRequest) {
             birthDate,
             placeOfBirth,
             contactNumber,
-            guardianOrEmergencyName: guardianOrEmergencyName || null,
-            guardianRelationship: guardianRelationship || null,
-            guardianContactNumber: guardianContactNumber || null,
             sex,
             email,
             isVerified: false,
@@ -519,43 +496,61 @@ export async function POST(req: NextRequest) {
 
       const address = `${resolvedSite}, ${BARANGAY_PICO}, ${municipality}, ${province}`;
 
-      await tx.profilingRegistration.create({
-        data: {
+      const registrationData = {
+        fullName: names.fullName,
+        middleName: names.middleName ?? "",
+        address,
+        sex: formatSexLabel(sex),
+        age,
+        birthDate,
+        email,
+        facebook: String(body.facebook || "").trim(),
+        contactNumber,
+        civilStatus: String(body.civilStatus || "").trim() || "Not specified",
+        youthClassification: String(body.youthClassification || "").trim() || "Not specified",
+        youthAgeGroup: String(body.youthAgeGroup || "").trim() || "Not specified",
+        workStatus: String(body.workStatus || "").trim() || "Not specified",
+        educationalBackground:
+          String(body.educationalBackground || "").trim() || "Not specified",
+        registeredSKVoter: String(body.registeredSKVoter || "").trim() || "No",
+        votedLastSK: String(body.votedLastSK || "").trim() || "No",
+        registeredNationalVoter:
+          String(body.registeredNationalVoter || "").trim() || "No",
+        attendedKKAssembly: String(body.attendedKKAssembly || "").trim() || "No",
+        assemblyTimes: String(body.assemblyTimes || "").trim() || null,
+        noAssemblyReason: String(body.noAssemblyReason || "").trim() || null,
+        consent: true,
+        idDocumentType,
+        idFrontFileUrl,
+        idBackFileUrl,
+        idSingleFileUrl,
+        photoFileUrl,
+        birthCertificateFileUrl,
+        residencyStatementAcknowledgement: body.residencyStatementAcknowledgement,
+        submittedAt: new Date(),
+        reviewStatus: "Pending",
+        reviewNotes: body.requiresManualReview ? KK_PROFILING_MANUAL_REVIEW_NOTE : null,
+        requiresManualReview: body.requiresManualReview,
+      };
+      const existingRegistration = await tx.profilingRegistration.findFirst({
+        where: {
           userId: updatedUser.id,
-          fullName: names.fullName,
-          middleName: names.middleName ?? "",
-          address,
-          sex: formatSexLabel(sex),
-          age,
-          birthDate,
-          email,
-          facebook: String(body.facebook || "").trim(),
-          contactNumber,
-          civilStatus: String(body.civilStatus || "").trim() || "Not specified",
-          youthClassification: String(body.youthClassification || "").trim() || "Not specified",
-          youthAgeGroup: String(body.youthAgeGroup || "").trim() || "Not specified",
-          workStatus: String(body.workStatus || "").trim() || "Not specified",
-          educationalBackground:
-            String(body.educationalBackground || "").trim() || "Not specified",
-          registeredSKVoter: String(body.registeredSKVoter || "").trim() || "No",
-          votedLastSK: String(body.votedLastSK || "").trim() || "No",
-          registeredNationalVoter:
-            String(body.registeredNationalVoter || "").trim() || "No",
-          attendedKKAssembly: String(body.attendedKKAssembly || "").trim() || "No",
-          assemblyTimes: String(body.assemblyTimes || "").trim() || null,
-          noAssemblyReason: String(body.noAssemblyReason || "").trim() || null,
-          consent: true,
-          idDocumentType,
-          idFrontFileUrl,
-          idBackFileUrl,
-          idSingleFileUrl,
-          photoFileUrl,
-          birthCertificateFileUrl,
-          reviewStatus: "Pending",
-          reviewNotes: body.requiresManualReview ? KK_PROFILING_MANUAL_REVIEW_NOTE : null,
-          requiresManualReview: body.requiresManualReview,
+          reviewStatus: { in: ["Pending", "Returned", "PENDING", "RETURNED"] },
         },
+        orderBy: { submittedAt: "desc" },
+        select: { id: true },
       });
+
+      if (existingRegistration) {
+        await tx.profilingRegistration.update({
+          where: { id: existingRegistration.id },
+          data: registrationData,
+        });
+      } else {
+        await tx.profilingRegistration.create({
+          data: { ...registrationData, userId: updatedUser.id },
+        });
+      }
 
       return { kkProfileId: kkProfile.id, userId: updatedUser.id };
     });
@@ -574,6 +569,8 @@ export async function POST(req: NextRequest) {
         : "Your KK Profiling request has been received with your ID documents and is now pending verification. You can monitor your status from your account.",
     });
   } catch (err: unknown) {
+    console.error("[kk-profiling/register-with-id]", err);
+
     if (isEmailUniqueConstraintError(err)) {
       return NextResponse.json(
         {
@@ -609,16 +606,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: 503 });
     }
 
-    console.error(err);
-    if (process.env.NODE_ENV !== "production") {
-      return NextResponse.json(
-        {
-          error: "Unable to submit KK Profiling application.",
-          detail: err instanceof Error ? err.message : String(err),
-        },
-        { status: 500 }
-      );
-    }
     return NextResponse.json(
       { error: "Unable to submit KK Profiling application. Please try again later." },
       { status: 500 }

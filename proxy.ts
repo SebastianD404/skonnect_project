@@ -5,27 +5,6 @@ import type { NextRequest } from "next/server";
 import { isRefreshTokenMissingError } from "@/lib/supabase/auth-errors";
 import { getSessionCookieOptions, REMEMBER_SESSION_COOKIE } from "@/lib/supabase/remember-cookie";
 
-const ONBOARDING_PROTECTED_PATHS = [
-  "/home",
-  "/dashboard",
-  "/admin",
-  "/system-admin",
-  "/grantee",
-  "/grantee-dashboard",
-  "/applications",
-  "/inquiries",
-  "/profile",
-  "/settings",
-  "/youth-dashboard",
-  "/programs/skeap/history",
-];
-
-function isOnboardingProtectedPath(pathname: string) {
-  return pathname === "/" || ONBOARDING_PROTECTED_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`),
-  );
-}
-
 export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith("/auth/callback")) {
     return NextResponse.next();
@@ -113,23 +92,13 @@ export async function proxy(request: NextRequest) {
 
   const isRoleLandingPath =
     request.nextUrl.pathname === "/" || request.nextUrl.pathname === "/login";
-  const isCaptiveOnboardingPath = isOnboardingProtectedPath(request.nextUrl.pathname);
 
-  if (user && (isRoleLandingPath || isCaptiveOnboardingPath)) {
+  if (user && isRoleLandingPath) {
     const { prisma } = await import("@/lib/prisma");
     const appUser = await prisma.user.findUnique({
       where: { authId: user.id },
-      select: { role: true, isActive: true, kkStatus: true },
+      select: { role: true, isActive: true },
     });
-
-    if (
-      isCaptiveOnboardingPath &&
-      appUser?.isActive &&
-      appUser.role === "YOUTH" &&
-      appUser.kkStatus === "UNPROFILED"
-    ) {
-      return redirectWithAuthCookies(new URL("/programs/kk-profiling", request.url));
-    }
 
     if (
       isRoleLandingPath &&

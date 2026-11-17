@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   revalidatePath: vi.fn(),
   findPriorAgeOut: vi.fn(),
   findApplication: vi.fn(),
+  countActiveOffers: vi.fn(),
   findGrantee: vi.fn(),
   updateApplication: vi.fn(),
   updateInquiry: vi.fn(),
@@ -119,6 +120,7 @@ function createTransactionClient() {
     systemSetting: { findUnique: vi.fn() },
     skeapApplication: {
       findUnique: mocks.findApplication,
+      count: mocks.countActiveOffers,
       update: mocks.updateApplication,
     },
     grantee: {
@@ -158,6 +160,7 @@ describe("SKEAP waitlist promotion", () => {
     mocks.maxSlots.mockResolvedValue(55);
     mocks.sendEmail.mockResolvedValue(true);
     mocks.findPriorAgeOut.mockResolvedValue(null);
+    mocks.countActiveOffers.mockResolvedValue(0);
     mocks.sweepAgedOut.mockResolvedValue({ removedCount: 0, removedApplicants: [] });
     mocks.sweepClosedCycles.mockResolvedValue({ closedCount: 0 });
     mocks.transaction.mockImplementation(async (callback) => callback(createTransactionClient()));
@@ -187,6 +190,10 @@ describe("SKEAP waitlist promotion", () => {
       data: {
         status: "APPROVED",
         waitlistPosition: null,
+        waitlistOfferStatus: "NONE",
+        waitlistOfferedAt: null,
+        waitlistOfferExpiresAt: null,
+        waitlistOfferReminderSentAt: null,
         physicalDocumentsConfirmed: true,
       },
     });

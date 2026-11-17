@@ -370,6 +370,10 @@ export async function POST(request: NextRequest) {
     const registeredVoter = body.registeredVoter;
     const parentGuardianRegisteredVoter = body.parentGuardianRegisteredVoter === true;
     const parentGuardianVoterFullName = String(body.parentGuardianVoterFullName ?? "").trim();
+    const parentGuardianName = String(body.parentGuardianName ?? "").trim();
+    const parentGuardianContact = String(body.parentGuardianContact ?? "").trim();
+    const numberOfDependentsRaw = String(body.numberOfDependents ?? "").trim();
+    const numberOfDependents = numberOfDependentsRaw ? Number(numberOfDependentsRaw) : null;
 
     if (!firstName || (!middleName && !noMiddleName) || !lastName) {
       return NextResponse.json(
@@ -461,6 +465,16 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Complete all family background fields. Enter N/A for contact details that do not apply." },
+        { status: 400 }
+      );
+    }
+    if (
+      numberOfDependents === null ||
+      !Number.isInteger(numberOfDependents) ||
+      numberOfDependents < 0
+    ) {
+      return NextResponse.json(
+        { error: "Enter a whole number of household dependents, including zero if none." },
         { status: 400 }
       );
     }
@@ -594,6 +608,13 @@ export async function POST(request: NextRequest) {
       parentGuardianVoterFullName: verifiedAge < 18 && !registeredVoter
         ? parentGuardianVoterFullName
         : undefined,
+      parentGuardianName: verifiedAge < 18
+        ? parentGuardianName || undefined
+        : undefined,
+      parentGuardianContact: verifiedAge < 18
+        ? parentGuardianContact || undefined
+        : undefined,
+      numberOfDependents,
       totalFamilyMonthlyIncome: totalFamilyMonthlyIncome || undefined,
       gender,
       fathersName,

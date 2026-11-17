@@ -83,7 +83,7 @@ export function AuthProvider({
           profile.skeapStatus === "GRADUATED"
         ) {
           if (currentPathnameRef.current.startsWith("/grantee-dashboard")) {
-            router.replace(profile.role === "YOUTH" ? "/youth-dashboard" : "/");
+            router.replace(profile.role === "YOUTH" ? "/youth/dashboard" : "/");
           }
         } else if (
           previousUser?.role === "YOUTH" &&
@@ -96,7 +96,7 @@ export function AuthProvider({
           profile.role === "YOUTH" &&
           currentPathnameRef.current.startsWith("/grantee-dashboard")
         ) {
-          router.replace("/youth-dashboard");
+          router.replace("/youth/dashboard");
         }
       } else {
         currentUserRef.current = null;

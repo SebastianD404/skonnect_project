@@ -10,6 +10,11 @@ import { getAcademicTermDeadlineTarget } from "@/lib/academic-term-schedule";
 import { getCurrentAcademicSemester, getPreviousAcademicSemester } from "@/lib/semester-progress";
 import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
 import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
+import {
+  dispatchWaitlistSlotOffers,
+  processExpiredWaitlistOffers,
+  processWaitlistOfferReminders,
+} from "@/lib/skeap-waitlist-offers";
 
 const EMAIL_CHANNEL = "email";
 const IN_APP_CHANNEL = "in-app";
@@ -313,6 +318,14 @@ export async function processSkeapReminders(
 export async function runDeadlineReminders(now = new Date()) {
   const settings = await loadReminderSettings();
   return processSkeapReminders(settings, now);
+}
+
+export async function runWaitlistOfferJobs(now = new Date()) {
+  const expiredOffers = await processExpiredWaitlistOffers(now);
+  const dispatchResult =
+    expiredOffers.dispatchResult ?? (await dispatchWaitlistSlotOffers(now));
+  const reminders = await processWaitlistOfferReminders(now);
+  return { expiredOffers, dispatchResult, reminders };
 }
 
 export async function runGranteeUploadRequirementReminders(now = new Date()) {

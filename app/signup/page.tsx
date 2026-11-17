@@ -7,5 +7,5 @@ export default async function SignupPage({
 }) {
   const { next: nextParam } = await searchParams;
   const next = Array.isArray(nextParam) ? nextParam[0] : nextParam;
-  return <SecureAccountForm mode="signup" redirect={next || "/youth-dashboard"} />;
+  return <SecureAccountForm mode="signup" redirect={next || "/youth/dashboard"} />;
 }

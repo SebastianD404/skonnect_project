@@ -149,6 +149,6 @@ describe("AuthProvider", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Your SKEAP scholarship has been discontinued.",
     );
-    expect(mockedRouter.replace).toHaveBeenCalledWith("/youth-dashboard");
+    expect(mockedRouter.replace).toHaveBeenCalledWith("/youth/dashboard");
   });
 });

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
+  count: vi.fn(),
   findUniqueSetting: vi.fn(),
   capacityCount: vi.fn(),
   maxSlots: vi.fn(),
@@ -9,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    skeapApplication: { findMany: mocks.findMany },
+    skeapApplication: { findMany: mocks.findMany, count: mocks.count },
     systemSetting: { findUnique: mocks.findUniqueSetting },
   },
 }));
@@ -28,6 +29,9 @@ describe("SKEAP waitlist positions", () => {
       {
         id: "first",
         waitlistPosition: 1,
+        waitlistOfferStatus: "NONE",
+        waitlistOfferedAt: null,
+        waitlistOfferExpiresAt: null,
         physicalDocumentsConfirmed: true,
         submittedAt: new Date("2026-10-01T00:00:00.000Z"),
         applicantName: "First Applicant",
@@ -42,6 +46,9 @@ describe("SKEAP waitlist positions", () => {
       {
         id: "second",
         waitlistPosition: null,
+        waitlistOfferStatus: "NONE",
+        waitlistOfferedAt: null,
+        waitlistOfferExpiresAt: null,
         physicalDocumentsConfirmed: false,
         submittedAt: new Date("2026-10-02T00:00:00.000Z"),
         applicantName: "Second Applicant",
@@ -55,6 +62,7 @@ describe("SKEAP waitlist positions", () => {
       },
     ]);
     mocks.findUniqueSetting.mockResolvedValue(null);
+    mocks.count.mockResolvedValue(0);
     mocks.capacityCount.mockResolvedValue(52);
     mocks.maxSlots.mockResolvedValue(55);
   });
@@ -63,5 +71,7 @@ describe("SKEAP waitlist positions", () => {
     const snapshot = await getSkeapWaitlistSnapshot();
 
     expect(snapshot.applications.map(({ waitlistPosition }) => waitlistPosition)).toEqual([1, 2]);
+    expect(snapshot.offeredCount).toBe(0);
+    expect(snapshot.openUnclaimedCount).toBe(2);
   });
 });

@@ -15,6 +15,7 @@ import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications"
 import { notifyGranteePhysicalCtcStatus } from "@/lib/grantee-submission-notifications";
 import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
 import { getCurrentAcademicSemester } from "@/lib/semester-progress";
+import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 import {
   buildIdentityFingerprint,
   parseSkeapApplicantName,
@@ -544,6 +545,16 @@ export async function POST(
         reason: revocationReasonOption,
         additionalNotes: additionalNotes || null,
       });
+
+      try {
+        await dispatchWaitlistSlotOffers();
+      } catch (offerError) {
+        console.error("SKEAP grantee was revoked, but waitlist offers could not be dispatched:", offerError);
+        return NextResponse.json(
+          { error: "Revocation was recorded, but waitlist offers could not be dispatched. Retry Notify Next Eligible on the waitlist page." },
+          { status: 503 },
+        );
+      }
 
       return NextResponse.json({ success: true, submission: revoked.submission });
     }

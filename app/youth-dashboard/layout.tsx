@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 import { createClient } from "@/lib/supabase/server";
 import YouthDashboardHeader from "./YouthDashboardHeader";
+import YouthOnboardingCallout from "./YouthOnboardingCallout";
 
 const INACTIVE_GRANTEE_STATUSES = new Set<string>([
   GranteeStatus.GRADUATED,
@@ -18,7 +19,7 @@ export default async function YouthDashboardLayout({ children }: Readonly<{ chil
   } = await supabase.auth.getUser();
 
   if (!authUser) {
-    redirect("/login?next=%2Fyouth-dashboard");
+    redirect("/login?next=%2Fyouth%2Fdashboard");
   }
 
   const user = await prisma.user.findUnique({
@@ -27,7 +28,7 @@ export default async function YouthDashboardLayout({ children }: Readonly<{ chil
       id: true,
       role: true,
       isActive: true,
-      kkStatus: true,
+      kkProfile: { select: { id: true } },
       grantee: { select: { status: true } },
     },
   });
@@ -47,13 +48,10 @@ export default async function YouthDashboardLayout({ children }: Readonly<{ chil
     redirect(user.role === Role.GRANTEE ? "/grantee-dashboard" : "/");
   }
 
-  if (user.role === Role.YOUTH && user.kkStatus === "UNPROFILED") {
-    redirect("/programs/kk-profiling");
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FAFBFC] via-[#F5F7FB] to-[#F0F4FA] text-[#1A1A1A]">
       <YouthDashboardHeader />
+      {user.role === Role.YOUTH && !user.kkProfile ? <YouthOnboardingCallout /> : null}
       {children}
     </div>
   );

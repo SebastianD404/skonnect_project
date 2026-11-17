@@ -9,6 +9,16 @@ module.exports = {
   outputFileTracingIncludes: {
     "/api/**/*": ["./node_modules/sharp/**/*", "./node_modules/@img/**/*"],
   },
+  async rewrites() {
+    return [
+      { source: "/youth/dashboard", destination: "/youth-dashboard" },
+      { source: "/youth/kk-profiling", destination: "/programs/kk-profiling" },
+      {
+        source: "/youth/skeap/apply",
+        destination: "/programs/skeap-scholarship?openApply=1",
+      },
+    ];
+  },
   async headers() {
     return [
       {

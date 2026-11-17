@@ -178,10 +178,7 @@ export async function signup(
     requestHeaders.get("origin") ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     "http://localhost:3000";
-  const requestedNext = String(formData.get("next") || "");
-  const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//")
-    ? requestedNext
-    : "/youth-dashboard";
+  const next = "/youth/dashboard?welcome=1";
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email,
     password,
@@ -226,7 +223,7 @@ export async function signup(
   }
 
   return {
-    message: "Account created. Check your email to confirm your address, then you’ll continue to your requested page.",
+    message: "Account created. Check your email to confirm your address, then you’ll continue to your dashboard.",
   };
 }
 
@@ -302,18 +299,28 @@ export async function login(
 
   const next = (formData.get("next") as string) || "";
   if (profile.mustSecureAccount) {
-    const secureRedirect = next && next.startsWith("/")
-      ? `/secure-account?redirect=${encodeURIComponent(next)}`
+    const destination = profile.role === "YOUTH"
+      ? "/youth/dashboard"
+      : next.startsWith("/") && !next.startsWith("//")
+        ? next
+        : "";
+    const secureRedirect = destination
+      ? `/secure-account?redirect=${encodeURIComponent(destination)}`
       : "/secure-account";
     return redirect(secureRedirect);
   }
 
+  if (profile.role === "YOUTH") {
+    return redirect("/youth/dashboard");
+  }
+
   const isSafeNext = next.startsWith("/") && !next.startsWith("//");
   const nextRequiresGranteeRole = next.startsWith("/grantee-dashboard");
-  const nextRequiresYouthRole = next.startsWith("/youth-dashboard");
+  const nextRequiresYouthRole =
+    next.startsWith("/youth-dashboard") || next.startsWith("/youth/");
   const nextMatchesRole =
     (!nextRequiresGranteeRole || profile.role === "GRANTEE") &&
-    (!nextRequiresYouthRole || profile.role === "YOUTH");
+    !nextRequiresYouthRole;
 
   // Never send a downgraded user back to a dashboard their current role cannot access.
   if (isSafeNext && nextMatchesRole) {

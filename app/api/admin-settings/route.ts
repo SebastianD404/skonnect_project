@@ -21,6 +21,10 @@ import { getSkeapCapacityCount, getSkeapMaxSlots } from "@/lib/skeap-capacity";
 import { getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
 import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
 import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
+import {
+  getSkeapWaitlistOfferDays,
+  setSkeapWaitlistOfferDays,
+} from "@/lib/skeap-waitlist-offers";
 
 const DEFAULT_SETTINGS = {
   inquiryAlerts: true,
@@ -99,7 +103,7 @@ export async function GET() {
     const cycle = getCurrentAcademicYear();
     const cycleRange = getAcademicYearDateRange(cycle);
     if (!cycleRange) throw new Error("Unable to determine the active SKEAP cycle.");
-    const [waitlistCycleState, totalWaitlisted, activeCount, maxSlots] = await Promise.all([
+    const [waitlistCycleState, totalWaitlisted, activeCount, maxSlots, waitlistOfferDays] = await Promise.all([
       getSkeapWaitlistCycleState(cycle),
       prisma.skeapApplication.count({
         where: {
@@ -109,6 +113,7 @@ export async function GET() {
       }),
       getSkeapCapacityCount(),
       getSkeapMaxSlots(),
+      getSkeapWaitlistOfferDays(),
     ]);
 
     return NextResponse.json({
@@ -116,6 +121,7 @@ export async function GET() {
       email: appUser.email,
       settings: appUser.settings ?? DEFAULT_SETTINGS,
       reminderSettings,
+      waitlistOfferDays,
       activeSkeapEducationLevels,
       academicTermSchedules: academicTermSchedules.map((schedule) => ({
         ...schedule,
@@ -165,10 +171,23 @@ export async function POST(request: Request) {
     inquiryAlerts,
     submissionAlerts,
     skeapReminderOffsets,
+    waitlistOfferDays: rawWaitlistOfferDays,
     activeSkeapEducationLevels: rawActiveSkeapEducationLevels,
     academicTermSchedules,
     deletedAcademicTermScheduleIds,
   } = payload;
+
+  let parsedWaitlistOfferDays: number | undefined;
+  if (rawWaitlistOfferDays !== undefined) {
+    const value = Number(rawWaitlistOfferDays);
+    if (!Number.isInteger(value) || value < 1 || value > 30) {
+      return NextResponse.json(
+        { error: "Waitlist offer window must be a whole number between 1 and 30 days." },
+        { status: 400 },
+      );
+    }
+    parsedWaitlistOfferDays = value;
+  }
 
   let parsedActiveSkeapEducationLevels: SkeapEducationLevelCode[] | undefined;
   if (rawActiveSkeapEducationLevels !== undefined) {
@@ -327,6 +346,25 @@ export async function POST(request: Request) {
         ReminderType.SKEAP_APPLICATION,
         parseReminderOffsets(String(skeapReminderOffsets ?? ""))
       );
+
+      if (parsedWaitlistOfferDays !== undefined) {
+        const previousWaitlistOfferDays = await getSkeapWaitlistOfferDays(tx);
+        if (previousWaitlistOfferDays !== parsedWaitlistOfferDays) {
+          const savedSetting = await setSkeapWaitlistOfferDays(
+            parsedWaitlistOfferDays,
+            tx,
+          );
+          await writeAuditLog(tx, {
+            action: "UPDATE_SKEAP_WAITLIST_OFFER_DAYS",
+            actorId: appUser.id,
+            targetTable: "system_settings",
+            targetId: savedSetting.key,
+            beforeData: { waitlistOfferDays: previousWaitlistOfferDays },
+            afterData: { waitlistOfferDays: parsedWaitlistOfferDays },
+            metadata: { waitlistOfferDays: parsedWaitlistOfferDays },
+          });
+        }
+      }
 
       if (parsedActiveSkeapEducationLevels) {
         const previousLevels = await getActiveSkeapEducationLevels(tx);
@@ -503,6 +541,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       activeSkeapEducationLevels: savedActiveSkeapEducationLevels,
+      waitlistOfferDays: await getSkeapWaitlistOfferDays(),
       academicTermSchedules: savedSchedules.map((schedule) => ({
         ...schedule,
         opensAt: schedule.opensAt.toISOString(),

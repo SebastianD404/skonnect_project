@@ -70,27 +70,13 @@ export function evaluateDocumentOcr(
 }
 
 export function getCompactIdErrorMessage(
-  strategy: Extract<OcrStrategy, "front-id" | "back-id">,
+  _strategy: Extract<OcrStrategy, "front-id" | "back-id">,
   errorCode?: string,
 ) {
-  const side = strategy === "front-id" ? "front" : "back";
-
-  switch (errorCode) {
-    case "NAME_MISMATCH":
-      return "Please upload your own ID.";
-    case "WRONG_DOCUMENT_SIDE":
-      return `Please upload the ${side} of your ID.`;
-    case "BIRTHDATE_MISMATCH":
-      return "Please check the birth date on your ID.";
-    case "SCANNER_UNAVAILABLE":
-      return "This ID could not be checked. It will be reviewed manually.";
-    case "LOW_CONFIDENCE":
-      return `Please upload a clearer copy of the ${side} of your ID.`;
-    case "UNRECOGNIZED_DOCUMENT":
-      return `Please upload the ${side} of a valid ID.`;
-    default:
-      return "Please upload a valid ID.";
+  if (errorCode === "SCANNER_UNAVAILABLE") {
+    return "This ID could not be checked. It will be reviewed manually.";
   }
+  return "Please Upload a Correct Valid ID.";
 }
 
 function getScannerDocumentType(strategy: OcrStrategy): ScannerDocumentType | null {

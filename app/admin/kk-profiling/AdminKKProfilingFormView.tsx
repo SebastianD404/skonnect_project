@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Pencil, X } from "lucide-react";
+import { ExternalLink, LoaderCircle, Pencil, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { rejectKKProfilingApplication } from "./actions";
@@ -152,15 +152,7 @@ export function AdminKKProfilingFormView({
     onClose();
   };
 
-  const familyBackground = registration.familyBackground;
-  const kkProfile = familyBackground?.kkProfile;
-  const skeapApplication = familyBackground?.skeapApplication;
-  const hasKkGuardianContact = Boolean(
-    kkProfile?.guardianOrEmergencyName ||
-    kkProfile?.guardianRelationship ||
-    kkProfile?.guardianContactNumber
-  );
-  const hasFamilyData = Boolean(skeapApplication || hasKkGuardianContact);
+  const kkProfile = registration.kkProfile;
   const kkSexLabel = kkProfile?.sex === "MALE"
     ? "Male"
     : kkProfile?.sex === "FEMALE"
@@ -308,7 +300,7 @@ export function AdminKKProfilingFormView({
         role="dialog"
         aria-modal="true"
         aria-labelledby="kk-profiling-submission-title"
-        className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white text-left shadow-2xl"
+        className="relative flex h-[90vh] max-h-[900px] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white text-left shadow-2xl"
       >
         <div className="flex shrink-0 items-start justify-between gap-3 px-6 pt-6">
           <div className="min-w-0">
@@ -340,7 +332,8 @@ export function AdminKKProfilingFormView({
               <button
                 type="button"
                 onClick={onEdit}
-                className="group inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                disabled={detailsLoading}
+                className="group inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                 title="Edit registration"
                 aria-label="Edit registration"
               >
@@ -357,7 +350,38 @@ export function AdminKKProfilingFormView({
             </button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4 [scrollbar-gutter:stable]">
+          {detailsLoading ? (
+            <div
+              className="flex min-h-full flex-col items-center justify-center gap-3 py-8 text-center"
+              role="status"
+              aria-live="polite"
+            >
+              <LoaderCircle className="h-7 w-7 animate-spin text-slate-500" aria-hidden="true" />
+              <p className="text-sm font-semibold text-slate-700">Loading complete application details...</p>
+              <div className="mt-3 w-full animate-pulse space-y-4" aria-hidden="true">
+                <div className="h-5 w-40 rounded bg-slate-100" />
+                <div className="h-3 w-full rounded bg-slate-100" />
+                <div className="h-11 w-full rounded-xl bg-slate-100" />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="h-16 rounded-xl bg-slate-100" />
+                  <div className="h-16 rounded-xl bg-slate-100" />
+                  <div className="h-16 rounded-xl bg-slate-100" />
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="h-16 rounded-xl bg-slate-100" />
+                  <div className="h-16 rounded-xl bg-slate-100" />
+                </div>
+                <div className="h-11 w-full rounded-xl bg-slate-100" />
+              </div>
+            </div>
+          ) : null}
+          <div hidden={detailsLoading} aria-hidden={detailsLoading}>
+          {detailsError ? (
+            <p role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Additional profile details could not be loaded. Showing the saved registration details.
+            </p>
+          ) : null}
           {isWithdrawn ? (
             <section
               role="status"
@@ -401,13 +425,11 @@ export function AdminKKProfilingFormView({
                 value={registration.address}
               />
             </div>
-            {kkProfile ? (
-              <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <ReadOnlyField label="Sitio / Purok" value={kkProfile.purok} />
-                <ReadOnlyField label="Barangay" value={kkProfile.barangay} />
-                <ReadOnlyField label="Place of Birth" value={kkProfile.placeOfBirth} />
-              </div>
-            ) : null}
+            <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <ReadOnlyField label="Sitio / Purok" value={kkProfile?.purok} />
+              <ReadOnlyField label="Barangay" value={kkProfile?.barangay} />
+              <ReadOnlyField label="Place of Birth" value={kkProfile?.placeOfBirth} />
+            </div>
             <div className="col-span-full grid grid-cols-1 gap-4 md:grid-cols-3">
               <ReadOnlyField label="Sex" value={kkSexLabel} />
               <ReadOnlyField
@@ -461,103 +483,6 @@ export function AdminKKProfilingFormView({
               <ReadOnlyField label="If No, why?" value={registration.noAssemblyReason} />
             )}
 
-            {detailsLoading ? (
-              <div
-                className="col-span-full animate-pulse rounded-2xl border border-slate-200 bg-slate-50 p-5"
-                aria-label="Loading family and household background"
-              >
-                <h4 className="text-base font-bold text-slate-900">Family &amp; Household Background</h4>
-                <div className="mt-2 h-3 w-56 rounded bg-slate-200" />
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="h-16 rounded-lg bg-slate-200" />
-                  <div className="h-16 rounded-lg bg-slate-200" />
-                </div>
-              </div>
-            ) : detailsError ? (
-              <div
-                className="col-span-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
-                role="alert"
-              >
-                {detailsError} Family details could not be verified.
-              </div>
-            ) : hasFamilyData ? (
-              <section className="col-span-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-base font-bold text-slate-900">Family &amp; Household Background</h4>
-                    <p className="mt-1 text-xs text-slate-500">Only information provided in KK profiling or a linked SKEAP application is shown.</p>
-                  </div>
-                  {skeapApplication ? (
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                      Verified via SKEAP Record
-                    </span>
-                  ) : null}
-                </div>
-
-                {skeapApplication ? (
-                  <div className="space-y-4">
-                    <p className="text-xs text-slate-500">
-                      Linked SKEAP application status: <span className="font-semibold text-slate-700">{skeapApplication.status}</span>
-                    </p>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <ReadOnlyField label="Father's Name" value={skeapApplication.fathersName} />
-                      <ReadOnlyField label="Father's Occupation" value={skeapApplication.fathersOccupation} />
-                      <ReadOnlyField label="Father's Contact Number" value={skeapApplication.fathersContact} />
-                      <ReadOnlyField label="Mother's Name" value={skeapApplication.mothersMaidenName} />
-                      <ReadOnlyField label="Mother's Occupation" value={skeapApplication.mothersOccupation} />
-                      <ReadOnlyField label="Mother's Contact Number" value={skeapApplication.mothersContact} />
-                      <ReadOnlyField
-                        label="SKEAP Parent / Guardian"
-                        value={skeapApplication.parentGuardianVoterFullName}
-                      />
-                      <ReadOnlyField
-                        label="Parent / Guardian Registered SK Voter?"
-                        value={
-                          skeapApplication.parentGuardianRegisteredVoter === null
-                            ? "Not recorded"
-                            : skeapApplication.parentGuardianRegisteredVoter ? "Yes" : "No"
-                        }
-                      />
-                      <ReadOnlyField
-                        label="Total Monthly Household Income"
-                        value={skeapApplication.totalFamilyMonthlyIncome}
-                      />
-                      <ReadOnlyField
-                        label="Household Size / Siblings"
-                        value="Not recorded in the current SKEAP application form"
-                      />
-                    </div>
-                    {hasKkGuardianContact ? (
-                      <div className="border-t border-slate-100 pt-4">
-                        <h5 className="mb-3 text-sm font-semibold text-slate-800">KK Parent / Guardian &amp; Emergency Contact</h5>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                          <ReadOnlyField label="Name" value={kkProfile?.guardianOrEmergencyName} />
-                          <ReadOnlyField label="Relationship" value={kkProfile?.guardianRelationship} />
-                          <ReadOnlyField label="Contact Number" value={kkProfile?.guardianContactNumber} />
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <ReadOnlyField label="Name" value={kkProfile?.guardianOrEmergencyName} />
-                      <ReadOnlyField label="Relationship" value={kkProfile?.guardianRelationship} />
-                      <ReadOnlyField label="Contact Number" value={kkProfile?.guardianContactNumber} />
-                    </div>
-                    <p className="mt-3 text-xs leading-5 text-slate-600">
-                      Full household and income details are recorded if the member applies for SKEAP.
-                    </p>
-                  </>
-                )}
-              </section>
-            ) : (
-              <div className="col-span-full flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-50/70 px-4 py-2.5 text-xs text-slate-500">
-                <span className="font-medium text-slate-600">Family &amp; Household Background</span>
-                <span>None on file · No linked SKEAP application</span>
-              </div>
-            )}
-
             <div className="col-span-full mt-6 space-y-4">
               <h4 className="break-words border-b border-slate-200 pb-2 text-left text-lg font-bold text-slate-800">
                 PART III: Identification Documents
@@ -592,6 +517,7 @@ export function AdminKKProfilingFormView({
               </div>
             </div>
 
+          </div>
           </div>
         </div>
 
@@ -675,6 +601,7 @@ export function AdminKKProfilingFormView({
                   setIsReopenConfirmOpen(true);
                   setReopenError(null);
                 }}
+                disabled={detailsLoading}
                 className="inline-flex justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 Reopen for Resubmission
@@ -690,6 +617,7 @@ export function AdminKKProfilingFormView({
                       setIsCorrectionOpen(true);
                       setIsRejectionOpen(false);
                     }}
+                    disabled={detailsLoading}
                     className="inline-flex justify-center rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                   >
                     Request Correction
@@ -701,6 +629,7 @@ export function AdminKKProfilingFormView({
                       setIsCorrectionOpen(false);
                       setReturnError(null);
                     }}
+                    disabled={detailsLoading}
                     className="inline-flex justify-center rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
                   >
                     Reject Application
@@ -708,7 +637,7 @@ export function AdminKKProfilingFormView({
                   <button
                     type="button"
                     onClick={handleApprove}
-                    disabled={isApproving}
+                    disabled={detailsLoading || isApproving}
                     className="inline-flex justify-center rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     {isApproving ? "Approving..." : "Approve Registration"}

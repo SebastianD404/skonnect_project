@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { AlertTriangle, Archive, FileText, LockKeyhole, X } from "lucide-react";
+import { AlertTriangle, Archive, Eye, LockKeyhole, X } from "lucide-react";
 import {
   KK_MEMBER_ARCHIVE_REASONS,
   type KKMemberArchiveReason,
@@ -87,12 +87,11 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
       <button
         type="button"
         onClick={() => setShowDetails(true)}
-        className="group inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-transparent bg-transparent px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+        className={`inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2`}
         title={`View details for ${registration.fullName} application`}
         aria-label={`View details for ${registration.fullName} application`}
       >
-        <FileText className="h-4 w-4 shrink-0 transition" aria-hidden="true" />
-        <span>View</span>
+        <Eye className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} transition`} aria-hidden="true" />
       </button>
       {onArchive ? (
         isActiveGrantee ? (

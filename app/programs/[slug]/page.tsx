@@ -22,6 +22,7 @@ import { Role } from "@prisma/client";
 import {
   DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS,
   getActiveSkeapEducationLevels,
+  isSkeapApplicationBlockingReapplication,
 } from "@/lib/skeap-application-guard";
 import { getWaitlistQueuePosition } from "@/lib/skeap-applications";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
@@ -35,7 +36,10 @@ const actionRowClass =
 const actionIconClass =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-colors group-hover:bg-white";
 
-type Props = { params: Promise<{ slug: string | string[] }> };
+type Props = {
+  params: Promise<{ slug: string | string[] }>;
+  searchParams: Promise<{ openApply?: string; notice?: string; from?: string }>;
+};
 
 type ProgramStatus = {
   badge: string;
@@ -284,9 +288,10 @@ const PROGRAMS: Record<string, ProgramPageData> = {
   },
 };
 
-export default async function ProgramPage({ params }: Props) {
+export default async function ProgramPage({ params, searchParams }: Props) {
   const { slug: rawSlug } = await params;
   const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+  const query = await searchParams;
   const data = slug ? PROGRAMS[slug] : undefined;
   const activeEducationLevels = slug === "skeap-scholarship"
     ? await getActiveSkeapEducationLevels()
@@ -307,47 +312,75 @@ export default async function ProgramPage({ params }: Props) {
 
   let initialKkProfile: KKProfile | null = null;
   let hasVerifiedKkProfile = false;
+  let initialKkStatus: "NONE" | "PENDING" | "APPROVED" | "RETURNED" = "NONE";
+  let hasCurrentSkeapApplication = false;
+  let currentSkeapApplicationStatus: string | null = null;
   if (slug === "skeap-scholarship" && appUser) {
-    const userWithKkData = await prisma.user.findUnique({
-      where: { id: appUser.id },
-      select: {
-        email: true,
-        phoneNumber: true,
-        kkProfile: {
-          select: {
-            id: true,
-            middleName: true,
-            fullName: true,
-            purok: true,
-            addressLine: true,
-            barangay: true,
-            birthDate: true,
-            placeOfBirth: true,
-            contactNumber: true,
-            email: true,
-            isVerified: true,
+    const currentCycle = getAcademicYearDateRange(getCurrentAcademicYear());
+    if (!currentCycle) throw new Error("Unable to determine the active SKEAP cycle.");
+
+    const [userWithKkData, currentSkeapApplication] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: appUser.id },
+        select: {
+          email: true,
+          phoneNumber: true,
+          kkProfile: {
+            select: {
+              id: true,
+              middleName: true,
+              fullName: true,
+              purok: true,
+              addressLine: true,
+              barangay: true,
+              birthDate: true,
+              placeOfBirth: true,
+              contactNumber: true,
+              email: true,
+              isVerified: true,
+            },
+          },
+          profilingRegistrations: {
+            where: { program: "KK" },
+            orderBy: { submittedAt: "desc" },
+            take: 1,
+            select: {
+              sex: true,
+              civilStatus: true,
+              registeredSKVoter: true,
+              registeredNationalVoter: true,
+              reviewStatus: true,
+            },
           },
         },
-        profilingRegistrations: {
-          where: { program: "KK" },
-          orderBy: { submittedAt: "desc" },
-          take: 1,
-          select: {
-            sex: true,
-            civilStatus: true,
-            registeredSKVoter: true,
-            registeredNationalVoter: true,
-            reviewStatus: true,
-          },
+      }),
+      prisma.skeapApplication.findFirst({
+        where: {
+          userId: appUser.id,
+          submittedAt: { gte: currentCycle.start, lt: currentCycle.end },
         },
-      },
-    });
+        orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+        select: { status: true },
+      }),
+    ]);
 
     const kkProfile = userWithKkData?.kkProfile;
     const registration = userWithKkData?.profilingRegistrations[0];
+    const reviewStatus = registration?.reviewStatus?.trim().toUpperCase() ?? "";
     hasVerifiedKkProfile =
       Boolean(kkProfile?.isVerified) &&
-      registration?.reviewStatus?.trim().toLowerCase() === "approved";
+      reviewStatus === "APPROVED";
+    initialKkStatus = hasVerifiedKkProfile
+      ? "APPROVED"
+      : /RETURN|REJECT/.test(reviewStatus)
+        ? "RETURNED"
+        : kkProfile || registration
+          ? "PENDING"
+          : "NONE";
+    currentSkeapApplicationStatus = currentSkeapApplication?.status ?? null;
+    hasCurrentSkeapApplication = isSkeapApplicationBlockingReapplication(
+      currentSkeapApplicationStatus,
+    );
 
     if (kkProfile && registration && hasVerifiedKkProfile) {
       initialKkProfile = {
@@ -524,6 +557,9 @@ export default async function ProgramPage({ params }: Props) {
                 initialActiveEducationLevels={activeEducationLevels}
                 initialKkProfile={initialKkProfile}
                 hasVerifiedKkProfile={hasVerifiedKkProfile}
+                initialKkStatus={initialKkStatus}
+                hasCurrentSkeapApplication={hasCurrentSkeapApplication}
+                currentSkeapApplicationStatus={currentSkeapApplicationStatus}
                 showHelpAction
                 waitlistStatus={waitlistStatus}
               />
@@ -533,7 +569,10 @@ export default async function ProgramPage({ params }: Props) {
         
         {slug === "kk-profiling" && (
           <div id="kk-profiling-form" className="mb-8 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <KKProfilingForm />
+            <KKProfilingForm
+              showProfileRequiredNotice={query.notice === "kk-profile-required"}
+              isFromSkeap={query.from === "skeap"}
+            />
           </div>
         )}
 
@@ -831,6 +870,9 @@ export default async function ProgramPage({ params }: Props) {
                             initialActiveEducationLevels={activeEducationLevels}
                             initialKkProfile={initialKkProfile}
                             hasVerifiedKkProfile={hasVerifiedKkProfile}
+                            initialKkStatus={initialKkStatus}
+                            hasCurrentSkeapApplication={hasCurrentSkeapApplication}
+                            currentSkeapApplicationStatus={currentSkeapApplicationStatus}
                             waitlistStatus={waitlistStatus}
                           />
                         </div>

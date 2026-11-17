@@ -901,7 +901,9 @@ export default function SkeapApplicationWizard({
   const [registeredVoter, setRegisteredVoter] = useState<boolean | null>(null);
   const [parentGuardianRegisteredVoter, setParentGuardianRegisteredVoter] = useState(false);
   const [parentGuardianVoterFullName, setParentGuardianVoterFullName] = useState("");
+  const [parentGuardianContact, setParentGuardianContact] = useState("");
   const [totalFamilyMonthlyIncome, setTotalFamilyMonthlyIncome] = useState("");
+  const [numberOfDependents, setNumberOfDependents] = useState("");
   const yearLevels = educationLevel
     ? SKEAP_YEAR_LEVELS[educationLevel].filter((year) => isEligibleSkeapApplicantYearLevel(educationLevel, year))
     : [];
@@ -1176,6 +1178,14 @@ export default function SkeapApplicationWizard({
       if (!mothersOccupation.trim()) addError("mothersOccupation", "Mother's occupation is required.");
       if (!mothersContact.trim()) addError("mothersContact", "Mother's contact is required.");
       if (!totalFamilyMonthlyIncome.trim()) addError("totalFamilyMonthlyIncome", "Total family monthly income is required.");
+      const dependentsCount = Number(numberOfDependents);
+      if (
+        !numberOfDependents.trim() ||
+        !Number.isInteger(dependentsCount) ||
+        dependentsCount < 0
+      ) {
+        addError("numberOfDependents", "Enter a whole number of dependents, including zero if none.");
+      }
     }
     if (step === 3) {
       const requiredKeys = requiredDocuments.map((document) => document.key);
@@ -1619,8 +1629,15 @@ export default function SkeapApplicationWizard({
           parentGuardianVoterFullName: isMinorApplicant && registeredVoter === false
             ? parentGuardianVoterFullName.trim()
             : "",
+          parentGuardianName: isMinorApplicant
+            ? parentGuardianVoterFullName.trim()
+            : "",
+          parentGuardianContact: isMinorApplicant
+            ? parentGuardianContact.trim()
+            : "",
           voterCertificateFileUrl: doneUrls.find((u, idx) => files.findIndex((f) => f.requirement === "voter_certificate" && f.url === u) >= 0) || null,
           totalFamilyMonthlyIncome,
+          numberOfDependents,
           educationalBackground: {
             elementary: elementarySchool,
             elementaryYearGraduated,
@@ -2088,22 +2105,29 @@ export default function SkeapApplicationWizard({
                   {validationErrors.parentGuardianRegisteredVoter ? (
                     <p className="text-xs text-rose-600" role="alert">{validationErrors.parentGuardianRegisteredVoter}</p>
                   ) : null}
+                </div>
+              ) : null}
+              {isMinorApplicant ? (
+                <div className="mt-3 grid gap-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 sm:grid-cols-2">
                   <label className="flex flex-col gap-1.5">
-                    <FormFieldLabel required className="text-sm font-medium text-slate-800">
-                      Parent / Legal Guardian Registered Voter Full Name
+                    <FormFieldLabel
+                      required={registeredVoter === false}
+                      className="text-sm font-medium text-slate-800"
+                    >
+                      Parent / Legal Guardian Name
                     </FormFieldLabel>
                     <input
-                      data-required="profile"
+                      data-required={registeredVoter === false ? "profile" : undefined}
                       name="parentGuardianVoterFullName"
                       type="text"
-                      required
-                      minLength={3}
+                      required={registeredVoter === false}
+                      minLength={registeredVoter === false ? 3 : undefined}
                       value={parentGuardianVoterFullName}
                       aria-invalid={invalidFields.has("parentGuardianVoterFullName")}
                       aria-describedby={
                         validationErrors.parentGuardianVoterFullName
                           ? "parent-guardian-voter-name-error"
-                          : "parent-voter-guidance"
+                          : undefined
                       }
                       onChange={(event) => {
                         setParentGuardianVoterFullName(event.target.value);
@@ -2114,6 +2138,18 @@ export default function SkeapApplicationWizard({
                     {validationErrors.parentGuardianVoterFullName ? (
                       <span id="parent-guardian-voter-name-error" className="text-xs text-rose-600" role="alert">{validationErrors.parentGuardianVoterFullName}</span>
                     ) : null}
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <FormFieldLabel className="text-sm font-medium text-slate-800">
+                      Parent / Legal Guardian Contact Number
+                    </FormFieldLabel>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      value={parentGuardianContact}
+                      onChange={(event) => setParentGuardianContact(event.target.value.replace(/\D/g, ""))}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                    />
                   </label>
                 </div>
               ) : null}
@@ -2453,6 +2489,27 @@ export default function SkeapApplicationWizard({
                   aria-invalid={invalidFields.has("totalFamilyMonthlyIncome")}
                   className={`mt-1 rounded-xl border px-3 py-2 text-slate-900 ${invalidFields.has("totalFamilyMonthlyIncome") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
                 />
+              </label>
+            </div>
+            <div className="mt-3">
+              <label className="flex flex-col">
+                <FormFieldLabel required className="text-sm font-semibold">Number of Household Dependents</FormFieldLabel>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  required
+                  value={numberOfDependents}
+                  onChange={(event) => {
+                    setNumberOfDependents(event.target.value);
+                    markFieldValid("numberOfDependents");
+                  }}
+                  aria-invalid={invalidFields.has("numberOfDependents")}
+                  className={`mt-1 rounded-xl border px-3 py-2 text-slate-900 ${invalidFields.has("numberOfDependents") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
+                />
+                {validationErrors.numberOfDependents ? (
+                  <span className="mt-1 text-xs text-rose-600" role="alert">{validationErrors.numberOfDependents}</span>
+                ) : null}
               </label>
             </div>
           </div>

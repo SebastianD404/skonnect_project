@@ -50,6 +50,14 @@ function deriveDisplayName(fullName?: string | null, email?: string | null) {
   return toTitleCase(cleaned);
 }
 
+function getBadgeClassName(href: string, isActive: boolean) {
+  if (href === "/admin/kk-profiling") {
+    return "bg-rose-600 text-white font-bold shadow-sm ring-2 ring-white";
+  }
+
+  return isActive ? "bg-cyan-100/80 text-cyan-800" : "bg-slate-100 text-slate-600";
+}
+
 interface AdminSidebarProps {
   openInquiryCount: number;
   skeapApplicationCount: number;
@@ -371,8 +379,13 @@ export default function AdminSidebar({
                   {badgeCount > 0 ? (
                     <span
                       className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums ${
-                        isActive ? "bg-cyan-100/80 text-cyan-800" : "bg-slate-100 text-slate-600"
+                        getBadgeClassName(item.href, isActive)
                       }`}
+                      aria-label={
+                        item.href === "/admin/kk-profiling"
+                          ? `${badgeCount} profiling applications need review`
+                          : undefined
+                      }
                     >
                       {badgeCount > 99 ? "99+" : badgeCount}
                     </span>
@@ -430,10 +443,13 @@ export default function AdminSidebar({
                       !(item.href === "/admin/kk-profiling" && pathname.startsWith("/admin/kk-profiling")) ? (
                         <span
                           className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-center text-[11px] font-medium leading-none tabular-nums transition-colors duration-150 ${
-                            isActive
-                              ? "bg-cyan-100/80 text-cyan-800"
-                              : "bg-slate-100 text-slate-600"
+                            getBadgeClassName(item.href, isActive)
                           }`}
+                          aria-label={
+                            item.href === "/admin/kk-profiling"
+                              ? `${item.badge} profiling applications need review`
+                              : undefined
+                          }
                         >
                           {item.badge > 99 ? "99+" : item.badge}
                         </span>

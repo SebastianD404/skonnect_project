@@ -11,6 +11,7 @@ import {
   lockSkeapCapacity,
   setSkeapMaxSlots,
 } from "@/lib/skeap-capacity";
+import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -43,15 +44,20 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: `Slot limit must be a whole number between 1 and ${DEFAULT_SKEAP_MAX_SLOTS}.` }, { status: 400 });
   }
 
-  let setting: { key: string; value: number; updatedAt: Date };
+  let saved: {
+    setting: { key: string; value: number; updatedAt: Date };
+    previousValue: number;
+  };
   try {
-    setting = await prisma.$transaction(async (tx) => {
+    saved = await prisma.$transaction(async (tx) => {
       await lockSkeapCapacity(tx);
       const activeCount = await getSkeapCapacityCount(tx);
       if (value < activeCount) {
         throw new Error("SLOT_LIMIT_BELOW_ACTIVE_COUNT");
       }
-      return setSkeapMaxSlots(value, tx);
+      const previousValue = await getSkeapMaxSlots(tx);
+      const setting = await setSkeapMaxSlots(value, tx);
+      return { setting, previousValue };
     });
   } catch (error) {
     if (error instanceof Error && error.message === "SLOT_LIMIT_BELOW_ACTIVE_COUNT") {
@@ -65,5 +71,28 @@ export async function PATCH(request: Request) {
     throw error;
   }
 
-  return NextResponse.json({ key: setting.key, value: setting.value, updatedAt: setting.updatedAt.toISOString() });
+  let waitlistOffers: Awaited<ReturnType<typeof dispatchWaitlistSlotOffers>> | null = null;
+  if (saved.setting.value > saved.previousValue) {
+    try {
+      waitlistOffers = await dispatchWaitlistSlotOffers();
+    } catch (error) {
+      console.error("SKEAP capacity was increased, but waitlist offers could not be dispatched:", error);
+      return NextResponse.json(
+        {
+          code: "CAPACITY_UPDATED_OFFERS_NOT_DISPATCHED",
+          error: "The slot limit was updated, but waitlist offers could not be sent. Retry Notify Next Eligible on the waitlist page.",
+          key: saved.setting.key,
+          value: saved.setting.value,
+        },
+        { status: 503 },
+      );
+    }
+  }
+
+  return NextResponse.json({
+    key: saved.setting.key,
+    value: saved.setting.value,
+    updatedAt: saved.setting.updatedAt.toISOString(),
+    waitlistOffers,
+  });
 }

@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, LoaderCircle, X } from "lucide-react";
+import {
+  CheckCircle2,
+  Clock,
+  FileCheck2,
+  Info,
+  LoaderCircle,
+  ShieldCheck,
+  UserCheck,
+  X,
+} from "lucide-react";
 import SkeapApplicationWizard from "@/app/programs/SkeapApplicationWizard";
 import ProgramActionButton from "@/app/programs/ProgramActionButton";
 import { fetchKKProfile, prefetchKKProfile, type KKProfile } from "@/lib/kk-profile-client";
@@ -14,8 +23,6 @@ import { getSkeapRequiredDocuments } from "@/lib/skeap-upload";
 import type { SkeapUploadKey, SkeapUploadValue } from "@/lib/skeap-upload";
 import type { SkeapEducationLevel, SkeapEducationLevelCode } from "@/lib/skeap-education";
 import AccountRequiredModal from "@/app/components/AccountRequiredModal";
-import { handleSkeapApply } from "@/lib/skeap-application-client";
-import VerificationModal from "@/app/components/VerificationModal";
 import FormFieldLabel from "@/app/components/FormFieldLabel";
 
 type Props = {
@@ -23,6 +30,9 @@ type Props = {
   initialActiveEducationLevels: readonly SkeapEducationLevelCode[];
   initialKkProfile?: KKProfile | null;
   hasVerifiedKkProfile?: boolean;
+  initialKkStatus?: "NONE" | "PENDING" | "APPROVED" | "RETURNED";
+  hasCurrentSkeapApplication?: boolean;
+  currentSkeapApplicationStatus?: string | null;
   showHelpAction?: boolean;
   waitlistStatus?: {
     isWaitlisted: boolean;
@@ -42,6 +52,141 @@ type ProgramStatus = {
   remainingSlots?: number;
   isCycleClosedAndFull?: boolean;
 };
+
+type PrerequisiteModalKind = "none" | "pending" | "returned" | "existing" | "error";
+
+function SkeapPrerequisiteModal({
+  kind,
+  applicationStatus,
+  message,
+  onClose,
+  onAction,
+}: {
+  kind: PrerequisiteModalKind | null;
+  applicationStatus: string | null;
+  message: string | null;
+  onClose: () => void;
+  onAction: (action: "kk" | "dashboard" | "retry") => void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!kind) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [kind, onClose]);
+
+  if (!kind) return null;
+
+  const isMissingProfile = kind === "none";
+  const isUnderReview = kind === "pending" || kind === "returned";
+  const isError = kind === "error";
+  const Icon = isMissingProfile
+    ? UserCheck
+    : isUnderReview
+      ? kind === "returned" ? ShieldCheck : Clock
+      : isError
+        ? Info
+        : FileCheck2;
+  const title = isMissingProfile
+    ? "KK Profiling Required"
+    : isUnderReview
+      ? "KK Profile Under Review"
+      : isError
+        ? "Unable to Continue"
+        : "SKEAP Application Already on File";
+  const description = isMissingProfile
+    ? "You need to complete your Katipunan ng Kabataan (KK) profile for Barangay Pico before submitting a SKEAP scholarship application."
+    : isUnderReview
+      ? "You have already submitted your KK profiling application. The Barangay Pico SK Admin will review and approve your profile first before you can apply for SKEAP. You can track or manage your application in your dashboard."
+      : isError
+        ? message || "We couldn't verify your application status. Please try again."
+        : `You already have a SKEAP application on file${applicationStatus ? ` (${applicationStatus.replaceAll("_", " ").toLowerCase()})` : ""}. You can manage your application and track its status in your dashboard.`;
+
+  return (
+    <div
+      role="presentation"
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="skeap-prerequisite-title"
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200 focus:outline-none sm:p-7"
+      >
+        <div className="flex items-start gap-4">
+          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${
+            isMissingProfile
+              ? "bg-blue-50 text-[#0F3D5C]"
+              : isUnderReview
+                ? "bg-amber-50 text-amber-700"
+                : "bg-slate-100 text-slate-700"
+          }`}>
+            <Icon className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <h2 id="skeap-prerequisite-title" className="text-xl font-bold text-slate-900">
+              {title}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="ml-auto -mt-1 rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+          >
+            {isMissingProfile ? "Cancel" : "Close"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onAction(
+              isMissingProfile ? "kk" : isError ? "retry" : "dashboard",
+            )}
+            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+          >
+            {isMissingProfile
+              ? "Complete KK Profiling →"
+              : isError
+                ? "Try Again →"
+                : "Manage Application →"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 const PROGRAM_STATUS_CACHE_TTL = 5 * 60 * 1000;
 const programStatusCache = new Map<string, { data: ProgramStatus; expiresAt: number }>();
@@ -88,6 +233,9 @@ export default function ProgramApplyClient({
   initialActiveEducationLevels,
   initialKkProfile = null,
   hasVerifiedKkProfile = false,
+  initialKkStatus = "NONE",
+  hasCurrentSkeapApplication: initialHasCurrentSkeapApplication = false,
+  currentSkeapApplicationStatus: initialSkeapApplicationStatus = null,
   showHelpAction = false,
   waitlistStatus = {
     isWaitlisted: false,
@@ -101,10 +249,14 @@ export default function ProgramApplyClient({
   const [open, setOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<KKProfile | null>(null);
   const [checkingKkProfile, setCheckingKkProfile] = useState(false);
-  const [kkCheckUnavailable, setKkCheckUnavailable] = useState(false);
-  const [requiresKkProfiling, setRequiresKkProfiling] = useState(false);
   const [showAuthRequiredModal, setShowAuthRequiredModal] = useState(false);
-  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [prerequisiteModalKind, setPrerequisiteModalKind] =
+    useState<PrerequisiteModalKind | null>(null);
+  const [currentKkStatus, setCurrentKkStatus] = useState(initialKkStatus);
+  const [hasCurrentSkeapApplication, setHasCurrentSkeapApplication] =
+    useState(initialHasCurrentSkeapApplication);
+  const [currentSkeapApplicationStatus, setCurrentSkeapApplicationStatus] =
+    useState(initialSkeapApplicationStatus);
   const [isApplying, setIsApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [status, setStatus] = useState<ProgramStatus | null>(null);
@@ -134,6 +286,10 @@ export default function ProgramApplyClient({
   const handleEligibilityChange = useCallback((age: number, registeredVoter: boolean | null) => {
     setApplicantEligibility({ age, registeredVoter });
   }, []);
+  const closePrerequisiteModal = useCallback(() => {
+    setPrerequisiteModalKind(null);
+    setApplyError(null);
+  }, []);
   const requiredDocuments = useMemo(
     () => getSkeapRequiredDocuments(
       educationLevel,
@@ -157,10 +313,15 @@ export default function ProgramApplyClient({
     setOpen(true);
   }
 
-  async function openApplyFlow(skipKkCheck = false) {
-    if (currentSkeapEligibility === "barred") return;
+  async function openApplyFlow() {
+    if (currentSkeapEligibility === "barred") {
+      setApplyError(skeapEligibilityMessage);
+      setPrerequisiteModalKind("error");
+      return;
+    }
     if (currentSkeapEligibility === "unavailable") {
       setApplyError("Unable to verify SKEAP eligibility. Please refresh the page and try again.");
+      setPrerequisiteModalKind("error");
       return;
     }
 
@@ -187,79 +348,82 @@ export default function ProgramApplyClient({
       return;
     }
 
-    setCheckingKkProfile(true);
-    setRequiresKkProfiling(false);
-    setKkCheckUnavailable(false);
+    if (hasCurrentSkeapApplication || isWaitlisted) {
+      setPrerequisiteModalKind("existing");
+      return;
+    }
+
     const isTestAccount = isSkeapTestAccount(user?.email);
+    if (isTestAccount && user?.email) {
+      openApplicationModal({
+        fullName: user.fullName || "",
+        email: user.email,
+        contactNumber: "",
+        purok: "",
+        addressLine: "",
+        barangay: "Pico",
+        birthDate: "",
+        age: 0,
+      });
+      return;
+    }
+
+    if (currentKkStatus === "NONE") {
+      setPrerequisiteModalKind("none");
+      return;
+    }
+    if (currentKkStatus === "PENDING" || currentKkStatus === "RETURNED") {
+      setPrerequisiteModalKind(currentKkStatus === "RETURNED" ? "returned" : "pending");
+      return;
+    }
+
+    setCheckingKkProfile(true);
 
     try {
-      if (isTestAccount && user?.email) {
-        openApplicationModal({
-          fullName: user.fullName || "",
-          email: user.email,
-          contactNumber: "",
-          purok: "",
-          addressLine: "",
-          barangay: "Pico",
-          birthDate: "",
-          age: 0,
-        });
-        return;
-      }
-
       if (hasVerifiedKkProfile && initialKkProfile) {
-        handleSkeapApply(
-          "APPROVED",
-          user?.skeapStatus,
-          router,
-          setShowVerificationModal,
-          () => openApplicationModal(initialKkProfile),
-        );
+        openApplicationModal(initialKkProfile);
         return;
       }
 
       const data = await fetchKKProfile();
       const profile = data?.profile;
-      if (
-        data.hasVerifiedKkProfile === false ||
-        data.requiresKkProfiling ||
-        !profile
-      ) {
-        setRequiresKkProfiling(true);
+      const kkProfileStatus = (
+        data?.registration?.reviewStatus ??
+        profile?.registration?.reviewStatus ??
+        profile?.status ??
+        ""
+      ).trim().toUpperCase();
+      const normalizedKkStatus: "NONE" | "PENDING" | "APPROVED" | "RETURNED" =
+        kkProfileStatus.includes("RETURN") || kkProfileStatus === "REJECTED"
+        ? "RETURNED"
+        : kkProfileStatus.includes("PENDING")
+          ? "PENDING"
+          : data?.hasVerifiedKkProfile === true ||
+              (kkProfileStatus === "APPROVED" && data?.hasVerifiedKkProfile !== false)
+            ? "APPROVED"
+            : profile || data?.registration
+              ? "PENDING"
+              : "NONE";
+      setCurrentKkStatus(normalizedKkStatus);
+
+      if (normalizedKkStatus === "PENDING" || normalizedKkStatus === "RETURNED") {
+        setPrerequisiteModalKind(normalizedKkStatus === "RETURNED" ? "returned" : "pending");
         return;
       }
-      if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+
+      if (normalizedKkStatus !== "APPROVED" || !profile) {
+        setPrerequisiteModalKind("none");
+        return;
+      }
+      if (typeof profile !== "object" || Array.isArray(profile)) {
         throw new Error("KK profile response is missing profile data.");
       }
 
-      const kkProfileStatus = (
-        data?.registration?.reviewStatus ??
-        profile.registration?.reviewStatus ??
-        profile.status ??
-        ""
-      ).trim().toUpperCase();
-
-      if (skipKkCheck || kkProfileStatus === "APPROVED") {
-        handleSkeapApply(
-          "APPROVED",
-          user?.skeapStatus,
-          router,
-          setShowVerificationModal,
-          () => openApplicationModal(profile),
-        );
-      } else if (
-        kkProfileStatus === "PENDING" ||
-        kkProfileStatus === "PENDING VERIFICATION"
-      ) {
-        handleSkeapApply("PENDING", user?.skeapStatus, router, setShowVerificationModal);
-      } else if (kkProfileStatus === "REJECTED") {
-        handleSkeapApply("REJECTED", user?.skeapStatus, router, setShowVerificationModal);
-      } else {
-        setRequiresKkProfiling(true);
-      }
+      if (normalizedKkStatus === "APPROVED") openApplicationModal(profile);
     } catch (error) {
       console.warn("Unable to verify KK profile before SKEAP application:", error);
-      setKkCheckUnavailable(true);
+      setApplyError("We couldn't verify your KK profile. Please try again.");
+      setPrerequisiteModalKind("error");
     } finally {
       setCheckingKkProfile(false);
     }
@@ -267,24 +431,47 @@ export default function ProgramApplyClient({
 
   async function handleApplyClick() {
     if (isApplying) return;
-    if (currentSkeapEligibility === "barred") return;
+    if (currentSkeapEligibility === "barred") {
+      setApplyError(skeapEligibilityMessage);
+      setPrerequisiteModalKind("error");
+      return;
+    }
+    if (currentSkeapEligibility === "unavailable") {
+      setApplyError("We couldn't verify your SKEAP eligibility. Please refresh and try again.");
+      setPrerequisiteModalKind("error");
+      return;
+    }
     if (currentSkeapEligibility !== "eligible" && user) {
       setApplyError("SKEAP eligibility is still being verified. Please try again shortly.");
+      setPrerequisiteModalKind("error");
+      return;
+    }
+
+    if (!user) {
+      setShowAuthRequiredModal(true);
+      return;
+    }
+    if (hasCurrentSkeapApplication || isWaitlisted) {
+      setPrerequisiteModalKind("existing");
+      return;
+    }
+    if (currentKkStatus === "NONE") {
+      setPrerequisiteModalKind("none");
+      return;
+    }
+    if (currentKkStatus === "PENDING" || currentKkStatus === "RETURNED") {
+      setPrerequisiteModalKind(currentKkStatus === "RETURNED" ? "returned" : "pending");
       return;
     }
 
     setIsApplying(true);
     setApplyError(null);
     try {
-      if (!user) {
-        setShowAuthRequiredModal(true);
-        return;
-      }
-
       await openApplyFlow();
     } catch (error) {
       console.error("Unable to start the SKEAP application:", error);
       setApplyError("Failed to verify eligibility. Please try again.");
+      setPrerequisiteModalKind("error");
     } finally {
       setIsApplying(false);
     }
@@ -321,6 +508,15 @@ export default function ProgramApplyClient({
             result.eligibility.eligible ? null : result.eligibility.message,
           );
           setHasPriorRevocation(result.hasPriorRevocation === true);
+          if (typeof result.hasCurrentApplication === "boolean") {
+            setHasCurrentSkeapApplication(result.hasCurrentApplication);
+            if (!result.hasCurrentApplication) {
+              setCurrentSkeapApplicationStatus(null);
+            }
+          }
+          if (typeof result.applicationStatus === "string") {
+            setCurrentSkeapApplicationStatus(result.applicationStatus);
+          }
           setInitialUploadedFiles(
             result.initialUploadedFiles && typeof result.initialUploadedFiles === "object"
               ? result.initialUploadedFiles
@@ -356,8 +552,7 @@ export default function ProgramApplyClient({
       const params = new URLSearchParams(window.location.search);
       if (params.get("openApply") === "1") {
         autoApplyHandled.current = true;
-        const skip = params.get("skipKkCheck") === "1";
-        autoApplyTimer = window.setTimeout(() => void openApplyFlow(skip), 0);
+        autoApplyTimer = window.setTimeout(() => void openApplyFlow(), 0);
         params.delete("openApply");
         params.delete("skipKkCheck");
         const base = window.location.pathname + (params.toString() ? `?${params.toString()}` : "");
@@ -452,9 +647,10 @@ export default function ProgramApplyClient({
               checkingKkProfile ||
               isApplying ||
               authLoading ||
-              isWaitlisted ||
-              waitlistStatus.isCycleClosedAndFull ||
-              (Boolean(user) && currentSkeapEligibility !== "eligible")
+              (Boolean(user) && currentSkeapEligibility === "unchecked") ||
+              (waitlistStatus.isCycleClosedAndFull &&
+                !hasCurrentSkeapApplication &&
+                !isWaitlisted)
             }
             className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-slate-950 px-5 text-xs font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.16)] transition hover:bg-slate-800"
           >
@@ -470,103 +666,22 @@ export default function ProgramApplyClient({
             </ProgramActionButton>
           ) : null}
         </div>
-        {(requiresKkProfiling ||
-          kkCheckUnavailable ||
-          currentSkeapEligibility === "barred" ||
-          isWaitlisted ||
-          waitlistStatus.isCycleClosedAndFull ||
-          currentSkeapEligibility === "unavailable" ||
-          Boolean(applyError)) ? (
-          <div className="mt-3.5 flex w-full max-w-xl flex-col gap-3">
-            {requiresKkProfiling ? (
-              <section
-                role="alert"
-                className="w-full max-w-sm rounded-2xl border border-cyan-100 bg-white p-4 shadow-sm"
-              >
-                <h2 className="text-sm font-semibold text-slate-900">
-                  KK Profiling Required Before Applying
-                </h2>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
-                  You need an active Katipunan ng Kabataan (KK) profile in Barangay Pico before submitting a SKEAP scholarship application.
-                </p>
-                <Link
-                  href="/programs/kk-profiling"
-                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-cyan-800 transition hover:text-cyan-950"
-                >
-                  Complete KK Profiling →
-                </Link>
-              </section>
-            ) : null}
-            {kkCheckUnavailable ? (
-              <div
-                role="alert"
-                className="flex w-full max-w-sm items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900"
-              >
-                <span>We couldn’t verify your KK profile. Please try again.</span>
-                <button
-                  type="button"
-                  onClick={() => void openApplyFlow()}
-                  disabled={checkingKkProfile}
-                  className="shrink-0 font-semibold underline underline-offset-2 disabled:opacity-60"
-                >
-                  {checkingKkProfile ? "Checking..." : "Try Again"}
-                </button>
-              </div>
-            ) : null}
-            {currentSkeapEligibility === "barred" ? (
-              <p role="alert" className="max-w-sm rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                {skeapEligibilityMessage ||
-                  "You are permanently ineligible to reapply for SKEAP due to a prior conduct or disciplinary revocation."}
-              </p>
-            ) : null}
-            {isWaitlisted ? (
-              waitlistStatus.isCycleClosedAndFull ? (
-                <section aria-label="Final SKEAP waitlist status" className="w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-                  <span className="inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-slate-700">
-                    Final Queue Position: #{waitlistStatus.queuePosition ?? "—"}
-                  </span>
-                  <p className="mt-3 text-sm font-semibold text-slate-800">
-                    Thank you for applying. The slots are already full and closed.
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                    Your final position in the waitlist queue was #{waitlistStatus.queuePosition ?? "—"} of {waitlistStatus.totalWaitlisted}.
-                  </p>
-                </section>
-              ) : (
-                <section aria-label="SKEAP waitlist status" className="w-full max-w-sm rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
-                  <span className="inline-flex rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-bold tabular-nums text-amber-800">
-                    Queue Position: #{waitlistStatus.queuePosition ?? "—"}
-                  </span>
-                  <p className="mt-3 text-sm leading-relaxed text-amber-900">
-                    All slots are currently filled. You are <strong>#{waitlistStatus.queuePosition ?? "—"}</strong> in the waitlist queue, and we will notify you if a slot opens up.
-                  </p>
-                </section>
-              )
-            ) : waitlistStatus.isCycleClosedAndFull ? (
-              <p role="status" className="max-w-sm rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                The slots are already full and closed for this SKEAP cycle. Please check Application Status for updates.
-              </p>
-            ) : null}
-            {currentSkeapEligibility === "unavailable" ? (
-              <p role="alert" className="max-w-sm rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                We could not verify your SKEAP eligibility. Refresh the page to try again.
-              </p>
-            ) : null}
-            {applyError ? (
-              <p role="alert" className="max-w-[220px] text-sm text-rose-700">
-                {applyError}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
       </div>
 
-      <VerificationModal
-        open={showVerificationModal}
-        onClose={() => setShowVerificationModal(false)}
-        onCheckStatus={() => {
-          setShowVerificationModal(false);
-          router.push("/programs/kk-profiling/status");
+      <SkeapPrerequisiteModal
+        kind={prerequisiteModalKind}
+        applicationStatus={currentSkeapApplicationStatus}
+        message={applyError}
+        onClose={closePrerequisiteModal}
+        onAction={(action) => {
+          closePrerequisiteModal();
+          if (action === "kk") {
+            router.push("/youth/kk-profiling?from=skeap");
+          } else if (action === "dashboard") {
+            router.push("/youth-dashboard");
+          } else {
+            void handleApplyClick();
+          }
         }}
       />
 

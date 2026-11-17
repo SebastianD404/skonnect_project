@@ -31,6 +31,7 @@ type SettingsResponse = {
   error?: string;
   fullName?: string;
   email?: string;
+  waitlistOfferDays?: number;
   activeSkeapEducationLevels?: SkeapEducationLevelCode[];
   settings?: { inquiryAlerts?: boolean; submissionAlerts?: boolean };
   reminderSettings?: { skeapReminderOffsets?: string };
@@ -57,6 +58,7 @@ const DEFAULT_STATE = {
   inquiryAlerts: true,
   submissionAlerts: true,
   skeapReminderOffsets: "7, 3, 1",
+  waitlistOfferDays: "7",
 };
 
 const INPUT_CLASSES =
@@ -164,6 +166,7 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
           inquiryAlerts: data.settings?.inquiryAlerts ?? DEFAULT_STATE.inquiryAlerts,
           submissionAlerts: data.settings?.submissionAlerts ?? DEFAULT_STATE.submissionAlerts,
           skeapReminderOffsets: data.reminderSettings?.skeapReminderOffsets ?? DEFAULT_STATE.skeapReminderOffsets,
+          waitlistOfferDays: String(data.waitlistOfferDays ?? DEFAULT_STATE.waitlistOfferDays),
         };
         const loadedSchedules: AcademicTermScheduleInput[] = (data.academicTermSchedules ?? []).map(
           (schedule: { id: string; semester: string; opensAt: string; closesAt: string }) => ({
@@ -346,7 +349,12 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
       setActiveSkeapEducationLevels(savedEducationLevels);
       setSavedSkeapEducationLevels(savedEducationLevels);
       setDeletedAcademicTermScheduleIds([]);
-      const nextState = { ...formState, newPassword: "", confirmPassword: "" };
+      const nextState = {
+        ...formState,
+        waitlistOfferDays: String(data.waitlistOfferDays ?? formState.waitlistOfferDays),
+        newPassword: "",
+        confirmPassword: "",
+      };
       setFormState(nextState);
       setSavedState(nextState);
     } catch (error) {
@@ -717,6 +725,23 @@ export default function SettingsPageClient({ dateLabel }: { dateLabel: string })
                   className={`${INPUT_CLASSES} disabled:opacity-60`}
                 />
                 <span className="text-xs font-normal text-slate-500">Days before the deadline, separated by commas.</span>
+              </label>
+              <label className="flex flex-col gap-1.5 text-xs font-bold text-slate-700">
+                Waitlist slot-offer window
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  step={1}
+                  required
+                  value={formState.waitlistOfferDays}
+                  onChange={(event) => handleChange("waitlistOfferDays", event.target.value)}
+                  disabled={loading}
+                  className={`${INPUT_CLASSES} disabled:opacity-60`}
+                />
+                <span className="text-xs font-normal text-slate-500">
+                  Days to present original / CTC documents after a slot offer. Default: 7 days.
+                </span>
               </label>
             </div>
           </section>

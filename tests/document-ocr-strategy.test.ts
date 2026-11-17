@@ -28,12 +28,12 @@ describe("document OCR strategies", () => {
     });
   });
 
-  it("uses short, side-specific feedback for compact ID uploads", () => {
+  it("uses the requested feedback for rejected compact ID uploads", () => {
     expect(getCompactIdErrorMessage("front-id", "UNRECOGNIZED_DOCUMENT")).toBe(
-      "Please upload the front of a valid ID.",
+      "Please Upload a Correct Valid ID.",
     );
     expect(getCompactIdErrorMessage("back-id", "WRONG_DOCUMENT_SIDE")).toBe(
-      "Please upload the back of your ID.",
+      "Please Upload a Correct Valid ID.",
     );
     expect(getCompactIdErrorMessage("front-id", "SCANNER_UNAVAILABLE")).toBe(
       "This ID could not be checked. It will be reviewed manually.",

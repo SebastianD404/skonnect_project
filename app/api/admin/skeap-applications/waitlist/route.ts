@@ -81,6 +81,9 @@ export async function GET(request: NextRequest) {
         applications: candidates.map((application) => ({
           id: application.id,
           waitlistPosition: null,
+          waitlistOfferStatus: "NONE",
+          waitlistOfferedAt: null,
+          waitlistOfferExpiresAt: null,
           physicalDocumentsConfirmed: application.physicalDocumentsConfirmed,
           submittedAt: application.submittedAt.toISOString(),
           applicantName: application.applicantName || application.user.fullName || application.user.email,
@@ -147,7 +150,14 @@ export async function POST(request: NextRequest) {
       })) + 1;
       await tx.skeapApplication.update({
         where: { id: application.id },
-        data: { status: SubmissionStatus.WAITLISTED, waitlistPosition: position },
+        data: {
+          status: SubmissionStatus.WAITLISTED,
+          waitlistPosition: position,
+          waitlistOfferStatus: "NONE",
+          waitlistOfferedAt: null,
+          waitlistOfferExpiresAt: null,
+          waitlistOfferReminderSentAt: null,
+        },
       });
 
       if (application.inquiry) {

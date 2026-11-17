@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { lockSkeapCapacity } from "@/lib/skeap-capacity";
+import { dispatchWaitlistSlotOffers } from "@/lib/skeap-waitlist-offers";
 
 async function authorizeAdmin() {
   const supabase = await createClient();
@@ -32,6 +34,7 @@ export async function DELETE(
     if (!id) return NextResponse.json({ error: "Application id is required." }, { status: 400 });
 
     const result = await prisma.$transaction(async (tx) => {
+      await lockSkeapCapacity(tx);
       const application = await tx.skeapApplication.findUnique({
         where: { id },
         select: {
@@ -48,7 +51,14 @@ export async function DELETE(
 
       await tx.skeapApplication.update({
         where: { id },
-        data: { status: SubmissionStatus.PENDING, waitlistPosition: null },
+        data: {
+          status: SubmissionStatus.PENDING,
+          waitlistPosition: null,
+          waitlistOfferStatus: "NONE",
+          waitlistOfferedAt: null,
+          waitlistOfferExpiresAt: null,
+          waitlistOfferReminderSentAt: null,
+        },
       });
       if (application.inquiry) {
         await tx.inquiry.update({
@@ -82,7 +92,17 @@ export async function DELETE(
     });
 
     await refreshSkeapApplicationsAdminView();
-    return NextResponse.json({ success: true, application: result });
+    let waitlistOffers;
+    try {
+      waitlistOffers = await dispatchWaitlistSlotOffers();
+    } catch (offerError) {
+      console.error("Waitlist removal was recorded, but slot offers could not be dispatched:", offerError);
+      return NextResponse.json(
+        { error: "Application was removed from the waitlist, but slot offers could not be dispatched. Retry Notify Next Eligible on the waitlist page." },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json({ success: true, application: result, waitlistOffers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to remove applicant from the waitlist.";
     if (message === "NOT_FOUND") return NextResponse.json({ error: "Application not found." }, { status: 404 });

@@ -1,11 +1,17 @@
 import { redirect } from "next/navigation";
-import { Check } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Check, LogOut } from "lucide-react";
 import KKProfilingForm from "@/app/programs/kk-profiling-form";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function KkProfilingOnboardingPage() {
+export default async function KkProfilingOnboardingPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ from?: string; notice?: string }>;
+}) {
+  const query = searchParams ? await searchParams : {};
   const supabase = await createClient();
   const {
     data: { user: authUser },
@@ -41,6 +47,22 @@ export default async function KkProfilingOnboardingPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 pb-10 sm:px-6 lg:px-8">
+      <div className="mx-auto mb-5 flex w-full max-w-4xl flex-nowrap items-center justify-between gap-4">
+        <Link
+          href="/youth/dashboard"
+          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-semibold text-slate-800 transition-colors hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Back to Dashboard
+        </Link>
+        <a
+          href="/logout"
+          className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap text-sm font-semibold text-slate-600 transition-colors hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+        >
+          <LogOut className="h-4 w-4" aria-hidden="true" />
+          Sign out
+        </a>
+      </div>
       <ol
         aria-label="Onboarding progress"
         className="mx-auto mb-6 grid max-w-4xl grid-cols-3 items-start gap-2 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-lg shadow-slate-900/5 ring-1 ring-white/80 backdrop-blur-md sm:mb-8 sm:px-8 sm:py-5"
@@ -77,7 +99,10 @@ export default async function KkProfilingOnboardingPage() {
         id="kk-profiling-form"
         className="mx-auto max-w-4xl rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-8"
       >
-        <KKProfilingForm />
+        <KKProfilingForm
+          showProfileRequiredNotice={query.notice === "kk-profile-required"}
+          isFromSkeap={query.from === "skeap"}
+        />
       </section>
     </main>
   );

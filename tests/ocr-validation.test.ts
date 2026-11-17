@@ -26,9 +26,35 @@ describe("browser OCR document validation", () => {
 
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("LOW_CONFIDENCE");
-    expect(result.message).toBe(
-      "We couldn't clearly read the text. Please ensure good lighting and try again.",
+    expect(result.message).toBe("Please Upload a Correct Valid ID.");
+  });
+
+  it("accepts readable back-of-ID text without requiring front-side fields or a readable birthdate", () => {
+    const result = validateRecognizedText(
+      "back_id",
+      "IDENTIFICATION CARD. STUDENT ID No. Address: Barangay Pico. Birthdate. Signature. PERSON TO CONTACT IN CASE OF EMERGENCY. RULES ON THE USE OF THIS ID CARD. VALID ISSUED ID.",
+      { profileBirthDate: "01/15/2005" },
     );
+    const cardStructureResult = validateRecognizedText(
+      "back_id",
+      "IDENTIFICATION CARD. NAME: MARIA SANTOS. ADDRESS: BARANGAY PICO. SIGNATURE.",
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.isValid).toBe(true);
+    expect(result.message).toBe("Document text verified.");
+    expect(cardStructureResult.status).toBe("success");
+  });
+
+  it("rejects unrelated back-side text with the requested ID feedback", () => {
+    const result = validateRecognizedText(
+      "back_id",
+      "A menu of daily specials, soups, sandwiches and desserts.",
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
+    expect(result.message).toBe("Please Upload a Correct Valid ID.");
   });
 
   it("flags a readable but mismatched document for correction", () => {

@@ -19,7 +19,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { GET } from "@/app/api/admin/kk-profiling/[id]/route";
 
-describe("admin KK profiling family details", () => {
+describe("admin KK profiling details", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getUser.mockResolvedValue({ data: { user: { id: "auth-user-1" } } });
@@ -29,46 +29,54 @@ describe("admin KK profiling family details", () => {
       fullName: "Example Member",
       user: {
         id: "member-1",
-        kkProfile: { guardianOrEmergencyName: "Example Guardian" },
-        skeapApplications: [{
-          id: "skeap-1",
-          status: "REJECTED",
-          fathersName: "Example Father",
-          totalFamilyMonthlyIncome: "25000",
-        }],
+        kkProfile: {
+          fullName: "Example Member",
+          purok: "Purok 1",
+          barangay: "Pico",
+          birthDate: new Date("2000-01-01"),
+          placeOfBirth: "Benguet",
+          contactNumber: "09123456789",
+          sex: "FEMALE",
+          email: "member@example.test",
+        },
       },
     });
   });
 
-  it("hydrates the latest linked SKEAP family record regardless of status", async () => {
+  it("returns KK profile details without including linked SKEAP family data", async () => {
     const request = new NextRequest("http://localhost/api/admin/kk-profiling/registration-1");
     const response = await GET(request, { params: Promise.resolve({ id: "registration-1" }) });
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data.familyBackground).toEqual({
-      kkProfile: { guardianOrEmergencyName: "Example Guardian" },
-      skeapApplication: expect.objectContaining({
-        status: "REJECTED",
-        fathersName: "Example Father",
-      }),
+    expect(data.kkProfile).toMatchObject({
+      fullName: "Example Member",
+      purok: "Purok 1",
+      barangay: "Pico",
     });
+    expect(data.kkProfile).not.toHaveProperty("guardianOrEmergencyName");
+    expect(data).not.toHaveProperty("familyBackground");
     expect(data.user).toBeUndefined();
     expect(mocks.findRegistration).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: "registration-1" },
       include: {
         user: {
-          include: {
-            kkProfile: true,
-            skeapApplications: expect.objectContaining({
-              take: 1,
-              orderBy: [{ submittedAt: "desc" }, { updatedAt: "desc" }],
-            }),
+          select: {
+            kkProfile: {
+              select: {
+                fullName: true,
+                purok: true,
+                barangay: true,
+                birthDate: true,
+                placeOfBirth: true,
+                contactNumber: true,
+                sex: true,
+                email: true,
+              },
+            },
           },
         },
       },
     }));
-    const query = mocks.findRegistration.mock.calls[0][0];
-    expect(query.include.user.include.skeapApplications.where).toBeUndefined();
   });
 });

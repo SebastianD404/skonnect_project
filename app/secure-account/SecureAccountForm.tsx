@@ -41,7 +41,7 @@ export default function SecureAccountForm({
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const continuationText = isSignup
-    ? "Create your SKonnect account first. Once you’re signed in, you can continue directly to your requested page and complete your KK Profiling."
+    ? "Create your SKonnect account first. Once you’re signed in, you’ll continue to your dashboard to complete your KK Profiling."
     : redirectLabel
       ? `You requested access to ${redirectLabel}. Secure your account now, and we will return you there automatically.`
       : "Your KK profile account was created with a temporary credential. Set your permanent username and password to continue.";
@@ -104,7 +104,7 @@ export default function SecureAccountForm({
             <div className="text-center">
               <h2 className="text-3xl font-semibold tracking-tight text-[#0D2E47]">Create your account</h2>
               <p className="mt-2 text-sm text-slate-500">
-                Register to continue to your requested page.
+                Register to continue to your youth dashboard.
               </p>
             </div>
 

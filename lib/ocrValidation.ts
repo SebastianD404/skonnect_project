@@ -35,6 +35,7 @@ export type ScanResult = {
 const SCANNER_UNAVAILABLE_MESSAGE = "System error: Scanner temporarily unavailable.";
 const UNREADABLE_DOCUMENT_MESSAGE =
   "We couldn't clearly read the text. Please ensure good lighting and try again.";
+const ID_VALIDATION_ERROR_MESSAGE = "Please Upload a Correct Valid ID.";
 const MINIMUM_OCR_CONFIDENCE = 30;
 const WORKER_PATH =
   "https://cdn.jsdelivr.net/npm/tesseract.js@v7.0.0/dist/worker.min.js";
@@ -49,7 +50,8 @@ const ID_KEYWORDS = [
   "Sex", "Gender", "Male", "Female", "Civil Status", "Single", "Married", "Driver",
   "License", "PHILHEALTH", "UMID", "TIN", "VOTER", "Student", "School", "University",
   "College", "Campus", "Pico", "La Trinidad", "Benguet", "Contact No", "Emergency",
-  "Information",
+  "Information", "Identification", "Card", "Contact", "Signature", "Rules", "Birthdate",
+  "Registrar", "Barangay", "Valid", "Issued", "No.",
 ];
 const FRONT_ID_TERMS = [
   "Photo", "Nationality", "Height", "Weight", "License No", "Expiration Date",
@@ -58,7 +60,9 @@ const FRONT_ID_TERMS = [
 ];
 const BACK_ID_TERMS = [
   "Magnetic Stripe", "Stripe Code", "Restrictions", "Restriction", "Endorsements",
-  "Organ Donor", "Organ Donation", "Barcode", "QR Code",
+  "Organ Donor", "Organ Donation", "Barcode", "QR Code", "Emergency", "Contact",
+  "Signature", "Rules", "Address", "Birthdate", "Registrar", "Barangay", "Valid",
+  "Issued", "No.", "Name", "Card",
 ];
 const CERTIFICATE_TERMS = [
   "Certificate of Residency", "Barangay Pico", "Pico", "resident", "residing",
@@ -126,7 +130,13 @@ export function validateRecognizedText(
 ): ScanResult {
   const normalizedText = text.trim();
   if (normalizedText.length < 10) {
-    return invalidResult("Unreadable Image", UNREADABLE_DOCUMENT_MESSAGE, text, "LOW_CONFIDENCE");
+    const isId = documentType === "front_id" || documentType === "back_id";
+    return invalidResult(
+      "Unreadable Image",
+      isId ? ID_VALIDATION_ERROR_MESSAGE : UNREADABLE_DOCUMENT_MESSAGE,
+      text,
+      "LOW_CONFIDENCE",
+    );
   }
 
   if (documentType === "front_id" || documentType === "back_id") {
@@ -134,12 +144,13 @@ export function validateRecognizedText(
     const frontMatches = findMatches(normalizedText, FRONT_ID_TERMS);
     const backMatches = findMatches(normalizedText, BACK_ID_TERMS);
     const hasCertificateTerms = findMatches(normalizedText, CERTIFICATE_DOCUMENT_TERMS).length > 0;
+    const hasIdCardAnchor = /\b(?:id|identification|student|card|registrar|barangay)\b/i.test(normalizedText);
     const strongFrontMatches = frontMatches.filter((match) => match.toLowerCase() !== "name");
     const looksLikeBackId = backMatches.length > 0 && strongFrontMatches.length === 0;
     if (documentType === "front_id" && looksLikeBackId && hasExplicitBackIdSideEvidence(normalizedText)) {
       return invalidResult(
         "Wrong ID Side",
-        "This appears to be the back of the ID. Please upload the front of your valid ID.",
+        ID_VALIDATION_ERROR_MESSAGE,
         normalizedText,
         "WRONG_DOCUMENT_SIDE",
       );
@@ -152,14 +163,13 @@ export function validateRecognizedText(
       ? hasIdSignal && !hasCertificateTerms && (frontMatches.length > 0 || hasSchoolIdText)
       : hasIdSignal &&
         !hasCertificateTerms &&
-        (backMatches.length > 0 ||
-          normalizedText.replace(/\s+/g, " ").length >= 60 ||
-          frontMatches.length === 0);
+        hasIdCardAnchor &&
+        (backMatches.length > 0 || hasSchoolIdText);
 
     if (!isValid) {
       return invalidResult(
         "Unrecognized Document",
-        "We couldn't verify this as the requested document. Please check the document type and try again.",
+        ID_VALIDATION_ERROR_MESSAGE,
         normalizedText,
         "UNRECOGNIZED_DOCUMENT",
       );
@@ -171,7 +181,7 @@ export function validateRecognizedText(
         return {
           ...invalidResult(
             "Name Mismatch",
-            "Name mismatch — the name on this ID does not match the profile.",
+            ID_VALIDATION_ERROR_MESSAGE,
             normalizedText,
             "NAME_MISMATCH",
           ),
@@ -193,25 +203,27 @@ export function validateRecognizedText(
 
     if (documentType === "back_id" && options?.profileBirthDate) {
       const birthCheck = verifyBackIdBirthdate(normalizedText, options.profileBirthDate);
-      if (!birthCheck.isValid) {
+      if (!birthCheck.isValid && (birthCheck.parsedDates?.length ?? 0) > 0) {
         return {
-          ...invalidResult("Birthdate Mismatch", birthCheck.message, normalizedText, "BIRTHDATE_MISMATCH"),
+          ...invalidResult("Birthdate Mismatch", ID_VALIDATION_ERROR_MESSAGE, normalizedText, "BIRTHDATE_MISMATCH"),
           parsedDates: birthCheck.parsedDates,
           birthdateMatched: false,
         };
       }
 
-      return {
-        success: true,
-        status: "success",
-        badgeText: "Verified",
-        message: "ID text verified.",
-        isValid: true,
-        matchedKeywords,
-        text: normalizedText,
-        parsedDates: birthCheck.parsedDates,
-        birthdateMatched: true,
-      };
+      if (birthCheck.isValid) {
+        return {
+          success: true,
+          status: "success",
+          badgeText: "Verified",
+          message: "ID text verified.",
+          isValid: true,
+          matchedKeywords,
+          text: normalizedText,
+          parsedDates: birthCheck.parsedDates,
+          birthdateMatched: true,
+        };
+      }
     }
 
     return {
@@ -310,7 +322,13 @@ export async function scanDocument(
   try {
     const { text, confidence } = await recognizeFile(file);
     if (!text.trim() || confidence < MINIMUM_OCR_CONFIDENCE) {
-      return invalidResult("Unreadable Image", UNREADABLE_DOCUMENT_MESSAGE, text, "LOW_CONFIDENCE");
+      const isId = documentType === "front_id" || documentType === "back_id";
+      return invalidResult(
+        "Unreadable Image",
+        isId ? ID_VALIDATION_ERROR_MESSAGE : UNREADABLE_DOCUMENT_MESSAGE,
+        text,
+        "LOW_CONFIDENCE",
+      );
     }
     return validateRecognizedText(documentType, text, options);
   } catch (error) {

@@ -49,38 +49,14 @@ export interface KKProfilingRegistration {
   reviewNotes?: string | null;
   requiresManualReview?: boolean;
   submittedAt: string | Date;
-  familyBackground?: {
-    kkProfile: {
-      firstName: string;
-      middleName: string | null;
-      lastName: string;
-      fullName: string;
-      purok: string;
-      addressLine: string;
-      barangay: string;
-      birthDate: string | Date;
-      placeOfBirth: string | null;
-      contactNumber: string;
-      guardianOrEmergencyName: string | null;
-      guardianRelationship: string | null;
-      guardianContactNumber: string | null;
-      sex: string;
-      email: string;
-    } | null;
-    skeapApplication: {
-      id: string;
-      status: string;
-      submittedAt: string | Date;
-      updatedAt: string | Date;
-      fathersName: string | null;
-      fathersOccupation: string | null;
-      fathersContact: string | null;
-      mothersMaidenName: string | null;
-      mothersOccupation: string | null;
-      mothersContact: string | null;
-      parentGuardianRegisteredVoter: boolean | null;
-      parentGuardianVoterFullName: string | null;
-      totalFamilyMonthlyIncome: string | null;
-    } | null;
-  };
+  kkProfile?: {
+    fullName: string;
+    purok: string;
+    barangay: string;
+    birthDate: string | Date;
+    placeOfBirth: string | null;
+    contactNumber: string;
+    sex: string;
+    email: string;
+  } | null;
 }

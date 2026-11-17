@@ -50,25 +50,17 @@ export async function GET(
       where: { id },
       include: {
         user: {
-          include: {
-            kkProfile: true,
-            skeapApplications: {
-              orderBy: [{ submittedAt: "desc" }, { updatedAt: "desc" }],
-              take: 1,
+          select: {
+            kkProfile: {
               select: {
-                id: true,
-                status: true,
-                submittedAt: true,
-                updatedAt: true,
-                fathersName: true,
-                fathersOccupation: true,
-                fathersContact: true,
-                mothersMaidenName: true,
-                mothersOccupation: true,
-                mothersContact: true,
-                parentGuardianRegisteredVoter: true,
-                parentGuardianVoterFullName: true,
-                totalFamilyMonthlyIncome: true,
+                fullName: true,
+                purok: true,
+                barangay: true,
+                birthDate: true,
+                placeOfBirth: true,
+                contactNumber: true,
+                sex: true,
+                email: true,
               },
             },
           },
@@ -83,10 +75,7 @@ export async function GET(
     const { user, ...registrationDetails } = registration;
     return NextResponse.json({
       ...registrationDetails,
-      familyBackground: {
-        kkProfile: user?.kkProfile ?? null,
-        skeapApplication: user?.skeapApplications[0] ?? null,
-      },
+      kkProfile: user?.kkProfile ?? null,
     });
   } catch (error) {
     console.error("Failed to load profiling registration details:", error);

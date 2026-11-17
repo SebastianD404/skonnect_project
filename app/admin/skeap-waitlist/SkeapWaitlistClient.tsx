@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, FileCheck, Info, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, FileCheck, Info, LoaderCircle, Plus, Search, Trash2, UserCheck, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import type { SkeapWaitlistApplication, SkeapWaitlistSnapshot } from "@/lib/skeap-waitlist";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -23,6 +23,61 @@ function formatDate(value: string) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function OfferStatusBadge({ application }: { application: SkeapWaitlistApplication }) {
+  if (application.waitlistOfferStatus === "OFFERED" && application.waitlistOfferExpiresAt) {
+    const expiresAt = new Date(application.waitlistOfferExpiresAt);
+    const remainingMs = Math.max(0, expiresAt.getTime() - Date.now());
+    const remaining = remainingMs >= 24 * 60 * 60 * 1000
+      ? `${Math.ceil(remainingMs / (24 * 60 * 60 * 1000))} days`
+      : `${Math.max(1, Math.ceil(remainingMs / (60 * 60 * 1000)))} hours`;
+    return (
+      <div className="mt-1 flex flex-col items-start gap-0.5">
+        <span
+          title={`Offer expires ${formatDate(application.waitlistOfferExpiresAt)}`}
+          className="inline-flex w-fit items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800"
+        >
+          Slot Offered · {remaining} left for CTC
+        </span>
+        <span className="text-[10px] text-slate-500">Deadline: {formatDate(application.waitlistOfferExpiresAt)}</span>
+      </div>
+    );
+  }
+
+  if (application.waitlistOfferStatus === "EXPIRED") {
+    return (
+      <span className="mt-1 inline-flex w-fit items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+        Offer Expired · Re-queued
+      </span>
+    );
+  }
+
+  return (
+    <span className="mt-1 inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+      Waiting in Queue
+    </span>
+  );
+}
+
+function getPromotionOfferGuidance(application: SkeapWaitlistApplication) {
+  const expiresAt = application.waitlistOfferExpiresAt
+    ? new Date(application.waitlistOfferExpiresAt)
+    : null;
+  if (
+    application.waitlistOfferStatus === "OFFERED" &&
+    expiresAt &&
+    expiresAt.getTime() > Date.now()
+  ) {
+    const offeredAt = application.waitlistOfferedAt
+      ? new Date(application.waitlistOfferedAt)
+      : null;
+    const durationDays = offeredAt
+      ? Math.max(1, Math.round((expiresAt.getTime() - offeredAt.getTime()) / (24 * 60 * 60 * 1000)))
+      : 7;
+    return `Active ${durationDays}-day slot offer expires ${formatDate(expiresAt.toISOString())}.`;
+  }
+  return "This applicant is being verified on-site without an active slot offer.";
 }
 
 async function readJsonResponse(response: Response) {
@@ -54,6 +109,7 @@ export default function SkeapWaitlistClient({
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<SkeapWaitlistApplication | null>(null);
   const [waitlistActionId, setWaitlistActionId] = useState<string | null>(null);
+  const [notifyingEligible, setNotifyingEligible] = useState(false);
   const [capacityWarning, setCapacityWarning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAgeOutBannerDismissed, setIsAgeOutBannerDismissed] = useState(false);
@@ -63,6 +119,8 @@ export default function SkeapWaitlistClient({
     activeCount: initialData.activeCount,
     maxSlots: initialData.maxSlots,
   });
+  const [offeredCount, setOfferedCount] = useState(initialData.offeredCount);
+  const [openUnclaimedCount, setOpenUnclaimedCount] = useState(initialData.openUnclaimedCount);
   const [editingCapacity, setEditingCapacity] = useState(false);
   const [slotLimitDraft, setSlotLimitDraft] = useState(String(initialData.maxSlots));
   const [savingCapacity, setSavingCapacity] = useState(false);
@@ -110,9 +168,13 @@ export default function SkeapWaitlistClient({
       setApplications(Array.isArray(body.applications) ? body.applications as unknown as SkeapWaitlistApplication[] : []);
       const activeCount = typeof body.activeCount === "number" ? body.activeCount : 0;
       const maxSlots = typeof body.maxSlots === "number" ? body.maxSlots : 55;
+      const offeredCount = typeof body.offeredCount === "number" ? body.offeredCount : 0;
+      const openUnclaimedCount = typeof body.openUnclaimedCount === "number" ? body.openUnclaimedCount : 0;
       setIsWaitlistClosed(body.isClosed === true);
       if (typeof body.cycle === "string") setCycle(body.cycle);
       setCapacity({ activeCount, maxSlots });
+      setOfferedCount(offeredCount);
+      setOpenUnclaimedCount(openUnclaimedCount);
       setCapacityWarning(false);
       if (!editingCapacity) setSlotLimitDraft(String(maxSlots));
     } catch (loadError) {
@@ -180,6 +242,16 @@ export default function SkeapWaitlistClient({
         body: JSON.stringify({ value: Number(slotLimitDraft) }),
       });
       const body = await readJsonResponse(response);
+      if (
+        body.code === "CAPACITY_UPDATED_OFFERS_NOT_DISPATCHED" &&
+        typeof body.value === "number"
+      ) {
+        const updatedMaxSlots = body.value;
+        setCapacity((current) => ({ ...current, maxSlots: updatedMaxSlots }));
+        setSlotLimitDraft(String(updatedMaxSlots));
+        setEditingCapacity(false);
+        await loadWaitlist();
+      }
       if (!response.ok) throw new Error(String(body.error || "Unable to update the slot limit."));
       const maxSlots = Number(body.value);
       setCapacity((current) => ({ ...current, maxSlots }));
@@ -191,6 +263,40 @@ export default function SkeapWaitlistClient({
       setActionError(saveError instanceof Error ? saveError.message : "Unable to update the slot limit.");
     } finally {
       setSavingCapacity(false);
+    }
+  }
+
+  async function notifyNextEligible() {
+    setNotifyingEligible(true);
+    setActionError(null);
+    setToastMessage(null);
+    try {
+      const response = await fetch("/api/admin/skeap-applications/waitlist/offers", {
+        method: "POST",
+      });
+      const body = await readJsonResponse(response);
+      if (!response.ok) throw new Error(String(body.error || "Unable to notify eligible applicants."));
+      const offered = typeof body.offeredCount === "number" ? body.offeredCount : 0;
+      const emailFailed = typeof body.emailFailed === "number" ? body.emailFailed : 0;
+      const emailSkipped = typeof body.emailSkipped === "number" ? body.emailSkipped : 0;
+      if (emailFailed > 0) {
+        setActionError(
+          `${offered} offer${offered === 1 ? "" : "s"} were created with in-app notifications, but email delivery failed for ${emailFailed} applicant${emailFailed === 1 ? "" : "s"}.`,
+        );
+      } else {
+        setToastMessage(
+          offered === 1
+            ? emailSkipped > 0
+              ? "A waitlist slot offer was created in-app; the applicant has no email address on file."
+              : "A waitlist slot offer was sent to the next eligible applicant."
+            : `${offered} waitlist slot offers were sent${emailSkipped > 0 ? `; email was unavailable for ${emailSkipped} applicant${emailSkipped === 1 ? "" : "s"}` : ""}.`,
+        );
+      }
+      await loadWaitlist();
+    } catch (notifyError) {
+      setActionError(notifyError instanceof Error ? notifyError.message : "Unable to notify eligible applicants.");
+    } finally {
+      setNotifyingEligible(false);
     }
   }
 
@@ -310,22 +416,38 @@ export default function SkeapWaitlistClient({
           <div
             className={`group relative flex flex-wrap items-center justify-between gap-4 rounded-2xl border px-4 py-2.5 shadow-sm transition-colors hover:shadow-md ${isOverConfiguredCapacity ? "border-rose-200 bg-rose-50 hover:border-rose-300" : "border-slate-200/80 bg-white hover:border-cyan-300"}`}
           >
-            <div
-              tabIndex={0}
-              className="min-w-0 whitespace-nowrap"
-              aria-describedby="remaining-slots-tooltip"
-              aria-label={isOverConfiguredCapacity
-                ? `${capacity.activeCount} active records, ${capacity.maxSlots} slot limit, ${capacity.activeCount - capacity.maxSlots} over capacity`
-                : `${capacity.activeCount} of ${capacity.maxSlots} active slots; ${remainingSlots} slots remaining`}
-            >
-              <span className="flex items-baseline">
-                <span className={`text-xl font-bold leading-none ${isOverConfiguredCapacity ? "text-rose-700" : "text-[#086b7d]"}`}>{capacity.activeCount}</span>
-                <span className="mx-1 text-xl font-bold leading-none text-slate-800">/</span>
-                <span className="mr-2 text-xl font-bold leading-none text-slate-900">{capacity.maxSlots}</span>
-                <span className="text-[10px] font-semibold uppercase leading-none tracking-wider text-slate-400 sm:text-xs">
-                  Active Slots
+            <div className="flex flex-wrap items-center gap-3">
+              <div
+                tabIndex={0}
+                className="min-w-0 whitespace-nowrap"
+                aria-describedby="remaining-slots-tooltip"
+                aria-label={isOverConfiguredCapacity
+                  ? `${capacity.activeCount} active records, ${capacity.maxSlots} slot limit, ${capacity.activeCount - capacity.maxSlots} over capacity`
+                  : `${capacity.activeCount} of ${capacity.maxSlots} active slots; ${remainingSlots} slots remaining`}
+              >
+                <span className="flex items-baseline">
+                  <span className={`text-xl font-bold leading-none ${isOverConfiguredCapacity ? "text-rose-700" : "text-[#086b7d]"}`}>{capacity.activeCount}</span>
+                  <span className="mx-1 text-xl font-bold leading-none text-slate-800">/</span>
+                  <span className="mr-2 text-xl font-bold leading-none text-slate-900">{capacity.maxSlots}</span>
+                  <span className="text-[10px] font-semibold uppercase leading-none tracking-wider text-slate-400 sm:text-xs">
+                    Active Slots
+                  </span>
                 </span>
+              </div>
+              <span className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                {offeredCount} Offered · {openUnclaimedCount} Open
               </span>
+              {!isWaitlistClosed && openUnclaimedCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void notifyNextEligible()}
+                  disabled={notifyingEligible}
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-cyan-800 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
+                  {notifyingEligible ? "Notifying..." : "Notify Next Eligible"}
+                </button>
+              ) : null}
             </div>
             {canIncreaseConfiguredCapacity ? (
               <>
@@ -457,6 +579,7 @@ export default function SkeapWaitlistClient({
                       <h3 className="truncate text-sm font-bold leading-tight text-slate-900">{application.applicantName}</h3>
                       <p className="mt-0.5 break-all text-xs text-slate-500">{application.emailAddress}</p>
                       <p className="text-xs text-slate-500">{application.contactNumber || "No phone number"}</p>
+                      <OfferStatusBadge application={application} />
                     </div>
                   </div>
 
@@ -522,6 +645,7 @@ export default function SkeapWaitlistClient({
                         <p className="font-semibold text-slate-900">{application.applicantName}</p>
                         <p className="text-xs text-slate-500">{application.emailAddress}</p>
                         {application.contactNumber ? <p className="text-xs text-slate-400">{application.contactNumber}</p> : null}
+                        <OfferStatusBadge application={application} />
                       </div>
                     </td>
                     <td className="px-6 py-4 text-slate-700">
@@ -695,6 +819,9 @@ export default function SkeapWaitlistClient({
                   <p className="px-2 text-[13px] leading-snug text-slate-500">
                     <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span> was waitlisted online but has not completed physical document verification. Have they presented their Certified True Copies (CTC) at the barangay hall?
                   </p>
+                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                    {getPromotionOfferGuidance(selectedApplicant)}
+                  </p>
                 </div>
                 <label className="flex w-full cursor-pointer items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-left text-xs leading-relaxed text-slate-700">
                   <input
@@ -735,6 +862,9 @@ export default function SkeapWaitlistClient({
                   </h3>
                   <p className="px-2 text-[13px] leading-snug text-slate-500">
                     You&apos;re promoting <span className="font-bold text-slate-900">{selectedApplicant.applicantName}</span>. This uses <span className="font-bold text-slate-900">1 slot</span> and sends an automated email.
+                  </p>
+                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                    {getPromotionOfferGuidance(selectedApplicant)}
                   </p>
                 </div>
                 <div className="grid w-full grid-cols-2 gap-2.5">

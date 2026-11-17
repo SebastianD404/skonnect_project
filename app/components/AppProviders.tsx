@@ -17,7 +17,8 @@ export function AppProviders({
   initialUser: AuthUser | null;
 }) {
   const pathname = usePathname();
-  const isCaptiveOnboarding = pathname === "/programs/kk-profiling";
+  const isCaptiveOnboarding =
+    pathname === "/programs/kk-profiling" || pathname === "/youth/kk-profiling";
   const isRevokedDashboard =
     pathname.startsWith("/grantee-dashboard") &&
     (INACTIVE_GRANTEE_STATUSES.has(initialUser?.skeapStatus ?? "") || initialUser?.role !== "GRANTEE");

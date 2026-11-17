@@ -3,18 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2 } from "lucide-react";
-import { handleSkeapApply } from "@/lib/skeap-application-client";
-import VerificationModal from "@/app/components/VerificationModal";
+import { CheckCircle2, LoaderCircle } from "lucide-react";
 
 type Props = {
   open: boolean;
   signedIn: boolean;
   existingAccount: boolean;
   successCredentials: { username: string; temporaryPassword: string } | null;
-  kkProfileStatus: string;
-  skeapStatus?: string | null;
-  onClose: () => void;
 };
 
 export default function KkProfilingSuccessInterstitial({
@@ -22,19 +17,16 @@ export default function KkProfilingSuccessInterstitial({
   signedIn,
   existingAccount,
   successCredentials,
-  kkProfileStatus,
-  skeapStatus = null,
-  onClose,
 }: Props) {
   const router = useRouter();
   const [credentialsCopied, setCredentialsCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
-  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"skeap" | "dashboard" | null>(null);
 
-  if (!open && !showVerificationModal) return null;
+  if (!open) return null;
 
-  const continueTo = (destination: string) => {
-    onClose();
+  const navigateTo = (action: "skeap" | "dashboard", destination: string) => {
+    setPendingAction(action);
     router.push(
       signedIn ? destination : `/login?next=${encodeURIComponent(destination)}`,
     );
@@ -125,19 +117,31 @@ export default function KkProfilingSuccessInterstitial({
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <button
             type="button"
-            onClick={() => {
-              handleSkeapApply(kkProfileStatus, skeapStatus, router, setShowVerificationModal);
-            }}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 sm:w-auto"
+            onClick={() => navigateTo("skeap", "/programs/skeap/apply")}
+            disabled={pendingAction !== null}
+            aria-busy={pendingAction === "skeap"}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#0F3D5C] px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-80 sm:w-auto"
           >
-            Apply for SKEAP
+            {pendingAction === "skeap" ? (
+              <>
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Opening SKEAP...
+              </>
+            ) : "Apply for SKEAP"}
           </button>
           <button
             type="button"
-            onClick={() => continueTo("/youth-dashboard")}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 sm:w-auto"
+            onClick={() => navigateTo("dashboard", "/youth-dashboard")}
+            disabled={pendingAction !== null}
+            aria-busy={pendingAction === "dashboard"}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-80 sm:w-auto"
           >
-            Go to My Dashboard
+            {pendingAction === "dashboard" ? (
+              <>
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Opening dashboard...
+              </>
+            ) : "Go to Youth Dashboard"}
           </button>
         </div>
 
@@ -147,7 +151,6 @@ export default function KkProfilingSuccessInterstitial({
             <Link
               href="/forgot-password"
               className="font-semibold text-[#0F3D5C] underline-offset-4 hover:underline"
-              onClick={onClose}
             >
               Reset it
             </Link>
@@ -156,15 +159,6 @@ export default function KkProfilingSuccessInterstitial({
       </section>
     </div>
     ) : null}
-    <VerificationModal
-      open={showVerificationModal}
-      onClose={() => setShowVerificationModal(false)}
-      onCheckStatus={() => {
-        setShowVerificationModal(false);
-        onClose();
-        router.push("/programs/kk-profiling/status");
-      }}
-    />
     </>
   );
 }

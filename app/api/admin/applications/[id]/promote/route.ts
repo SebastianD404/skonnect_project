@@ -135,13 +135,26 @@ export async function POST(
       if (existingGrantee?.status === "GRADUATED") throw new Error("GRANTEE_ARCHIVED");
 
       const activeCount = await getSkeapCapacityCount(tx, application.userId);
-      if (activeCount >= maxSlots) throw new Error("CAPACITY_FULL");
+      const otherActiveOffers = await tx.skeapApplication.count({
+        where: {
+          id: { not: application.id },
+          status: "WAITLISTED",
+          waitlistOfferStatus: "OFFERED",
+          waitlistOfferExpiresAt: { gt: new Date() },
+          submittedAt: { gte: cycleRange.start, lt: cycleRange.end },
+        },
+      });
+      if (activeCount + otherActiveOffers >= maxSlots) throw new Error("CAPACITY_FULL");
 
       await tx.skeapApplication.update({
         where: { id },
         data: {
           status: "APPROVED",
           waitlistPosition: null,
+          waitlistOfferStatus: "NONE",
+          waitlistOfferedAt: null,
+          waitlistOfferExpiresAt: null,
+          waitlistOfferReminderSentAt: null,
           physicalDocumentsConfirmed: true,
         },
       });

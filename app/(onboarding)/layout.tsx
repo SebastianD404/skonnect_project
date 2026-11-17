@@ -1,4 +1,3 @@
-import { LogOut } from "lucide-react";
 import { SkLogo } from "@/app/components/SkLogo";
 
 export default function OnboardingLayout({
@@ -26,15 +25,6 @@ export default function OnboardingLayout({
           <SkLogo className="h-10 w-10" />
           <span className="text-xl font-semibold tracking-tight text-[#0D2E47]">SKonnect</span>
         </div>
-        <a
-          href="/logout"
-          aria-label="Sign out"
-          title="Sign out"
-          className="absolute right-4 inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200/80 bg-white/80 px-3 text-sm font-medium text-slate-600 shadow-sm backdrop-blur transition hover:border-amber-300 hover:bg-amber-50/90 hover:text-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 sm:right-6 lg:right-8"
-        >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-          <span className="hidden sm:inline">Sign out</span>
-        </a>
       </header>
       {children}
     </div>

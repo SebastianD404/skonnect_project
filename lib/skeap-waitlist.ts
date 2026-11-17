@@ -38,6 +38,9 @@ export async function reindexSkeapWaitlist(
 export type SkeapWaitlistApplication = {
   id: string;
   waitlistPosition: number | null;
+  waitlistOfferStatus: "NONE" | "OFFERED" | "EXPIRED";
+  waitlistOfferedAt: string | null;
+  waitlistOfferExpiresAt: string | null;
   physicalDocumentsConfirmed: boolean;
   submittedAt: string;
   applicantName: string;
@@ -54,6 +57,8 @@ export type SkeapWaitlistSnapshot = {
   cycle: string;
   activeCount: number;
   maxSlots: number;
+  offeredCount: number;
+  openUnclaimedCount: number;
   totalWaitlisted: number;
   isClosed: boolean;
   applications: SkeapWaitlistApplication[];
@@ -76,6 +81,9 @@ export async function getSkeapWaitlistSnapshot(
         id: true,
         waitlistPosition: true,
         waitlistFinalPosition: true,
+        waitlistOfferStatus: true,
+        waitlistOfferedAt: true,
+        waitlistOfferExpiresAt: true,
         physicalDocumentsConfirmed: true,
         submittedAt: true,
         applicantName: true,
@@ -97,20 +105,40 @@ export async function getSkeapWaitlistSnapshot(
     }),
     getSkeapWaitlistCycleState(cycle),
   ]);
-  const [activeCount, maxSlots] = await Promise.all([
+  const [activeCount, maxSlots, offeredCount] = await Promise.all([
     getSkeapCapacityCount(),
     getSkeapMaxSlots(),
+    prisma.skeapApplication.count({
+      where: {
+        status: "WAITLISTED",
+        waitlistOfferStatus: "OFFERED",
+        waitlistOfferExpiresAt: { gt: new Date() },
+        submittedAt: { gte: range.start, lt: range.end },
+      },
+    }),
   ]);
+  const openSlots = cycleState.isClosed
+    ? 0
+    : Math.max(0, maxSlots - activeCount - offeredCount);
+  const openUnclaimedCount = Math.min(
+    openSlots,
+    applications.filter((application) => application.waitlistOfferStatus === "NONE").length,
+  );
 
   return {
     cycle,
     activeCount,
     maxSlots,
+    offeredCount,
+    openUnclaimedCount,
     totalWaitlisted: cycleState.isClosed ? cycleState.totalWaitlisted : applications.length,
     isClosed: cycleState.isClosed,
     applications: applications.map((application, index) => ({
       id: application.id,
       waitlistPosition: application.waitlistFinalPosition ?? index + 1,
+      waitlistOfferStatus: application.waitlistOfferStatus,
+      waitlistOfferedAt: application.waitlistOfferedAt?.toISOString() ?? null,
+      waitlistOfferExpiresAt: application.waitlistOfferExpiresAt?.toISOString() ?? null,
       physicalDocumentsConfirmed: application.physicalDocumentsConfirmed,
       submittedAt: application.submittedAt.toISOString(),
       applicantName: application.applicantName || application.user.fullName || application.user.email,

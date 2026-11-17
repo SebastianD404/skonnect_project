@@ -1,6 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { runGranteeUploadRequirementReminders } from "@/lib/deadline-reminder-runner";
+import {
+  runGranteeUploadRequirementReminders,
+  runWaitlistOfferJobs,
+} from "@/lib/deadline-reminder-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +20,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await runGranteeUploadRequirementReminders();
-    return NextResponse.json({ ok: true, ...result });
+    const [result, waitlistOffers] = await Promise.all([
+      runGranteeUploadRequirementReminders(),
+      runWaitlistOfferJobs(),
+    ]);
+    return NextResponse.json({ ok: true, ...result, waitlistOffers });
   } catch (error) {
     console.error("Scheduled deadline reminder run failed:", error);
     return NextResponse.json({ error: "Deadline reminder run failed." }, { status: 500 });

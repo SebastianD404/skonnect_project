@@ -36,9 +36,6 @@ const initialForm = {
   email: "",
   facebook: "",
   contactNumber: "",
-  guardianOrEmergencyName: "",
-  guardianRelationship: "",
-  guardianContactNumber: "",
   civilStatus: "",
   youthClassification: "",
   youthAgeGroup: "",
@@ -156,11 +153,18 @@ function SelectWithChevron({
 }
 
 
-export default function KKProfilingForm() {
+export default function KKProfilingForm({
+  showProfileRequiredNotice = false,
+  isFromSkeap = false,
+}: {
+  showProfileRequiredNotice?: boolean;
+  isFromSkeap?: boolean;
+}) {
   const router = useRouter();
   const emailInputRef = useRef<HTMLInputElement>(null);
   const submissionFeedbackRef = useRef<HTMLDivElement>(null);
   const accountExistsRef = useRef<HTMLDivElement>(null);
+  const postSubmitModalOpenRef = useRef(false);
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [failedOcrAttempts, setFailedOcrAttempts] = useState({
@@ -179,7 +183,9 @@ export default function KKProfilingForm() {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [idFiles, setIdFiles] = useState<Partial<Record<ProfilingDocumentKey, File | null>>>({});
-  const [successRedirectTo, setSuccessRedirectTo] = useState("/programs/kk-profiling/status");
+  const [successRedirectTo, setSuccessRedirectTo] = useState(
+    isFromSkeap ? "/youth/skeap/apply" : "/youth/dashboard",
+  );
   const [successCredentials, setSuccessCredentials] = useState<{ username: string; temporaryPassword: string } | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [existingAccount, setExistingAccount] = useState(false);
@@ -201,7 +207,6 @@ export default function KKProfilingForm() {
   const lastNameError = getNameFieldError("lastName");
   const firstNameError = getNameFieldError("firstName");
   const middleNameError = getNameFieldError("middleInitial");
-  const requiresGuardianContact = Number(form.age) >= 15 && Number(form.age) <= 17;
 
   useEffect(() => {
     const target = emailError
@@ -239,7 +244,12 @@ export default function KKProfilingForm() {
       if (savedDraft) {
         const parsedDraft = JSON.parse(savedDraft);
         if (parsedDraft && typeof parsedDraft === "object") {
-          setForm({ ...initialForm, ...parsedDraft });
+          const restoredDraft = Object.fromEntries(
+            Object.keys(initialForm)
+              .filter((key) => key in parsedDraft)
+              .map((key) => [key, parsedDraft[key]]),
+          );
+          setForm({ ...initialForm, ...restoredDraft });
         }
       }
     } catch (error) {
@@ -296,7 +306,10 @@ export default function KKProfilingForm() {
           const isApprovedStatus = profileStatus.toLowerCase().includes("approved");
           const isRejectedStatus = profileStatus.toLowerCase().includes("rejected");
 
-          if (isApprovedStatus || isRejectedStatus) {
+          if (
+            (isApprovedStatus || isRejectedStatus) &&
+            !postSubmitModalOpenRef.current
+          ) {
             router.replace("/programs/kk-profiling/status");
             return;
           }
@@ -548,13 +561,6 @@ export default function KKProfilingForm() {
     if (!form.facebook.trim()) return "Facebook account name is required";
     if (!form.contactNumber.trim()) return "Contact number is required";
     if (!isValidContactNumber(form.contactNumber)) return "Contact number can contain numbers only.";
-    if (requiresGuardianContact) {
-      if (!form.guardianOrEmergencyName.trim()) return "Parent or guardian name is required for registrants aged 15–17.";
-      if (!form.guardianRelationship.trim()) return "Relationship to the parent or guardian is required for registrants aged 15–17.";
-      if (!form.guardianContactNumber.trim() || !isValidContactNumber(form.guardianContactNumber)) {
-        return "A valid parent or guardian contact number is required for registrants aged 15–17.";
-      }
-    }
     if (!form.civilStatus) return "Civil status is required";
     if (!form.youthClassification) return "Youth classification is required";
     if (!form.youthAgeGroup) return "Youth age group is required";
@@ -648,9 +654,6 @@ export default function KKProfilingForm() {
       formData.append("email", form.email);
       formData.append("facebook", form.facebook);
       formData.append("contactNumber", form.contactNumber);
-      formData.append("guardianOrEmergencyName", form.guardianOrEmergencyName);
-      formData.append("guardianRelationship", form.guardianRelationship);
-      formData.append("guardianContactNumber", form.guardianContactNumber);
       formData.append("civilStatus", form.civilStatus);
       formData.append("youthClassification", form.youthClassification);
       formData.append("youthAgeGroup", form.youthAgeGroup);
@@ -666,6 +669,27 @@ export default function KKProfilingForm() {
       formData.append("fullName", fullName);
       formData.append("address", address);
       formData.append("requires_manual_review", String(manualReview));
+      formData.append("manualReview", String(manualReview));
+      formData.append(
+        "ocrDiagnostics",
+        JSON.stringify({
+          failedAttempts: failedOcrAttempts,
+          documents: {
+            front: {
+              status: ocrValidationState.front.status,
+              errorCode: ocrValidationState.front.errorCode ?? null,
+            },
+            back: {
+              status: ocrValidationState.back.status,
+              errorCode: ocrValidationState.back.errorCode ?? null,
+            },
+            residency: {
+              status: ocrValidationState.residency.status,
+              errorCode: ocrValidationState.residency.errorCode ?? null,
+            },
+          },
+        }),
+      );
 
       // Add ID files
       formData.append("frontFile", idFiles.front as File);
@@ -680,7 +704,7 @@ export default function KKProfilingForm() {
         body: formData,
       });
 
-      const body = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setForm(initialForm);
         window.sessionStorage.removeItem(KK_PROFILING_DRAFT_KEY);
@@ -699,35 +723,38 @@ export default function KKProfilingForm() {
           residency: { status: "idle", file: null },
         });
         setMessage(null);
-        setSuccessRedirectTo(body?.redirectTo || "/programs/kk-profiling/status");
+        setSuccessRedirectTo(
+          isFromSkeap ? "/youth/skeap/apply" : "/youth/dashboard",
+        );
         setSuccessCredentials(
-          body?.credentials && body.credentials.username && body.credentials.temporaryPassword
+          data?.credentials && data.credentials.username && data.credentials.temporaryPassword
             ? {
-                username: body.credentials.username,
-                temporaryPassword: body.credentials.temporaryPassword,
+                username: data.credentials.username,
+                temporaryPassword: data.credentials.temporaryPassword,
               }
             : null
         );
 
         setSignedIn(true);
         setExistingAccount(true);
+        postSubmitModalOpenRef.current = true;
         setShowSuccessModal(true);
       } else {
-        if (body?.emailAlreadyRegistered) {
+        if (data?.emailAlreadyRegistered) {
           setEmailError(
-            body.error ||
+            data.error ||
               "This email is already registered. Please log in instead."
           );
           return;
         }
 
-        if (body?.accountExists) {
+        if (data?.accountExists) {
           setAccountExistsFallback(true);
           setMessage("");
           return;
         }
 
-        setActionError(body?.error ?? "Failed to submit. Please try again.");
+        setActionError(data?.error ?? "Unable to submit KK Profiling application. Please try again later.");
       }
     } catch (error) {
       console.error("KK profiling submission failed", error);
@@ -749,10 +776,20 @@ export default function KKProfilingForm() {
       ) : (
         <>
         <form onSubmit={handleSubmit} className="grid gap-x-4 gap-y-2 [&_label]:gap-1.5">
+          <fieldset disabled={submitting || showSuccessModal} className="contents">
           <h3 className="text-xl font-bold text-slate-900">Katipunan ng Kabataan (KK) Profiling — Registration</h3>
           <p className="text-xs text-slate-500">
             Fields marked with <span className="font-semibold text-rose-600">*</span> are required.
           </p>
+          {isFromSkeap ? (
+            <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+              Please complete your KK Profile first before applying for SKEAP.
+            </p>
+          ) : showProfileRequiredNotice ? (
+            <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+              Complete your one-time KK Profile here to verify your Barangay residency and unlock SK programs and SKEAP applications.
+            </p>
+          ) : null}
 
       <div className="flex flex-col gap-6">
         <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
@@ -867,12 +904,13 @@ export default function KKProfilingForm() {
             min="1995-01-01"
             max={`${new Date().getFullYear()}-12-31`}
             value={form.birthDate}
-            onChange={(e) => {
-              const value = e.target.value;
-              const selectedYear = Number(value.slice(0, 4));
-              const currentYear = new Date().getFullYear();
-              if (value >= "1995-01-01" && value <= `${currentYear}-12-31` && selectedYear < currentYear) {
-                setField("birthDate", value);
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value) setField("birthDate", value);
+            }}
+            onBlur={(event) => {
+              if (!event.target.value && form.birthDate) {
+                setField("birthDate", "");
               }
             }}
             required
@@ -946,53 +984,6 @@ export default function KKProfilingForm() {
           <input value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} required className="w-full rounded-lg border px-3 py-2" />
         </label>
       </div>
-
-      <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-        <div className="mb-3">
-          <h3 className="text-sm font-semibold text-slate-900">
-            Parent / Guardian &amp; Emergency Contact
-            {requiresGuardianContact ? <span className="ml-1 text-rose-600" aria-hidden="true">*</span> : null}
-          </h3>
-          <p className="mt-1 text-xs leading-5 text-slate-600">
-            {requiresGuardianContact
-              ? "Required for registrants aged 15–17 for minor verification and parental consent."
-              : "Optional for registrants aged 18–30."} Household income is not collected during general KK registration.
-          </p>
-        </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <label className="flex min-w-0 flex-col gap-1.5">
-            <FormFieldLabel required={requiresGuardianContact} className="text-sm font-medium">Name</FormFieldLabel>
-            <input
-              value={form.guardianOrEmergencyName}
-              onChange={(event) => setField("guardianOrEmergencyName", event.target.value)}
-              autoComplete="name"
-              required={requiresGuardianContact}
-              className="w-full rounded-lg border px-3 py-2"
-            />
-          </label>
-          <label className="flex min-w-0 flex-col gap-1.5">
-            <FormFieldLabel required={requiresGuardianContact} className="text-sm font-medium">Relationship</FormFieldLabel>
-            <input
-              value={form.guardianRelationship}
-              onChange={(event) => setField("guardianRelationship", event.target.value)}
-              placeholder="e.g., Parent, Aunt/Uncle"
-              required={requiresGuardianContact}
-              className="w-full rounded-lg border px-3 py-2"
-            />
-          </label>
-          <label className="flex min-w-0 flex-col gap-1.5">
-            <FormFieldLabel required={requiresGuardianContact} className="text-sm font-medium">Contact Number</FormFieldLabel>
-            <input
-              value={form.guardianContactNumber}
-              onChange={(event) => setField("guardianContactNumber", keepContactNumberDigits(event.target.value))}
-              inputMode="numeric"
-              autoComplete="tel"
-              required={requiresGuardianContact}
-              className="w-full rounded-lg border px-3 py-2"
-            />
-          </label>
-        </div>
-      </section>
 
         </div>
 
@@ -1305,7 +1296,7 @@ export default function KKProfilingForm() {
             <button
               type="button"
               onClick={() => setShowConsentModal(true)}
-              className="ml-2 underline"
+              className="ml-2 inline-flex cursor-pointer items-center rounded-sm text-sm font-medium text-slate-700 underline decoration-slate-400 underline-offset-2 transition-colors hover:text-[#0F3D5C] hover:decoration-[#0F3D5C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
             >
               (Read consent)
             </button>
@@ -1341,6 +1332,7 @@ export default function KKProfilingForm() {
           {message ? <p role="status">{message}</p> : null}
         </div>
       ) : null}
+          </fieldset>
       </form>
 
       <KkProfilingSuccessInterstitial
@@ -1348,8 +1340,6 @@ export default function KKProfilingForm() {
         signedIn={signedIn}
         existingAccount={existingAccount}
         successCredentials={successCredentials}
-        kkProfileStatus="PENDING"
-        onClose={() => setShowSuccessModal(false)}
       />
         </>
       )}
