@@ -1,5 +1,9 @@
 import type { GradeReportDiagnostics } from "@/lib/grade-report-parser";
 
+export const MAX_SKEAP_UPLOAD_SIZE_BYTES = 4 * 1024 * 1024;
+export const SKEAP_UPLOAD_TOO_LARGE_MESSAGE =
+  "File is too large for upload. Please upload a file under 4 MB or compress the image.";
+
 export const SKEAP_UPLOAD_KEY = {
   BIRTH_CERTIFICATE: "birthCertificate",
   BARANGAY_RESIDENCY: "barangayResidency",
@@ -18,6 +22,7 @@ export type SkeapVerificationStatus = "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
 export type SkeapOcrNameStatus =
   | "MATCHED_APPLICANT"
   | "MATCHED_PARENT"
+  | "FOR_VERIFICATION"
   | "LOW_READABILITY"
   | "NAME_MISMATCH";
 
@@ -34,6 +39,7 @@ export type SkeapUploadValue = {
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
   ocrNameStatus?: SkeapOcrNameStatus;
+  ocrNameMessage?: string;
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
@@ -52,6 +58,7 @@ export type SkeapUploadGroup = {
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
   ocrNameStatus?: SkeapOcrNameStatus;
+  ocrNameMessage?: string;
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
@@ -257,19 +264,17 @@ export function getSkeapRequiredDocuments(
   educationLevel: string,
   _yearLevel: string,
   applicantAge = 0,
-  isRegisteredVoter: boolean | null = null,
+  _isRegisteredVoter: boolean | null = null,
 ): SkeapRequiredDocument[] {
+  void _isRegisteredVoter;
   const isHighSchool = educationLevel === "Junior High School" || educationLevel === "Senior High School";
-  const voterCertificateLabel = isRegisteredVoter === true
-    ? "Applicant's COMELEC Voter's Certificate (Barangay Pico)"
-    : applicantAge >= 15 && applicantAge < 18 && isRegisteredVoter === false
-      ? "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico)"
-      : "COMELEC Voter's Certificate (Barangay Pico)";
-  const voterCertificateHelperText = isRegisteredVoter === true
-    ? "Upload a clear photo or PDF of your Barangay Pico COMELEC Voter's Certificate."
-    : applicantAge >= 15 && applicantAge < 18 && isRegisteredVoter === false
-      ? "Upload the Barangay Pico COMELEC Voter's Certificate of your parent or legal guardian."
-      : "Upload a clear photo or PDF of the appropriate Barangay Pico COMELEC Voter's Certificate.";
+  const isMinorApplicant = applicantAge >= 15 && applicantAge < 18;
+  const voterCertificateLabel = isMinorApplicant
+    ? "Parent's or Legal Guardian's COMELEC Voter's Certificate (Barangay Pico)"
+    : "Applicant's COMELEC Voter's Certificate (Barangay Pico)";
+  const voterCertificateHelperText = isMinorApplicant
+    ? "Under Barangay Pico Ordinance No. 1-2022, applicants aged 15–17 must upload a parent's or legal guardian's Barangay Pico Voter's Certificate."
+    : "Upload the applicant's own Barangay Pico COMELEC Voter's Certificate.";
 
   return [
     {
@@ -320,6 +325,7 @@ function isSkeapVerificationStatus(value: unknown): value is SkeapVerificationSt
 function isSkeapOcrNameStatus(value: unknown): value is SkeapOcrNameStatus {
   return value === "MATCHED_APPLICANT" ||
     value === "MATCHED_PARENT" ||
+    value === "FOR_VERIFICATION" ||
     value === "LOW_READABILITY" ||
     value === "NAME_MISMATCH";
 }
@@ -362,6 +368,7 @@ function isValidUploadEntry(value: unknown): value is {
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
   ocrNameStatus?: SkeapOcrNameStatus;
+  ocrNameMessage?: string;
   adminRemark?: string;
   pendingResubmission?: boolean;
   fileType?: string;
@@ -377,6 +384,7 @@ function isValidUploadEntry(value: unknown): value is {
     (value.manualReview === undefined || typeof value.manualReview === "boolean") &&
     (value.verificationStatus === undefined || isSkeapVerificationStatus(value.verificationStatus)) &&
     (value.ocrNameStatus === undefined || isSkeapOcrNameStatus(value.ocrNameStatus)) &&
+    (value.ocrNameMessage === undefined || typeof value.ocrNameMessage === "string") &&
     (value.adminRemark === undefined || typeof value.adminRemark === "string") &&
     (value.pendingResubmission === undefined || typeof value.pendingResubmission === "boolean") &&
     (value.fileType === undefined || typeof value.fileType === "string") &&
@@ -414,6 +422,7 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         manualReview: typeof item.manualReview === "boolean" ? item.manualReview : undefined,
         verificationStatus: isSkeapVerificationStatus(item.verificationStatus) ? item.verificationStatus : undefined,
         ocrNameStatus: isSkeapOcrNameStatus(item.ocrNameStatus) ? item.ocrNameStatus : undefined,
+        ocrNameMessage: typeof item.ocrNameMessage === "string" ? item.ocrNameMessage : undefined,
         adminRemark: typeof item.adminRemark === "string" ? item.adminRemark : undefined,
         pendingResubmission: typeof item.pendingResubmission === "boolean" ? item.pendingResubmission : undefined,
         fileType: typeof item.fileType === "string" ? item.fileType : undefined,
@@ -442,6 +451,7 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         manualReview?: unknown;
         verificationStatus?: unknown;
         ocrNameStatus?: unknown;
+        ocrNameMessage?: unknown;
         adminRemark?: unknown;
         pendingResubmission?: unknown;
         fileType?: unknown;
@@ -466,6 +476,7 @@ export function normalizeUploadedFiles(raw: unknown): Record<string, SkeapUpload
         manualReview: typeof value.manualReview === "boolean" ? value.manualReview : undefined,
         verificationStatus: isSkeapVerificationStatus(value.verificationStatus) ? value.verificationStatus : undefined,
         ocrNameStatus: isSkeapOcrNameStatus(value.ocrNameStatus) ? value.ocrNameStatus : undefined,
+        ocrNameMessage: typeof value.ocrNameMessage === "string" ? value.ocrNameMessage : undefined,
         adminRemark: typeof value.adminRemark === "string" ? value.adminRemark : undefined,
         pendingResubmission:
           typeof value.pendingResubmission === "boolean" ? value.pendingResubmission : undefined,
@@ -552,6 +563,7 @@ export function getUploadGroups(uploadedFiles: unknown): SkeapUploadGroup[] {
         manualReview: item.manualReview,
         verificationStatus: item.verificationStatus,
         ocrNameStatus: item.ocrNameStatus,
+        ocrNameMessage: item.ocrNameMessage,
         adminRemark: item.adminRemark,
         pendingResubmission: item.pendingResubmission,
         fileType: item.fileType,
@@ -587,6 +599,7 @@ export function getApplicantUploadedFiles(uploadedFiles: unknown) {
         ...(upload.manualReview !== undefined ? { manualReview: upload.manualReview } : {}),
         ...(upload.verificationStatus !== undefined ? { verificationStatus: upload.verificationStatus } : {}),
         ...(upload.ocrNameStatus !== undefined ? { ocrNameStatus: upload.ocrNameStatus } : {}),
+        ...(upload.ocrNameMessage !== undefined ? { ocrNameMessage: upload.ocrNameMessage } : {}),
         ...(upload.pendingResubmission !== undefined ? { pendingResubmission: upload.pendingResubmission } : {}),
         ...(upload.fileType !== undefined ? { fileType: upload.fileType } : {}),
         ...(upload.gradeDiagnostics !== undefined

@@ -24,8 +24,16 @@ import {
 import {
   COE_MIME_TYPES,
   GRADE_REPORT_MIME_TYPES,
-  MAX_GRADE_REPORT_BYTES,
 } from "@/lib/ocr/grade-report-file";
+import {
+  MAX_SKEAP_UPLOAD_SIZE_BYTES,
+} from "@/lib/skeap-upload";
+import {
+  compressImageForUpload,
+  ensureSkeapUploadWithinLimit,
+  getSkeapUploadErrorMessage,
+  isSkeapRasterImage,
+} from "@/lib/skeap-upload-client";
 import {
   validateCertificateOfEnrollment,
   validateGradeReport,
@@ -551,8 +559,10 @@ export default function GranteeDocumentsClient({
     kind: "grade" | "coe",
     runId: number
   ) {
+    const processedFile = await compressImageForUpload(file);
+    ensureSkeapUploadWithinLimit(processedFile);
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", processedFile);
     formData.append("kind", kind);
 
     const response = await fetch("/api/grantee/submissions/upload", {
@@ -560,10 +570,12 @@ export default function GranteeDocumentsClient({
       body: formData,
     });
 
-    const result = await response.json();
     if (!response.ok) {
-      throw new Error(result?.error || "Upload failed");
+      throw new Error(
+        await getSkeapUploadErrorMessage(response, "Unable to upload this document. Please try again.")
+      );
     }
+    const result = await response.json();
     if (ocrRunIds.current[kind] !== runId) return;
 
     if (kind === "grade") {
@@ -681,20 +693,16 @@ export default function GranteeDocumentsClient({
     }
 
     const allowedTypes = kind === "grade" ? GRADE_REPORT_MIME_TYPES : COE_MIME_TYPES;
-    const isGenericJfif = /\.jfif$/i.test(file.name) &&
+    const isGenericRaster =
+      isSkeapRasterImage(file) &&
       (!normalizedFileType || normalizedFileType === "application/octet-stream");
-    if (!allowedTypes.has(normalizedFileType) && !isGenericJfif) {
+    if (!allowedTypes.has(normalizedFileType) && !isGenericRaster) {
       setOcrStatus("ERROR");
       setFileError(
         kind === "grade"
           ? "Grade reports must be PDF, JPG/JFIF, PNG, or WEBP files."
           : "Certificates of Enrollment must be PDF, JPG/JFIF, PNG, or WEBP files."
       );
-      return;
-    }
-    if (file.size > MAX_GRADE_REPORT_BYTES) {
-      setOcrStatus("ERROR");
-      setFileError("File exceeds the 10MB limit. Please select a smaller file.");
       return;
     }
     if (file.size === 0) {
@@ -704,12 +712,19 @@ export default function GranteeDocumentsClient({
     }
 
     try {
-      const shouldUpload = await runInstantOCR(file, kind, runId);
+      const processedFile = await compressImageForUpload(file);
+      ensureSkeapUploadWithinLimit(processedFile);
+      if (ocrRunIds.current[kind] !== runId) return;
+      setForm((prev) => kind === "grade"
+        ? { ...prev, gradeFile: processedFile, gradeFileUrl: "" }
+        : { ...prev, coeFile: processedFile, coeFileUrl: "" });
+
+      const shouldUpload = await runInstantOCR(processedFile, kind, runId);
       if (!shouldUpload || ocrRunIds.current[kind] !== runId) return;
 
       if (kind === "grade") setUploadingGrade(true);
       if (kind === "coe") setUploadingCoe(true);
-      await uploadFile(file, kind, runId);
+      await uploadFile(processedFile, kind, runId);
     } catch (error) {
       if (ocrRunIds.current[kind] !== runId) return;
       const text = error instanceof Error ? error.message : "Upload failed";
@@ -753,7 +768,9 @@ export default function GranteeDocumentsClient({
 
       if (gradeFileError || coeFileError) return;
 
-      if ([form.gradeFile, form.coeFile].some((file) => file && (file.size === 0 || file.size > MAX_GRADE_REPORT_BYTES))) {
+      if ([form.gradeFile, form.coeFile].some(
+        (file) => file && (file.size === 0 || file.size > MAX_SKEAP_UPLOAD_SIZE_BYTES)
+      )) {
         return;
       }
 
@@ -1881,13 +1898,13 @@ function FileDrop({
               </span>
               {windowClosed ? (
                 <span className="mt-1.5 block text-[11px] font-medium text-slate-400">
-                  {subtitle} · Maximum file size: 10MB
+                  {subtitle} · Maximum file size: 4MB
                 </span>
               ) : (
                 <>
                   <span className="mt-1.5 block text-[11px] text-slate-500">{subtitle}</span>
                   <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                    Maximum file size: 10MB
+                    Maximum file size: 4MB
                   </span>
                 </>
               )}

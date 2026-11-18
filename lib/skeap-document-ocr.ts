@@ -95,6 +95,14 @@ function matchesSignificantFullName(normalizedOcrText: string, name: string) {
   return nameTokens.every((token) => ocrTokens.has(token));
 }
 
+function matchesSurname(normalizedOcrText: string, surname: string) {
+  const surnameTokens = getSignificantNameTokens(surname);
+  if (surnameTokens.length === 0) return false;
+
+  const ocrTokens = new Set(normalizedOcrText.split(/\s+/).filter(Boolean));
+  return surnameTokens.every((token) => ocrTokens.has(token));
+}
+
 export function matchesPersonName(
   normalizedOcrText: string,
   { firstName, middleName, lastName }: PersonNameParts,
@@ -158,7 +166,6 @@ export function verifyOcrDocumentName(
     applicant,
     fatherName,
     motherName,
-    isRegisteredVoter,
     age,
     parentVoterName,
     confidence,
@@ -176,8 +183,17 @@ export function verifyOcrDocumentName(
   const applicantFullName = formatPersonName(applicant);
 
   if (documentType === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE) {
-    const isMinorNotRegistered = age !== undefined && age < 18 && isRegisteredVoter === false;
-    if (isMinorNotRegistered) {
+    if (!hasDocumentKeyword(ocrText, documentType)) {
+      return {
+        status: "FOR_VERIFICATION",
+        matchedName: null,
+        message: !normalizeNameTokens(ocrText).includes("PICO")
+          ? "The certificate could not be confirmed as a Barangay Pico voter certificate. Uploaded for SK Admin verification."
+          : "The document could not be confirmed as a COMELEC voter certificate for Barangay Pico. Uploaded for SK Admin verification.",
+      };
+    }
+
+    if (age !== undefined && age < 18) {
       for (const parentName of [parentVoterName, fatherName, motherName]) {
         if (parentName?.trim() && matchesSignificantFullName(normalizedOcrText, parentName)) {
           return {
@@ -187,16 +203,42 @@ export function verifyOcrDocumentName(
           };
         }
       }
-    } else if (
-      isRegisteredVoter === true &&
-      matchesPersonName(normalizedOcrText, applicant)
-    ) {
+
+      const familyNames = [applicant.lastName, parentVoterName, fatherName, motherName]
+        .flatMap((name) => {
+          if (!name?.trim()) return [];
+          const parsed = parseParentName(name);
+          return [parsed?.lastName || name];
+        });
+      const matchedFamilyName = familyNames.find((name) => matchesSurname(normalizedOcrText, name));
+      if (matchedFamilyName) {
+        return {
+          status: "MATCHED_PARENT",
+          matchedName: matchedFamilyName,
+          message: "Parent/Guardian voter certificate matched.",
+        };
+      }
+
+      return {
+        status: "FOR_VERIFICATION",
+        matchedName: null,
+        message: "Uploaded for SK Admin verification of parent/guardian relationship.",
+      };
+    }
+
+    if (matchesPersonName(normalizedOcrText, applicant)) {
       return {
         status: "MATCHED_APPLICANT",
         matchedName: applicantFullName,
         message: "Applicant name matched the document.",
       };
     }
+
+    return {
+      status: "FOR_VERIFICATION",
+      matchedName: null,
+      message: "Uploaded for SK Admin verification of applicant name.",
+    };
   } else if (matchesPersonName(normalizedOcrText, applicant)) {
     return {
       status: "MATCHED_APPLICANT",
@@ -233,16 +275,17 @@ export function verifyOcrDocumentName(
     matchedName: null,
     message: documentType === SKEAP_UPLOAD_KEY.FAMILY_INCOME
       ? "The document name does not match the applicant or listed parents."
-      : documentType === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE && age !== undefined && age < 18 && isRegisteredVoter === false
-        ? "The document name does not match the registered parent or guardian."
-        : "The document name does not match the applicant.",
+      : "The document name does not match the applicant.",
   };
 }
 
 function hasDocumentKeyword(text: string, docType: SkeapUploadKey) {
   if (docType === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE) {
     const normalizedText = text.toLowerCase().replace(/[^a-z0-9]/g, "");
-    return VOTER_CERTIFICATE_KEYWORDS.some((keyword) => normalizedText.includes(keyword));
+    const hasVoterCertificateKeyword = VOTER_CERTIFICATE_KEYWORDS.some((keyword) =>
+      normalizedText.includes(keyword)
+    );
+    return hasVoterCertificateKeyword && normalizeNameTokens(text).includes("PICO");
   }
   return getSkeapDocumentKeywordMatches(text, docType).length > 0;
 }
@@ -628,6 +671,9 @@ export async function validateDocumentOCR(
           ? "This appears to be a low-income or indigency certificate, not a Certificate of Residency. Upload the correct document or submit this file for administrator review."
           : isPdf && text.trim().length < 20
           ? "This PDF may contain an image instead of readable text. Upload the original JPG, PNG, or WebP photo for automatic verification, or proceed to manual review."
+          : docType === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE &&
+              !normalizeNameTokens(text).includes("PICO")
+            ? "The voter certificate must reference Barangay Pico."
           : "The document text does not clearly match this upload slot.",
       };
     }

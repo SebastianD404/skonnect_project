@@ -4,10 +4,11 @@ import { isSkeapTestAccount } from "@/lib/skeap-test-access";
 import { uploadPrivateDocument } from "@/lib/private-documents";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { getSupportedSkeapDocumentType } from "@/lib/skeap-upload";
+import {
+  getSupportedSkeapDocumentType,
+  MAX_SKEAP_UPLOAD_SIZE_BYTES,
+} from "@/lib/skeap-upload";
 import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
-
-const MAX_FILE_SIZE = 15 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
@@ -73,8 +74,11 @@ export async function POST(request: NextRequest) {
     if (file.size === 0) {
       return NextResponse.json({ error: "The selected file is empty." }, { status: 400 });
     }
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: "File size must not exceed 15MB" }, { status: 400 });
+    if (file.size > MAX_SKEAP_UPLOAD_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: "File is too large for upload. Please upload a file under 4 MB or compress the image." },
+        { status: 400 }
+      );
     }
 
     const uploadFile = file.type === contentType

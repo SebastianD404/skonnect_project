@@ -7,10 +7,14 @@ import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { downgradeInactiveGranteeRole } from "@/lib/grantee-role";
 import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
-import { GRADE_REPORT_MIME_TYPES, hasGradeReportSignature, MAX_GRADE_REPORT_BYTES } from "@/lib/ocr/grade-report-file";
+import { GRADE_REPORT_MIME_TYPES, hasGradeReportSignature } from "@/lib/ocr/grade-report-file";
 import { uploadPrivateDocument, removePrivateDocument } from "@/lib/private-documents";
 import { createClient } from "@/lib/supabase/server";
 import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
+import {
+  MAX_SKEAP_UPLOAD_SIZE_BYTES,
+  SKEAP_UPLOAD_TOO_LARGE_MESSAGE,
+} from "@/lib/skeap-upload";
 
 type GraduationInput = {
   schoolClearanceVerified: boolean;
@@ -75,24 +79,37 @@ export async function POST(
     return NextResponse.json({ error: "Clearance notes must be 1,000 characters or fewer." }, { status: 400 });
   }
 
-  if (input.file) {
-    const contentType = input.file.type.toLowerCase();
+  let clearanceFile = input.file;
+  if (clearanceFile) {
+    const submittedContentType = clearanceFile.type.toLowerCase();
+    const isJfif = /\.jfif$/i.test(clearanceFile.name);
+    const contentType = submittedContentType === "image/jfif" || isJfif
+      ? "image/jpeg"
+      : submittedContentType;
     if (
       !GRADE_REPORT_MIME_TYPES.has(contentType) ||
-      input.file.size === 0 ||
-      input.file.size > MAX_GRADE_REPORT_BYTES
+      clearanceFile.size === 0
     ) {
-      return NextResponse.json({ error: "Clearance scans must be PDF, JPG, PNG, or WEBP files under 10MB." }, { status: 400 });
+      return NextResponse.json({ error: "Clearance scans must be PDF, JPG/JFIF, PNG, or WEBP files." }, { status: 400 });
     }
-    if (!hasGradeReportSignature(new Uint8Array(await input.file.arrayBuffer()), contentType)) {
+    if (clearanceFile.size > MAX_SKEAP_UPLOAD_SIZE_BYTES) {
+      return NextResponse.json({ error: SKEAP_UPLOAD_TOO_LARGE_MESSAGE }, { status: 400 });
+    }
+    if (contentType !== clearanceFile.type) {
+      clearanceFile = new File([clearanceFile], clearanceFile.name.replace(/\.jfif$/i, ".jpg"), {
+        type: contentType,
+        lastModified: clearanceFile.lastModified,
+      });
+    }
+    if (!hasGradeReportSignature(new Uint8Array(await clearanceFile.arrayBuffer()), contentType)) {
       return NextResponse.json({ error: "The uploaded clearance does not match its declared file type." }, { status: 400 });
     }
   }
 
   let uploadedPath: string | null = null;
   try {
-    const uploaded = input.file
-      ? await uploadPrivateDocument(user.id, input.file, "grantee-clearances", "exit-clearance")
+    const uploaded = clearanceFile
+      ? await uploadPrivateDocument(user.id, clearanceFile, "grantee-clearances", "exit-clearance")
       : null;
     uploadedPath = uploaded?.path ?? null;
 

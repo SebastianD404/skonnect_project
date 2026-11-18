@@ -4,6 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, FileCheck2, GraduationCap, Upload, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
+import {
+  compressImageForUpload,
+  ensureSkeapUploadWithinLimit,
+  getSkeapUploadErrorMessage,
+} from "@/lib/skeap-upload-client";
 
 export default function GraduationAction({
   granteeId,
@@ -29,19 +34,22 @@ export default function GraduationAction({
     setIsSubmitting(true);
     setError(null);
     try {
+      const uploadFile = file ? await compressImageForUpload(file) : null;
+      if (uploadFile) ensureSkeapUploadWithinLimit(uploadFile);
       const formData = new FormData();
       formData.set("schoolClearanceVerified", String(schoolClearanceVerified));
       formData.set("skClearanceVerified", String(skClearanceVerified));
       formData.set("remarks", remarks);
-      if (file) formData.set("file", file);
+      if (uploadFile) formData.set("file", uploadFile);
 
       const response = await fetch(`/api/admin/grantees/${granteeId}/graduate`, {
         method: "POST",
         body: formData,
       });
-      const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(typeof body.error === "string" ? body.error : "Unable to mark grantee as graduated.");
+        throw new Error(
+          await getSkeapUploadErrorMessage(response, "Unable to mark grantee as graduated.")
+        );
       }
 
       setIsOpen(false);
@@ -166,10 +174,10 @@ export default function GraduationAction({
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-medium text-slate-700">
                 Optional on-site clearance scan
-                <span className="mt-1 block text-xs font-normal text-slate-500">PDF, JPG, PNG, or WEBP · Maximum 10MB</span>
+                <span className="mt-1 block text-xs font-normal text-slate-500">PDF, JPG/JFIF, PNG, or WEBP · Maximum 4MB</span>
                 <input
                   type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                  accept=".pdf,.jpg,.jpeg,.jfif,.png,.webp,application/pdf,image/jpeg,image/jfif,image/png,image/webp"
                   onChange={(event) => {
                     setFile(event.target.files?.[0] ?? null);
                     setError(null);

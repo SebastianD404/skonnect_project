@@ -8,7 +8,9 @@ import {
   CORE_UPLOAD_KEYS,
   isClientGradeOcrStatus,
   isGradeReportDiagnostics,
+  MAX_SKEAP_UPLOAD_SIZE_BYTES,
   mergeSkeapDraftReplacement,
+  SKEAP_UPLOAD_TOO_LARGE_MESSAGE,
 } from "@/lib/skeap-upload";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
@@ -22,8 +24,6 @@ const ALLOWED_TYPES = new Set([
   "image/jpg",
   "image/webp",
 ]);
-const MAX_FILE_SIZE = 15 * 1024 * 1024;
-
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -94,8 +94,8 @@ export async function POST(
     if (file.size === 0) {
       return NextResponse.json({ error: "The selected file is empty." }, { status: 400 });
     }
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: "File size must not exceed 15MB." }, { status: 400 });
+    if (file.size > MAX_SKEAP_UPLOAD_SIZE_BYTES) {
+      return NextResponse.json({ error: SKEAP_UPLOAD_TOO_LARGE_MESSAGE }, { status: 400 });
     }
     let gradeDiagnostics: import("@/lib/grade-report-parser").GradeReportDiagnostics | null | undefined;
     let ocrStatus: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED" | undefined;

@@ -7,7 +7,18 @@ import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inbox, Info, LoaderCircle, MessageCircle, Trash2, Upload, UserRound, X } from "lucide-react";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
-import { getCoreUploadGroups, getPhotoUploadGroup, CORE_UPLOAD_KEYS, SKEAP_UPLOAD_LABELS } from "@/lib/skeap-upload";
+import {
+  getCoreUploadGroups,
+  getPhotoUploadGroup,
+  CORE_UPLOAD_KEYS,
+  SKEAP_UPLOAD_LABELS,
+} from "@/lib/skeap-upload";
+import {
+  compressImageForUpload,
+  ensureSkeapUploadWithinLimit,
+  getSkeapUploadErrorMessage,
+  isSkeapRasterImage,
+} from "@/lib/skeap-upload-client";
 import {
   isSkeapApplicationReturned,
   isSkeapUploadMarkedForCorrection,
@@ -110,7 +121,6 @@ type SubmittedFile = {
   ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED";
 };
 
-const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const WITHDRAWABLE_APPLICATION_STATUSES = new Set([
   "PENDING",
   "UNDER_REVIEW",
@@ -126,6 +136,7 @@ const ALLOWED_TYPES = new Set([
   "image/png",
   "image/jpeg",
   "image/jpg",
+  "image/jfif",
   "image/webp",
 ]);
 
@@ -278,8 +289,10 @@ async function uploadDocument(
   gradeDiagnostics?: GradeReportDiagnostics | null,
   ocrStatus?: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED",
 ) {
+  const uploadFile = await compressImageForUpload(file);
+  ensureSkeapUploadWithinLimit(uploadFile);
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append("file", uploadFile);
   formData.append("slotId", slotId);
   if (slotId === "gradeReport") {
     formData.append("gradeDiagnostics", JSON.stringify(gradeDiagnostics ?? null));
@@ -290,8 +303,7 @@ async function uploadDocument(
     body: formData,
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body?.error || "Upload failed");
+    throw new Error(await getSkeapUploadErrorMessage(response, "Unable to upload replacement file. Please try again."));
   }
   const body = await response.json();
   if (!body?.url) {
@@ -469,12 +481,15 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
 
   const handleReplacementSelected = async (slotId: string, originalUrl: string, file: File) => {
     if (isEditLocked || isUploadingReplacement) return;
-    if (!ALLOWED_TYPES.has(file.type)) {
-      setError("Only PDF, DOCX, PNG, JPG, and WEBP files are allowed.");
+    const isGenericRaster =
+      isSkeapRasterImage(file) &&
+      (!file.type || file.type === "application/octet-stream");
+    if (!ALLOWED_TYPES.has(file.type) && !isGenericRaster) {
+      setError("Only PDF, DOC/DOCX, PNG, JPG/JFIF, and WEBP files are allowed.");
       return;
     }
-    if (file.size > MAX_FILE_SIZE) {
-      setError("File must not exceed 15MB.");
+    if (file.size === 0) {
+      setError("The selected file is empty.");
       return;
     }
 
@@ -483,18 +498,32 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     const existing = stagedMap[slotId];
     if (existing?.previewUrl) URL.revokeObjectURL(existing.previewUrl);
 
-    const previewUrl = URL.createObjectURL(file);
+    let previewUrl = URL.createObjectURL(file);
     setStagedReplacements((current) => [
       ...current.filter((replacement) => replacement.slotId !== slotId),
       { slotId, originalUrl, file, previewUrl, status: "uploading" },
     ]);
 
     try {
+      const uploadFile = await compressImageForUpload(file);
+      ensureSkeapUploadWithinLimit(uploadFile);
+      if (uploadFile !== file) {
+        URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(uploadFile);
+        setStagedReplacements((current) =>
+          current.map((replacement) =>
+            replacement.slotId === slotId
+              ? { ...replacement, file: uploadFile, previewUrl }
+              : replacement
+          )
+        );
+      }
+
       let gradeDiagnostics: GradeReportDiagnostics | null = null;
       let ocrStatus: "OCR_DONE" | "OCR_NEEDS_REVIEW" | "OCR_FAILED" | undefined;
       if (slotId === "gradeReport") {
         try {
-          const scan = await scanGradeReportFile(file);
+          const scan = await scanGradeReportFile(uploadFile);
           gradeDiagnostics = scan.diagnostics;
           ocrStatus = scan.ocrStatus;
         } catch (scanError) {
@@ -505,7 +534,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
       const uploadedUrl = await uploadDocument(
         application.id,
         slotId,
-        file,
+        uploadFile,
         gradeDiagnostics,
         ocrStatus,
       );

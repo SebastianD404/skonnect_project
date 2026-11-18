@@ -6,12 +6,15 @@ import {
   COE_MIME_TYPES,
   GRADE_REPORT_MIME_TYPES,
   hasGradeReportSignature,
-  MAX_GRADE_REPORT_BYTES,
 } from "@/lib/ocr/grade-report-file";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SubmissionStatus } from "@prisma/client";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import { detectGranteeTargetTerm, getScheduleSemesterForTargetTerm } from "@/lib/grantee-semester";
+import {
+  MAX_SKEAP_UPLOAD_SIZE_BYTES,
+  SKEAP_UPLOAD_TOO_LARGE_MESSAGE,
+} from "@/lib/skeap-upload";
 
 export async function POST(request: NextRequest) {
   try {
@@ -121,8 +124,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (file.size === 0 || file.size > MAX_GRADE_REPORT_BYTES) {
-      return NextResponse.json({ error: "File size must be less than 10MB" }, { status: 400 });
+    if (file.size === 0) {
+      return NextResponse.json({ error: "The selected file is empty." }, { status: 400 });
+    }
+    if (file.size > MAX_SKEAP_UPLOAD_SIZE_BYTES) {
+      return NextResponse.json({ error: SKEAP_UPLOAD_TOO_LARGE_MESSAGE }, { status: 400 });
     }
 
     const safeName = file.name.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]/g, "");

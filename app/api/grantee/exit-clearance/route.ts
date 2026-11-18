@@ -6,8 +6,11 @@ import { uploadPrivateDocument, removePrivateDocument } from "@/lib/private-docu
 import {
   GRADE_REPORT_MIME_TYPES,
   hasGradeReportSignature,
-  MAX_GRADE_REPORT_BYTES,
 } from "@/lib/ocr/grade-report-file";
+import {
+  MAX_SKEAP_UPLOAD_SIZE_BYTES,
+  SKEAP_UPLOAD_TOO_LARGE_MESSAGE,
+} from "@/lib/skeap-upload";
 
 export async function POST(request: NextRequest) {
   try {
@@ -52,22 +55,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "The optional note must be 1,000 characters or fewer." }, { status: 400 });
     }
 
-    const contentType = file.type.toLowerCase();
-    if (!GRADE_REPORT_MIME_TYPES.has(contentType) || file.size === 0 || file.size > MAX_GRADE_REPORT_BYTES) {
+    const submittedContentType = file.type.toLowerCase();
+    const isJfif = /\.jfif$/i.test(file.name);
+    const contentType = submittedContentType === "image/jfif" || isJfif
+      ? "image/jpeg"
+      : submittedContentType;
+    if (!GRADE_REPORT_MIME_TYPES.has(contentType) || file.size === 0) {
       return NextResponse.json(
-        { error: "Upload a PDF, JPG, PNG, or WEBP file smaller than 10MB." },
+        { error: "Upload a PDF, JPG, PNG, JFIF, or WEBP file." },
+        { status: 400 }
+      );
+    }
+    if (file.size > MAX_SKEAP_UPLOAD_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: SKEAP_UPLOAD_TOO_LARGE_MESSAGE },
         { status: 400 }
       );
     }
 
-    const fileBytes = new Uint8Array(await file.arrayBuffer());
+    const uploadFile = contentType === file.type
+      ? file
+      : new File([file], file.name.replace(/\.jfif$/i, ".jpg"), {
+          type: contentType,
+          lastModified: file.lastModified,
+        });
+    const fileBytes = new Uint8Array(await uploadFile.arrayBuffer());
     if (!hasGradeReportSignature(fileBytes, contentType)) {
       return NextResponse.json({ error: "The uploaded file does not match its declared file type." }, { status: 400 });
     }
 
     let uploadedPath: string | null = null;
     try {
-      const uploaded = await uploadPrivateDocument(user.id, file, "grantee-clearances", "exit-clearance");
+      const uploaded = await uploadPrivateDocument(user.id, uploadFile, "grantee-clearances", "exit-clearance");
       uploadedPath = uploaded.path;
 
       await prisma.$transaction(async (tx) => {

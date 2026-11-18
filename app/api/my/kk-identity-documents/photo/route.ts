@@ -5,12 +5,13 @@ import { removePrivateDocument, uploadPrivateDocument } from "@/lib/private-docu
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { MAX_SKEAP_UPLOAD_SIZE_BYTES } from "@/lib/skeap-upload";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const PHOTO_TYPES = new Map([
   ["image/jpeg", "jpg"],
   ["image/jfif", "jpg"],
   ["image/png", "png"],
+  ["image/webp", "webp"],
 ]);
 
 export async function POST(request: Request) {
@@ -68,14 +69,17 @@ export async function POST(request: Request) {
   if (!extension) {
     return NextResponse.json({ error: "Photo must be a JPG, JFIF, or PNG image." }, { status: 400 });
   }
-  if (photo.size === 0 || photo.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: "Photo must be no larger than 10MB." }, { status: 400 });
+  if (photo.size === 0 || photo.size > MAX_SKEAP_UPLOAD_SIZE_BYTES) {
+    return NextResponse.json(
+      { error: "File is too large for upload. Please upload a file under 4 MB or compress the image." },
+      { status: 400 }
+    );
   }
 
   let privateDocumentPath: string | null = null;
   let avatarPath: string | null = null;
   try {
-    const normalizedPhoto = photo.type === "image/png"
+    const normalizedPhoto = photo.type === "image/png" || photo.type === "image/webp"
       ? photo
       : new File([photo], photo.name, { type: "image/jpeg", lastModified: photo.lastModified });
     const privateDocument = await uploadPrivateDocument(

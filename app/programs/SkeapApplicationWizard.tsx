@@ -7,6 +7,7 @@ import {
   SKEAP_UPLOAD_KEY,
   SKEAP_TERM_UPLOAD_KEYS,
   SKEAP_UPLOAD_LABELS,
+  SKEAP_UPLOAD_TOO_LARGE_MESSAGE,
   type SkeapRequiredDocument,
   getSupportedSkeapDocumentType,
   normalizeUploadRequirement,
@@ -14,6 +15,12 @@ import {
   type SkeapVerificationStatus,
   type SkeapUploadKey,
 } from "@/lib/skeap-upload";
+import {
+  compressImageForUpload,
+  ensureSkeapUploadWithinLimit,
+  getSkeapUploadErrorMessage,
+  isSkeapRasterImage,
+} from "@/lib/skeap-upload-client";
 import type { KKProfile } from "@/lib/kk-profile-client";
 import { validateDocumentOCR, verifyOcrDocumentName } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
@@ -168,6 +175,7 @@ type UploadedFile = {
   error?: string;
   manualReview?: boolean;
   manualReviewAvailable?: boolean;
+  ocrNameMessage?: string;
   requirement?: string;
   previewUrl?: string;
   previewFailed?: boolean;
@@ -185,6 +193,7 @@ type SkeapUploadValue = {
   manualReview?: boolean;
   verificationStatus?: SkeapVerificationStatus;
   ocrNameStatus?: SkeapOcrNameStatus;
+  adminRemark?: string;
 };
 
 type KkIdentityDocuments = {
@@ -207,7 +216,6 @@ function isKkIdentityDocuments(value: unknown): value is KkIdentityDocuments {
   ].every((url) => typeof url === "string" && url.startsWith("/api/private-documents/"));
 }
 
-const MAX_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024;
 const ACCEPTED_DOCUMENT_TYPES = "image/jpeg,image/jfif,.jfif,image/png,image/webp,application/pdf";
 const STRICT_OCR_UPLOAD_KEYS = new Set<SkeapUploadKey>([
   SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE,
@@ -270,10 +278,16 @@ function computeAgeFromDateValue(value: string) {
   const birthDate = parseDateValue(value);
   if (!birthDate) return undefined;
 
-  const now = new Date();
-  const currentYear = now.getUTCFullYear();
-  const currentMonth = now.getUTCMonth();
-  const currentDay = now.getUTCDate();
+  const todayParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(new Date());
+  const today = Object.fromEntries(todayParts.map(({ type, value: partValue }) => [type, partValue]));
+  const currentYear = Number(today.year);
+  const currentMonth = Number(today.month) - 1;
+  const currentDay = Number(today.day);
 
   const birthYear = birthDate.getUTCFullYear();
   const birthMonth = birthDate.getUTCMonth();
@@ -819,6 +833,10 @@ function OccupationCombobox(props: OccupationComboboxProps) {
   );
 }
 
+function createUploadId() {
+  return crypto.randomUUID();
+}
+
 export default function SkeapApplicationWizard({
   onSubmitted,
   educationLevel,
@@ -933,8 +951,9 @@ export default function SkeapApplicationWizard({
       ? "__OTHER__"
       : course;
   const isIncomingFreshman = yearLevel === "Incoming Freshman" || yearLevel === "New Trainee / Incoming";
-  const isVotingAge = Number(age) >= 18;
-  const isMinorApplicant = Number(age) >= 15 && Number(age) < 18;
+  const applicantAge = computeAgeFromDateValue(dateOfBirth) ?? Number(age);
+  const isVotingAge = applicantAge >= 18;
+  const isMinorApplicant = applicantAge >= 15 && applicantAge < 18;
 
   function getVoterCertificateNameVerification(
     file?: Pick<UploadedFile, "ocrText" | "ocrConfidence">,
@@ -948,7 +967,7 @@ export default function SkeapApplicationWizard({
         fatherName: fathersName,
         motherName: mothersMaidenName,
         isRegisteredVoter: registeredVoter,
-        age: Number(age),
+        age: applicantAge,
         parentVoterName: parentGuardianVoterFullName,
         confidence: file.ocrConfidence,
       },
@@ -958,6 +977,10 @@ export default function SkeapApplicationWizard({
   useEffect(() => {
     if (courseSelectValue === "__OTHER__") manualCourseInputRef.current?.focus();
   }, [courseSelectValue]);
+
+  useEffect(() => {
+    if (profileAge !== undefined) onEligibilityChange?.(profileAge, null);
+  }, [onEligibilityChange, profileAge]);
 
   // Educational background
   const [elementarySchool, setElementarySchool] = useState("");
@@ -1012,15 +1035,17 @@ export default function SkeapApplicationWizard({
     setUpdatingPhoto(true);
     try {
       const formData = new FormData();
-      formData.append("photo", file);
+      const uploadFile = await compressImageForUpload(file);
+      ensureSkeapUploadWithinLimit(uploadFile);
+      formData.append("photo", uploadFile);
       const response = await fetch("/api/my/kk-identity-documents/photo", {
         method: "POST",
         body: formData,
       });
-      const result = await response.json();
       if (!response.ok) {
-        throw new Error(result.error || "Unable to update your photo.");
+        throw new Error(await getSkeapUploadErrorMessage(response, "Unable to update your photo."));
       }
+      const result = await response.json();
       if (typeof result.photo !== "string" || !result.photo.startsWith("/api/private-documents/")) {
         throw new Error("The updated photo reference was invalid.");
       }
@@ -1116,10 +1141,9 @@ export default function SkeapApplicationWizard({
       if (!placeOfBirthResult.success) {
         addError("placeOfBirth", placeOfBirthResult.error.issues[0]?.message ?? "Enter a valid place of birth.");
       }
-      const parsedAge = Number(age);
       if (!age.trim()) {
         addError("age", "Age is required.");
-      } else if (Number.isNaN(parsedAge) || parsedAge < 15 || parsedAge > 30) {
+      } else if (!Number.isFinite(applicantAge) || applicantAge < 15 || applicantAge > 30) {
         addError("age", "Applicants must be between 15 and 30 years old.");
       }
       if (!civilStatus.trim()) addError("civilStatus", "Civil status is required.");
@@ -1284,12 +1308,30 @@ export default function SkeapApplicationWizard({
       if (filesArray.length === 0) return null;
 
       const file = filesArray[0];
-      id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      id = createUploadId();
       const normalizedRequirement = requirement ? normalizeUploadRequirement(requirement) : normalizeUploadRequirement(file.name || "");
       const normalizedKey = normalizedRequirement || normalizeUploadRequirement(file.name || "");
       const isVoterCertificate = normalizedKey === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE;
       if (!getSupportedSkeapDocumentType(file)) {
         const errorText = "That file type isn't supported. Please choose a PDF, JPG/JFIF, PNG, or WebP.";
+        setFiles((prev) => [
+          ...prev.filter((existingFile) => existingFile.requirement !== normalizedKey),
+          {
+            id,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            progress: 0,
+            status: "error",
+            error: errorText,
+            requirement: normalizedKey,
+          },
+        ]);
+        return errorText;
+      }
+
+      if (file.size === 0) {
+        const errorText = "This file is empty. Please choose another file.";
         setFiles((prev) => [
           ...prev.filter((existingFile) => existingFile.requirement !== normalizedKey),
           {
@@ -1322,7 +1364,9 @@ export default function SkeapApplicationWizard({
         size: file.size,
         previewUrl,
         progress: 0,
-        status: STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey) || isVoterCertificate
+        status: STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey) ||
+          isVoterCertificate ||
+          isSkeapRasterImage(file)
           ? "validating"
           : "queued",
         requirement: normalizedKey,
@@ -1330,32 +1374,35 @@ export default function SkeapApplicationWizard({
         file,
       };
 
-      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-        const errorText = "File size exceeds the 15MB limit. Please upload a smaller file.";
-        setFiles((prev) => [
-          ...prev.filter((f) => f.requirement !== normalizedKey),
-          { ...newUpload, status: "error", error: errorText },
-        ]);
-        return errorText;
-      }
-
-      if (file.size === 0) {
-        const errorText = "This file is empty. Please choose another file.";
-        setFiles((prev) => [
-          ...prev.filter((f) => f.requirement !== normalizedKey),
-          { ...newUpload, status: "error", error: errorText },
-        ]);
-        return errorText;
-      }
-
       setFiles((prev) => [
         ...prev.filter((f) => f.requirement !== normalizedKey),
         newUpload,
       ]);
 
+      const uploadFile = await compressImageForUpload(file);
+      if (!getSupportedSkeapDocumentType(uploadFile)) {
+        const errorText = "The compressed image format is not supported. Please choose another image.";
+        setFiles((prev) => prev.map((uploadedFile) => uploadedFile.id === id
+          ? { ...uploadedFile, status: "error", error: errorText }
+          : uploadedFile));
+        return errorText;
+      }
+
+      const preparedUpload = {
+        ...newUpload,
+        type: uploadFile.type,
+        size: uploadFile.size,
+        file: uploadFile,
+      };
+      setFiles((prev) => prev.map((uploadedFile) => uploadedFile.id === id
+        ? preparedUpload
+        : uploadedFile));
+
+      ensureSkeapUploadWithinLimit(uploadFile);
+
       if (STRICT_OCR_UPLOAD_KEYS.has(normalizedKey as SkeapUploadKey) || isVoterCertificate) {
         try {
-          const validation = await validateDocumentOCR(file, normalizedKey).catch((error: unknown) => {
+          const validation = await validateDocumentOCR(uploadFile, normalizedKey).catch((error: unknown) => {
             if (!isVoterCertificate) throw error;
             console.error("COMELEC Voter's Certificate OCR name check failed; the upload will be sent for administrator review.", {
               fileName: file.name,
@@ -1380,20 +1427,40 @@ export default function SkeapApplicationWizard({
                 ...(isVoterCertificate
                   ? {
                       isRegisteredVoter: registeredVoter,
-                      age: Number(age),
+                      age: applicantAge,
                       parentVoterName: parentGuardianVoterFullName,
                     }
                   : {}),
                 confidence: validation.confidence,
               })
             : undefined;
-          const ocrNameStatus = validation.status === "verified"
+          let ocrNameStatus = validation.status === "verified"
             ? nameVerification?.status
             : isVoterCertificate
               ? nameVerification?.status ?? "LOW_READABILITY"
             : nameVerification?.status === "LOW_READABILITY"
               ? nameVerification.status
               : undefined;
+          let ocrNameMessage: string | undefined;
+          if (isVoterCertificate) {
+            if (validation.status !== "verified") {
+              ocrNameStatus = "FOR_VERIFICATION";
+              ocrNameMessage = nameVerification?.status === "FOR_VERIFICATION"
+                ? nameVerification.message
+                : "The voter certificate could not be verified automatically. Uploaded for SK Admin verification.";
+            } else if (
+              nameVerification?.status !== "MATCHED_APPLICANT" &&
+              nameVerification?.status !== "MATCHED_PARENT"
+            ) {
+              ocrNameStatus = "FOR_VERIFICATION";
+              ocrNameMessage = nameVerification?.message ||
+                (isMinorApplicant
+                  ? "Uploaded for SK Admin verification of parent/guardian relationship."
+                  : "Uploaded for SK Admin verification of applicant name.");
+            } else {
+              ocrNameMessage = nameVerification.message;
+            }
+          }
 
           if (validation.status !== "verified" && !isVoterCertificate) {
             const errorText = `Document not verified. ${validation.status === "review"
@@ -1416,6 +1483,7 @@ export default function SkeapApplicationWizard({
                 status: "queued",
                 error: undefined,
                 ...(ocrNameStatus ? { ocrNameStatus } : {}),
+                ...(ocrNameMessage ? { ocrNameMessage } : {}),
                 ...(isVoterCertificate
                   ? {
                       ocrText: validation.extractedText,
@@ -1439,7 +1507,7 @@ export default function SkeapApplicationWizard({
         }
       }
 
-      return uploadPendingFile(id, file, normalizedKey);
+      return uploadPendingFile(id, uploadFile, normalizedKey);
     } catch (err) {
       const text = err instanceof Error ? err.message : "Upload failed";
       console.error("SKEAP upload failed", { requirement, error: text, rawError: err });
@@ -1528,6 +1596,9 @@ export default function SkeapApplicationWizard({
             url: file.url.trim(),
             ...(file.manualReview ? { manualReview: true } : {}),
             ...(file.ocrNameStatus ? { ocrNameStatus: file.ocrNameStatus } : {}),
+            ...(file.ocrNameStatus === "FOR_VERIFICATION" && file.ocrNameMessage
+              ? { ocrNameMessage: file.ocrNameMessage }
+              : {}),
             ...(key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE && file.verificationStatus
               ? { verificationStatus: file.verificationStatus }
               : {}),
@@ -1551,6 +1622,9 @@ export default function SkeapApplicationWizard({
           url: voterCertificate.url.trim(),
           verificationStatus: "PENDING_ADMIN_REVIEW",
           ...(voterOcrNameStatus ? { ocrNameStatus: voterOcrNameStatus } : {}),
+          ...(voterOcrNameStatus === "FOR_VERIFICATION" && voterCertificate.ocrNameMessage
+            ? { ocrNameMessage: voterCertificate.ocrNameMessage }
+            : {}),
         };
       }
 
@@ -1611,7 +1685,7 @@ export default function SkeapApplicationWizard({
           permanentAddress,
           dateOfBirth,
           placeOfBirth,
-          age,
+          age: String(applicantAge),
           civilStatus,
           gender,
           fathersName,
@@ -1860,7 +1934,10 @@ export default function SkeapApplicationWizard({
                 onChange={(event) => {
                   const nextAge = event.target.value;
                   setAge(nextAge);
-                  onEligibilityChange?.(Number(nextAge), registeredVoter);
+                  onEligibilityChange?.(
+                    computeAgeFromDateValue(dateOfBirth) ?? Number(nextAge),
+                    registeredVoter,
+                  );
                   markFieldValid("age");
                 }}
                 className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 focus:outline-none ${invalidFields.has("age") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : allowManualProfileDetails ? "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500"}`}
@@ -2020,7 +2097,7 @@ export default function SkeapApplicationWizard({
                     }
                     onChange={() => {
                       setRegisteredVoter(true);
-                      onEligibilityChange?.(Number(age), true);
+                      onEligibilityChange?.(applicantAge, true);
                       markFieldValid("registeredVoter");
                     }}
                     className="mt-0.5 h-4 w-4 shrink-0"
@@ -2048,7 +2125,7 @@ export default function SkeapApplicationWizard({
                     }
                     onChange={() => {
                       setRegisteredVoter(false);
-                      onEligibilityChange?.(Number(age), false);
+                      onEligibilityChange?.(applicantAge, false);
                       markFieldValid("registeredVoter");
                     }}
                     className="mt-0.5 h-4 w-4 shrink-0"
@@ -2683,12 +2760,12 @@ export default function SkeapApplicationWizard({
                 key === SKEAP_UPLOAD_KEY.FAMILY_INCOME ||
                 key === SKEAP_UPLOAD_KEY.ENROLLMENT_CERT ||
                 key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE;
-              const ocrNameStatus = isNameVerificationDocument
+              const isReady = matchingFile?.status === "done" && Boolean(matchingFile.url);
+              const ocrNameStatus = isReady && isNameVerificationDocument
                 ? key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
                   ? getVoterCertificateNameVerification(matchingFile)?.status ?? matchingFile?.ocrNameStatus
                   : matchingFile?.ocrNameStatus
                 : undefined;
-              const isReady = matchingFile?.status === "done" && Boolean(matchingFile.url);
               const matchingFileUrl = matchingFile?.status === "done" ? matchingFile.url : undefined;
               const statusLabel = matchingFile?.status === "error"
                 ? matchingFile.manualReviewAvailable ? "UNVERIFIED" : "Try again"
@@ -2739,7 +2816,7 @@ export default function SkeapApplicationWizard({
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">{helperText}</p>
                     ) : null}
                     <p className="mt-0.5 text-xs text-slate-500">
-                      Supports PDF, JPG/JFIF, PNG, and WebP (Max 15MB).
+                      Supports PDF, JPG/JFIF, PNG, and WebP (Max 4MB). Images over 1.5MB are compressed automatically before upload.
                     </p>
                   </div>
 
@@ -2894,10 +2971,23 @@ export default function SkeapApplicationWizard({
                     key === SKEAP_UPLOAD_KEY.FAMILY_INCOME ||
                     key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
                   ) ? (
-                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-900" role="status">
+                    <p className={`mt-3 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium ${key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE ? "border border-emerald-200 bg-emerald-50 text-emerald-800" : "border border-amber-200 bg-amber-50/80 text-amber-900"}`} role="status">
+                      {key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE ? (
+                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      ) : null}
                       {key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE
-                        ? "Parent or guardian name matched — admins will verify the registered voter details"
+                        ? "Verified: Parent/Guardian voter certificate matched"
                         : "Parent name matched — admins will cross-check against your Family Background"}
+                    </p>
+                  ) : null}
+                  {ocrNameStatus === "FOR_VERIFICATION" ||
+                  (key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE && ocrNameStatus === "NAME_MISMATCH") ? (
+                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-900" role="status">
+                      <span className="font-semibold">For Verification.</span>{" "}
+                      {matchingFile?.ocrNameMessage ||
+                        (isMinorApplicant
+                          ? "Uploaded for SK Admin verification of parent/guardian relationship."
+                          : "Uploaded for SK Admin verification of applicant name.")}
                     </p>
                   ) : null}
                   {ocrNameStatus === "LOW_READABILITY" ? (
@@ -2905,14 +2995,10 @@ export default function SkeapApplicationWizard({
                       Low text clarity — ensure the scan is readable or admins will verify manually
                     </p>
                   ) : null}
-                  {ocrNameStatus === "NAME_MISMATCH" ? (
+                  {ocrNameStatus === "NAME_MISMATCH" && key !== SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE ? (
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2.5" role="alert">
                       <p className="min-w-0 flex-1 text-xs leading-relaxed text-rose-800">
-                        {key === SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE &&
-                        Number(age) < 18 &&
-                        registeredVoter === false
-                          ? "Name Mismatch: This document does not appear to match the registered parent or guardian. Please verify you uploaded the right file."
-                          : `Name Mismatch: This document does not appear to match ${applicantDisplayName || "the applicant"}. Please verify you uploaded the right file.`}
+                        Name Mismatch: This document does not appear to match {applicantDisplayName || "the applicant"}. Please verify you uploaded the right file.
                       </p>
                       <label
                         htmlFor={inputId}
@@ -3059,14 +3145,15 @@ function UpdatablePhotoDocumentCard({
     setError(null);
     if (!file) return;
     const fileType = file.type.toLowerCase();
-    const isJfif = /\.jfif$/i.test(file.name) &&
-      (!fileType || fileType === "application/octet-stream" || fileType === "image/jfif" || fileType === "image/jpeg");
-    if (!["image/jpeg", "image/png", "image/jfif"].includes(fileType) && !isJfif) {
-      setError("Choose a JPG, JFIF, or PNG image.");
+    const isSupportedPhoto =
+      ["image/jpeg", "image/png", "image/jfif", "image/webp"].includes(fileType) ||
+      /\.(jpe?g|jfif|png|webp)$/i.test(file.name);
+    if (!isSupportedPhoto) {
+      setError("Choose a JPG, JFIF, PNG, or WebP image.");
       return;
     }
-    if (file.size === 0 || file.size > 10 * 1024 * 1024) {
-      setError("Photo must be no larger than 10MB.");
+    if (file.size === 0) {
+      setError("The selected photo is empty.");
       return;
     }
     try {
@@ -3099,7 +3186,7 @@ function UpdatablePhotoDocumentCard({
           <input
             ref={inputRef}
             type="file"
-            accept="image/jpeg,image/jfif,.jpg,.jpeg,.jfif,.png,image/png"
+            accept="image/jpeg,image/jfif,.jpg,.jpeg,.jfif,.png,image/png,image/webp,.webp"
             className="hidden"
             aria-label="Upload a new 2x2 ID picture"
             onChange={(event) => {
@@ -3188,6 +3275,7 @@ function EditableField({
 }
 
 async function uploadWithProgress(file: File, onProgress: (pct: number) => void): Promise<{ url: string }> {
+  ensureSkeapUploadWithinLimit(file);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const fd = new FormData();
@@ -3204,6 +3292,13 @@ async function uploadWithProgress(file: File, onProgress: (pct: number) => void)
 
     xhr.onload = () => {
       const responseText = xhr.responseText.trim();
+      const payloadTooLarge =
+        xhr.status === 413 || /FUNCTION_PAYLOAD_TOO_LARGE/i.test(responseText);
+      if (payloadTooLarge) {
+        reject(new Error(SKEAP_UPLOAD_TOO_LARGE_MESSAGE));
+        return;
+      }
+
       let body: { url?: unknown; error?: unknown } | null = null;
       if (responseText) {
         try {
@@ -3223,8 +3318,12 @@ async function uploadWithProgress(file: File, onProgress: (pct: number) => void)
         }
         resolve({ url: body.url });
       } else {
+        if (xhr.status >= 500 || /FUNCTION_[A-Z_]+|(?:sin|iad|cle)\d+::/i.test(responseText)) {
+          reject(new Error("The upload service could not complete the request. Please try again."));
+          return;
+        }
         const serverError = typeof body?.error === "string" ? body.error.trim() : "";
-        const details = serverError || responseText || xhr.statusText || "No error details were returned.";
+        const details = serverError || xhr.statusText || "No error details were returned.";
         reject(new Error(`Upload failed (${xhr.status}): ${details}`));
       }
     };

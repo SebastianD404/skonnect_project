@@ -59,9 +59,9 @@ describe("SKEAP OCR name verification", () => {
     ).status).toBe("NAME_MISMATCH");
   });
 
-  it("matches an adult registered voter by applicant name without requiring a precinct location", () => {
+  it("matches an adult applicant by name when the certificate identifies Barangay Pico", () => {
     const result = verifyOcrDocumentName(
-      "COMMISSION ON ELECTIONS VOTER CERTIFICATE SEBASTIAN LANGAOAN DAMUGO",
+      "COMMISSION ON ELECTIONS VOTER CERTIFICATE BARANGAY PICO SEBASTIAN LANGAOAN DAMUGO",
       SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
       {
         applicant,
@@ -77,7 +77,7 @@ describe("SKEAP OCR name verification", () => {
 
   it("matches a minor's registered parent or guardian using significant name tokens", () => {
     const result = verifyOcrDocumentName(
-      "COMELEC VOTER CERTIFICATE HOLDER JUAN DE LA CRUZ BARANGAY",
+      "COMELEC VOTER CERTIFICATE HOLDER JUAN DE LA CRUZ BARANGAY PICO",
       SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
       {
         applicant,
@@ -94,7 +94,7 @@ describe("SKEAP OCR name verification", () => {
 
   it("falls back to family background names for a minor's voter certificate", () => {
     const result = verifyOcrDocumentName(
-      "COMELEC CERTIFICATE MARIA SANTOS",
+      "COMELEC CERTIFICATE BARANGAY PICO MARIA SANTOS",
       SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
       {
         applicant,
@@ -109,9 +109,9 @@ describe("SKEAP OCR name verification", () => {
     expect(result.matchedName).toBe("Maria Santos");
   });
 
-  it("does not accept an applicant name when an adult is marked as not registered", () => {
+  it("matches an adult by applicant name regardless of the registered voter answer", () => {
     expect(verifyOcrDocumentName(
-      "COMELEC VOTER CERTIFICATE SEBASTIAN LANGAOAN DAMUGO",
+      "COMELEC VOTER CERTIFICATE BARANGAY PICO SEBASTIAN LANGAOAN DAMUGO",
       SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
       {
         applicant,
@@ -119,6 +119,58 @@ describe("SKEAP OCR name verification", () => {
         age: 20,
         confidence: 90,
       },
-    ).status).toBe("NAME_MISMATCH");
+    ).status).toBe("MATCHED_APPLICANT");
+  });
+
+  it("matches a minor voter certificate by the applicant surname", () => {
+    const result = verifyOcrDocumentName(
+      "COMELEC VOTER CERTIFICATE BARANGAY PICO HOLDER DAMUGO",
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+      { applicant, age: 17, confidence: 90 },
+    );
+
+    expect(result.status).toBe("MATCHED_PARENT");
+    expect(result.matchedName).toBe("Damugo");
+  });
+
+  it("matches the entered guardian's full name on a valid Pico certificate", () => {
+    const result = verifyOcrDocumentName(
+      "COMELEC VOTER CERTIFICATE BARANGAY PICO HOLDER MARIA SANTOS",
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+      {
+        applicant,
+        age: 16,
+        parentVoterName: "Maria Santos",
+        confidence: 90,
+      },
+    );
+
+    expect(result).toEqual({
+      status: "MATCHED_PARENT",
+      matchedName: "Maria Santos",
+      message: "Parent or guardian name matched the document.",
+    });
+  });
+
+  it("marks a Pico certificate with a different surname for relationship verification", () => {
+    const result = verifyOcrDocumentName(
+      "COMELEC VOTER CERTIFICATE BARANGAY PICO HOLDER ELENA REYES",
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+      { applicant, age: 17, parentVoterName: "Maria Santos", confidence: 90 },
+    );
+
+    expect(result.status).toBe("FOR_VERIFICATION");
+    expect(result.message).toBe("Uploaded for SK Admin verification of parent/guardian relationship.");
+  });
+
+  it("does not auto-verify a voter certificate without a Barangay Pico reference", () => {
+    const result = verifyOcrDocumentName(
+      "COMELEC VOTER CERTIFICATE SEBASTIAN LANGAOAN DAMUGO",
+      SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+      { applicant, age: 20, confidence: 90 },
+    );
+
+    expect(result.status).toBe("FOR_VERIFICATION");
+    expect(result.message).toContain("Barangay Pico");
   });
 });

@@ -3,6 +3,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Clock3, FileCheck2, Upload, X } from "lucide-react";
+import { compressImageForUpload, ensureSkeapUploadWithinLimit, getSkeapUploadErrorMessage } from "@/lib/skeap-upload-client";
 
 export default function ExitClearanceSubmission({
   initialStatus,
@@ -71,16 +72,19 @@ export default function ExitClearanceSubmission({
     setError(null);
     setIsSubmitting(true);
     try {
+      const uploadFile = await compressImageForUpload(file);
+      ensureSkeapUploadWithinLimit(uploadFile);
       const formData = new FormData();
-      formData.set("file", file);
+      formData.set("file", uploadFile);
       formData.set("note", note);
       const response = await fetch("/api/grantee/exit-clearance", {
         method: "POST",
         body: formData,
       });
-      const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(typeof body.error === "string" ? body.error : "Unable to submit exit clearance.");
+        throw new Error(
+          await getSkeapUploadErrorMessage(response, "Unable to submit exit clearance. Please try again.")
+        );
       }
 
       setIsSubmitted(true);
@@ -160,11 +164,11 @@ export default function ExitClearanceSubmission({
                 <span className="mt-2 max-w-full truncate text-sm font-semibold text-slate-800">
                   {file ? file.name : isSubmitted ? "Choose a replacement clearance document" : "Choose your clearance document"}
                 </span>
-                <span className="mt-1 text-xs text-slate-500">PDF, JPG/JFIF, PNG, WEBP · Max 10MB</span>
+                <span className="mt-1 text-xs text-slate-500">PDF, JPG/JFIF, PNG, WEBP · Max 4MB</span>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.jpg,.jpeg,.jfif,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                  accept=".pdf,.jpg,.jpeg,.jfif,.png,.webp,application/pdf,image/jpeg,image/png,image/jfif,image/webp"
                   onChange={handleFileChange}
                   className="sr-only"
                 />
@@ -314,11 +318,11 @@ export default function ExitClearanceSubmission({
                 <span className="mt-2 block text-sm font-semibold text-slate-800">
                   {file ? file.name : "Choose clearance document"}
                 </span>
-                <span className="mt-1 block text-xs text-slate-500">PDF, JPG, PNG, or WEBP · Maximum 10MB</span>
+                <span className="mt-1 block text-xs text-slate-500">PDF, JPG/JFIF, PNG, or WEBP · Maximum 4MB</span>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                  accept=".pdf,.jpg,.jpeg,.jfif,.png,.webp,application/pdf,image/jpeg,image/jfif,image/png,image/webp"
                   onChange={handleFileChange}
                   className="sr-only"
                 />

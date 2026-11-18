@@ -34,8 +34,8 @@ describe("SKEAP required document labels", () => {
       { key: SKEAP_UPLOAD_KEY.GRADE_REPORT, label: "Grades Issued by School Registrar" },
       {
         key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
-        label: "COMELEC Voter's Certificate (Barangay Pico)",
-        helperText: "Upload a clear photo or PDF of the appropriate Barangay Pico COMELEC Voter's Certificate.",
+        label: "Applicant's COMELEC Voter's Certificate (Barangay Pico)",
+        helperText: "Upload the applicant's own Barangay Pico COMELEC Voter's Certificate.",
       },
     ]);
   });
@@ -45,10 +45,15 @@ describe("SKEAP required document labels", () => {
 
     expect(highSchoolDocs[2].label).toBe("Certified True Copy of Report Card / Form 138");
     expect(highSchoolDocs[3].label).toBe(
-      "Parent / Guardian's COMELEC Voter's Certificate (Barangay Pico)",
+      "Parent's or Legal Guardian's COMELEC Voter's Certificate (Barangay Pico)",
     );
     expect(highSchoolDocs[3].helperText).toBe(
-      "Upload the Barangay Pico COMELEC Voter's Certificate of your parent or legal guardian.",
+      "Under Barangay Pico Ordinance No. 1-2022, applicants aged 15–17 must upload a parent's or legal guardian's Barangay Pico Voter's Certificate.",
+    );
+
+    const minorRegisteredYesDocs = getSkeapRequiredDocuments("College", "1st Year", 17, true);
+    expect(minorRegisteredYesDocs[3].label).toBe(
+      "Parent's or Legal Guardian's COMELEC Voter's Certificate (Barangay Pico)",
     );
 
     const registeredApplicantDocs = getSkeapRequiredDocuments("College", "1st Year", 18, true);
@@ -56,7 +61,7 @@ describe("SKEAP required document labels", () => {
       "Applicant's COMELEC Voter's Certificate (Barangay Pico)",
     );
     expect(registeredApplicantDocs[3].helperText).toBe(
-      "Upload a clear photo or PDF of your Barangay Pico COMELEC Voter's Certificate.",
+      "Upload the applicant's own Barangay Pico COMELEC Voter's Certificate.",
     );
     expect(
       getSkeapRequiredDocuments("Technical and Vocational (Tech-Voc)", "1st Semester")[2].label,
@@ -202,6 +207,30 @@ describe("SKEAP upload verification state", () => {
     expect(getUploadGroups(uploads)).toContainEqual(expect.objectContaining({
       key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
       ocrNameStatus: "NAME_MISMATCH",
+    }));
+  });
+
+  it("preserves voter-certificate OCR verification notes through uploads", () => {
+    const uploads = {
+      voterCertificate: {
+        url: "https://example.com/voter-certificate.pdf",
+        ocrNameStatus: "FOR_VERIFICATION",
+        ocrNameMessage: "Uploaded for SK Admin verification of parent/guardian relationship.",
+      },
+    };
+
+    expect(normalizeUploadedFiles(uploads)?.voterCertificate).toMatchObject({
+      ocrNameStatus: "FOR_VERIFICATION",
+      ocrNameMessage: "Uploaded for SK Admin verification of parent/guardian relationship.",
+    });
+    expect(getApplicantUploadedFiles(uploads)?.voterCertificate).toMatchObject({
+      ocrNameStatus: "FOR_VERIFICATION",
+      ocrNameMessage: "Uploaded for SK Admin verification of parent/guardian relationship.",
+    });
+    expect(getUploadGroups(uploads)).toContainEqual(expect.objectContaining({
+      key: SKEAP_UPLOAD_KEY.VOTER_CERTIFICATE,
+      ocrNameStatus: "FOR_VERIFICATION",
+      ocrNameMessage: "Uploaded for SK Admin verification of parent/guardian relationship.",
     }));
   });
 

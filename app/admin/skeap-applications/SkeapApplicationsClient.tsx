@@ -31,6 +31,7 @@ interface DocumentItem {
   updated?: boolean;
   verificationStatus?: "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
   ocrNameStatus?: SkeapOcrNameStatus;
+  ocrNameMessage?: string;
   status?: "Pending" | "Returned" | "Digitally Screened" | string;
 }
 
@@ -72,6 +73,7 @@ interface UploadGroup {
   manualReview?: boolean;
   verificationStatus?: "AUTO_VERIFIED" | "PENDING_ADMIN_REVIEW";
   ocrNameStatus?: SkeapOcrNameStatus;
+  ocrNameMessage?: string;
   adminRemark?: string;
 }
 
@@ -446,6 +448,7 @@ function findDocumentByReviewKey(application: ApplicationRecord, reviewKey: stri
         comment: "",
         isImage: groupMatch.isImage,
         ocrNameStatus: groupMatch.ocrNameStatus,
+        ocrNameMessage: groupMatch.ocrNameMessage,
       };
     }
 
@@ -471,6 +474,7 @@ function findDocumentByReviewKey(application: ApplicationRecord, reviewKey: stri
     comment: "",
     isImage: group.isImage,
     ocrNameStatus: group.ocrNameStatus,
+    ocrNameMessage: group.ocrNameMessage,
   };
 }
 
@@ -887,6 +891,7 @@ export default function SkeapApplicationsClient({
           updated: updatedUploadKeys.has(key),
           verificationStatus: group?.verificationStatus,
           ocrNameStatus: group?.ocrNameStatus,
+          ocrNameMessage: group?.ocrNameMessage,
         };
       });
     }
@@ -2448,6 +2453,11 @@ export default function SkeapApplicationsClient({
                                           OCR Name Mismatch
                                         </span>
                                       ) : null}
+                                      {doc.ocrNameStatus === "FOR_VERIFICATION" ? (
+                                        <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                                          For Verification
+                                        </span>
+                                      ) : null}
                                       {needsManualReview ? (
                                         <span className="shrink-0 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
                                           OCR manual review
@@ -2466,6 +2476,9 @@ export default function SkeapApplicationsClient({
                                     <p className="truncate text-xs uppercase tracking-wider text-slate-500">
                                       {doc.updated && doc.fileName ? doc.fileName : getDocumentFormat(doc)}
                                     </p>
+                                    {doc.ocrNameMessage ? (
+                                      <p className="mt-1 text-xs leading-relaxed text-amber-800">{doc.ocrNameMessage}</p>
+                                    ) : null}
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0">
                                     <button
