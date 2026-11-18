@@ -25,6 +25,7 @@ type KkProfileRegistration = {
   sex: string;
   age: number;
   birthDate: string;
+  placeOfBirth?: string | null;
   email: string;
   facebook: string;
   contactNumber: string;

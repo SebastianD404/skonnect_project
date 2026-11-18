@@ -35,7 +35,7 @@ export async function GET() {
     try {
       [recentBackups, lastSuccessfulBackupAt] = await Promise.all([
         prisma.backupLog.findMany({
-          take: 10,
+          take: 30,
           orderBy: { createdAt: "desc" },
           select: {
             id: true,

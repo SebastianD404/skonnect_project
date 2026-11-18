@@ -6,7 +6,7 @@ import { createClient as createSupabaseServerClient } from "@/lib/supabase/serve
 import { KK_PROFILING_MANUAL_REVIEW_NOTE } from "@/lib/kk-profiling-review";
 import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-inputs";
 import { KKProfileSchema } from "@/lib/kk-profile-schema";
-import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
+import { validatePlaceOfBirth } from "@/lib/place-of-birth-schema";
 import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { buildIdentityFingerprint } from "@/lib/skeap-application-guard";
@@ -194,14 +194,15 @@ export async function POST(req: NextRequest) {
     if (!body.consent) {
       return NextResponse.json({ error: "Consent is required" }, { status: 400 });
     }
-    const placeOfBirthResult = placeOfBirthSchema.safeParse(body.placeOfBirth);
-    if (!placeOfBirthResult.success) {
+    const placeOfBirthInput = typeof body.placeOfBirth === "string" ? body.placeOfBirth : "";
+    const placeOfBirthError = validatePlaceOfBirth(placeOfBirthInput);
+    if (placeOfBirthError) {
       return NextResponse.json(
-        { error: placeOfBirthResult.error.issues[0]?.message ?? "Enter a valid place of birth." },
+        { error: placeOfBirthError },
         { status: 400 }
       );
     }
-    const placeOfBirth = placeOfBirthResult.data;
+    const placeOfBirth = placeOfBirthInput.trim().replace(/\s+/g, " ");
     const sex = parseSex(body.sex);
     if (!sex) {
       return NextResponse.json({ error: "Select Male or Female for sex." }, { status: 400 });

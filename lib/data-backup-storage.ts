@@ -79,3 +79,16 @@ export async function downloadScheduledBackup(fileName: string, storagePath?: st
   if (error) throw error;
   return data;
 }
+
+export async function removeScheduledBackupFiles(paths: string[]) {
+  const uniquePaths = [...new Set(paths)];
+  if (uniquePaths.length === 0) return;
+  if (uniquePaths.some((path) => !/^scheduled\/[a-zA-Z0-9._-]+\.json$/.test(path))) {
+    throw new Error("Stored backup path is invalid.");
+  }
+
+  const { error } = await getStorage()
+    .from(SYSTEM_BACKUP_BUCKET)
+    .remove(uniquePaths);
+  if (error && !isMissingBackupBucketError(error)) throw error;
+}

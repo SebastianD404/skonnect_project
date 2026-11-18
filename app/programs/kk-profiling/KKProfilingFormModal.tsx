@@ -13,6 +13,10 @@ import {
 } from "@/lib/kk-profiling-inputs";
 import { scanDocument } from "@/lib/ocrValidation";
 import FormFieldLabel from "@/app/components/FormFieldLabel";
+import {
+  getPlaceOfBirthSuggestion,
+  validatePlaceOfBirth,
+} from "@/lib/place-of-birth-schema";
 
 type KKProfilingRegistrationData = {
   id: string;
@@ -21,6 +25,7 @@ type KKProfilingRegistrationData = {
   sex: string;
   age: number;
   birthDate: string;
+  placeOfBirth?: string | null;
   email: string;
   facebook: string;
   contactNumber: string;
@@ -473,6 +478,7 @@ function getEditFormValues(registration: KKProfilingRegistrationData) {
     sex: registration.sex ?? "",
     age: registration.age ? String(registration.age) : "",
     birthDate: registration.birthDate ? registration.birthDate.slice(0, 10) : "",
+    placeOfBirth: registration.placeOfBirth ?? "",
     email: registration.email ?? "",
     facebook: registration.facebook ?? "",
     contactNumber: keepContactNumberDigits(registration.contactNumber ?? ""),
@@ -492,6 +498,7 @@ function getEditFormValues(registration: KKProfilingRegistrationData) {
 
 export default function KKProfilingFormModal({ isOpen, registration, onClose, onSaved }: Props) {
   const router = useRouter();
+  const placeOfBirthInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState(() => getEditFormValues(registration));
   const [selectedFiles, setSelectedFiles] = useState<SelectedFiles>({
     photo: null,
@@ -510,6 +517,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<{ type: "success" | "error" | "warning"; message: string } | null>(null);
 
   useEffect(() => {
@@ -519,6 +528,8 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     setSelectedFiles(emptyFiles);
     setMessage(null);
     setValidationMessage(null);
+    setTouchedFields({});
+    setFieldErrors({});
     // Keep a selected replacement when the parent recreates this registration object.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registration.id]);
@@ -535,6 +546,26 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
 
   function setField<Key extends keyof typeof form>(key: Key, value: typeof form[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
+    if (key === "placeOfBirth" && (touchedFields.placeOfBirth || fieldErrors.placeOfBirth)) {
+      const error = validatePlaceOfBirth(String(value ?? ""));
+      setFieldErrors((current) => {
+        const next = { ...current };
+        if (error) next.placeOfBirth = error;
+        else delete next.placeOfBirth;
+        return next;
+      });
+    }
+  }
+
+  function handlePlaceOfBirthBlur() {
+    setTouchedFields((current) => ({ ...current, placeOfBirth: true }));
+    const error = validatePlaceOfBirth(form.placeOfBirth);
+    setFieldErrors((current) => {
+      const next = { ...current };
+      if (error) next.placeOfBirth = error;
+      else delete next.placeOfBirth;
+      return next;
+    });
   }
 
   function handleBirthDateChange(value: string) {
@@ -611,6 +642,20 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     setMessage(null);
     setValidationMessage(null);
     setFeedback(null);
+    setTouchedFields((current) => ({ ...current, placeOfBirth: true }));
+    const placeOfBirthError = validatePlaceOfBirth(form.placeOfBirth);
+    setFieldErrors((current) => {
+      const next = { ...current };
+      if (placeOfBirthError) next.placeOfBirth = placeOfBirthError;
+      else delete next.placeOfBirth;
+      return next;
+    });
+    if (placeOfBirthError) {
+      setValidationMessage(`Place of Birth: ${placeOfBirthError}`);
+      placeOfBirthInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      placeOfBirthInputRef.current?.focus();
+      return;
+    }
     setIsSubmitting(true);
     try {
       const files = selectedFilesRef.current;
@@ -635,6 +680,7 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       formData.append("sex", form.sex);
       formData.append("age", String(Number(form.age) || 0));
       formData.append("birthDate", form.birthDate);
+      formData.append("placeOfBirth", form.placeOfBirth);
       formData.append("email", form.email);
       formData.append("facebook", form.facebook);
       formData.append("contactNumber", form.contactNumber);
@@ -817,6 +863,50 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
               />
             </label>
           </div>
+
+          <label className="flex flex-col">
+            <FormFieldLabel htmlFor="edit-place-of-birth" required className="text-sm font-semibold">Place of Birth</FormFieldLabel>
+            <input
+              ref={placeOfBirthInputRef}
+              id="edit-place-of-birth"
+              value={form.placeOfBirth}
+              onChange={(event) => setField("placeOfBirth", event.target.value)}
+              onBlur={handlePlaceOfBirthBlur}
+              placeholder="e.g., Baguio City or La Trinidad, Benguet"
+              aria-invalid={Boolean(fieldErrors.placeOfBirth)}
+              aria-describedby={fieldErrors.placeOfBirth ? "edit-place-of-birth-error" : undefined}
+              className={`mt-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm ${
+                fieldErrors.placeOfBirth
+                  ? "border-rose-500 bg-rose-50/30 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                  : ""
+              }`}
+            />
+            {fieldErrors.placeOfBirth ? (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <p id="edit-place-of-birth-error" className="mt-1.5 text-xs font-medium text-rose-600">
+                  {fieldErrors.placeOfBirth}
+                </p>
+                {getPlaceOfBirthSuggestion(form.placeOfBirth) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const suggestion = getPlaceOfBirthSuggestion(form.placeOfBirth);
+                      if (!suggestion) return;
+                      setField("placeOfBirth", suggestion);
+                      setFieldErrors((current) => {
+                        const next = { ...current };
+                        delete next.placeOfBirth;
+                        return next;
+                      });
+                    }}
+                    className="mt-1.5 inline-flex rounded-full border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-50 active:scale-[0.98]"
+                  >
+                    Use &quot;{getPlaceOfBirthSuggestion(form.placeOfBirth)}&quot;
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col">

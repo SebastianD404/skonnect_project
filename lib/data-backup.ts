@@ -17,7 +17,10 @@ import {
   refreshKkProfilingApplicationsAdminView,
   refreshSkeapApplicationsAdminView,
 } from "@/lib/application-admin-view-refresh";
-import { persistScheduledBackup } from "@/lib/data-backup-storage";
+import {
+  persistScheduledBackup,
+  removeScheduledBackupFiles,
+} from "@/lib/data-backup-storage";
 
 const APP_NAME = "SKonnect";
 const BARANGAY_NAME = "Barangay Pico, La Trinidad, Benguet";
@@ -69,6 +72,11 @@ const USER_BACKUP_SELECT = {
 export type BackupTable = (typeof BACKUP_TABLES)[number];
 export type BackupTriggerInput = "MANUAL" | "AUTOMATED" | "SCHEDULED";
 export type BackupCounts = Record<BackupTable, number>;
+export type BackupRestoreSummary = {
+  created: number;
+  updated: number;
+  skipped: number;
+};
 
 type BackupRow = Record<string, unknown>;
 type BackupData = Record<BackupTable, BackupRow[]>;
@@ -334,11 +342,20 @@ export async function generateSystemBackupSnapshot({
         include: { createdBy: { select: { fullName: true } } },
       });
 
+      if (trigger !== "MANUAL") {
+        try {
+          await pruneAutomatedBackupHistory();
+        } catch (pruneError) {
+          console.error("Automated backup retention pruning failed:", pruneError);
+        }
+      }
+
       return { fileName, jsonString, log };
     } catch (logError) {
       console.error("Failed to insert completed backup metadata:", logError);
       throw logError;
     }
+
   } catch (error) {
     try {
       await prisma.backupLog.create({
@@ -360,6 +377,33 @@ export async function generateSystemBackupSnapshot({
     }
     throw error;
   }
+}
+
+export async function pruneAutomatedBackupHistory() {
+  const oldBackups = await prisma.backupLog.findMany({
+    where: {
+      trigger: { in: [BackupTrigger.AUTOMATED, BackupTrigger.SCHEDULED] },
+      status: BackupStatus.COMPLETED,
+    },
+    orderBy: { createdAt: "desc" },
+    skip: 30,
+    select: {
+      id: true,
+      fileName: true,
+      storagePath: true,
+    },
+  });
+  if (oldBackups.length === 0) return 0;
+
+  const storagePaths = oldBackups.map(
+    (backup) => backup.storagePath ?? `scheduled/${backup.fileName}`,
+  );
+  await removeScheduledBackupFiles(storagePaths);
+  await prisma.backupLog.deleteMany({
+    where: { id: { in: oldBackups.map((backup) => backup.id) } },
+  });
+
+  return oldBackups.length;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -495,42 +539,124 @@ function requiredRecordId(row: BackupRow) {
 type RestorePlan<CreateData> = {
   matchKeys: string[];
   createData: CreateData;
-  updateOperation: (matchedKeys: string[]) => Prisma.PrismaPromise<unknown>;
+  updateData?: Record<string, unknown>;
+  updateOperation: (matchedKeys: string[]) => Promise<unknown>;
 };
 
-async function runUpdateBatches(operations: Prisma.PrismaPromise<unknown>[]) {
-  for (let index = 0; index < operations.length; index += 200) {
-    await prisma.$transaction(operations.slice(index, index + 200));
+function normalizeRestoreValue(value: unknown): unknown {
+  if (value === Prisma.DbNull || value === Prisma.JsonNull) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return value.map(normalizeRestoreValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, normalizeRestoreValue(entry)]),
+    );
+  }
+  return value;
+}
+
+function restoreValuesEqual(existing: Record<string, unknown>, incoming: Record<string, unknown>) {
+  return Object.entries(incoming).every(([field, value]) =>
+    JSON.stringify(normalizeRestoreValue(existing[field])) ===
+    JSON.stringify(normalizeRestoreValue(value)),
+  );
+}
+
+function getRestoreMatchKeys(row: unknown) {
+  if (!row || typeof row !== "object") return [];
+  const record = row as Record<string, unknown>;
+  const keys: string[] = [];
+  if (typeof record.id === "string") keys.push(idMatchKey(record.id));
+  if (typeof record.key === "string") keys.push(`key:${record.key}`);
+  if (typeof record.type === "string" && typeof record.channel === "string") {
+    keys.push(`type:${record.type};channel:${record.channel}`);
+  } else if (typeof record.type === "string") {
+    keys.push(`type:${record.type}`);
+  }
+  return keys;
+}
+
+type TableRestoreCounts = {
+  processed: number;
+  created: number;
+  updated: number;
+  skipped: number;
+};
+
+function getCreateManyCount(result: unknown, fallback: number) {
+  return result && typeof result === "object" &&
+      "count" in result &&
+      typeof result.count === "number"
+    ? result.count
+    : fallback;
+}
+
+async function runUpdateBatches(operations: (() => Promise<unknown>)[]) {
+  for (let index = 0; index < operations.length; index += 15) {
+    await Promise.all(operations.slice(index, index + 15).map((operation) => operation()));
   }
 }
 
-async function restoreTableRows<CreateData>(
+async function restoreRows<ExistingRow, CreateData>(
   rows: BackupRow[],
-  loadExistingKeys: () => Promise<string[]>,
+  loadExistingRows: () => Promise<ExistingRow[]>,
   createMany: (data: CreateData[]) => Promise<unknown>,
   createPlan: (row: BackupRow) => RestorePlan<CreateData>,
-) {
-  const existingKeys = new Set(await loadExistingKeys());
-  const createData: CreateData[] = [];
-  const updateOperations: Prisma.PrismaPromise<unknown>[] = [];
-
-  for (const row of rows) {
-    const plan = createPlan(row);
-    const matchedKeys = plan.matchKeys.filter((key) => existingKeys.has(key));
-    if (matchedKeys.length > 0) {
-      updateOperations.push(plan.updateOperation(matchedKeys));
-      plan.matchKeys.forEach((key) => existingKeys.add(key));
-    } else {
-      createData.push(plan.createData);
-      plan.matchKeys.forEach((key) => existingKeys.add(key));
+): Promise<TableRestoreCounts> {
+  const existingByKey = new Map<string, ExistingRow>();
+  const plannedCreatesByKey = new Map<string, Record<string, unknown>>();
+  for (const existingRow of await loadExistingRows()) {
+    for (const key of getRestoreMatchKeys(existingRow)) {
+      existingByKey.set(key, existingRow);
     }
   }
 
+  const createData: CreateData[] = [];
+  const updateOperations: (() => Promise<unknown>)[] = [];
+  let updated = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    const plan = createPlan(row);
+    const existing = plan.matchKeys
+      .map((key) => existingByKey.get(key))
+      .find((record): record is ExistingRow => record !== undefined);
+    const plannedCreate = plan.matchKeys
+      .map((key) => plannedCreatesByKey.get(key))
+      .find((record): record is Record<string, unknown> => record !== undefined);
+    const currentRecord = (existing as Record<string, unknown> | undefined) ?? plannedCreate;
+    const updateData = plan.updateData ?? Object.fromEntries(
+      Object.entries(plan.createData as Record<string, unknown>)
+        .filter(([field]) => field !== "id"),
+    );
+
+    if (currentRecord) {
+      if (restoreValuesEqual(currentRecord, updateData)) {
+        skipped += 1;
+      } else {
+        const matchedKeys = plan.matchKeys.filter((key) =>
+          existingByKey.has(key) || plannedCreatesByKey.has(key),
+        );
+        updateOperations.push(() => plan.updateOperation(matchedKeys));
+        updated += 1;
+      }
+    } else {
+      createData.push(plan.createData);
+      const createRecord = plan.createData as Record<string, unknown>;
+      for (const key of plan.matchKeys) plannedCreatesByKey.set(key, createRecord);
+    }
+  }
+
+  let created = 0;
   if (createData.length > 0) {
-    await createMany(createData);
+    created = getCreateManyCount(await createMany(createData), createData.length);
   }
   await runUpdateBatches(updateOperations);
-  return rows.length;
+  skipped += Math.max(0, rows.length - created - updated - skipped);
+  return { processed: rows.length, created, updated, skipped };
 }
 
 function idMatchKey(id: string) {
@@ -562,14 +688,15 @@ function remapUserReferences(
 
 async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
   const restoredCounts = {} as BackupCounts;
+  const restoreSummary: BackupRestoreSummary = { created: 0, updated: 0, skipped: 0 };
   const rows = snapshot.data;
   const userIdMap = new Map<string, string>();
-  const existingUsers = await prisma.user.findMany({
-    select: { id: true, email: true, role: true },
-  });
-  const usersById = new Map(existingUsers.map((user) => [user.id, user]));
-  const usersByEmail = new Map<string, (typeof existingUsers)[number]>();
+  const existingUsers = await prisma.user.findMany();
+  const existingUsersById = new Map(existingUsers.map((user) => [user.id, user]));
+  const usersById = new Map<string, Record<string, unknown>>();
+  const usersByEmail = new Map<string, Record<string, unknown>>();
   for (const user of existingUsers) {
+    usersById.set(user.id, { ...user });
     const email = user.email.trim().toLowerCase();
     if (!email) continue;
     const duplicate = usersByEmail.get(email);
@@ -579,11 +706,13 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
         "USER_EMAIL_CONFLICT",
       );
     }
-    usersByEmail.set(email, user);
+    usersByEmail.set(email, usersById.get(user.id)!);
   }
 
   const userCreateData: PrismaTypes.UserCreateManyInput[] = [];
-  const userUpdates: Prisma.PrismaPromise<unknown>[] = [];
+  const userUpdates: (() => Promise<unknown>)[] = [];
+  const updatedUserIds = new Set<string>();
+  const createdUserIds = new Set<string>();
   for (const row of rows.users) {
     const id = requiredRecordId(row);
     const email = requiredStringField(
@@ -605,7 +734,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
     }
 
     const current = idMatch ?? emailMatch;
-    const targetId = current?.id ?? id;
+    const targetId = typeof current?.id === "string" ? current.id : id;
     userIdMap.set(id, targetId);
     const requestedRole = row.role;
     const restoredRole =
@@ -616,6 +745,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
         : Role.YOUTH;
 
     if (current) {
+      const isExistingUser = existingUsersById.has(targetId);
       const protectedAccount =
         targetId === actorId ||
         current.role === Role.SUPER_ADMIN ||
@@ -638,7 +768,10 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
         [...ID_DATES],
       );
       if (!protectedAccount) updateData.role = restoredRole;
-      userUpdates.push(prisma.user.update({ where: { id: targetId }, data: updateData }));
+      if (restoreValuesEqual(current, updateData)) continue;
+      userUpdates.push(() => prisma.user.update({ where: { id: targetId }, data: updateData }));
+      if (isExistingUser) updatedUserIds.add(targetId);
+      Object.assign(current, updateData);
     } else {
       const createData = recordToInput<PrismaTypes.UserCreateManyInput>(
         { ...row, email: normalizedEmail },
@@ -666,22 +799,40 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
       createData.role = restoredRole;
       createData.kkProfileId = null;
       userCreateData.push(createData);
+      createdUserIds.add(targetId);
 
-      const restoredUser = { id: targetId, email: normalizedEmail, role: restoredRole };
+      const restoredUser = { ...createData, id: targetId, email: normalizedEmail };
       usersById.set(id, restoredUser);
       usersByEmail.set(normalizedEmail, restoredUser);
     }
   }
+  let createdUserCount = 0;
   if (userCreateData.length > 0) {
-    await prisma.user.createMany({ data: userCreateData, skipDuplicates: true });
+    createdUserCount = getCreateManyCount(
+      await prisma.user.createMany({ data: userCreateData, skipDuplicates: true }),
+      userCreateData.length,
+    );
   }
   await runUpdateBatches(userUpdates);
-  restoredCounts.users = rows.users.length;
+  restoreSummary.created += createdUserCount;
 
+  const restoreTableRows = async <ExistingRow, CreateData>(
+    tableRows: BackupRow[],
+    loadExistingRows: () => Promise<ExistingRow[]>,
+    createMany: (data: CreateData[]) => Promise<unknown>,
+    createPlan: (row: BackupRow) => RestorePlan<CreateData>,
+  ) => {
+    const counts = await restoreRows(tableRows, loadExistingRows, createMany, createPlan);
+    restoreSummary.created += counts.created;
+    restoreSummary.updated += counts.updated;
+    restoreSummary.skipped += counts.skipped;
+    return counts.processed;
+  };
+
+  restoredCounts.users = rows.users.length;
   restoredCounts.kkProfiles = await restoreTableRows(
     rows.kkProfiles,
-    async () => (await prisma.kKProfile.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.kKProfile.findMany(),
     (data: PrismaTypes.KKProfileCreateManyInput[]) =>
       prisma.kKProfile.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -698,20 +849,30 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
     },
   );
 
-  const profileLinkUpdates = rows.users.flatMap((row) => {
-    if (typeof row.kkProfileId !== "string") return [];
+  const profileLinkUpdates: (() => Promise<unknown>)[] = [];
+  for (const row of rows.users) {
+    const profileId = row.kkProfileId;
+    if (typeof profileId !== "string") continue;
     const id = requiredRecordId(row);
-    return [prisma.user.update({
-      where: { id: userIdMap.get(id) ?? id },
-      data: { kkProfileId: row.kkProfileId },
-    })];
-  });
+    const targetId = userIdMap.get(id) ?? id;
+    const current = usersById.get(targetId);
+    if (current?.kkProfileId === profileId) continue;
+    profileLinkUpdates.push(() => prisma.user.update({
+      where: { id: targetId },
+      data: { kkProfileId: profileId },
+    }));
+    if (existingUsersById.has(targetId) && !createdUserIds.has(targetId)) {
+      updatedUserIds.add(targetId);
+    }
+    if (current) current.kkProfileId = profileId;
+  }
   await runUpdateBatches(profileLinkUpdates);
+  restoreSummary.updated += updatedUserIds.size;
+  restoreSummary.skipped += Math.max(0, rows.users.length - createdUserCount - updatedUserIds.size);
 
   restoredCounts.profilingRegistrations = await restoreTableRows(
     rows.profilingRegistrations,
-    async () => (await prisma.profilingRegistration.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.profilingRegistration.findMany(),
     (data: PrismaTypes.ProfilingRegistrationCreateManyInput[]) =>
       prisma.profilingRegistration.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -732,8 +893,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.skeapApplications = await restoreTableRows(
     rows.skeapApplications,
-    async () => (await prisma.skeapApplication.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.skeapApplication.findMany(),
     (data: PrismaTypes.SkeapApplicationCreateManyInput[]) =>
       prisma.skeapApplication.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -755,8 +915,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.grantees = await restoreTableRows(
     rows.grantees,
-    async () => (await prisma.grantee.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.grantee.findMany(),
     (data: PrismaTypes.GranteeCreateManyInput[]) =>
       prisma.grantee.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -777,8 +936,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.submissions = await restoreTableRows(
     rows.submissions,
-    async () => (await prisma.submission.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.submission.findMany(),
     (data: PrismaTypes.SubmissionCreateManyInput[]) =>
       prisma.submission.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -799,8 +957,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.accountingPayouts = await restoreTableRows(
     rows.accountingPayouts,
-    async () => (await prisma.accountingPayout.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.accountingPayout.findMany(),
     (data: PrismaTypes.AccountingPayoutCreateManyInput[]) =>
       prisma.accountingPayout.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -820,8 +977,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.inquiries = await restoreTableRows(
     rows.inquiries,
-    async () => (await prisma.inquiry.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.inquiry.findMany(),
     (data: PrismaTypes.InquiryCreateManyInput[]) =>
       prisma.inquiry.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -842,8 +998,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.announcements = await restoreTableRows(
     rows.announcements,
-    async () => (await prisma.announcement.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.announcement.findMany(),
     (data: PrismaTypes.AnnouncementCreateManyInput[]) =>
       prisma.announcement.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -864,8 +1019,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.notifications = await restoreTableRows(
     rows.notifications,
-    async () => (await prisma.notification.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.notification.findMany(),
     (data: PrismaTypes.NotificationCreateManyInput[]) =>
       prisma.notification.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -886,8 +1040,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.notificationLogs = await restoreTableRows(
     rows.notificationLogs,
-    async () => (await prisma.notificationLog.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.notificationLog.findMany(),
     (data: PrismaTypes.NotificationLogCreateManyInput[]) =>
       prisma.notificationLog.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -907,8 +1060,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.adminNotifications = await restoreTableRows(
     rows.adminNotifications,
-    async () => (await prisma.adminNotification.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.adminNotification.findMany(),
     (data: PrismaTypes.AdminNotificationCreateManyInput[]) =>
       prisma.adminNotification.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -927,8 +1079,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.granteeMessages = await restoreTableRows(
     rows.granteeMessages,
-    async () => (await prisma.granteeMessage.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.granteeMessage.findMany(),
     (data: PrismaTypes.GranteeMessageCreateManyInput[]) =>
       prisma.granteeMessage.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -948,8 +1099,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.registrations = await restoreTableRows(
     rows.registrations,
-    async () => (await prisma.registrations.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.registrations.findMany(),
     (data: PrismaTypes.registrationsCreateManyInput[]) =>
       prisma.registrations.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -969,10 +1119,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.systemSettings = await restoreTableRows(
     rows.systemSettings,
-    async () => {
-      const existing = await prisma.systemSetting.findMany({ select: { id: true, key: true } });
-      return existing.flatMap(({ id, key }) => [idMatchKey(id), `key:${key}`]);
-    },
+    () => prisma.systemSetting.findMany(),
     (data: PrismaTypes.SystemSettingCreateManyInput[]) =>
       prisma.systemSetting.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -982,6 +1129,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
       return {
         matchKeys: [idMatchKey(id), matchKey],
         createData: recordToInput<PrismaTypes.SystemSettingCreateManyInput>(row, ["id", "key", "value", "updatedAt"], ["updatedAt"]),
+        updateData: recordToInput<PrismaTypes.SystemSettingUpdateManyMutationInput>(row, ["value", "updatedAt"], ["updatedAt"]),
         updateOperation: (matchedKeys) => prisma.systemSetting.update({
           where: matchedKeys.includes(idMatchKey(id)) ? { id } : { key },
           data: recordToInput<PrismaTypes.SystemSettingUpdateManyMutationInput>(row, ["value", "updatedAt"], ["updatedAt"]),
@@ -992,8 +1140,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.adminSettings = await restoreTableRows(
     rows.adminSettings,
-    async () => (await prisma.adminSettings.findMany({ select: { key: true } }))
-      .map(({ key }) => `key:${key}`),
+    () => prisma.adminSettings.findMany(),
     (data: PrismaTypes.AdminSettingsCreateManyInput[]) =>
       prisma.adminSettings.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -1011,8 +1158,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.academicTermSchedules = await restoreTableRows(
     rows.academicTermSchedules,
-    async () => (await prisma.academicTermSchedule.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.academicTermSchedule.findMany(),
     (data: PrismaTypes.AcademicTermScheduleCreateManyInput[]) =>
       prisma.academicTermSchedule.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -1032,8 +1178,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.semesters = await restoreTableRows(
     rows.semesters,
-    async () => (await prisma.semester.findMany({ select: { id: true } }))
-      .map(({ id }) => idMatchKey(id)),
+    () => prisma.semester.findMany(),
     (data: PrismaTypes.SemesterCreateManyInput[]) =>
       prisma.semester.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -1051,8 +1196,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.reminderSettings = await restoreTableRows(
     rows.reminderSettings,
-    async () => (await prisma.reminderSetting.findMany({ select: { id: true, type: true } }))
-      .map(({ type }) => `type:${type}`),
+    () => prisma.reminderSetting.findMany(),
     (data: PrismaTypes.ReminderSettingCreateManyInput[]) =>
       prisma.reminderSetting.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -1072,8 +1216,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
 
   restoredCounts.messageTemplates = await restoreTableRows(
     rows.messageTemplates,
-    async () => (await prisma.messageTemplate.findMany({ select: { id: true, type: true, channel: true } }))
-      .map(({ type, channel }) => `type:${type};channel:${channel}`),
+    () => prisma.messageTemplate.findMany(),
     (data: PrismaTypes.MessageTemplateCreateManyInput[]) =>
       prisma.messageTemplate.createMany({ data, skipDuplicates: true }),
     (row) => {
@@ -1100,11 +1243,12 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
     actorId,
     targetTable: "backup_snapshot",
     targetId: snapshot.checksumSha256,
-    afterData: { restoredCounts },
+    afterData: { restoredCounts, restoreSummary },
     metadata: {
       checksumSha256: snapshot.checksumSha256,
       snapshotCreatedAt: snapshot.meta.createdAt,
       restoredCounts,
+      restoreSummary,
     },
   });
 
@@ -1118,7 +1262,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
     throw new BackupRestoreCommittedError();
   }
 
-  return restoredCounts;
+  return { restoredCounts, summary: restoreSummary };
 }
 
 export async function verifyAndRestoreBackupSnapshot({
@@ -1129,8 +1273,8 @@ export async function verifyAndRestoreBackupSnapshot({
   actorId: string;
 }) {
   const snapshot = parseAndVerifyBackupSnapshot(rawContent);
-  const restoredCounts = await restoreSnapshot(snapshot, actorId);
-  return { restoredCounts, checksumSha256: snapshot.checksumSha256 };
+  const result = await restoreSnapshot(snapshot, actorId);
+  return { ...result, checksumSha256: snapshot.checksumSha256 };
 }
 
 export const backupTableNames = BACKUP_TABLES;

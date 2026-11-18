@@ -181,6 +181,7 @@ async function getKKProfile() {
             sex: latestRegistration.sex,
             age: latestRegistration.age,
             birthDate: latestRegistration.birthDate,
+            placeOfBirth: kkProfile?.placeOfBirth ?? null,
             email: latestRegistration.email,
             facebook: latestRegistration.facebook,
             contactNumber: latestRegistration.contactNumber,

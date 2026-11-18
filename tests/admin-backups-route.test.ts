@@ -72,5 +72,9 @@ describe("/api/admin/backups", () => {
     expect(body.recentBackups[0].errorMessage).toBe("Supabase storage upload failed");
     expect(body.liveRecordCounts).toBeNull();
     expect(body.schedulerStatus).toBe("MISSED");
+    expect(mocks.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ take: 30, orderBy: { createdAt: "desc" } }),
+    );
   });
 });

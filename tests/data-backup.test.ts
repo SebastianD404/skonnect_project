@@ -1,16 +1,36 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  findMany: vi.fn(),
+  deleteMany: vi.fn(),
+  removeScheduledBackupFiles: vi.fn(),
+}));
+
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/prisma", () => ({ prisma: {} }));
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    backupLog: {
+      findMany: mocks.findMany,
+      deleteMany: mocks.deleteMany,
+    },
+  },
+}));
 vi.mock("@/lib/audit/logger", () => ({ writeAuditLog: vi.fn() }));
 vi.mock("@/lib/application-admin-view-refresh", () => ({
   refreshKkProfilingApplicationsAdminView: vi.fn(),
   refreshSkeapApplicationsAdminView: vi.fn(),
 }));
-vi.mock("@/lib/data-backup-storage", () => ({ persistScheduledBackup: vi.fn() }));
+vi.mock("@/lib/data-backup-storage", () => ({
+  persistScheduledBackup: vi.fn(),
+  removeScheduledBackupFiles: mocks.removeScheduledBackupFiles,
+}));
 
-import { backupTableNames, parseAndVerifyBackupSnapshot } from "@/lib/data-backup";
+import {
+  backupTableNames,
+  parseAndVerifyBackupSnapshot,
+  pruneAutomatedBackupHistory,
+} from "@/lib/data-backup";
 
 function createSnapshot() {
   const data: Record<string, unknown[]> = Object.fromEntries(
@@ -77,5 +97,31 @@ describe("backup snapshot verification", () => {
     expect(() => parseAndVerifyBackupSnapshot(JSON.stringify(snapshot))).toThrow(
       "Backup file has an invalid users record list.",
     );
+  });
+
+  it("removes old completed automated snapshots before deleting their history rows", async () => {
+    mocks.findMany.mockResolvedValue([
+      {
+        id: "old-completed",
+        fileName: "backup-old.json",
+        storagePath: "scheduled/backup-old.json",
+      },
+    ]);
+
+    await expect(pruneAutomatedBackupHistory()).resolves.toBe(1);
+
+    expect(mocks.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: "COMPLETED" }),
+        orderBy: { createdAt: "desc" },
+        skip: 30,
+      }),
+    );
+    expect(mocks.removeScheduledBackupFiles).toHaveBeenCalledWith([
+      "scheduled/backup-old.json",
+    ]);
+    expect(mocks.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["old-completed"] } },
+    });
   });
 });

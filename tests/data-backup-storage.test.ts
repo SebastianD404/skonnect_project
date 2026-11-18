@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createBucket: vi.fn(),
   updateBucket: vi.fn(),
   upload: vi.fn(),
+  remove: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -23,7 +24,7 @@ describe("persistScheduledBackup", () => {
         listBuckets: mocks.listBuckets,
         createBucket: mocks.createBucket,
         updateBucket: mocks.updateBucket,
-        from: vi.fn(() => ({ upload: mocks.upload })),
+        from: vi.fn(() => ({ upload: mocks.upload, remove: mocks.remove })),
       },
     });
     mocks.listBuckets
@@ -50,5 +51,30 @@ describe("persistScheduledBackup", () => {
       expect.objectContaining({ public: false }),
     );
     expect(mocks.upload).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes a set of valid scheduled snapshot paths", async () => {
+    mocks.remove.mockResolvedValue({ error: null });
+    const { removeScheduledBackupFiles } = await import("@/lib/data-backup-storage");
+
+    await removeScheduledBackupFiles([
+      "scheduled/old-a.json",
+      "scheduled/old-a.json",
+      "scheduled/old-b.json",
+    ]);
+
+    expect(mocks.remove).toHaveBeenCalledWith([
+      "scheduled/old-a.json",
+      "scheduled/old-b.json",
+    ]);
+  });
+
+  it("rejects invalid storage paths before deletion", async () => {
+    const { removeScheduledBackupFiles } = await import("@/lib/data-backup-storage");
+
+    await expect(removeScheduledBackupFiles(["../private.json"])).rejects.toThrow(
+      "Stored backup path is invalid.",
+    );
+    expect(mocks.remove).not.toHaveBeenCalled();
   });
 });

@@ -32,7 +32,8 @@ const mocks = vi.hoisted(() => {
   return {
     transaction: vi.fn(),
     models,
-    transactionBatchSizes: [] as number[],
+    activeUpdates: 0,
+    maxConcurrentUpdates: 0,
     writeAuditLog: vi.fn(),
     refreshKkView: vi.fn(),
     refreshSkeapView: vi.fn(),
@@ -81,16 +82,24 @@ function createSnapshot(dataOverrides: Record<string, unknown[]> = {}) {
 describe("backup restore batches", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.transactionBatchSizes.length = 0;
+    mocks.activeUpdates = 0;
+    mocks.maxConcurrentUpdates = 0;
     for (const model of Object.values(mocks.models)) {
       model.findMany.mockResolvedValue([]);
-      model.createMany.mockResolvedValue({ count: 0 });
-      model.update.mockResolvedValue({});
+      model.createMany.mockImplementation(async ({ data }: { data: unknown[] }) => ({
+        count: data.length,
+      }));
+      model.update.mockImplementation(async () => {
+        mocks.activeUpdates += 1;
+        mocks.maxConcurrentUpdates = Math.max(
+          mocks.maxConcurrentUpdates,
+          mocks.activeUpdates,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        mocks.activeUpdates -= 1;
+        return {};
+      });
     }
-    mocks.transaction.mockImplementation(async (operations: Promise<unknown>[]) => {
-      mocks.transactionBatchSizes.push(operations.length);
-      return Promise.all(operations);
-    });
     mocks.writeAuditLog.mockResolvedValue(undefined);
     mocks.refreshKkView.mockResolvedValue(undefined);
     mocks.refreshSkeapView.mockResolvedValue(undefined);
@@ -101,11 +110,13 @@ describe("backup restore batches", () => {
       {
         id: "existing-admin",
         email: "ADMIN@example.test",
+        fullName: "Old Admin Name",
         role: "SUPER_ADMIN",
       },
       {
         id: "existing-sk-admin",
         email: "skadmin@example.test",
+        fullName: "Old SK Admin Name",
         role: "SK_ADMIN",
       },
     ]);
@@ -137,9 +148,7 @@ describe("backup restore batches", () => {
     });
 
     expect(mocks.models.user.findMany).toHaveBeenCalledTimes(1);
-    expect(mocks.models.user.findMany).toHaveBeenCalledWith({
-      select: { id: true, email: true, role: true },
-    });
+    expect(mocks.models.user.findMany).toHaveBeenCalledWith();
     for (const id of ["existing-admin", "existing-sk-admin"]) {
       expect(mocks.models.user.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id },
@@ -153,6 +162,7 @@ describe("backup restore batches", () => {
       data: [expect.objectContaining({ userId: "existing-admin" })],
       skipDuplicates: true,
     });
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
   it("creates users before profiles and links them after both batches", async () => {
@@ -165,9 +175,9 @@ describe("backup restore batches", () => {
       events.push("profiles");
       return { count: 1 };
     });
-    mocks.transaction.mockImplementation(async (operations: Promise<unknown>[]) => {
+    mocks.models.user.update.mockImplementation(async () => {
       events.push("link");
-      return Promise.all(operations);
+      return {};
     });
 
     await verifyAndRestoreBackupSnapshot({
@@ -204,15 +214,16 @@ describe("backup restore batches", () => {
       skipDuplicates: true,
     });
     expect(events).toEqual(["users", "profiles", "link"]);
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
-  it("uses 200-operation array transactions for existing records", async () => {
+  it("updates only changed records in concurrent chunks capped at 15", async () => {
     const rows = Array.from({ length: 405 }, (_, index) => ({
       id: `registration-${index}`,
       fullName: `Member ${index}`,
     }));
     mocks.models.profilingRegistration.findMany.mockResolvedValue(
-      rows.map(({ id }) => ({ id })),
+      rows.map(({ id }) => ({ id, fullName: `Old ${id}` })),
     );
 
     const result = await verifyAndRestoreBackupSnapshot({
@@ -221,8 +232,35 @@ describe("backup restore batches", () => {
     });
 
     expect(mocks.models.profilingRegistration.createMany).not.toHaveBeenCalled();
-    expect(mocks.transactionBatchSizes).toEqual([200, 200, 5]);
+    expect(mocks.maxConcurrentUpdates).toBe(15);
+    expect(mocks.transaction).not.toHaveBeenCalled();
     expect(result.restoredCounts.profilingRegistrations).toBe(405);
+    expect(result.summary).toMatchObject({ created: 0, updated: 405, skipped: 0 });
+  });
+
+  it("skips existing records whose normalized fields have not changed", async () => {
+    mocks.models.profilingRegistration.findMany.mockResolvedValue([
+      {
+        id: "registration-1",
+        fullName: "Same Member",
+        submittedAt: new Date("2026-11-18T01:00:00.000Z"),
+      },
+    ]);
+
+    const result = await verifyAndRestoreBackupSnapshot({
+      rawContent: createSnapshot({
+        profilingRegistrations: [{
+          id: "registration-1",
+          fullName: "Same Member",
+          submittedAt: "2026-11-18T01:00:00.000Z",
+        }],
+      }),
+      actorId: "admin-1",
+    });
+
+    expect(mocks.models.profilingRegistration.update).not.toHaveBeenCalled();
+    expect(mocks.models.profilingRegistration.createMany).not.toHaveBeenCalled();
+    expect(result.summary).toMatchObject({ created: 0, updated: 0, skipped: 1 });
   });
 
   it("rejects malformed or conflicting user email matches before writing users", async () => {

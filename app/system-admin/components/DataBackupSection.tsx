@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
+import AdminPaginationControls from "@/app/admin/AdminPaginationControls";
 
 type BackupCounts = Record<string, number>;
 
@@ -48,6 +49,14 @@ type VerifyResponse = {
   createdAt: string;
   recordCounts: BackupCounts;
 };
+
+type RestoreSummary = {
+  created: number;
+  updated: number;
+  skipped: number;
+};
+
+const HISTORY_PAGE_SIZES = [5, 10, 25] as const;
 
 const RECORD_COUNT_LABELS: Record<string, string> = {
   users: "Users",
@@ -165,6 +174,11 @@ export default function DataBackupSection() {
   const [restoreSuccess, setRestoreSuccess] = useState<string | null>(null);
   const [checksumCopied, setChecksumCopied] = useState(false);
   const [checksumCopyError, setChecksumCopyError] = useState<string | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<"ALL" | "MANUAL" | "SCHEDULED">("ALL");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState<number>(HISTORY_PAGE_SIZES[0]);
+  const [historyCopiedId, setHistoryCopiedId] = useState<string | null>(null);
+  const [historyCopyError, setHistoryCopyError] = useState<string | null>(null);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -208,6 +222,20 @@ export default function DataBackupSection() {
     ? Object.values(overview.liveRecordCounts).reduce((total, count) => total + count, 0)
     : null;
   const backedUpRecently = hasRecentBackup(overview);
+  const filteredBackups = (overview?.recentBackups ?? []).filter((backup) => {
+    if (historyFilter === "ALL") return true;
+    if (historyFilter === "MANUAL") return backup.trigger === "MANUAL";
+    return backup.trigger !== "MANUAL";
+  });
+  const filteredCount = filteredBackups.length;
+  const pageCount = Math.max(1, Math.ceil(filteredCount / historyPageSize));
+  const currentPage = Math.min(historyPage, pageCount);
+  const pageBackups = filteredBackups.slice(
+    (currentPage - 1) * historyPageSize,
+    currentPage * historyPageSize,
+  );
+  const start = filteredCount === 0 ? 0 : (currentPage - 1) * historyPageSize + 1;
+  const end = Math.min(currentPage * historyPageSize, filteredCount);
 
   async function handleDownloadBackup() {
     if (isDownloading) return;
@@ -300,7 +328,23 @@ export default function DataBackupSection() {
       if (!response.ok) {
         throw new Error(typeof body.error === "string" ? body.error : "Unable to restore this backup.");
       }
-      setRestoreSuccess("Snapshot restored. Existing records not present in the file were left unchanged.");
+      const summaryValue = body.summary;
+      if (
+        !summaryValue ||
+        typeof summaryValue !== "object" ||
+        !("created" in summaryValue) ||
+        !("updated" in summaryValue) ||
+        !("skipped" in summaryValue) ||
+        typeof summaryValue.created !== "number" ||
+        typeof summaryValue.updated !== "number" ||
+        typeof summaryValue.skipped !== "number"
+      ) {
+        throw new Error("Restore completed but the service returned an invalid summary.");
+      }
+      const summary = summaryValue as RestoreSummary;
+      setRestoreSuccess(
+        `Database restored successfully · ${summary.created.toLocaleString()} added, ${summary.updated.toLocaleString()} updated, ${summary.skipped.toLocaleString()} unchanged`,
+      );
       setVerification(null);
       setSelectedFile(null);
       setConfirmation("");
@@ -321,6 +365,23 @@ export default function DataBackupSection() {
       window.setTimeout(() => setChecksumCopied(false), 1500);
     } catch (copyError) {
       setChecksumCopyError(
+        copyError instanceof Error
+          ? `Unable to copy checksum: ${copyError.message}`
+          : "Unable to copy checksum.",
+      );
+    }
+  }
+
+  async function handleCopyHistoryChecksum(backup: BackupHistoryItem) {
+    try {
+      await navigator.clipboard.writeText(backup.checksumSha256);
+      setHistoryCopiedId(backup.id);
+      setHistoryCopyError(null);
+      window.setTimeout(() => {
+        setHistoryCopiedId((current) => current === backup.id ? null : current);
+      }, 1500);
+    } catch (copyError) {
+      setHistoryCopyError(
         copyError instanceof Error
           ? `Unable to copy checksum: ${copyError.message}`
           : "Unable to copy checksum.",
@@ -432,9 +493,36 @@ export default function DataBackupSection() {
         ) : null}
 
         <div className="border-t border-slate-100 px-5 py-5 sm:px-6">
-          <div className="mb-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-bold text-slate-900">Recent Backup History</h3>
+            <div className="inline-flex items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Filter backup history">
+              {([
+                ["ALL", "All"],
+                ["MANUAL", "Manual"],
+                ["SCHEDULED", "Scheduled"],
+              ] as const).map(([filter, label]) => (
+                <button
+                  key={filter}
+                  type="button"
+                  aria-pressed={historyFilter === filter}
+                  onClick={() => {
+                    setHistoryFilter(filter);
+                    setHistoryPage(1);
+                  }}
+                  className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
+                    historyFilter === filter
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+          {historyCopyError ? (
+            <p role="alert" className="mb-2 text-xs font-medium text-rose-700">{historyCopyError}</p>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px] text-left text-xs">
               <thead className="border-y border-slate-200/80 bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -448,24 +536,45 @@ export default function DataBackupSection() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {(overview?.recentBackups ?? []).map((backup) => (
+                {pageBackups.map((backup) => (
                   <tr key={backup.id} className="text-slate-700">
-                    <td className="whitespace-nowrap px-3 py-3">
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums">
                       <span className="font-medium text-slate-900">{formatDate(backup.createdAt)}</span>
                       {backup.status === "FAILED" ? (
                         <span className="ml-2 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">Failed</span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3">{backup.trigger === "MANUAL" ? "Manual" : "Automated"}</td>
+                    <td className="px-3 py-3">{backup.trigger === "MANUAL" ? "Manual" : "Scheduled"}</td>
                     <td className="px-3 py-3">{backup.createdBy ?? "Automated schedule"}</td>
                     <td className="whitespace-nowrap px-3 py-3 tabular-nums">{formatFileSize(backup.fileSizeBytes)}</td>
                     <td className="px-3 py-3">
-                      <span
-                        title={backup.checksumSha256 || "No checksum recorded"}
-                        className="inline-flex rounded-full bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-600"
-                      >
-                        {backup.checksumSha256 ? `${backup.checksumSha256.slice(0, 12)}…` : "—"}
-                      </span>
+                      {backup.checksumSha256 ? (
+                        <button
+                          type="button"
+                          title={backup.checksumSha256}
+                          aria-label={`Copy SHA-256 checksum for ${backup.fileName}`}
+                          onClick={() => void handleCopyHistoryChecksum(backup)}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 font-mono text-[10px] transition ${
+                            historyCopiedId === backup.id
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          {historyCopiedId === backup.id ? (
+                            <>
+                              <Check className="h-3 w-3" aria-hidden="true" />
+                              <span className="font-sans font-semibold">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3 w-3" aria-hidden="true" />
+                              {backup.checksumSha256.slice(0, 12)}…
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       {backup.downloadAvailable ? (
@@ -483,10 +592,19 @@ export default function DataBackupSection() {
                     </td>
                   </tr>
                 ))}
-                {!loading && (overview?.recentBackups.length ?? 0) === 0 ? (
+                {!loading && filteredCount > 0 && pageBackups.length < historyPageSize
+                  ? Array.from({ length: historyPageSize - pageBackups.length }, (_, index) => (
+                      <tr key={`history-spacer-${currentPage}-${index}`} aria-hidden="true" className="h-12">
+                        <td colSpan={6} />
+                      </tr>
+                    ))
+                  : null}
+                {!loading && filteredCount === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
-                      No backup events have been recorded yet.
+                      {historyFilter === "ALL"
+                        ? "No backup events have been recorded yet."
+                        : `No ${historyFilter === "MANUAL" ? "manual" : "scheduled"} snapshots match this filter.`}
                     </td>
                   </tr>
                 ) : null}
@@ -497,6 +615,45 @@ export default function DataBackupSection() {
                 ) : null}
               </tbody>
             </table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 px-4 py-3.5">
+            <div className="flex flex-wrap items-center gap-4">
+              <p className="inline-flex h-8 items-center gap-1.5 text-xs text-slate-500 tabular-nums">
+                {filteredCount === 0 ? (
+                  <span>No snapshots found</span>
+                ) : (
+                  <>
+                    <span>Showing</span>
+                    <span className="font-semibold text-slate-900">{start}–{end}</span>
+                    <span>of</span>
+                    <span className="font-semibold text-slate-900">{filteredCount.toLocaleString()}</span>
+                    <span>snapshots</span>
+                  </>
+                )}
+              </p>
+              <label className="inline-flex h-8 items-center gap-2 border-l border-slate-200 pl-4">
+                <span className="text-xs font-medium text-slate-500">Rows per page</span>
+                <select
+                  aria-label="Rows per page"
+                  value={historyPageSize}
+                  onChange={(event) => {
+                    setHistoryPageSize(Number(event.target.value));
+                    setHistoryPage(1);
+                  }}
+                  className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none transition-colors focus:border-slate-400"
+                >
+                  {HISTORY_PAGE_SIZES.map((size) => (
+                    <option key={size} value={size}>{size} rows</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <AdminPaginationControls
+              page={currentPage}
+              totalPages={pageCount}
+              onPageChange={setHistoryPage}
+              disabled={loading || filteredCount === 0}
+            />
           </div>
         </div>
       </article>
@@ -615,7 +772,7 @@ export default function DataBackupSection() {
                 <div className="flex gap-2.5">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
                   <p className="text-xs leading-5 text-amber-900">
-                    Restore upserts records in one transaction. Records not present in the snapshot are not deleted, and existing System Admin roles are protected. Confirm you have selected the intended file.
+                    Restore adds and updates matching records in batches. Records not present in the snapshot are not deleted, and existing System Admin roles are protected. Confirm you have selected the intended file.
                   </p>
                 </div>
               </div>
@@ -654,7 +811,7 @@ export default function DataBackupSection() {
                   className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isRestoring ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="h-4 w-4" aria-hidden="true" />}
-                  {isRestoring ? "Restoring database…" : "Restore Database"}
+                  {isRestoring ? "Restoring snapshot..." : "Restore Database"}
                 </button>
               </div>
             </footer>

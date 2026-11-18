@@ -56,6 +56,7 @@ describe("admin backup restore authorization", () => {
     mocks.restoreSnapshot.mockResolvedValue({
       checksumSha256: "a".repeat(64),
       restoredCounts: { users: 1 },
+      summary: { created: 1, updated: 0, skipped: 0 },
     });
   });
 
@@ -99,9 +100,9 @@ describe("admin backup restore authorization", () => {
       rawContent: '{"snapshot":true}',
       actorId: "system-admin-profile",
     });
-    await expect(response.json()).resolves.toMatchObject({
-      success: true,
-      restoredCounts: { users: 1 },
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      summary: { created: 1, updated: 0, skipped: 0 },
     });
   });
 

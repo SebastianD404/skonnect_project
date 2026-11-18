@@ -114,9 +114,8 @@ export async function POST(request: Request) {
       actorId: auth.admin.id,
     });
     return NextResponse.json({
-      success: true,
-      restoredCounts: result.restoredCounts,
-      checksumSha256: result.checksumSha256,
+      ok: true,
+      summary: result.summary,
     });
   } catch (error) {
     if (error instanceof BackupSnapshotValidationError) {

@@ -9,6 +9,7 @@ import { formatSexLabel, parseSex } from "@/lib/sex";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
+import { validatePlaceOfBirth } from "@/lib/place-of-birth-schema";
 
 const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jfif", "image/jpg", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -87,6 +88,11 @@ export async function PUT(request: NextRequest) {
       : parseSex(submittedSex);
     if (!parsedSex) {
       return NextResponse.json({ error: "Sex must be Male, Female, or Not specified." }, { status: 400 });
+    }
+    const placeOfBirth = String(formData.get("placeOfBirth") ?? "").trim();
+    const placeOfBirthError = validatePlaceOfBirth(placeOfBirth);
+    if (placeOfBirthError) {
+      return NextResponse.json({ error: placeOfBirthError }, { status: 400 });
     }
 
     const frontFile = getOptionalFile(formData, "frontFile");
@@ -204,6 +210,17 @@ export async function PUT(request: NextRequest) {
 
       if (registration.userId) {
         await syncKkProfileFromLatestRegistration(tx, registration.userId);
+        const linkedUser = await tx.user.findUnique({
+          where: { id: registration.userId },
+          select: { kkProfileId: true },
+        });
+        if (!linkedUser?.kkProfileId) {
+          throw new Error("Unable to save place of birth because the KK profile is not linked to this account.");
+        }
+        await tx.kKProfile.update({
+          where: { id: linkedUser.kkProfileId },
+          data: { placeOfBirth },
+        });
       }
 
       return saved;
