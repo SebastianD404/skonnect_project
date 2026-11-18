@@ -940,6 +940,13 @@ export default function SkeapApplicationsClient({
     });
   }, [verifyUploadGroups, selectedApplication, documentMapByUrl, selectedStatus]);
 
+  const screenableDocuments = useMemo(
+    () => visibleVerifyDocuments.filter((document) => Boolean(document.previewUrl)),
+    [visibleVerifyDocuments]
+  );
+
+  const screenedCount = screenableDocuments.filter((document) => document.verified).length;
+
   const verifiedCount = useMemo(
     () => CORE_UPLOAD_KEYS.filter((key) =>
       visibleVerifyDocuments.some((doc) => doc.id === key && doc.verified)
@@ -1006,6 +1013,11 @@ export default function SkeapApplicationsClient({
     optimisticVerification.reviewFile === activeReviewFile
       ? optimisticVerification.verified
       : persistedReviewVerified;
+  const activeReviewVerificationStatus =
+    activeReviewGroup?.verificationStatus ?? activeReviewDocument?.verificationStatus;
+  const activeReviewOcrNameStatus = activeReviewGroup?.ocrNameStatus ?? activeReviewDocument?.ocrNameStatus;
+  const activeReviewOcrNameMessage = activeReviewGroup?.ocrNameMessage ?? activeReviewDocument?.ocrNameMessage;
+  const activeReviewNeedsManualReview = activeReviewGroup?.manualReview ?? false;
 
   useEffect(() => {
     if (
@@ -1697,12 +1709,12 @@ export default function SkeapApplicationsClient({
     setShowReturnModal(true);
   }
 
-  function openDocumentReview(reviewKey: string) {
+  function openDocumentReview(reviewKey: string, scopedQueue?: DocumentItem[]) {
     if (!selectedApplication) return;
 
     const document = findDocumentByReviewKey(selectedApplication, reviewKey);
     const targetUrl = reviewKey.startsWith("url-") ? reviewKey.slice(4) : document?.previewUrl ?? "";
-    const documents = getReviewDocumentQueue(selectedApplication);
+    const documents = scopedQueue ?? getReviewDocumentQueue(selectedApplication);
     let activeIndex = documents.findIndex(
       (candidate) =>
         candidate.id === reviewKey ||
@@ -1710,6 +1722,7 @@ export default function SkeapApplicationsClient({
     );
 
     if (activeIndex < 0) {
+      if (scopedQueue) return;
       const fallbackDocument = document ?? (targetUrl
         ? {
             id: reviewKey,
@@ -2647,14 +2660,14 @@ export default function SkeapApplicationsClient({
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.35em] text-slate-600">
-                            {verifiedCount}/{verifyDocumentCount}
+                            {screenedCount}/{screenableDocuments.length}
                           </div>
                         </div>
                       </div>
 
                       <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
                         <div className="divide-y divide-slate-200 bg-white">
-                          {visibleVerifyDocuments.map((doc) => {
+                          {screenableDocuments.map((doc) => {
                             const docStatus = getDocumentReviewStatus(doc, selectedApplication?.messages ?? []);
                             const isResubmittedDoc = doc.updated || (selectedStatus === "Resubmitted" && docStatus === "Returned");
                             const badgeClass = isApproved && selectedApplication.application?.physicalDocumentsConfirmed
@@ -2710,7 +2723,7 @@ export default function SkeapApplicationsClient({
                                           OCR Name Mismatch
                                         </span>
                                       ) : null}
-                                      {doc.ocrNameStatus === "FOR_VERIFICATION" ? (
+                                      {!doc.verified && doc.ocrNameStatus === "FOR_VERIFICATION" ? (
                                         <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
                                           For Verification
                                         </span>
@@ -2720,7 +2733,8 @@ export default function SkeapApplicationsClient({
                                           OCR manual review
                                         </span>
                                       ) : null}
-                                      {ocrStatusLabel ? (
+                                      {ocrStatusLabel &&
+                                      !(doc.verified && doc.verificationStatus === "PENDING_ADMIN_REVIEW") ? (
                                         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
                                           doc.verificationStatus === "AUTO_VERIFIED"
                                             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -2740,7 +2754,7 @@ export default function SkeapApplicationsClient({
                                   <div className="flex items-center gap-2 shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() => openDocumentReview(doc.id)}
+                                      onClick={() => openDocumentReview(doc.id, screenableDocuments)}
                                       title="View document"
                                       aria-label={`View ${doc.label}`}
                                       className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-100 p-1.5 text-slate-600 transition hover:bg-slate-200"
@@ -2764,7 +2778,7 @@ export default function SkeapApplicationsClient({
                               </div>
                             );
                           })}
-                          {visibleVerifyDocuments.length === 0 ? (
+                          {screenableDocuments.length === 0 ? (
                             <p className="px-4 py-8 text-center text-sm text-slate-500">
                               No documents match this OCR status.
                             </p>
@@ -3064,7 +3078,7 @@ export default function SkeapApplicationsClient({
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100/60 sm:flex-row">
-                <div className="flex min-h-0 min-w-0 flex-1 items-start justify-center overflow-auto p-4 sm:p-8">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-auto p-4 sm:p-8">
                   <div className="w-full max-w-3xl shrink-0 overflow-hidden rounded-sm bg-white shadow-md ring-1 ring-slate-200">
                     {isReviewPreviewLoading ? (
                       <div className="flex h-[500px] flex-col items-center justify-center gap-3 text-sm text-slate-500">
@@ -3146,6 +3160,28 @@ export default function SkeapApplicationsClient({
                       </div>
                     )}
                   </div>
+                  {activeReviewVerificationStatus ||
+                  activeReviewOcrNameStatus ||
+                  activeReviewOcrNameMessage ||
+                  activeReviewNeedsManualReview ? (
+                    <div className="mt-4 w-full max-w-3xl space-y-2 rounded-lg border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-sm">
+                      <h4 className="font-bold uppercase tracking-wider text-slate-500">OCR review details</h4>
+                      {activeReviewVerificationStatus === "AUTO_VERIFIED" ? (
+                        <p>OCR pre-screen passed</p>
+                      ) : activeReviewVerificationStatus === "PENDING_ADMIN_REVIEW" ? (
+                        <p className="font-semibold text-amber-800">OCR pending review</p>
+                      ) : null}
+                      {activeReviewOcrNameStatus ? (
+                        <p>
+                          OCR name check: {activeReviewOcrNameStatus.replaceAll("_", " ").toLowerCase()}
+                        </p>
+                      ) : null}
+                      {activeReviewNeedsManualReview ? <p>OCR manual review required</p> : null}
+                      {activeReviewOcrNameMessage ? (
+                        <p className="leading-relaxed text-amber-800">{activeReviewOcrNameMessage}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
 
                 {!isReviewFinalized && (
@@ -3215,7 +3251,7 @@ export default function SkeapApplicationsClient({
                           ? "Saving..."
                           : activeReviewIndex < activeReviewDocuments.length - 1
                             ? "Save & Next"
-                            : "Save Note & Close"}
+                            : "Save & Finish"}
                       </button>
                     </div>
                   </aside>
