@@ -15,14 +15,16 @@ vi.mock("next/navigation", () => ({
 type MockJourneyMapProps = {
   journeyNodes?: AcademicJourneyNode[];
   eligibleSemesterCount?: number;
+  journeyStart?: string | null;
+  journeyEnd?: string | null;
   onConfigureJourney?: () => void;
 };
 
 vi.mock("@/app/components/AcademicJourneyMap", () => ({
-  default: ({ journeyNodes, eligibleSemesterCount, onConfigureJourney }: MockJourneyMapProps) => (
+  default: ({ journeyNodes, eligibleSemesterCount, journeyStart, journeyEnd, onConfigureJourney }: MockJourneyMapProps) => (
     <div>
       <p data-testid="journey-summary">
-        {journeyNodes?.length ?? 0} nodes / {eligibleSemesterCount ?? 0} eligible
+        {journeyNodes?.length ?? 0} nodes / {eligibleSemesterCount ?? 0} eligible ({journeyStart} to {journeyEnd})
       </p>
       <button type="button" onClick={onConfigureJourney}>Configure Academic Journey</button>
     </div>
@@ -61,7 +63,10 @@ describe("AcademicJourneySetup", () => {
   it("previews and immediately applies a fifth-year target after saving", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ journeyStart: "college-3", journeyEnd: "college-5" }),
+      json: async () => ({
+        journeyStart: "college-3",
+        journeyEnd: "college-5",
+      }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -86,13 +91,13 @@ describe("AcademicJourneySetup", () => {
     });
 
     expect(screen.getByText("Timeline Preview:").parentElement).toHaveTextContent(
-      "Timeline Preview: 5 semesters (2.5 years) through Y5 2nd Sem.",
+      "Timeline Preview: 6 semesters (3 years) through Y5 2nd Sem.",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Save Journey" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("journey-summary")).toHaveTextContent("5 nodes / 5 eligible");
+      expect(screen.getByTestId("journey-summary")).toHaveTextContent("6 nodes / 6 eligible (college-3 to college-5)");
     });
     expect(mocks.refresh).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -103,5 +108,56 @@ describe("AcademicJourneySetup", () => {
       }),
     );
     expect(screen.getByRole("status")).toHaveTextContent("Academic journey updated.");
+  });
+
+  it("defaults to the SKEAP year level and immediately shows the full Grade 12 to fifth-year range", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        journeyStart: "grade-12",
+        journeyEnd: "college-5",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AcademicJourneySetup
+        journeyConfigured={false}
+        journeyStart={null}
+        journeyEnd={null}
+        startingPointYearLevel="Grade 12"
+        mapProps={{
+          currentSemesterIndex: 0,
+          validatedSemesterIndexes: [],
+          eligibleSemesterCount: 0,
+          journeyNodes: [],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Set Up Journey" }));
+    expect(screen.getByRole("combobox", { name: "Starting Point" })).toHaveValue("grade-12");
+    fireEvent.change(screen.getByRole("combobox", { name: "Target Graduation" }), {
+      target: { value: "college-5" },
+    });
+    expect(screen.getByText("Timeline Preview:").parentElement).toHaveTextContent(
+      "Timeline Preview: 12 semesters (6 years) through Y5 2nd Sem.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Journey" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("journey-summary")).toHaveTextContent(
+        "12 nodes / 12 eligible (grade-12 to college-5)",
+      );
+    });
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/grantee/academic-journey",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ journeyStart: "grade-12", journeyEnd: "college-5" }),
+      }),
+    );
   });
 });

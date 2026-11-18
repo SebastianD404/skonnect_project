@@ -135,6 +135,10 @@ export default async function GranteeDashboardContent() {
 
   const submissions = grantee.submissions;
   const payout = grantee.payout;
+  const startingPointYearLevel =
+    appUser.skeapApplications.find((application) => application.status === "APPROVED")?.yearLevel ??
+    appUser.skeapApplications[0]?.yearLevel ??
+    grantee.yearLevel;
   const recentActivity = buildGranteeActivity(submissions, payout).slice(0, 4);
   const awaitingPhysicalCtcSubmission = submissions.find(
     (submission) => submission.status === "AWAITING_PHYSICAL_CTC",
@@ -160,9 +164,7 @@ export default async function GranteeDashboardContent() {
     ? schedules.find((schedule) => schedule.semester === getScheduleSemesterForTargetTerm(detectedTerm)) ?? null
     : null;
   const journeyProgress = academicTimeline.journeyProgress;
-  const isJourneyConfigured = Boolean(
-    grantee.journeyStart && grantee.journeyEnd,
-  ) || journeyProgress.nodes.length > 0;
+  const isJourneyConfigured = Boolean(grantee.journeyStart && grantee.journeyEnd);
   const isDueForGraduation = isGranteeDueForGraduation({
     status: grantee.status,
     journeyStart: grantee.journeyStart,
@@ -415,6 +417,7 @@ export default async function GranteeDashboardContent() {
             journeyConfigured={isJourneyConfigured}
             journeyStart={grantee.journeyStart ?? null}
             journeyEnd={grantee.journeyEnd ?? null}
+            startingPointYearLevel={startingPointYearLevel}
             mapProps={{
               studentName: appUser.fullName,
               photoUrl: journeyPhotoUrl,

@@ -8,9 +8,11 @@ import {
   getAcademicJourneyTerms,
   getApprovedSemesterCount,
   isValidAcademicJourneyRange,
+  mapSkeapYearLevelToStartingPoint,
   normalizeAcademicJourneyStepStatus,
   resolveScheduledJourneyStepStatus,
 } from "@/lib/academic-journey";
+import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
 
 describe("academic journey configuration", () => {
   it("allows high-school journeys to continue through college graduation", () => {
@@ -45,12 +47,57 @@ describe("academic journey configuration", () => {
     expect(getAcademicJourneyGraduationYear("college-5")).toBe(5);
   });
 
+  it("maps SKEAP year levels to their matching starting-point labels", () => {
+    const mappings = [
+      ["Grade 11", "Grade 11"],
+      ["Grade 12", "Grade 12"],
+      ["Incoming Freshman", "1st Year College"],
+      ["1st Year", "1st Year College"],
+      ["2nd Year", "2nd Year College"],
+      ["3rd Year", "3rd Year College"],
+      ["4th Year", "4th Year College"],
+      ["5th Year", "5th Year College"],
+    ] as const;
+
+    for (const [yearLevel, startingPoint] of mappings) {
+      expect(mapSkeapYearLevelToStartingPoint(yearLevel)).toBe(startingPoint);
+    }
+    expect(mapSkeapYearLevelToStartingPoint("6th Year")).toBeNull();
+    expect(mapSkeapYearLevelToStartingPoint(null)).toBeNull();
+  });
+
   it("labels the transition from high school through college", () => {
     expect(getAcademicJourneyLabels("grade-11", "college-4")).toEqual([
       "G11 S1", "G11 S2", "G12 S1", "G12 S2",
       "Y1 S1", "Y1 S2", "Y2 S1", "Y2 S2",
       "Y3 S1", "Y3 S2", "Y4 S1", "Y4 S2",
     ]);
+  });
+
+  it("generates twelve milestones from Grade 12 through fifth-year college", () => {
+    expect(getAcademicJourneyLabels("grade-12", "college-5")).toEqual([
+      "G12 S1", "G12 S2", "Y1 S1", "Y1 S2", "Y2 S1", "Y2 S2",
+      "Y3 S1", "Y3 S2", "Y4 S1", "Y4 S2", "Y5 S1", "Y5 S2",
+    ]);
+
+    const progress = getGranteeGraduationProgress({
+      submissions: [],
+      dateEnrolled: new Date("2026-08-01T00:00:00.000Z"),
+      yearLevel: "3rd Year",
+      totalYears: 4,
+      journeyStart: "grade-12",
+      journeyEnd: "college-5",
+      entryTerm: "2026-2027 First Semester",
+      now: new Date("2026-11-17T05:00:00.000Z"),
+    });
+
+    expect(progress).toMatchObject({
+      currentSemesterIndex: 0,
+      validatedSemesterIndexes: [],
+      eligibleSemesterCount: 12,
+      totalRequiredSemesters: 12,
+    });
+    expect(progress.nodes).toHaveLength(12);
   });
 
   it("can still display journeys saved with the previous Grade 12 target", () => {
@@ -175,7 +222,7 @@ describe("getAcademicJourneyProgress", () => {
     });
   });
 
-  it("starts a second-year second-semester admission at the actual intake term", () => {
+  it("prefers the saved starting point over a stale application year level", () => {
     const progress = getAcademicJourneyProgress(
       [],
       new Date("2026-08-01T00:00:00.000Z"),
@@ -188,14 +235,14 @@ describe("getAcademicJourneyProgress", () => {
     );
 
     expect(progress.currentSemesterIndex).toBe(0);
-    expect(progress.nodes).toHaveLength(5);
+    expect(progress.nodes).toHaveLength(7);
     expect(progress.nodes[0]).toMatchObject({
       semester: "2026-2027 Second Semester",
       status: "CURRENT",
-      yearNumber: 2,
+      yearNumber: 1,
       semesterNumber: 2,
     });
-    expect(progress.eligibleSemesterCount).toBe(5);
+    expect(progress.eligibleSemesterCount).toBe(7);
   });
 
   it("creates exactly three milestones for a third-year second-semester 4-year admission", () => {

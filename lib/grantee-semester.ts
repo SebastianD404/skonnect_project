@@ -214,7 +214,7 @@ export function resolveGranteeAcademicTimeline(
   const journeyProgress = getGranteeGraduationProgress({
     submissions,
     dateEnrolled,
-    yearLevel: grantee.yearLevel,
+    yearLevel: approvedApplication?.yearLevel ?? grantee.yearLevel,
     totalYears: inferredTotalYears,
     journeyStart: grantee.journeyStart,
     journeyEnd: grantee.journeyEnd,

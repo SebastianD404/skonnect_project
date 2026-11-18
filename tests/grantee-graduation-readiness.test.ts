@@ -54,7 +54,7 @@ describe("getGranteeGraduationProgress", () => {
     }).isComplete).toBe(true);
   });
 
-  it("uses a fifth-year target for a third-year second-semester intake", () => {
+  it("tracks the full starting-point range for a third-year second-semester intake", () => {
     const progress = getGranteeGraduationProgress({
       submissions: [],
       dateEnrolled,
@@ -72,8 +72,9 @@ describe("getGranteeGraduationProgress", () => {
       "2027-2028 Second Semester",
       "2028-2029 First Semester",
       "2028-2029 Second Semester",
+      "2029-2030 First Semester",
     ]);
-    expect(progress.totalRequiredSemesters).toBe(5);
+    expect(progress.totalRequiredSemesters).toBe(6);
     expect(progress.currentSemesterIndex).toBe(0);
     expect(progress.isComplete).toBe(false);
   });

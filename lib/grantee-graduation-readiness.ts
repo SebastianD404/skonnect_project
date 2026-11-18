@@ -33,8 +33,9 @@ export function getGranteeGraduationProgress({
     ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd).length / 2
     : null;
   const graduationYear = journeyEnd ? getAcademicJourneyGraduationYear(journeyEnd) : null;
-  const totalYears = graduationYear ??
-    (configuredTotalYears && configuredTotalYears > 0 ? configuredTotalYears : rangeTotalYears ?? 4);
+  const totalYears = rangeTotalYears ??
+    graduationYear ??
+    (configuredTotalYears && configuredTotalYears > 0 ? configuredTotalYears : 4);
   const progress = getAcademicJourneyProgress(
     submissions,
     dateEnrolled,
@@ -44,6 +45,7 @@ export function getGranteeGraduationProgress({
     entryTerm,
     yearLevel,
     journeyStart,
+    journeyEnd,
   );
   const totalRequiredSemesters = progress.eligibleSemesterCount;
   const validatedCount = progress.validatedSemesterIndexes.length;

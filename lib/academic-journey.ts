@@ -19,6 +19,34 @@ export const ACADEMIC_JOURNEY_END_OPTIONS = [
   { value: "college-5", label: "5th Year College" },
 ] as const;
 
+export function mapSkeapYearLevelToStartingPoint(yearLevel?: string | null) {
+  const normalizedYearLevel = yearLevel?.trim().toLowerCase();
+  if (!normalizedYearLevel) return null;
+
+  const startingPoints: Record<string, string> = {
+    "grade 7": "Grade 7",
+    "grade 8": "Grade 8",
+    "grade 9": "Grade 9",
+    "grade 10": "Grade 10",
+    "grade 11": "Grade 11",
+    "grade 12": "Grade 12",
+    "incoming freshman": "1st Year College",
+    "1st year": "1st Year College",
+    "1st year college": "1st Year College",
+    "2nd year": "2nd Year College",
+    "2nd year college": "2nd Year College",
+    "3rd year": "3rd Year College",
+    "3rd year college": "3rd Year College",
+    "4th year": "4th Year College",
+    "4th year college": "4th Year College",
+    "5th year": "5th Year College",
+    "5th year college": "5th Year College",
+    "new trainee / incoming": "1st Year College",
+  };
+
+  return startingPoints[normalizedYearLevel] ?? null;
+}
+
 type JourneyPoint = {
   track: "grade" | "college";
   year: number;
@@ -254,18 +282,33 @@ export function getAcademicJourneyProgress(
   entrySemester?: string,
   yearLevel?: string | null,
   journeyStart?: string | null,
+  journeyEnd?: string | null,
 ) {
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const intakeTerm = normalizeJourneySemester(entrySemester?.trim() ?? "");
   const intakeOrder = intakeTerm ? getSemesterOrder(intakeTerm) : null;
   const configuredStartPoint = journeyStart ? parseJourneyPoint(journeyStart) : null;
-  const startYear = parseStartYear(yearLevel) ??
-    (configuredStartPoint?.track === "college" ? configuredStartPoint.year : null);
+  const mappedStartingPoint = mapSkeapYearLevelToStartingPoint(yearLevel);
+  const fallbackStartPoint = mappedStartingPoint
+    ? ACADEMIC_JOURNEY_START_OPTIONS.find(({ label }) => label === mappedStartingPoint)?.value
+    : null;
+  const effectiveStartPoint = configuredStartPoint
+    ? configuredStartPoint
+    : parseJourneyPoint(fallbackStartPoint ?? "");
+  const startYear = effectiveStartPoint
+    ? effectiveStartPoint.track === "grade"
+      ? effectiveStartPoint.year >= 11 ? effectiveStartPoint.year - 10 : null
+      : effectiveStartPoint.year
+    : parseStartYear(yearLevel);
+  const configuredTerms = journeyStart && journeyEnd && isValidAcademicJourneyRange(journeyStart, journeyEnd)
+    ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd)
+    : null;
 
-  if (intakeOrder !== null && startYear !== null) {
+  if (intakeOrder !== null && (configuredTerms || startYear !== null)) {
     const entryStartYear = Math.floor(intakeOrder / 2);
-    const terminalStartYear = entryStartYear + Math.max(0, years - startYear);
-    const terminalOrder = terminalStartYear * 2 + 1;
+    const terminalOrder = configuredTerms
+      ? intakeOrder + configuredTerms.length - 1
+      : (entryStartYear + Math.max(0, years - startYear!)) * 2 + 1;
     const nodes: AcademicJourneyNode[] = [];
     const submissionsByOrder = new Map<number, AcademicJourneySubmission>();
 
@@ -304,7 +347,9 @@ export function getAcademicJourneyProgress(
         status = index === 0 || previousValidated ? "CURRENT" : "LOCKED";
       }
 
-      const yearNumber = Math.floor(order / 2) - entryStartYear + startYear;
+      const yearNumber = configuredTerms
+        ? (startYear ?? 1) + Math.floor(index / 2)
+        : Math.floor(order / 2) - entryStartYear + startYear!;
       const semesterNumber = (order % 2 === 0 ? 1 : 2) as 1 | 2;
       const academicYearStart = Math.floor(order / 2);
       nodes.push({
@@ -370,7 +415,9 @@ export function getAcademicJourneyProgress(
   const termCount = years * 2;
   const startOrder = getSemesterOrder(entrySemester ?? getCurrentAcademicSemester(dateEnrolled));
   const calendarOrder = getSemesterOrder(getCurrentAcademicSemester(now));
-  const currentEducationStage = getJourneyStage(yearLevel) ?? journeyStartStage;
+  const currentEducationStage = configuredStartPoint
+    ? journeyStartStage
+    : getJourneyStage(yearLevel) ?? journeyStartStage;
   const entrySemesterOffset = entrySemester?.toLowerCase().includes("second semester") ? 1 : 0;
   const preGrantCount = Math.max(
     0,
