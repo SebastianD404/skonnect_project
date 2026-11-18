@@ -130,7 +130,7 @@ describe("admin scholar demographics", () => {
       .map((part: unknown) => flattenSql(part))
       .join("");
     expect(youthCohortQuery).toContain('registration."reviewStatus" =');
-    expect(youthCohortQuery).toContain('registration."archivedAt" IS NULL');
+    expect(youthCohortQuery).toContain('registration."archived_at" IS NULL');
     expect(youthCohortQuery).toContain('user_record."isActive" =');
     expect(youthCohortQuery).toContain("identity_rank = 1");
     expect(youthCohortQuery).toContain(", profiles_by_sitio AS");

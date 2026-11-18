@@ -45,7 +45,7 @@ export function createVerifiedKkYouthCte({
       WHERE registration."reviewStatus" = ${VERIFIED_KK_YOUTH_WHERE.reviewStatus}
         ${
           archivedAtColumnAvailable && VERIFIED_KK_YOUTH_WHERE.archivedAt === null
-            ? Prisma.sql`AND registration."archivedAt" IS NULL`
+            ? Prisma.sql`AND registration."archived_at" IS NULL`
             : Prisma.empty
         }
         AND user_record."isActive" = ${VERIFIED_KK_YOUTH_WHERE.user.is.isActive}
