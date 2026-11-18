@@ -206,7 +206,6 @@ export function resolveGranteeAcademicTimeline(
   const initialGrant = approvedApplication
     ? {
         semester: entryTerm.termLabel,
-        approvedAt: approvedApplication.updatedAt ?? approvedApplication.submittedAt,
         gwa: approvedApplication.gwa ?? null,
         gradeReportUrl: approvedApplication.reportCardFileUrl ?? null,
         coeFileUrl: approvedApplication.enrollmentFileUrl ?? null,

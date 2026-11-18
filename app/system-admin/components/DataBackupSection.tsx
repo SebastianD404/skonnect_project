@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Check,
@@ -11,10 +12,13 @@ import {
   Download,
   FileCheck2,
   Loader2,
+  Play,
   ShieldCheck,
   X,
 } from "lucide-react";
 import AdminPaginationControls from "@/app/admin/AdminPaginationControls";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
+import { isPhtTimeAtOrAfterBackupTarget } from "@/lib/data-backup-schedule";
 
 type BackupCounts = Record<string, number>;
 
@@ -22,6 +26,7 @@ type BackupHistoryItem = {
   id: string;
   fileName: string;
   trigger: "MANUAL" | "SCHEDULED" | "AUTOMATED";
+  type: "MANUAL" | "SCHEDULED";
   status: "COMPLETED" | "FAILED";
   recordCounts: BackupCounts;
   fileSizeBytes: number;
@@ -37,7 +42,9 @@ type BackupOverview = {
   serverNow: string;
   recentBackups: BackupHistoryItem[];
   lastSuccessfulBackupAt: string | null;
-  nextScheduledAt: string;
+  currentPhtHour: number;
+  currentPhtMinute: number;
+  scheduledBackupToday: boolean;
   liveRecordCounts: BackupCounts | null;
   error?: string | null;
 };
@@ -100,20 +107,6 @@ function formatDate(value: string | null) {
   }).format(date);
 }
 
-function formatPhtTimestamp(value: string | null) {
-  if (!value) return "Unavailable";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown";
-  return `${new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "Asia/Manila",
-  }).format(date)} PHT`;
-}
-
 function formatFileSize(bytes: number) {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
   if (bytes < 1024) return `${bytes} B`;
@@ -146,7 +139,7 @@ async function fetchBackupOverview(): Promise<BackupOverview> {
 }
 
 function getLatestCronError(backups: BackupHistoryItem[]) {
-  const latestCronBackup = backups.find((backup) => backup.trigger !== "MANUAL");
+  const latestCronBackup = backups.find((backup) => backup.type === "SCHEDULED");
   return latestCronBackup?.status === "FAILED" ? latestCronBackup.errorMessage : null;
 }
 
@@ -159,6 +152,7 @@ function hasRecentBackup(overview: BackupOverview | null) {
 }
 
 export default function DataBackupSection() {
+  const router = useRouter();
   const [overview, setOverview] = useState<BackupOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +173,11 @@ export default function DataBackupSection() {
   const [historyPageSize, setHistoryPageSize] = useState<number>(HISTORY_PAGE_SIZES[0]);
   const [historyCopiedId, setHistoryCopiedId] = useState<string | null>(null);
   const [historyCopyError, setHistoryCopyError] = useState<string | null>(null);
+  const [isRunningNow, setIsRunningNow] = useState(false);
+  const [scheduleFeedback, setScheduleFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -224,8 +223,7 @@ export default function DataBackupSection() {
   const backedUpRecently = hasRecentBackup(overview);
   const filteredBackups = (overview?.recentBackups ?? []).filter((backup) => {
     if (historyFilter === "ALL") return true;
-    if (historyFilter === "MANUAL") return backup.trigger === "MANUAL";
-    return backup.trigger !== "MANUAL";
+    return backup.type === historyFilter;
   });
   const filteredCount = filteredBackups.length;
   const pageCount = Math.max(1, Math.ceil(filteredCount / historyPageSize));
@@ -236,6 +234,11 @@ export default function DataBackupSection() {
   );
   const start = filteredCount === 0 ? 0 : (currentPage - 1) * historyPageSize + 1;
   const end = Math.min(currentPage * historyPageSize, filteredCount);
+  const nextRunLabel = overview?.scheduledBackupToday
+    ? "Tomorrow, 8:15 PM PHT"
+    : overview && isPhtTimeAtOrAfterBackupTarget(overview.currentPhtHour, overview.currentPhtMinute)
+      ? "Catch-up pending"
+      : "Today, 8:15 PM PHT";
 
   async function handleDownloadBackup() {
     if (isDownloading) return;
@@ -262,6 +265,34 @@ export default function DataBackupSection() {
       setError(downloadError instanceof Error ? downloadError.message : "Unable to generate a backup.");
     } finally {
       setIsDownloading(false);
+    }
+  }
+
+  async function handleRunScheduledBackupNow() {
+    if (isRunningNow) return;
+    setIsRunningNow(true);
+    setScheduleFeedback(null);
+    try {
+      const response = await fetch("/api/cron/daily-backup", { method: "POST" });
+      const body = await readJsonResponse(response);
+      if (!response.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Unable to run the scheduled backup.");
+      }
+      setScheduleFeedback({
+        type: "success",
+        message: body.skipped === true
+          ? "Today's scheduled backup already exists."
+          : "Daily backup completed successfully.",
+      });
+      await loadOverview();
+      router.refresh();
+    } catch (runError) {
+      setScheduleFeedback({
+        type: "error",
+        message: runError instanceof Error ? runError.message : "Unable to run the scheduled backup.",
+      });
+    } finally {
+      setIsRunningNow(false);
     }
   }
 
@@ -391,6 +422,13 @@ export default function DataBackupSection() {
 
   return (
     <section className="py-8" aria-labelledby="data-backup-heading">
+      {scheduleFeedback ? (
+        <FloatingFeedback
+          message={scheduleFeedback.message}
+          type={scheduleFeedback.type}
+          onDismiss={() => setScheduleFeedback(null)}
+        />
+      ) : null}
       <article className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-100 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
           <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -431,10 +469,25 @@ export default function DataBackupSection() {
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Automated Schedule</p>
-            <p className="mt-1.5 text-sm font-semibold text-slate-900">Daily · 12:00 AM PHT</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Next run: {loading ? "—" : formatPhtTimestamp(overview?.nextScheduledAt ?? null)}
-            </p>
+            <p className="mt-1.5 text-sm font-semibold text-slate-900">Daily · 8:15 PM PHT</p>
+            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-500">
+                Next run: {loading ? "—" : nextRunLabel}
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleRunScheduledBackupNow()}
+                disabled={isRunningNow}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-800 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isRunningNow ? (
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Play className="h-3 w-3" aria-hidden="true" />
+                )}
+                {isRunningNow ? "Running..." : "Run Now"}
+              </button>
+            </div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Protected Records</p>
@@ -544,7 +597,7 @@ export default function DataBackupSection() {
                         <span className="ml-2 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">Failed</span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3">{backup.trigger === "MANUAL" ? "Manual" : "Scheduled"}</td>
+                    <td className="px-3 py-3">{backup.type === "MANUAL" ? "Manual" : "Scheduled"}</td>
                     <td className="px-3 py-3">{backup.createdBy ?? "Automated schedule"}</td>
                     <td className="whitespace-nowrap px-3 py-3 tabular-nums">{formatFileSize(backup.fileSizeBytes)}</td>
                     <td className="px-3 py-3">
@@ -579,11 +632,10 @@ export default function DataBackupSection() {
                     <td className="px-3 py-3">
                       {backup.downloadAvailable ? (
                         <a
-                          href={`/api/admin/backups/${encodeURIComponent(backup.id)}/download`}
-                          download={backup.fileName}
-                          className="inline-flex items-center gap-1.5 font-semibold text-cyan-800 hover:text-cyan-950"
+                          href={`/api/system-admin/backup/${encodeURIComponent(backup.id)}/download`}
+                          className="group inline-flex items-center gap-1.5 font-semibold text-cyan-800 hover:text-cyan-950"
                         >
-                          <CloudDownload className="h-3.5 w-3.5" aria-hidden="true" />
+                          <CloudDownload className="h-3.5 w-3.5 opacity-70 transition group-hover:opacity-100" aria-hidden="true" />
                           {backup.fileName}
                         </a>
                       ) : (

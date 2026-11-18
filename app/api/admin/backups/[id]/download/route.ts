@@ -17,7 +17,7 @@ export async function GET(
     const { id } = await params;
     const log = await prisma.backupLog.findUnique({
       where: { id },
-      select: { fileName: true, trigger: true, status: true },
+      select: { fileName: true, trigger: true, status: true, storagePath: true },
     });
     if (
       !log ||
@@ -28,7 +28,7 @@ export async function GET(
       return NextResponse.json({ error: "Stored automated backup file was not found." }, { status: 404 });
     }
 
-    const file = await downloadScheduledBackup(log.fileName);
+    const file = await downloadScheduledBackup(log.fileName, log.storagePath);
     return new Response(file, {
       headers: {
         "Content-Type": "application/json; charset=utf-8",

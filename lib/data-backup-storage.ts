@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const SYSTEM_BACKUP_BUCKET = "system-backups";
 
+type SystemBackupType = "MANUAL" | "SCHEDULED";
+
 function getStorage() {
   return createAdminClient().storage;
 }
@@ -13,15 +15,21 @@ async function ensurePrivateBackupBucket() {
   const { data: buckets, error: listError } = await storage.listBuckets();
   if (listError) throw listError;
 
-  const bucket = buckets.find((item) => item.name === SYSTEM_BACKUP_BUCKET);
+  let bucket = buckets.find((item) => item.name === SYSTEM_BACKUP_BUCKET);
   if (!bucket) {
     const { error } = await storage.createBucket(SYSTEM_BACKUP_BUCKET, {
       public: false,
       fileSizeLimit: "100MB",
       allowedMimeTypes: ["application/json"],
     });
-    if (error) throw error;
-    return storage;
+    if (error) {
+      const { data: refreshedBuckets, error: refreshError } = await storage.listBuckets();
+      if (refreshError) throw refreshError;
+      bucket = refreshedBuckets.find((item) => item.name === SYSTEM_BACKUP_BUCKET);
+      if (!bucket) throw error;
+    } else {
+      return storage;
+    }
   }
 
   if (bucket.public) {
@@ -43,9 +51,8 @@ function isMissingBackupBucketError(error: { message: string; statusCode?: strin
     message.includes("no such bucket");
 }
 
-export async function persistScheduledBackup(fileName: string, jsonString: string) {
+async function uploadBackup(path: string, jsonString: string) {
   let storage = await ensurePrivateBackupBucket();
-  const path = `scheduled/${fileName}`;
   const uploadOptions = {
     contentType: "application/json",
     upsert: true,
@@ -64,13 +71,32 @@ export async function persistScheduledBackup(fileName: string, jsonString: strin
     ));
   }
   if (error) throw error;
+}
+
+export async function persistSystemBackup(
+  type: SystemBackupType,
+  phtDate: string,
+  fileName: string,
+  jsonString: string,
+) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(phtDate)) {
+    throw new Error("Backup date is invalid.");
+  }
+  const path = `${type.toLowerCase()}/${phtDate}/${fileName}`;
+  await uploadBackup(path, jsonString);
+  return path;
+}
+
+export async function persistScheduledBackup(fileName: string, jsonString: string) {
+  const path = `scheduled/${fileName}`;
+  await uploadBackup(path, jsonString);
   return path;
 }
 
 export async function downloadScheduledBackup(fileName: string, storagePath?: string | null) {
   const storage = getStorage();
   const path = storagePath ?? `scheduled/${fileName}`;
-  if (!/^scheduled\/[a-zA-Z0-9._-]+\.json$/.test(path)) {
+  if (!/^scheduled\/(?:\d{4}-\d{2}-\d{2}\/)?[a-zA-Z0-9._-]+\.json$/.test(path)) {
     throw new Error("Stored backup path is invalid.");
   }
   const { data, error } = await storage
@@ -80,10 +106,22 @@ export async function downloadScheduledBackup(fileName: string, storagePath?: st
   return data;
 }
 
+export async function createSystemBackupSignedUrl(storagePath: string, fileName: string) {
+  if (!/^(?:manual\/\d{4}-\d{2}-\d{2}|scheduled\/(?:\d{4}-\d{2}-\d{2}\/)?)[a-zA-Z0-9._-]+\.json$/.test(storagePath)) {
+    throw new Error("Stored backup path is invalid.");
+  }
+  const { data, error } = await getStorage()
+    .from(SYSTEM_BACKUP_BUCKET)
+    .createSignedUrl(storagePath, 60, { download: fileName });
+  if (error) throw error;
+  if (!data.signedUrl) throw new Error("Supabase did not return a signed backup URL.");
+  return data.signedUrl;
+}
+
 export async function removeScheduledBackupFiles(paths: string[]) {
   const uniquePaths = [...new Set(paths)];
   if (uniquePaths.length === 0) return;
-  if (uniquePaths.some((path) => !/^scheduled\/[a-zA-Z0-9._-]+\.json$/.test(path))) {
+  if (uniquePaths.some((path) => !/^scheduled\/(?:\d{4}-\d{2}-\d{2}\/)?[a-zA-Z0-9._-]+\.json$/.test(path))) {
     throw new Error("Stored backup path is invalid.");
   }
 

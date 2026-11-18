@@ -203,9 +203,38 @@ describe("resolveGranteeEntryTerm", () => {
       termLabel: "2026-2027 Second Semester",
     });
   });
+
 });
 
 describe("resolveGranteeAcademicTimeline", () => {
+  it("keeps a promoted grantee's intake term current until a semester submission is approved", () => {
+    const now = new Date("2026-11-17T05:00:00.000Z");
+    const timeline = resolveGranteeAcademicTimeline(
+      {
+        yearLevel: "1st Year",
+        entryAcademicYear: "2026-2027",
+        entrySemester: "Second Semester",
+        dateEnrolled: now,
+        skeapApplications: [{
+          ...approvedApplication,
+          status: "APPROVED",
+          currentCourse: "Bachelor's Degree",
+          yearLevel: "1st Year",
+        }],
+      },
+      [],
+      { schedules: [], now },
+    );
+
+    expect(timeline.journeyProgress).toMatchObject({
+      currentSemesterIndex: 0,
+      currentStepSemester: "2026-2027 Second Semester",
+      validatedSemesterIndexes: [],
+    });
+    expect(timeline.journeyProgress.nodes[0].status).toBe("CURRENT");
+    expect(timeline.journeyProgress.validatedCount).toBe(0);
+  });
+
   it("starts at the stored term with zero validated semesters and advances only after approval", () => {
     const grantee = {
       yearLevel: "1st Year",

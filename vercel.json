@@ -9,8 +9,8 @@
       "schedule": "30 0 * * *"
     },
     {
-      "path": "/api/cron/backup",
-      "schedule": "0 16 * * *"
+      "path": "/api/cron/daily-backup",
+      "schedule": "15 12 * * *"
     }
   ]
 }

@@ -11,23 +11,15 @@ export default async function AdminReportsPage() {
   const semesterOptions = semesters.map(({ name, label }) => ({ value: name, label }));
   const financialExportParams = new URLSearchParams({
     semester: currentSemester,
-    reportType: "master_payroll",
   });
   const receivedPayoutParams = new URLSearchParams({
     semester: currentSemester,
-    reportType: "received_payouts",
-    payoutStatus: "received",
   });
   const pendingDocumentsParams = new URLSearchParams({
-    reportType: "missing_incomplete",
     semester: currentSemester,
-  });
-  const nonCompliantParams = new URLSearchParams({
-    reportType: "non_compliant",
   });
   const unclaimedPayoutParams = new URLSearchParams({
     semester: currentSemester,
-    reportType: "unclaimed_payouts",
   });
   const inSchoolParams = new URLSearchParams({
     filter: "all_approved",
@@ -45,42 +37,48 @@ export default async function AdminReportsPage() {
         {
           title: "Full KK Census Masterlist",
           description: "All approved KK profiling records.",
-          href: "/api/admin/members/export?filter=all_approved",
+          href: "/api/admin/reports/export?type=full_kk_census&filter=all_approved",
+          reportKey: "full_kk_census",
           icon: "users",
           reportType: "STATIC",
         },
         {
           title: "In-School Youth Registry",
           description: "Approved profiles classified as in-school youth.",
-          href: `/api/admin/members/export?${inSchoolParams.toString()}`,
+          href: `/api/admin/reports/export?type=in_school_registry&${inSchoolParams.toString()}`,
+          reportKey: "in_school_registry",
           icon: "graduation-cap",
           reportType: "STATIC",
         },
         {
           title: "Out-of-School Youth Registry",
           description: "Approved profiles classified as out-of-school youth.",
-          href: `/api/admin/members/export?${outOfSchoolParams.toString()}`,
+          href: `/api/admin/reports/export?type=out_of_school_registry&${outOfSchoolParams.toString()}`,
+          reportKey: "out_of_school_registry",
           icon: "users",
           reportType: "STATIC",
         },
         {
           title: "SK Registered Voters Masterlist",
           description: "Youth profiles officially registered as SK voters for election compliance.",
-          href: "/api/admin/members/export?filter=all_approved&skVoter=true",
+          href: "/api/admin/reports/export?type=sk_registered_voters&filter=all_approved&skVoter=true",
+          reportKey: "sk_registered_voters",
           icon: "users",
           reportType: "STATIC",
         },
         {
           title: "Demographic Distribution (Gender & Sitio)",
           description: "Verified youth counts by sitio, with male, female, and overall totals.",
-          href: "/api/admin/reports/demographic-distribution",
+          href: "/api/admin/reports/export?type=demographic_distribution",
+          reportKey: "demographic_distribution",
           icon: "users",
           reportType: "STATIC",
         },
         {
           title: "Archived/Aged-Out Youth Records",
           description: "Archived KK profiles with archive reasons and review notes.",
-          href: "/api/admin/members/records/export",
+          href: "/api/admin/reports/export?type=archived_youth",
+          reportKey: "archived_youth",
           icon: "archive",
           reportType: "ARCHIVED_RECORDS",
         },
@@ -93,42 +91,48 @@ export default async function AdminReportsPage() {
         {
           title: "Active Scholars Masterlist",
           description: "Current active and probationary SKEAP scholars.",
-          href: "/api/admin/grantees/export",
+          href: "/api/admin/reports/export?type=active_scholars",
+          reportKey: "active_scholars",
           icon: "badge-check",
           reportType: "STATIC",
         },
         {
           title: "Waitlisted Applicants",
           description: "Applicants ordered by their current waitlist position.",
-          href: "/api/admin/skeap-applications/waitlist/export",
+          href: "/api/admin/reports/export?type=waitlisted_applicants",
+          reportKey: "waitlisted_applicants",
           icon: "clock",
           reportType: "STATIC",
         },
         {
           title: "Pending Document Submissions",
           description: "Active scholars with missing COE or grade uploads for the current semester.",
-          href: `/api/admin/submissions/export?${pendingDocumentsParams.toString()}`,
+          href: `/api/admin/reports/export?type=pending_documents&${pendingDocumentsParams.toString()}`,
+          reportKey: "pending_documents",
           icon: "file-check",
           reportType: "PENDING_DOCUMENTS",
         },
         {
           title: "Non-Compliant Grantees Masterlist",
           description: "Active scholars who failed to submit mandatory semester requirements before the deadline.",
-          href: `/api/admin/submissions/export?${nonCompliantParams.toString()}`,
+          href: "/api/admin/reports/export?type=non_compliant_grantees",
+          reportKey: "non_compliant_grantees",
           icon: "file-check",
           reportType: "PENDING_DOCUMENTS",
         },
         {
           title: "Graduated Scholars Archive",
           description: "Graduated scholars with enrollment and end-date details.",
-          href: "/api/admin/grantees/records/export?status=graduated",
+          href: "/api/admin/reports/export?type=graduated_scholars",
+          reportKey: "graduated_scholars",
           icon: "history",
           reportType: "STATIC",
         },
         {
           title: "Revoked Grantees (with reasons)",
           description: "Revoked scholars with revocation dates and recorded reasons.",
-          href: "/api/admin/grantees/revoked/export",
+          href: "/api/admin/reports/export?type=revoked_grantees",
+          reportKey: "revoked_grantees",
           icon: "user-x",
           reportType: "REVOKED_GRANTEES",
         },
@@ -141,7 +145,8 @@ export default async function AdminReportsPage() {
         {
           title: "SKEAP Financial Masterlist (Current Semester)",
           description: "Current-semester SKEAP master payroll.",
-          href: `/api/admin/accounting/export?${financialExportParams.toString()}`,
+          href: `/api/admin/reports/export?type=skeap_financial&${financialExportParams.toString()}`,
+          reportKey: "skeap_financial",
           icon: "banknote",
           reportType: "SKEAP_FINANCIAL",
           semesterOptions,
@@ -149,7 +154,8 @@ export default async function AdminReportsPage() {
         {
           title: "Cash Disbursement Payout Receipts",
           description: "Current-semester payouts recorded as received/disbursed.",
-          href: `/api/admin/accounting/export?${receivedPayoutParams.toString()}`,
+          href: `/api/admin/reports/export?type=cash_disbursement_receipts&${receivedPayoutParams.toString()}`,
+          reportKey: "cash_disbursement_receipts",
           icon: "file-check",
           reportType: "SKEAP_FINANCIAL",
           semesterOptions,
@@ -157,7 +163,8 @@ export default async function AdminReportsPage() {
         {
           title: "Unclaimed SKEAP Allowances",
           description: "Approved scholars who have not yet claimed their physical cash payout.",
-          href: `/api/admin/accounting/export?${unclaimedPayoutParams.toString()}`,
+          href: `/api/admin/reports/export?type=unclaimed_allowances&${unclaimedPayoutParams.toString()}`,
+          reportKey: "unclaimed_allowances",
           icon: "banknote",
           reportType: "STATIC",
         },

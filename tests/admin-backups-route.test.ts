@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
@@ -27,10 +27,16 @@ import { GET } from "@/app/api/admin/backups/route";
 describe("/api/admin/backups", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-18T12:15:00.000Z"));
     mocks.getSystemBackupAdmin.mockResolvedValue({ admin: { id: "admin-1" } });
     mocks.findMany.mockResolvedValue([]);
     mocks.findFirst.mockResolvedValue(null);
     mocks.getLiveBackupRecordCounts.mockResolvedValue({ users: 3839 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("returns protected counts when backup history query fails on missing database columns", async () => {
@@ -76,5 +82,16 @@ describe("/api/admin/backups", () => {
       1,
       expect.objectContaining({ take: 30, orderBy: { createdAt: "desc" } }),
     );
+  });
+
+  it("does not mark the scheduled backup missed before 8:15 PM PHT", async () => {
+    vi.setSystemTime(new Date("2026-11-18T12:14:00.000Z"));
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.schedulerStatus).toBe("NOT_DUE");
+    expect(body.currentPhtHour).toBe(20);
+    expect(body.currentPhtMinute).toBe(14);
   });
 });

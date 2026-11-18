@@ -99,7 +99,7 @@ describe("backup snapshot verification", () => {
     );
   });
 
-  it("removes old completed automated snapshots before deleting their history rows", async () => {
+  it("removes scheduled snapshots older than 30 days before deleting their history rows", async () => {
     mocks.findMany.mockResolvedValue([
       {
         id: "old-completed",
@@ -107,14 +107,16 @@ describe("backup snapshot verification", () => {
         storagePath: "scheduled/backup-old.json",
       },
     ]);
+    const now = new Date("2026-11-18T12:00:00.000Z");
 
-    await expect(pruneAutomatedBackupHistory()).resolves.toBe(1);
+    await expect(pruneAutomatedBackupHistory(now)).resolves.toBe(1);
 
     expect(mocks.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ status: "COMPLETED" }),
+        where: expect.objectContaining({
+          createdAt: { lt: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
+        }),
         orderBy: { createdAt: "desc" },
-        skip: 30,
       }),
     );
     expect(mocks.removeScheduledBackupFiles).toHaveBeenCalledWith([

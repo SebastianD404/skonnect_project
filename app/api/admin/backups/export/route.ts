@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { generateSystemBackupSnapshot } from "@/lib/data-backup";
+import { writeAuditLog } from "@/lib/audit/logger";
+import { createSystemBackupSnapshot } from "@/lib/backup/snapshot";
 import { getSystemBackupAdmin } from "@/lib/system-backup-auth";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +11,27 @@ export async function POST() {
     const auth = await getSystemBackupAdmin();
     if ("response" in auth) return auth.response;
 
-    const backup = await generateSystemBackupSnapshot({
+    const backup = await createSystemBackupSnapshot({
+      type: "MANUAL",
+      createdBy: "Super Admin",
+      createdById: auth.admin.id,
+    });
+    await writeAuditLog(prisma, {
+      action: "SYSTEM_BACKUP_CREATED",
       actorId: auth.admin.id,
-      trigger: "MANUAL",
+      targetTable: "backup_logs",
+      targetId: backup.log.id,
+      afterData: {
+        fileName: backup.fileName,
+        trigger: backup.log.trigger,
+        fileSizeBytes: backup.log.fileSizeBytes,
+        checksumSha256: backup.log.checksumSha256,
+        storagePath: backup.log.storagePath,
+      },
+      metadata: {
+        backupType: "MANUAL",
+        recordCounts: backup.log.recordCounts,
+      },
     });
     return new Response(backup.jsonString, {
       headers: {

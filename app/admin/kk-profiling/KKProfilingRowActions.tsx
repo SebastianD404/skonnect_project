@@ -6,14 +6,18 @@ import Link from "next/link";
 import { AlertTriangle, Archive, Eye, LockKeyhole, X } from "lucide-react";
 import {
   KK_MEMBER_ARCHIVE_REASONS,
-  type KKMemberArchiveReason,
+  type KKMemberArchiveReasonOption,
 } from "@/lib/kk-member-archive";
 import { AdminKKProfilingFormView } from "./AdminKKProfilingFormView";
 import type { KKProfilingRegistration } from "./types";
 
 interface RegistrationRowActionsProps {
   registration: KKProfilingRegistration;
-  onArchive?: (id: string, reason: KKMemberArchiveReason) => Promise<void>;
+  onArchive?: (
+    id: string,
+    reason: KKMemberArchiveReasonOption,
+    customReason: string,
+  ) => Promise<void>;
   onUpdate: (registration: KKProfilingRegistration) => void;
   onStatusUpdate: (status: "Approved" | "Returned" | "Rejected" | "For Physical CTC", registrationId: string) => void;
   compact?: boolean;
@@ -25,7 +29,8 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
   const [showEdit, setShowEdit] = useState(false);
   const [showActiveGranteeGuard, setShowActiveGranteeGuard] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"archive" | null>(null);
-  const [archiveReason, setArchiveReason] = useState<KKMemberArchiveReason | "">("");
+  const [archiveReason, setArchiveReason] = useState<KKMemberArchiveReasonOption | "">("");
+  const [customArchiveReason, setCustomArchiveReason] = useState("");
   const [isConfirmingAction, setIsConfirmingAction] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -35,11 +40,13 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
   const isActiveGrantee = granteeStatus === "ACTIVE" || granteeStatus === "PROBATIONARY";
 
   const handleConfirmAction = async () => {
-    if (!onArchive || !archiveReason) return;
+    const isCustomReasonValid =
+      archiveReason !== "Other (Specify)" || Boolean(customArchiveReason.trim());
+    if (!onArchive || !archiveReason || !isCustomReasonValid) return;
     setIsConfirmingAction(true);
     setActionError(null);
     try {
-      await onArchive(registration.id, archiveReason);
+      await onArchive(registration.id, archiveReason, customArchiveReason);
       setConfirmAction(null);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Failed to update profile");
@@ -114,6 +121,7 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
             type="button"
             onClick={() => {
               setArchiveReason("");
+              setCustomArchiveReason("");
               setConfirmAction("archive");
             }}
             className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border border-amber-200 bg-amber-50 text-amber-700 transition hover:border-amber-300 hover:bg-amber-100`}
@@ -129,10 +137,13 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
         <AdminKKProfilingFormView
           registration={registration}
           onClose={() => setShowDetails(false)}
-          onEdit={() => {
-            setEditForm(registration);
-            setShowEdit(true);
-          }}
+          editInView={Boolean(onArchive)}
+          onEdit={onArchive
+            ? undefined
+            : () => {
+                setEditForm(registration);
+                setShowEdit(true);
+              }}
           onReturn={(updatedRegistration) => {
             onUpdate(updatedRegistration);
           }}
@@ -471,19 +482,51 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                         setArchiveReason(
                           KK_MEMBER_ARCHIVE_REASONS.find((reason) => reason === value) ?? "",
                         );
+                        setCustomArchiveReason("");
                       }}
                       className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-500/10"
                     >
                       <option value="">Select a reason</option>
                       {KK_MEMBER_ARCHIVE_REASONS.map((reason) => (
                         <option key={reason} value={reason}>
-                          {reason === "Transferred Residence"
-                            ? "Transferred Residence (No longer a resident of Barangay Pico)"
-                            : reason}
+                          {reason}
                         </option>
                       ))}
                     </select>
+                    <div
+                      className={`overflow-hidden transition-[max-height,opacity,margin] duration-200 ease-out ${
+                        archiveReason === "Other (Specify)"
+                          ? "mt-2 max-h-16 opacity-100"
+                          : "max-h-0 opacity-0"
+                      }`}
+                      aria-hidden={archiveReason !== "Other (Specify)"}
+                    >
+                      <input
+                        type="text"
+                        value={customArchiveReason}
+                        onChange={(event) => setCustomArchiveReason(event.target.value)}
+                        placeholder="Specify archive reason..."
+                        maxLength={120}
+                        required={archiveReason === "Other (Specify)"}
+                        disabled={archiveReason !== "Other (Specify)"}
+                        aria-label="Specify archive reason"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/10"
+                      />
+                    </div>
                   </label>
+                  {archiveReason ? (
+                    <p aria-live="polite" className="mt-2 text-xs leading-5 text-slate-500">
+                      {archiveReason === "Transferred Residence"
+                        ? "Resident relocated outside Barangay Pico. An automated notice will be sent to their SKonnect account and email."
+                        : archiveReason === "Voluntary Withdrawal / Opt-Out"
+                          ? "Resident requested removal from active SK rosters (RA 10173). An automated confirmation will be sent to their SKonnect account and email."
+                          : archiveReason === "Duplicate or Invalid Record"
+                            ? "Double entry or unverified non-resident account. An automated notice will be sent to their SKonnect account and email."
+                            : archiveReason === "Deceased"
+                              ? "Vital status record update for SK audit history. No email or in-app notification will be sent to this account."
+                              : "Custom administrative archive reason. An automated notice will be sent to their SKonnect account and email."}
+                    </p>
+                  ) : null}
                   {actionError ? (
                     <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                       {actionError}
@@ -500,7 +543,11 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                     <button
                       type="button"
                       onClick={handleConfirmAction}
-                      disabled={isConfirmingAction || !archiveReason}
+                      disabled={
+                        isConfirmingAction ||
+                        !archiveReason ||
+                        (archiveReason === "Other (Specify)" && !customArchiveReason.trim())
+                      }
                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Archive className="h-4 w-4" aria-hidden="true" />

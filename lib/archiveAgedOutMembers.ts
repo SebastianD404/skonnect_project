@@ -7,19 +7,12 @@ import {
   refreshSkeapApplicationsAdminView,
   refreshSystemUsersAdminView,
 } from "@/lib/application-admin-view-refresh";
-import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
 import { getAgeOutCutoffDate, getExactAge } from "@/lib/skeap-age";
+import { notifyProfileArchived } from "@/lib/notify-profile-archived";
 import {
   KK_MEMBER_AGE_OUT_NOTICE_MESSAGE,
   KK_MEMBER_AGE_OUT_REASON,
 } from "@/lib/kk-member-archive";
-
-type AgedOutNotificationRecipient = {
-  userId: string;
-  email: string;
-  fullName: string;
-  message: string;
-};
 
 export async function sweepAgedOutKkProfiles(
   actorId: string,
@@ -51,6 +44,7 @@ export async function sweepAgedOutKkProfiles(
     select: {
       id: true,
       fullName: true,
+      email: true,
       birthDate: true,
       reviewStatus: true,
       archivedReason: true,
@@ -61,8 +55,6 @@ export async function sweepAgedOutKkProfiles(
           id: true,
           email: true,
           fullName: true,
-          emailNotifications: true,
-          kkStatus: true,
         },
       },
     },
@@ -70,7 +62,7 @@ export async function sweepAgedOutKkProfiles(
 
   let archivedCount = 0;
   let closedApplicationCount = 0;
-  const emailRecipients: AgedOutNotificationRecipient[] = [];
+  const archiveNotifications: Array<ReturnType<typeof notifyProfileArchived>> = [];
 
   for (const profile of profiles) {
     const currentAge = getExactAge(profile.birthDate, today);
@@ -109,7 +101,6 @@ export async function sweepAgedOutKkProfiles(
         });
         closedApplications = closed.closedCount;
 
-        const sourceKey = `kk-age-out:${profile.id}`;
         const message = await tx.granteeMessage.create({
           data: {
             userId: profile.userId,
@@ -119,23 +110,6 @@ export async function sweepAgedOutKkProfiles(
           },
           select: { id: true },
         });
-        await tx.notification.upsert({
-          where: { userId_sourceKey: { userId: profile.userId, sourceKey } },
-          create: {
-            userId: profile.userId,
-            sourceKey,
-            message: `KK age-limit update: ${notice}`,
-          },
-          update: { message: `KK age-limit update: ${notice}` },
-        });
-        if (profile.user?.emailNotifications && profile.user.email) {
-          emailRecipients.push({
-            userId: profile.user.id,
-            email: profile.user.email,
-            fullName: profile.user.fullName || profile.fullName,
-            message: notice,
-          });
-        }
 
         await writeAuditLog(tx, {
           action: "KK_PROFILE_AGE_OUT_NOTIFIED",
@@ -184,8 +158,18 @@ export async function sweepAgedOutKkProfiles(
     if (result) {
       archivedCount += 1;
       closedApplicationCount += result.closedApplications;
+      archiveNotifications.push(notifyProfileArchived({
+        userId: profile.userId,
+        email: profile.user?.email ?? profile.email,
+        fullName: profile.user?.fullName || profile.fullName,
+        archiveType: "AGED_OUT",
+        reason: KK_MEMBER_AGE_OUT_REASON,
+        archivedAt,
+      }));
     }
   }
+
+  await Promise.all(archiveNotifications);
 
   if (archivedCount > 0) {
     await Promise.all([
@@ -193,38 +177,6 @@ export async function sweepAgedOutKkProfiles(
       refreshSkeapApplicationsAdminView(),
       refreshSystemUsersAdminView(),
     ]);
-  }
-
-  const emailRecipientsToNotify = emailRecipients.filter((recipient) => recipient.email);
-  if (
-    process.env.GMAIL_USER &&
-    process.env.GMAIL_APP_PASSWORD &&
-    emailRecipientsToNotify.length > 0
-  ) {
-    try {
-      const transporter = createGmailTransporter();
-      const results = await Promise.allSettled(
-        emailRecipientsToNotify.map((recipient) =>
-          sendBroadcastEmail(
-            transporter,
-            recipient.userId,
-            recipient.email,
-            "KK Youth Registry age limit reached",
-            `Dear ${recipient.fullName},\n\n${recipient.message}`,
-          ),
-        ),
-      );
-      results.forEach((result, index) => {
-        if (result.status === "rejected") {
-          console.error("Could not send KK age-out notification email.", {
-            userId: emailRecipientsToNotify[index]?.userId,
-            error: result.reason,
-          });
-        }
-      });
-    } catch (error) {
-      console.error("Could not initialize KK age-out notification email delivery.", error);
-    }
   }
 
   return { archivedCount, closedApplicationCount };

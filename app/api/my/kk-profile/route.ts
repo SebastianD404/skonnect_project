@@ -4,7 +4,7 @@ import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
 import { databaseUnavailableResponse } from "@/lib/database-errors";
-import { KK_MEMBER_AGE_OUT_REASON } from "@/lib/kk-member-archive";
+import { isKKMemberAgeOutReason } from "@/lib/kk-member-archive";
 import { getExactAge } from "@/lib/skeap-age";
 
 export async function GET() {
@@ -36,7 +36,7 @@ async function getKKProfile() {
     });
   }
 
-  const [profile, latestRegistration, ageOutRegistration] = await Promise.all([
+  const [profile, latestRegistration] = await Promise.all([
     prisma.user.findUnique({
       where: { id: appUser.id },
       select: {
@@ -87,6 +87,8 @@ async function getKKProfile() {
         assemblyTimes: true,
         noAssemblyReason: true,
         reviewStatus: true,
+        archivedReason: true,
+        archivedAt: true,
         reviewNotes: true,
         withdrawnAt: true,
         withdrawalReason: true,
@@ -99,30 +101,19 @@ async function getKKProfile() {
         birthCertificateFileUrl: true,
       },
     }),
-    prisma.profilingRegistration.findFirst({
-      where: {
-        userId: appUser.id,
-        program: "KK",
-        archivedReason: {
-          in: [KK_MEMBER_AGE_OUT_REASON, "AGED_OUT_31", "Aged Out (31+)", "Aged Out (Turned 31)"],
-        },
-        archivedAt: { not: null },
-      },
-      orderBy: { archivedAt: "desc" },
-      select: { archivedAt: true },
-    }),
   ]);
 
+  const hasArchivedNotice =
+    latestRegistration?.reviewStatus?.trim().toLowerCase() === "archived";
+  const hasAgeOutNotice =
+    hasArchivedNotice && isKKMemberAgeOutReason(latestRegistration?.archivedReason);
   const hasApprovedRegistration =
     latestRegistration?.reviewStatus?.trim().toLowerCase() === "approved";
   const hasVerifiedKkProfile =
     Boolean(profile?.kkProfile?.isVerified) && hasApprovedRegistration;
-  const hasAgeOutNotice =
-    Boolean(ageOutRegistration) &&
-    latestRegistration?.reviewStatus?.trim().toLowerCase() === "archived";
   const kkProfile = profile?.kkProfile ?? null;
 
-  if (!kkProfile && !latestRegistration && !hasAgeOutNotice) {
+  if (!kkProfile && !latestRegistration && !hasArchivedNotice) {
     return NextResponse.json({
       profile: null,
       hasVerifiedKkProfile: false,
@@ -130,7 +121,7 @@ async function getKKProfile() {
     });
   }
 
-  const status = hasAgeOutNotice
+  const status = hasArchivedNotice
     ? "Archived"
     : getKKProfilingReviewStatus(
         latestRegistration?.reviewStatus,
@@ -160,8 +151,12 @@ async function getKKProfile() {
         : latestRegistration?.age ?? 0,
       isVerified: kkProfile?.isVerified ?? false,
       status,
-      ageOutNotice: ageOutRegistration
-        ? { archivedAt: ageOutRegistration.archivedAt }
+      archiveNotice: hasArchivedNotice
+        ? {
+            archivedAt: latestRegistration.archivedAt,
+            archiveType: hasAgeOutNotice ? "AGED_OUT" : "ADMIN_ARCHIVED",
+            reason: latestRegistration.archivedReason,
+          }
         : null,
       reviewNotes: latestRegistration?.reviewNotes ?? null,
       withdrawnAt: latestRegistration?.withdrawnAt ?? null,

@@ -86,6 +86,33 @@ export function isPlatformAccountMetricKey(
     value === "archived";
 }
 
+function getPlatformAccountUsersWhere({
+  metric,
+  role,
+  query,
+}: {
+  metric: PlatformAccountMetricKey;
+  role: Role | null;
+  query: string;
+}) {
+  const filters: Prisma.Sql[] = [];
+  const segment = getPlatformAccountMetricSegment(metric);
+  if (segment) filters.push(Prisma.sql`account."metric_segment" = ${segment}`);
+  if (role) filters.push(Prisma.sql`account."role" = ${role}`);
+
+  const normalizedQuery = query.trim().slice(0, 100);
+  if (normalizedQuery) {
+    filters.push(Prisma.sql`(
+      POSITION(LOWER(${normalizedQuery}) IN LOWER(account."full_name")) > 0
+      OR POSITION(LOWER(${normalizedQuery}) IN LOWER(account."email")) > 0
+    )`);
+  }
+
+  return filters.length
+    ? Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}`
+    : Prisma.empty;
+}
+
 export async function getPlatformAccountMetrics(): Promise<PlatformAccountMetrics> {
   const groupedCounts = await prisma.$queryRaw<SegmentCount[]>(Prisma.sql`
     ${CATEGORIZED_USERS_CTE}
@@ -117,21 +144,7 @@ export async function getPlatformAccountUsersPage({
   page: number;
   pageSize: number;
 }) {
-  const filters: Prisma.Sql[] = [];
-  const segment = getPlatformAccountMetricSegment(metric);
-  if (segment) filters.push(Prisma.sql`account."metric_segment" = ${segment}`);
-  if (role) filters.push(Prisma.sql`account."role" = ${role}`);
-
-  const normalizedQuery = query.trim().slice(0, 100);
-  if (normalizedQuery) {
-    filters.push(Prisma.sql`(
-      POSITION(LOWER(${normalizedQuery}) IN LOWER(account."full_name")) > 0
-      OR POSITION(LOWER(${normalizedQuery}) IN LOWER(account."email")) > 0
-    )`);
-  }
-  const whereClause = filters.length
-    ? Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}`
-    : Prisma.empty;
+  const whereClause = getPlatformAccountUsersWhere({ metric, role, query });
   const offset = (page - 1) * pageSize;
 
   const [rows, countRows] = await Promise.all([
@@ -181,4 +194,43 @@ export async function getPlatformAccountUsersPage({
     rows,
     totalCount: Number(countRows[0]?.count ?? BigInt(0)),
   };
+}
+
+export async function getPlatformAccountUsersForExport({
+  metric,
+  role,
+  query,
+}: {
+  metric: PlatformAccountMetricKey;
+  role: Role | null;
+  query: string;
+}) {
+  const whereClause = getPlatformAccountUsersWhere({ metric, role, query });
+  const accounts = await prisma.$queryRaw<Array<{ id: string; skeapStatus: string }>>(Prisma.sql`
+    ${CATEGORIZED_USERS_CTE}
+    SELECT account."user_id" AS "id", account."skeap_status" AS "skeapStatus"
+    FROM categorized_users AS account
+    ${whereClause}
+    ORDER BY account."created_at" DESC, account."user_id" DESC
+  `);
+
+  if (accounts.length === 0) return [];
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: accounts.map(({ id }) => id) } },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+    },
+  });
+  const usersById = new Map(users.map((user) => [user.id, user]));
+
+  return accounts.flatMap((account) => {
+    const user = usersById.get(account.id);
+    return user ? [{ ...user, skeapStatus: account.skeapStatus }] : [];
+  });
 }

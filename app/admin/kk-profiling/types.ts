@@ -8,6 +8,7 @@ export interface KKProfilingRegistration {
     grantee?: {
       id: string;
       status: string;
+      remarks?: string | null;
     } | null;
   } | null;
   fullName: string;
@@ -46,12 +47,20 @@ export interface KKProfilingRegistration {
   withdrawalReason?: string | null;
   archivedReason?: string | null;
   archivedAt?: string | Date | null;
+  archiveNotification?: {
+    emailStatus: "SENT" | "FAILED" | "SKIPPED_DEMO" | "SKIPPED_DECEASED";
+    inAppStatus: "SENT" | "FAILED" | "SKIPPED_NO_USER" | "SKIPPED_DECEASED";
+  } | null;
   reviewNotes?: string | null;
   requiresManualReview?: boolean;
   submittedAt: string | Date;
   kkProfile?: {
     fullName: string;
+    firstName?: string;
+    middleName?: string | null;
+    lastName?: string;
     purok: string;
+    addressLine?: string;
     barangay: string;
     birthDate: string | Date;
     placeOfBirth: string | null;

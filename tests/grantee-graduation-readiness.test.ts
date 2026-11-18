@@ -53,4 +53,28 @@ describe("getGranteeGraduationProgress", () => {
       now,
     }).isComplete).toBe(true);
   });
+
+  it("uses a fifth-year target for a third-year second-semester intake", () => {
+    const progress = getGranteeGraduationProgress({
+      submissions: [],
+      dateEnrolled,
+      yearLevel: "3rd Year",
+      totalYears: 4,
+      journeyStart: "college-3",
+      journeyEnd: "college-5",
+      entryTerm: "2026-2027 Second Semester",
+      now,
+    });
+
+    expect(progress.nodes.map((node) => node.semester)).toEqual([
+      "2026-2027 Second Semester",
+      "2027-2028 First Semester",
+      "2027-2028 Second Semester",
+      "2028-2029 First Semester",
+      "2028-2029 Second Semester",
+    ]);
+    expect(progress.totalRequiredSemesters).toBe(5);
+    expect(progress.currentSemesterIndex).toBe(0);
+    expect(progress.isComplete).toBe(false);
+  });
 });

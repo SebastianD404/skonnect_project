@@ -60,7 +60,11 @@ export async function GET(
             kkProfile: {
               select: {
                 fullName: true,
+                firstName: true,
+                middleName: true,
+                lastName: true,
                 purok: true,
+                addressLine: true,
                 barangay: true,
                 birthDate: true,
                 placeOfBirth: true,
@@ -68,6 +72,9 @@ export async function GET(
                 sex: true,
                 email: true,
               },
+            },
+            grantee: {
+              select: { id: true, status: true, remarks: true },
             },
           },
         },
@@ -82,6 +89,11 @@ export async function GET(
     return NextResponse.json({
       ...registrationDetails,
       kkProfile: user?.kkProfile ?? null,
+      user: user
+        ? {
+            grantee: user.grantee,
+          }
+        : null,
     });
   } catch (error) {
     console.error("Failed to load profiling registration details:", error);

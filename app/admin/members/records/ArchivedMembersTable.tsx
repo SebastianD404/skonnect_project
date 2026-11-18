@@ -5,8 +5,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { getExactAge } from "@/lib/skeap-age";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import {
-  getKKMemberArchiveReasonLabel,
+  isKKMemberArchiveReason,
   isKKMemberAgeOutReason,
 } from "@/lib/kk-member-archive";
 import AdminExportButton from "../../AdminExportButton";
@@ -28,22 +29,45 @@ function formatBirthDate(value: Date | string) {
 
 function ArchiveReasonStatus({ record }: { record: KKProfilingRegistration }) {
   const isAgedOut = isKKMemberAgeOutReason(record.archivedReason);
+  const isDeceased = record.archivedReason?.trim().toLowerCase() === "deceased";
+  const reasonLabel = isAgedOut
+    ? "Aged Out (31+)"
+    : isKKMemberArchiveReason(record.archivedReason)
+      ? record.archivedReason
+      : "Archived by Admin";
+  const archivedDate = record.archivedAt ? `Archived ${formatDate(record.archivedAt)}` : null;
   return (
-    <div className="flex flex-col items-start gap-1">
-      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-        isAgedOut
-          ? "border-amber-200 bg-amber-50 text-amber-800"
-          : "border-slate-200 bg-slate-50 text-slate-700"
-      }`}>
-        {isAgedOut ? "Aged Out · 31 yrs" : "Archived by Admin"}
+    <div className="flex min-w-0 flex-col items-start gap-0.5">
+      <span
+        title={reasonLabel}
+        className={`inline-flex max-w-full items-center truncate whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+          isAgedOut
+            ? "border-amber-200 bg-amber-50 text-amber-700"
+            : isDeceased
+              ? "border-zinc-200 bg-zinc-100 text-zinc-700"
+              : "border-slate-200 bg-slate-100 text-slate-700"
+        }`}
+      >
+        {reasonLabel}
       </span>
-      {!isAgedOut ? (
-        <span className="text-xs text-slate-500">
-          {getKKMemberArchiveReasonLabel(record.archivedReason)}
-        </span>
+      {archivedDate ? (
+        <span className="whitespace-nowrap text-xs text-slate-500">{archivedDate}</span>
       ) : null}
     </div>
   );
+}
+
+function formatAgeGroup(record: KKProfilingRegistration) {
+  const age = getExactAge(toBirthDate(record.birthDate));
+  if (age === null) {
+    if (record.youthAgeGroup?.trim().toLowerCase() === "aged out (31+)") return "Over 30";
+    return record.youthAgeGroup || "—";
+  }
+  if (age > 30) return `Over 30 (${age} yrs)`;
+  if (age >= 25) return "Young Adult (25–30)";
+  if (age >= 18) return "Core Youth (18–24)";
+  if (age >= 15) return "Child Youth (15–17)";
+  return record.youthAgeGroup || "Below KK age range";
 }
 
 function BirthDateAge({ birthDate }: { birthDate: Date | string }) {
@@ -66,6 +90,7 @@ export function ArchivedMembersTable({
   totalCount: number;
 }) {
   const [query, setQuery] = useState(initialQuery);
+  const [restoreSuccess, setRestoreSuccess] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -97,6 +122,13 @@ export function ArchivedMembersTable({
 
   return (
     <>
+      {restoreSuccess ? (
+        <FloatingFeedback
+          message={restoreSuccess}
+          type="success"
+          onDismiss={() => setRestoreSuccess(null)}
+        />
+      ) : null}
       <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
         <label className="relative block w-full sm:w-80">
           <span className="sr-only">Filter archived KK youth by name, email, classification, or archive reason</span>
@@ -117,7 +149,7 @@ export function ArchivedMembersTable({
           iconClassName="h-3.5 w-3.5"
         />
       </div>
-      <div className="flex flex-col gap-3 p-3 md:hidden">
+      <div className="flex flex-col gap-3 p-3 xl:hidden">
         {records.map((record) => {
           const memberName = record.user?.fullName || record.fullName;
           const memberEmail = record.user?.email || record.email;
@@ -139,7 +171,7 @@ export function ArchivedMembersTable({
                 </div>
                 <div>
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Age group</dt>
-                  <dd className="mt-0.5 text-xs font-medium text-slate-700">{record.youthAgeGroup}</dd>
+                  <dd className="mt-0.5 text-xs font-medium text-slate-700">{formatAgeGroup(record)}</dd>
                 </div>
                 <div>
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Classification</dt>
@@ -155,7 +187,10 @@ export function ArchivedMembersTable({
                 </div>
               </dl>
               <div className="flex items-center justify-between gap-3">
-                <ArchivedMemberRowActions registration={record} />
+                <ArchivedMemberRowActions
+                  registration={record}
+                  onRestored={(fullName) => setRestoreSuccess(`${fullName}'s profile has been restored to the active KK registry.`)}
+                />
               </div>
             </article>
           );
@@ -174,20 +209,29 @@ export function ArchivedMembersTable({
         ) : null}
       </div>
       <div
-        className="hidden w-full overflow-x-auto whitespace-nowrap scrollbar-thin md:block"
-        style={{ touchAction: "pan-x", WebkitOverflowScrolling: "touch" }}
+        className="hidden w-full min-w-0 xl:block"
       >
-        <table className="w-full min-w-[1020px] table-auto border-collapse text-left text-sm">
+        <table className="w-full table-fixed border-collapse text-left text-sm">
+          <colgroup>
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "17%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "10%" }} />
+          </colgroup>
           <thead className="bg-[#0f172a] text-white">
             <tr className="text-xs font-semibold tracking-wider">
-              <th className="whitespace-nowrap px-4 py-3">NAME</th>
-              <th className="whitespace-nowrap px-4 py-3">BIRTH DATE</th>
-              <th className="whitespace-nowrap px-4 py-3">AGE GROUP</th>
-              <th className="whitespace-nowrap px-4 py-3">CLASSIFICATION</th>
-              <th className="whitespace-nowrap px-4 py-3 text-center">SK VOTER</th>
-              <th className="whitespace-nowrap px-4 py-3">REASON / STATUS</th>
-              <th className="whitespace-nowrap px-4 py-3">SUBMITTED</th>
-              <th className="min-w-[112px] whitespace-nowrap px-4 py-3 text-right">ACTIONS</th>
+              <th className="whitespace-nowrap px-3 py-3">NAME</th>
+              <th className="whitespace-nowrap px-3 py-3">BIRTH DATE</th>
+              <th className="whitespace-nowrap px-3 py-3">AGE GROUP</th>
+              <th className="whitespace-nowrap px-3 py-3">CLASSIFICATION</th>
+              <th className="whitespace-nowrap px-3 py-3 text-center">SK VOTER</th>
+              <th className="whitespace-nowrap px-3 py-3">REASON / STATUS</th>
+              <th className="whitespace-nowrap px-3 py-3">SUBMITTED</th>
+              <th className="whitespace-nowrap px-2 py-3 text-right">ACTIONS</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -195,24 +239,29 @@ export function ArchivedMembersTable({
               const memberName = record.user?.fullName || record.fullName;
               return (
                 <tr key={record.id} className="transition-colors hover:bg-slate-50/70">
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td className="whitespace-nowrap px-3 py-3">
                     <div className="truncate font-semibold text-slate-900" title={memberName}>{memberName}</div>
                     <div className="block truncate text-xs text-slate-500" title={record.user?.email || record.email}>
                       {record.user?.email || record.email}
                     </div>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td className="whitespace-nowrap px-3 py-3">
                     <BirthDateAge birthDate={record.birthDate} />
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3">{record.youthAgeGroup}</td>
-                  <td className="whitespace-nowrap px-4 py-3">{record.youthClassification}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-center">{record.registeredSKVoter}</td>
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td className="whitespace-nowrap px-3 py-3">{formatAgeGroup(record)}</td>
+                  <td className="px-3 py-3">
+                    <div className="truncate" title={record.youthClassification}>{record.youthClassification}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-center">{record.registeredSKVoter}</td>
+                  <td className="min-w-0 px-3 py-3">
                     <ArchiveReasonStatus record={record} />
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-500">{formatDate(record.submittedAt)}</td>
-                  <td className="sticky right-0 whitespace-nowrap bg-white px-4 py-3 text-right shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.35)]">
-                    <ArchivedMemberRowActions registration={record} />
+                  <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">{formatDate(record.submittedAt)}</td>
+                  <td className="whitespace-nowrap px-2 py-3 text-right align-middle">
+                    <ArchivedMemberRowActions
+                      registration={record}
+                      onRestored={(fullName) => setRestoreSuccess(`${fullName}'s profile has been restored to the active KK registry.`)}
+                    />
                   </td>
                 </tr>
               );

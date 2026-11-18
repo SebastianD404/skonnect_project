@@ -43,6 +43,11 @@ export function isValidAcademicJourneyRange(start: string, end: string) {
   );
 }
 
+export function getAcademicJourneyGraduationYear(end: string) {
+  const endPoint = parseJourneyPoint(end);
+  return endPoint?.track === "college" ? endPoint.year : null;
+}
+
 export function getAcademicJourneyLabels(start: string, end: string) {
   return getAcademicJourneyTermsForRange(start, end).map((term) => term.label);
 }
@@ -104,7 +109,6 @@ export type AcademicJourneyNodeStatus =
 
 export type AcademicJourneyInitialGrant = {
   semester: string;
-  approvedAt?: Date | string | null;
   gwa?: number | null;
   gradeReportUrl?: string | null;
   coeFileUrl?: string | null;
@@ -252,7 +256,9 @@ export function getAcademicJourneyProgress(
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const intakeTerm = normalizeJourneySemester(entrySemester?.trim() ?? "");
   const intakeOrder = intakeTerm ? getSemesterOrder(intakeTerm) : null;
-  const startYear = parseStartYear(yearLevel);
+  const configuredStartPoint = journeyStart ? parseJourneyPoint(journeyStart) : null;
+  const startYear = parseStartYear(yearLevel) ??
+    (configuredStartPoint?.track === "college" ? configuredStartPoint.year : null);
 
   if (intakeOrder !== null && startYear !== null) {
     const entryStartYear = Math.floor(intakeOrder / 2);
@@ -281,7 +287,7 @@ export function getAcademicJourneyProgress(
         Boolean(initialGrant?.semester && normalizeJourneySemester(initialGrant.semester) === normalizedSemester);
       let status: AcademicJourneyNodeStatus;
 
-      if (submission?.status === "APPROVED" || isInitialGrant) {
+      if (submission?.status === "APPROVED") {
         status = "VALIDATED";
       } else if (submission?.status === "PENDING") {
         status = "PENDING";
@@ -310,11 +316,7 @@ export function getAcademicJourneyProgress(
         status,
         submissionId: submission?.id ?? null,
         submittedAt: submission?.submittedAt ?? null,
-        approvedAt: submission?.status === "APPROVED"
-          ? submission.reviewedAt ?? null
-          : isInitialGrant
-            ? initialGrant?.approvedAt ?? null
-            : null,
+        approvedAt: submission?.status === "APPROVED" ? submission.reviewedAt ?? null : null,
         gwa: submission?.generalAverage ??
           submission?.ocrGwa ??
           (isInitialGrant ? initialGrant?.gwa : null) ??
@@ -410,7 +412,7 @@ export function getAcademicJourneyProgress(
 
     if (isPreGrant) {
       status = "PRE_GRANT";
-    } else if (submission?.status === "APPROVED" || isInitialGrant) {
+    } else if (submission?.status === "APPROVED") {
       status = "VALIDATED";
     } else if (submission?.status === "PENDING") {
       status = "PENDING";
@@ -439,11 +441,7 @@ export function getAcademicJourneyProgress(
       status,
       submissionId: submission?.id ?? null,
       submittedAt: submission?.submittedAt ?? null,
-      approvedAt: submission?.status === "APPROVED"
-        ? submission.reviewedAt ?? null
-        : isInitialGrant
-          ? initialGrant?.approvedAt ?? null
-          : null,
+      approvedAt: submission?.status === "APPROVED" ? submission.reviewedAt ?? null : null,
       gwa: submission?.generalAverage ??
         submission?.ocrGwa ??
         (isInitialGrant ? initialGrant?.gwa : null) ??

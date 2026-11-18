@@ -3,18 +3,93 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Circle, Settings, X } from "lucide-react";
+import { ChevronDown, Circle, LoaderCircle, Settings, X } from "lucide-react";
 import AcademicJourneyMap, { type AcademicJourneyMapProps } from "@/app/components/AcademicJourneyMap";
+import FloatingFeedback from "@/app/components/FloatingFeedback";
 import {
   ACADEMIC_JOURNEY_END_OPTIONS,
   ACADEMIC_JOURNEY_START_OPTIONS,
+  getAcademicJourneyGraduationYear,
+  getAcademicJourneyTermsForRange,
   isValidAcademicJourneyRange,
+  type AcademicJourneyNode,
 } from "@/lib/academic-journey";
 
 type MapProps = Omit<
   AcademicJourneyMapProps,
   "compact" | "journeyStart" | "journeyEnd" | "onConfigureJourney"
 >;
+
+function formatYearsRemaining(semesterCount: number) {
+  const years = semesterCount / 2;
+  return Number.isInteger(years) ? `${years} ${years === 1 ? "year" : "years"}` : `${years} years`;
+}
+
+function getOptimisticMapProps(mapProps: MapProps, journeyStart: string, journeyEnd: string): MapProps {
+  const nodes = mapProps.journeyNodes;
+  const targetYear = getAcademicJourneyGraduationYear(journeyEnd);
+  const configuredStartYear = Number(journeyStart.split("-")[1]);
+  if (
+    !nodes?.length ||
+    targetYear === null ||
+    !Number.isInteger(configuredStartYear)
+  ) return mapProps;
+
+  const firstEligibleIndex = nodes.findIndex((node) => node.status !== "PRE_GRANT");
+  if (firstEligibleIndex < 0) return mapProps;
+  const firstNode = nodes[firstEligibleIndex];
+  const firstYear = firstNode.yearNumber ?? configuredStartYear;
+  const firstSemester = firstNode.semesterNumber ?? 1;
+  const eligibleCount = Math.max(1, (targetYear - firstYear) * 2 + 3 - firstSemester);
+  const termMatch = /^(\d{4})-(\d{4})\s+(First|1st|Second|2nd)\s+Semester$/i.exec(firstNode.semester);
+  if (!termMatch) return mapProps;
+  const nextNodes: AcademicJourneyNode[] = nodes
+    .slice(firstEligibleIndex, firstEligibleIndex + eligibleCount)
+    .map((node, index) => {
+      const offset = firstSemester - 1 + index;
+      return {
+        ...node,
+        index: firstEligibleIndex + index,
+        yearNumber: firstYear + Math.floor(offset / 2),
+        semesterNumber: (offset % 2) + 1 as 1 | 2,
+      };
+    });
+
+  const firstCalendarYear = Number(termMatch[1]);
+  for (let index = nextNodes.length; index < eligibleCount; index += 1) {
+    const offset = firstSemester - 1 + index;
+    const semesterNumber = (offset % 2) + 1 as 1 | 2;
+    const calendarYear = firstCalendarYear + Math.floor(offset / 2);
+    const semesterName = semesterNumber === 1 ? "First" : "Second";
+    const progressionYear = firstYear + Math.floor(offset / 2);
+    nextNodes.push({
+      index: firstEligibleIndex + index,
+      semester: `${calendarYear}-${calendarYear + 1} ${semesterName} Semester`,
+      yearNumber: progressionYear,
+      semesterNumber,
+      academicTermCaption: `${calendarYear}-${calendarYear + 1} · ${semesterNumber === 1 ? "1st" : "2nd"} Sem`,
+      status: "LOCKED",
+      submissionId: null,
+      submittedAt: null,
+      approvedAt: null,
+      gwa: null,
+      remarks: null,
+      gradeReportUrl: null,
+      coeFileUrl: null,
+      isInitialGrant: false,
+    });
+  }
+
+  const journeyNodes = [...nodes.slice(0, firstEligibleIndex), ...nextNodes];
+  const currentSemesterIndex = Math.min(mapProps.currentSemesterIndex, journeyNodes.length);
+  return {
+    ...mapProps,
+    currentSemesterIndex,
+    eligibleSemesterCount: eligibleCount,
+    journeyNodes,
+    validatedSemesterIndexes: mapProps.validatedSemesterIndexes.filter((index) => index < journeyNodes.length),
+  };
+}
 
 export default function AcademicJourneySetup({
   journeyConfigured: initiallyConfigured,
@@ -36,15 +111,41 @@ export default function AcademicJourneySetup({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState(initiallyConfigured);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [optimisticRange, setOptimisticRange] = useState<{
+    start: string;
+    end: string;
+    previousStart: string | null;
+    previousEnd: string | null;
+  } | null>(null);
 
-  const availableEndOptions = useMemo(() => {
-    return ACADEMIC_JOURNEY_END_OPTIONS.filter(({ value }) => {
-      const [endTrack, endYearValue] = value.split("-");
-      const startTrack = draftStart.split("-")[0];
-      const startYear = Number(draftStart.split("-")[1]);
-      return endTrack === "college" && (startTrack === "grade" || Number(endYearValue) >= startYear);
-    });
-  }, [draftStart]);
+  const preview = useMemo(() => {
+    if (!isValidAcademicJourneyRange(draftStart, draftEnd)) return null;
+    const graduationYear = getAcademicJourneyGraduationYear(draftEnd);
+    const startYear = Number(draftStart.split("-")[1]);
+    const firstJourneyNode = mapProps.journeyNodes?.find((node) => node.status !== "PRE_GRANT");
+    const firstSemester = firstJourneyNode?.semesterNumber ?? 1;
+    const startingYear = firstJourneyNode?.yearNumber ?? startYear;
+    const semesterCount = graduationYear === null || !draftStart.startsWith("college-")
+      ? getAcademicJourneyTermsForRange(draftStart, draftEnd).length
+      : Math.max(1, (graduationYear - startingYear) * 2 + 3 - firstSemester);
+
+    return {
+      semesterCount,
+      yearsRemaining: formatYearsRemaining(semesterCount),
+      endLabel: graduationYear === null ? "graduation" : `Y${graduationYear} 2nd Sem`,
+    };
+  }, [draftEnd, draftStart, mapProps.journeyNodes]);
+
+  const hasUnreconciledOptimisticRange = Boolean(
+    optimisticRange &&
+    initialJourneyStart === optimisticRange.previousStart &&
+    initialJourneyEnd === optimisticRange.previousEnd &&
+    (initialJourneyStart !== optimisticRange.start || initialJourneyEnd !== optimisticRange.end),
+  );
+  const optimisticMapProps = optimisticRange && hasUnreconciledOptimisticRange
+    ? getOptimisticMapProps(mapProps, optimisticRange.start, optimisticRange.end)
+    : mapProps;
 
   const openDialog = () => {
     setError(null);
@@ -81,8 +182,15 @@ export default function AcademicJourneySetup({
 
       setJourneyStart(result.journeyStart);
       setJourneyEnd(result.journeyEnd);
+      setOptimisticRange({
+        start: result.journeyStart,
+        end: result.journeyEnd,
+        previousStart: initialJourneyStart,
+        previousEnd: initialJourneyEnd,
+      });
       setConfigured(true);
       setShowDialog(false);
+      setSuccessMessage("Academic journey updated.");
       router.refresh();
     } catch {
       setError("We couldn't save your journey. Check your connection and try again.");
@@ -95,10 +203,10 @@ export default function AcademicJourneySetup({
     <>
       {configured || mapProps.isGraduated ? (
         <AcademicJourneyMap
-          {...mapProps}
+          {...optimisticMapProps}
           journeyStart={journeyStart}
           journeyEnd={journeyEnd}
-          onConfigureJourney={mapProps.isGraduated ? undefined : openDialog}
+          onConfigureJourney={optimisticMapProps.isGraduated ? undefined : openDialog}
         />
       ) : (
         <section className="relative flex min-h-[420px] flex-col items-center gap-10 overflow-hidden rounded-2xl border border-slate-100 bg-white p-8 shadow-[0_8px_32px_rgba(15,23,42,0.06)] lg:min-h-[390px] lg:flex-row lg:p-12">
@@ -201,8 +309,14 @@ export default function AcademicJourneySetup({
                       <select
                         value={draftStart}
                         onChange={(event) => {
-                          setDraftStart(event.target.value);
-                          setDraftEnd("");
+                          const nextStart = event.target.value;
+                          setDraftStart(nextStart);
+                          setDraftEnd((currentEnd) => {
+                            if (isValidAcademicJourneyRange(nextStart, currentEnd)) return currentEnd;
+                            return ACADEMIC_JOURNEY_END_OPTIONS.find(({ value }) =>
+                              isValidAcademicJourneyRange(nextStart, value),
+                            )?.value ?? "";
+                          });
                           setError(null);
                         }}
                         className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-10 text-sm text-slate-800 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/10"
@@ -229,14 +343,26 @@ export default function AcademicJourneySetup({
                         className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-10 text-sm text-slate-800 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                       >
                         <option value="">Select your target graduation</option>
-                        {availableEndOptions.map(({ value, label }) => (
-                          <option key={value} value={value}>{label}</option>
+                        {ACADEMIC_JOURNEY_END_OPTIONS.map(({ value, label }) => (
+                          <option
+                            key={value}
+                            value={value}
+                            disabled={Boolean(draftStart) && !isValidAcademicJourneyRange(draftStart, value)}
+                          >
+                            {label}
+                          </option>
                         ))}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" aria-hidden="true" />
                     </span>
                   </label>
                   {error ? <p role="alert" className="text-sm text-rose-700">{error}</p> : null}
+                  {preview ? (
+                    <p className="rounded-xl border border-cyan-100 bg-cyan-50/70 px-3 py-2.5 text-xs text-cyan-900">
+                      <span className="font-semibold">Timeline Preview:</span>{" "}
+                      {preview.semesterCount} semesters ({preview.yearsRemaining}) through {preview.endLabel}.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">
@@ -254,6 +380,7 @@ export default function AcademicJourneySetup({
                     onClick={saveJourney}
                     className="rounded-xl bg-[#0F3D5C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0b3049] disabled:cursor-not-allowed disabled:opacity-50"
                   >
+                    {isSaving ? <LoaderCircle className="mr-1.5 inline h-4 w-4 animate-spin" aria-hidden="true" /> : null}
                     {isSaving ? "Saving..." : "Save Journey"}
                   </button>
                 </div>
@@ -262,6 +389,13 @@ export default function AcademicJourneySetup({
             document.body,
           )
         : null}
+      {successMessage ? (
+        <FloatingFeedback
+          message={successMessage}
+          type="success"
+          onDismiss={() => setSuccessMessage(null)}
+        />
+      ) : null}
     </>
   );
 }

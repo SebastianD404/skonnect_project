@@ -73,7 +73,7 @@ describe("GranteeStatusTable", () => {
   });
 
   it("shows clearance-submitted status ahead of the ready-to-graduate badge", () => {
-    renderTable({
+    const { container } = renderTable({
       granteeRow: {
         ...grantee,
         graduationReadyAt: "2026-11-17T00:00:00.000Z",
@@ -82,17 +82,29 @@ describe("GranteeStatusTable", () => {
     });
 
     expect(screen.getAllByText("Clearance Submitted")).toHaveLength(2);
-    expect(screen.queryByText("Ready to Graduate")).not.toBeInTheDocument();
+    expect(screen.queryByText("Graduating")).not.toBeInTheDocument();
+    expect(container.querySelector("table tbody tr td:nth-child(3)")?.textContent?.trim()).toBe("Active");
   });
 
   it("shows the ready-to-graduate status when clearance is not submitted", () => {
-    renderTable({
+    const { container } = renderTable({
       granteeRow: {
         ...grantee,
         graduationReadyAt: "2026-11-17T00:00:00.000Z",
       },
     });
 
-    expect(screen.getAllByText("Ready to Graduate")).toHaveLength(2);
+    expect(screen.getAllByText("Graduating")).toHaveLength(2);
+    expect(screen.getAllByTitle("Ready to Graduate")).toHaveLength(2);
+    expect(container.querySelector("table tbody tr td:nth-child(3)")?.textContent?.trim()).toBe("Active");
+    const actionHeader = Array.from(container.querySelectorAll("th")).find(
+      (header) => header.textContent?.trim() === "Action",
+    );
+    const actionCell = container.querySelector("table tbody tr td:last-child");
+    expect(container.querySelector("table tbody tr")).toHaveClass("h-[72px]");
+    expect(container.querySelector("table tbody tr td:nth-child(3)")).toHaveClass("align-middle");
+    expect(actionHeader).toHaveClass("text-right");
+    expect(actionCell).toHaveClass("text-right");
+    expect(actionCell?.querySelector("div")).toHaveClass("justify-end");
   });
 });

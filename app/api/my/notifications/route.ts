@@ -57,7 +57,8 @@ export async function GET() {
             ? "/"
           : notification.sourceKey.startsWith("skeap-physical-ctc:")
             ? "/applications"
-          : notification.sourceKey.startsWith("kk-age-out:")
+          : notification.sourceKey.startsWith("kk-age-out:") ||
+              notification.sourceKey.startsWith("kk-profile-archived:")
             ? "/programs/kk-profiling/status"
           : notification.sourceKey.startsWith("graduation-candidate-ready:") ||
               notification.sourceKey.startsWith("graduation-exit-clearance:")

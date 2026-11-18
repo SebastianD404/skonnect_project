@@ -3,9 +3,10 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
-import { isKKMemberArchiveReason } from "@/lib/kk-member-archive";
+import { resolveKKMemberArchiveReason } from "@/lib/kk-member-archive";
 import { closeOpenSkeapApplicationsForKkArchive } from "@/lib/kk-archive-skeap-applications";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import { notifyProfileArchived } from "@/lib/notify-profile-archived";
 import {
   refreshKkProfilingApplicationsAdminView,
   refreshSkeapApplicationsAdminView,
@@ -25,11 +26,14 @@ export async function PATCH(
     } catch {
       return NextResponse.json({ error: "Choose a valid archive reason." }, { status: 400 });
     }
-    const archiveReason =
-      typeof payload === "object" && payload !== null && "archiveReason" in payload
-        ? payload.archiveReason
-        : undefined;
-    if (!isKKMemberArchiveReason(archiveReason)) {
+    const archiveReason = typeof payload === "object" && payload !== null && "archiveReason" in payload
+      ? payload.archiveReason
+      : undefined;
+    const customReason = typeof payload === "object" && payload !== null && "customReason" in payload
+      ? payload.customReason
+      : undefined;
+    const storedArchiveReason = resolveKKMemberArchiveReason(archiveReason, customReason);
+    if (!storedArchiveReason) {
       return NextResponse.json({ error: "Choose a valid archive reason." }, { status: 400 });
     }
 
@@ -40,6 +44,7 @@ export async function PATCH(
           user: {
             select: {
               id: true,
+              email: true,
               grantee: {
                 select: { id: true, status: true, remarks: true },
               },
@@ -68,7 +73,7 @@ export async function PATCH(
         where: { id },
         data: {
           reviewStatus: "Archived",
-          archivedReason: archiveReason,
+          archivedReason: storedArchiveReason,
           archivedAt: new Date(),
           archivedBy: admin.id,
         },
@@ -80,13 +85,15 @@ export async function PATCH(
 
       if (
         registration.userId &&
-        (archiveReason === "Transferred Residence" || archiveReason === "Deceased")
+        (storedArchiveReason === "Transferred Residence" ||
+          storedArchiveReason === "Voluntary Withdrawal / Opt-Out" ||
+          storedArchiveReason === "Deceased")
       ) {
         await closeOpenSkeapApplicationsForKkArchive(tx, {
           userId: registration.userId,
           actorId: admin.id,
-          reason: archiveReason,
-          message: `Your SKEAP application was withdrawn because your KK Youth Registry profile was archived. Reason: ${archiveReason}.`,
+          reason: storedArchiveReason,
+          message: `Your SKEAP application was withdrawn because your KK Youth Registry profile was archived. Reason: ${storedArchiveReason}.`,
         });
       }
 
@@ -102,19 +109,40 @@ export async function PATCH(
           archivedAt: archived.archivedAt?.toISOString(),
           archivedBy: archived.archivedBy,
         },
-        metadata: { fullName: registration.fullName },
+        metadata: {
+          fullName: registration.fullName,
+          archivedReason: storedArchiveReason,
+        },
       });
 
-      return { registration: archived };
+      return {
+        registration: archived,
+        userId: registration.user?.id ?? registration.userId,
+        email: registration.user?.email ?? registration.email,
+        fullName: registration.user?.fullName ?? registration.fullName,
+      };
     });
 
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
+    const archiveNotification = await notifyProfileArchived({
+      userId: result.userId,
+      email: result.email,
+      fullName: result.fullName,
+      archiveType: "ADMIN_ARCHIVED",
+      reason: result.registration.archivedReason,
+      archivedAt: result.registration.archivedAt ?? new Date(),
+    });
+
     await Promise.all([refreshKkProfilingApplicationsAdminView(), refreshSkeapApplicationsAdminView()]);
 
-    return NextResponse.json({ success: true, reviewStatus: result.registration.reviewStatus });
+    return NextResponse.json({
+      success: true,
+      reviewStatus: result.registration.reviewStatus,
+      archiveNotification,
+    });
   } catch (error) {
     console.error("Failed to archive profiling registration:", error);
     return NextResponse.json({ error: "Failed to archive profile" }, { status: 500 });

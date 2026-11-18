@@ -1,4 +1,5 @@
 import {
+  getAcademicJourneyGraduationYear,
   getAcademicJourneyProgress,
   getAcademicJourneyTermsForRange,
   type AcademicJourneyInitialGrant,
@@ -31,9 +32,9 @@ export function getGranteeGraduationProgress({
   const rangeTotalYears = journeyStart && journeyEnd
     ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd).length / 2
     : null;
-  const totalYears = configuredTotalYears && configuredTotalYears > 0
-    ? configuredTotalYears
-    : rangeTotalYears ?? 4;
+  const graduationYear = journeyEnd ? getAcademicJourneyGraduationYear(journeyEnd) : null;
+  const totalYears = graduationYear ??
+    (configuredTotalYears && configuredTotalYears > 0 ? configuredTotalYears : rangeTotalYears ?? 4);
   const progress = getAcademicJourneyProgress(
     submissions,
     dateEnrolled,

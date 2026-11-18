@@ -11,6 +11,7 @@ import {
   CheckCircle,
   Archive,
   BadgeCheck,
+  Check,
   GraduationCap,
   LoaderCircle,
   MoreHorizontal,
@@ -188,9 +189,7 @@ export default function UserRoleManager({
   const router = useRouter();
   const [query, setQuery] = useState(searchQuery);
   const [roleFilter, setRoleFilter] = useState<RoleFilter>(selectedRole);
-  const [optimisticSegment, setOptimisticSegment] = useState<PlatformAccountMetricKey | null>(
-    selectedRole === "ALL" ? selectedMetric : null,
-  );
+  const [optimisticSegment, setOptimisticSegment] = useState<PlatformAccountMetricKey>(selectedMetric);
   const [showRoleFilterMenu, setShowRoleFilterMenu] = useState(false);
   const [viewingUser, setViewingUser] = useState<UserItem | null>(null);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
@@ -215,7 +214,7 @@ export default function UserRoleManager({
   useEffect(() => {
     setQuery(searchQuery);
     setRoleFilter(selectedRole);
-    setOptimisticSegment(selectedRole === "ALL" ? selectedMetric : null);
+    setOptimisticSegment(selectedMetric);
   }, [searchQuery, selectedMetric, selectedRole]);
 
   useEffect(() => () => {
@@ -373,17 +372,14 @@ export default function UserRoleManager({
 
   function filterByAccountMetric(metric: PlatformAccountMetricKey) {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    setQuery("");
     setOptimisticSegment(metric);
-    setRoleFilter("ALL");
-    navigateToList(metric, "ALL", "");
+    navigateToList(metric, roleFilter, query);
   }
 
   function filterByRole(role: RoleFilter) {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     setRoleFilter(role);
-    setOptimisticSegment(null);
-    navigateToList("all", role, query);
+    navigateToList(optimisticSegment, role, query);
   }
 
   function handleSearchChange(value: string) {
@@ -535,77 +531,49 @@ export default function UserRoleManager({
     updateRole(user.id, nextRole);
   }
 
-  function handleExportUsersExcel() {
+  async function handleExportUsersExcel() {
     if (isExporting) return;
-    if (users.length === 0) {
+    if (isPending) return;
+    if (totalCount === 0) {
       window.alert("No records found to export for the selected filter.");
       return;
     }
 
-    const filterLabel = roleFilter === "ALL" ? "ALL_ROLES" : roleFilter.toUpperCase();
-    const currentDate = new Date().toISOString().split("T")[0];
-    const filename = `SKonnect_Users_${filterLabel}_${currentDate}.xlsx`;
-    const exportStartedAt = performance.now();
-    const finishAfterMinimumDuration = (complete: () => void) => {
-      const remaining = Math.max(0, 1000 - (performance.now() - exportStartedAt));
-      window.setTimeout(complete, remaining);
-    };
-
     setIsExporting(true);
     setMessage(null);
     try {
-      const worker = new Worker(new URL("./users-export.worker.ts", import.meta.url), {
-        type: "module",
+      const params = new URLSearchParams({
+        role: roleFilter,
+        metric: optimisticSegment,
+        q: query.trim(),
       });
+      const response = await fetch(`/api/system-admin/users/export?${params.toString()}`);
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || "Unable to export users.");
+      }
 
-      worker.onmessage = (event: MessageEvent<{ buffer?: ArrayBuffer; error?: string }>) => {
-        worker.terminate();
-        finishAfterMinimumDuration(() => {
-          try {
-            if (!event.data.buffer) {
-              throw new Error(event.data.error || "Unable to generate the Excel workbook.");
-            }
-
-            const blob = new Blob([event.data.buffer], {
-              type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            });
-            const objectUrl = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = objectUrl;
-            link.download = filename;
-            link.style.display = "none";
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-          } catch (error) {
-            setMessage({
-              type: "error",
-              text: error instanceof Error ? error.message : "Unable to export users.",
-            });
-          } finally {
-            setIsExporting(false);
-          }
-        });
-      };
-
-      worker.onerror = () => {
-        worker.terminate();
-        finishAfterMinimumDuration(() => {
-          setMessage({ type: "error", text: "Unable to generate the Excel workbook." });
-          setIsExporting(false);
-        });
-      };
-
-      worker.postMessage(users);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const contentDisposition = response.headers.get("Content-Disposition");
+      const filename = contentDisposition?.match(/filename="([^"]+)"/i)?.[1]
+        ?? "skonnect-accounts.xlsx";
+      link.href = objectUrl;
+      link.download = filename;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      setMessage({ type: "success", text: `Exported ${totalCount.toLocaleString()} matching accounts.` });
     } catch (error) {
-      finishAfterMinimumDuration(() => {
-        setMessage({
-          type: "error",
-          text: error instanceof Error ? error.message : "Unable to export users.",
-        });
-        setIsExporting(false);
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Unable to export users.",
       });
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -782,39 +750,68 @@ export default function UserRoleManager({
                   : ROLE_OPTIONS.find((option) => option.value === roleFilter)?.label ?? roleFilter}
               </button>
               {showRoleFilterMenu ? (
-                <div className="absolute right-0 top-11 z-20 w-44 overflow-hidden rounded-xl border border-[#D8E3EC] bg-white shadow-lg">
+                <div className="absolute right-0 top-11 z-20 w-56 overflow-hidden rounded-xl border border-[#D8E3EC] bg-white py-1 shadow-lg">
                   <button
                     type="button"
-                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                    aria-pressed={roleFilter === "ALL"}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                     onClick={() => {
                       filterByRole("ALL");
                       setShowRoleFilterMenu(false);
                     }}
                   >
                     All roles
+                    {roleFilter === "ALL" ? <Check className="h-4 w-4 text-blue-700" aria-hidden="true" /> : null}
                   </button>
-                  {ROLE_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        filterByRole(option.value);
-                        setShowRoleFilterMenu(false);
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+                  <div className="mx-3 my-1 border-t border-slate-100 pt-2">
+                    <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Program Roles
+                    </p>
+                    {ROLE_OPTIONS.slice(0, 2).map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={roleFilter === option.value}
+                        className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={() => {
+                          filterByRole(option.value);
+                          setShowRoleFilterMenu(false);
+                        }}
+                      >
+                        {option.label}
+                        {roleFilter === option.value ? <Check className="h-4 w-4 text-blue-700" aria-hidden="true" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mx-3 my-1 border-t border-slate-100 pt-2">
+                    <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Administrative Roles
+                    </p>
+                    {ROLE_OPTIONS.slice(2).map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={roleFilter === option.value}
+                        className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={() => {
+                          filterByRole(option.value);
+                          setShowRoleFilterMenu(false);
+                        }}
+                      >
+                        {option.label}
+                        {roleFilter === option.value ? <Check className="h-4 w-4 text-blue-700" aria-hidden="true" /> : null}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>
 
             <button
               type="button"
-              disabled={isExporting}
+              disabled={isExporting || isPending}
               aria-busy={isExporting}
-              aria-label="Export current filtered view"
+              aria-label={`Export ${roleFilter === "ALL" ? "all roles" : ROLE_OPTIONS.find((option) => option.value === roleFilter)?.label ?? roleFilter} (${totalCount.toLocaleString()} matching accounts)`}
               className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
               onClick={handleExportUsersExcel}
             >
@@ -823,7 +820,17 @@ export default function UserRoleManager({
               ) : (
                 <Download className="h-4 w-4" />
               )}
-              {isExporting ? "Exporting..." : "Export Current View"}
+              {isExporting
+                ? "Exporting..."
+                : `Export ${roleFilter === "ALL"
+                  ? "All"
+                  : roleFilter === "YOUTH"
+                    ? "Youth"
+                    : roleFilter === "GRANTEE"
+                      ? "Grantees"
+                      : roleFilter === "SK_OFFICIAL"
+                        ? "SK Admins"
+                        : "System Admins"} (${totalCount.toLocaleString()})`}
             </button>
             <div className="hidden whitespace-nowrap text-xs text-slate-500 sm:block">
               {isPending ? (

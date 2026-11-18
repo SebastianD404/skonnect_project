@@ -63,7 +63,11 @@ type KkProfileStatus = {
   age: number;
   isVerified: boolean;
   status: string;
-  ageOutNotice: { archivedAt: string | null } | null;
+  archiveNotice: {
+    archivedAt: string | null;
+    archiveType: "AGED_OUT" | "ADMIN_ARCHIVED";
+    reason: string | null;
+  } | null;
   reviewNotes: string | null;
   withdrawnAt: string | null;
   withdrawalReason: string | null;
@@ -260,23 +264,24 @@ export default function KKProfilingStatusPage() {
   }, []);
 
   const statusBadge = profile
-    ? getStatusBadge(profile.ageOutNotice ? "Aged out" : profile.status || "Pending verification")
+    ? getStatusBadge(profile.archiveNotice?.archiveType === "AGED_OUT" ? "Aged out" : profile.status || "Pending verification")
     : null;
   // NUCLEAR OPTION 2: Strict Type Booleans - Eliminate Falsy Traps
   // Never use loose checks like !user.hasSeenModal or && !hasSeen
   // Require explicit boolean evaluation against true/false only
   const isApprovedStatus =
     profile?.status.toLowerCase().includes("approved") === true &&
-    !profile.ageOutNotice;
+    !profile.archiveNotice;
   const normalizedProfileStatus = profile?.status.toLowerCase() ?? "";
-  const isAgeOutStatus = Boolean(profile?.ageOutNotice);
+  const isAgeOutStatus = profile?.archiveNotice?.archiveType === "AGED_OUT";
+  const isArchivedStatus = Boolean(profile?.archiveNotice);
   const isReturnedStatus = normalizedProfileStatus.includes("returned");
   const isRejectedStatus = normalizedProfileStatus.includes("rejected");
   const isWithdrawnStatus = normalizedProfileStatus.includes("withdrawn");
   const canWithdraw =
     Boolean(profile?.registration) &&
     ["pending", "pending verification", "returned", "resubmitted"].includes(normalizedProfileStatus) &&
-    !isAgeOutStatus;
+    !isArchivedStatus;
   const isHistoricalReviewerNotes = /resubmitted|pending/.test(normalizedProfileStatus);
   const hasReviewerNotes = Boolean(profile?.reviewNotes?.trim() && (isReturnedStatus || isRejectedStatus || isHistoricalReviewerNotes));
   const hasValidRegistration = profile?.registration !== null && profile?.registration !== undefined;
@@ -541,26 +546,34 @@ export default function KKProfilingStatusPage() {
             )
           ) : profile ? (
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-            {profile.ageOutNotice ? (
+            {profile.archiveNotice ? (
               <section
                 role="status"
                 aria-live="polite"
-                aria-labelledby="kk-age-out-title"
-                className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm sm:p-6"
+                aria-labelledby="kk-archive-title"
+                className={`flex items-start gap-4 rounded-2xl border p-5 shadow-sm sm:p-6 ${
+                  isAgeOutStatus
+                    ? "border-amber-200 bg-amber-50 text-amber-950"
+                    : "border-slate-200 bg-slate-50 text-slate-900"
+                }`}
               >
-                <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                <span className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                  isAgeOutStatus ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600"
+                }`}>
                   <AlertCircle className="h-5 w-5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
-                  <h2 id="kk-age-out-title" className="text-base font-bold">
-                    Your KK profile has been archived
+                  <h2 id="kk-archive-title" className="text-base font-bold">
+                    {isAgeOutStatus ? "Your KK profile has been archived" : "Your KK profile is archived"}
                   </h2>
-                  <p className="mt-2 text-sm leading-6 text-amber-900">
-                    {KK_MEMBER_AGE_OUT_NOTICE_MESSAGE}
+                  <p className={`mt-2 text-sm leading-6 ${isAgeOutStatus ? "text-amber-900" : "text-slate-700"}`}>
+                    {isAgeOutStatus
+                      ? KK_MEMBER_AGE_OUT_NOTICE_MESSAGE
+                      : `Your KK profile was archived by Barangay Pico SK officials.${profile.archiveNotice.reason ? ` Reason: ${profile.archiveNotice.reason}.` : ""} For questions or reactivation requests, contact the Barangay Pico SK Office.`}
                   </p>
-                  {profile.ageOutNotice.archivedAt ? (
-                    <p className="mt-3 text-xs font-medium text-amber-800">
-                      Archived on {new Date(profile.ageOutNotice.archivedAt).toLocaleDateString(undefined, {
+                  {profile.archiveNotice.archivedAt ? (
+                    <p className={`mt-3 text-xs font-medium ${isAgeOutStatus ? "text-amber-800" : "text-slate-500"}`}>
+                      Archived on {new Date(profile.archiveNotice.archivedAt).toLocaleDateString(undefined, {
                         year: "numeric",
                         month: "long",
                         day: "numeric",
@@ -579,7 +592,7 @@ export default function KKProfilingStatusPage() {
                         {isAgeOutStatus ? "Age limit reached" : profile.status}
                       </h2>
                       <p className="mt-2 text-sm text-slate-100">
-                        {isAgeOutStatus
+                        {isArchivedStatus
                           ? "Your KK youth profile is archived. See the notice below for details."
                           : "Your KK Profiling application is being tracked here."}
                       </p>
@@ -597,12 +610,12 @@ export default function KKProfilingStatusPage() {
                 <div className="grid gap-5 border-b border-slate-200 px-6 py-6 sm:grid-cols-3 sm:px-10">
                   <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Applicant</p><p className="mt-2 font-semibold text-slate-950">{profile.fullName}</p></div>
                   <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Submitted</p><p className="mt-2 font-semibold text-slate-950">{formattedDate ?? "Unknown"}</p></div>
-                  <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Next step</p><p className="mt-2 font-semibold text-slate-950">{isAgeOutStatus ? "Read the age-limit update" : isApprovedStatus ? "Access your benefits" : isRejectedStatus ? "Review the decision" : "Await staff review"}</p></div>
+                  <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Next step</p><p className="mt-2 font-semibold text-slate-950">{isAgeOutStatus ? "Read the age-limit update" : isArchivedStatus ? "Review the archive notice" : isApprovedStatus ? "Access your benefits" : isRejectedStatus ? "Review the decision" : "Await staff review"}</p></div>
                 </div>
                 <div className="grid gap-4 px-6 py-5 sm:grid-cols-3 sm:px-10">
                   {["Application submitted", "Staff verification", "Decision and update"].map((step, index) => {
-                    const complete = isApprovedStatus || isRejectedStatus || isWithdrawnStatus || isAgeOutStatus || index === 0;
-                    const active = !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isAgeOutStatus && index === 1;
+                    const complete = isApprovedStatus || isRejectedStatus || isWithdrawnStatus || isArchivedStatus || index === 0;
+                    const active = !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isArchivedStatus && index === 1;
                     return <div key={step} className="flex items-center gap-3" aria-current={active ? "step" : undefined}><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${complete ? "bg-teal-700 text-white" : active ? "bg-teal-50 text-teal-700 ring-2 ring-teal-200" : "bg-slate-100 text-slate-400"}`}>{complete ? "✓" : active ? <span className="flex items-center gap-0.5" aria-label="In progress"><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse" /><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse [animation-delay:150ms]" /><i className="h-1.5 w-1.5 rounded-full bg-teal-600 animate-pulse [animation-delay:300ms]" /></span> : index + 1}</span><span className={`text-sm font-medium ${complete ? "text-slate-900" : active ? "text-teal-800" : "text-slate-400"}`}>{step}{active ? <span className="ml-2 text-xs font-normal text-slate-500">In progress</span> : null}</span></div>;
                   })}
                 </div>
@@ -645,7 +658,7 @@ export default function KKProfilingStatusPage() {
 
               <div className="flex w-full flex-col gap-6">
                 <section className="w-full rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-                  {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isAgeOutStatus ? (
+                  {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isArchivedStatus ? (
                     <div className="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-4">
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
@@ -818,7 +831,7 @@ export default function KKProfilingStatusPage() {
         </main>
       )}
 
-      {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isAgeOutStatus ? (
+      {profile?.registration && !isApprovedStatus && !isRejectedStatus && !isWithdrawnStatus && !isArchivedStatus ? (
         <KKProfilingFormModal
           isOpen={showFormModal}
           registration={profile.registration}

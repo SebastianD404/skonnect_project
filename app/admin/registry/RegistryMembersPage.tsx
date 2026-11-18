@@ -9,6 +9,7 @@ import { KKProfilingRegistrationsTable } from "../kk-profiling/KKProfilingRegist
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 import { RegistryMembersFilterBar } from "./RegistryMembersFilterBar";
 import { RegistryMembersSearchStatusProvider } from "./RegistryMembersSearchStatus";
+import { KK_MEMBER_AGE_OUT_SCHOLAR_REMARK } from "@/lib/kk-member-archive";
 
 const classificationFilters = [
   "In school Youth",
@@ -210,7 +211,7 @@ export default async function RegistryMembersPage({
                   lastName: true,
                 },
               },
-              grantee: { select: { id: true, status: true } },
+              grantee: { select: { id: true, status: true, remarks: true } },
               skeapApplications: {
                 where: {
                   status: {
@@ -240,7 +241,10 @@ export default async function RegistryMembersPage({
     const granteeStatus = member.user?.grantee?.status;
     const isActiveScholar = granteeStatus === GranteeStatus.ACTIVE;
     const isProbationaryGrantee = granteeStatus === GranteeStatus.PROBATIONARY;
-    const skeapStatus = isActiveScholar
+    const skeapStatus = granteeStatus === GranteeStatus.REMOVED &&
+      member.user?.grantee?.remarks === KK_MEMBER_AGE_OUT_SCHOLAR_REMARK
+      ? "AGED_OUT_CONCLUDED"
+      : isActiveScholar
       ? GranteeStatus.ACTIVE
       : isProbationaryGrantee
         ? GranteeStatus.PROBATIONARY

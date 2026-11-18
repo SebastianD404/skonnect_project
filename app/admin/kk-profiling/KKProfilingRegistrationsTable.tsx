@@ -1,10 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Search } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, Search, X } from "lucide-react";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
+import { isKKMemberAgeOutReason } from "@/lib/kk-member-archive";
 import { KKProfilingRowActions } from "./KKProfilingRowActions";
 import type { KKProfilingRegistration } from "./types";
 import { useAdminSearch } from "../AdminSearchContext";
@@ -12,7 +14,7 @@ import AdminExportButton from "../AdminExportButton";
 import { formatDate } from "@/lib/utils";
 import { DEFAULT_ADMIN_TABLE_PAGE_SIZE, normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import { isKKProfilingManualReview } from "@/lib/kk-profiling-review";
-import type { KKMemberArchiveReason } from "@/lib/kk-member-archive";
+import type { KKMemberArchiveReasonOption } from "@/lib/kk-member-archive";
 import { useKKProfilingTableSearch } from "./KKProfilingTableSearch";
 import { useRegistryMembersSearchStatus } from "../registry/RegistryMembersSearchStatus";
 import { RegistryMembersViewRowsProvider } from "../registry/RegistryMembersViewRowsContext";
@@ -34,6 +36,33 @@ function rowsForStatus(registrations: KKProfilingRegistration[], statusLabel?: s
     if (normalizedTab === "for physical ctc") return status === "for physical ctc";
     return status === normalizedTab;
   });
+}
+
+function getArchiveNotificationMessage(
+  notification: KKProfilingRegistration["archiveNotification"],
+) {
+  if (!notification) return "Profile archived; notification delivery status is unavailable.";
+  if (
+    notification.emailStatus === "SKIPPED_DECEASED" &&
+    notification.inAppStatus === "SKIPPED_DECEASED"
+  ) {
+    return "Profile archived as Deceased.";
+  }
+  if (notification.inAppStatus === "SENT" && notification.emailStatus === "SENT") {
+    return "Profile archived. In-app and email notice sent to resident.";
+  }
+  if (notification.inAppStatus === "SENT" && notification.emailStatus === "SKIPPED_DEMO") {
+    return "Profile archived. In-app notice sent.";
+  }
+  if (notification.inAppStatus === "SENT") {
+    return "Profile archived. In-app notice sent; email could not be sent.";
+  }
+  if (notification.emailStatus === "SENT") {
+    return notification.inAppStatus === "SKIPPED_NO_USER"
+      ? "Profile archived. Email notice sent; no SKonnect account was linked for an in-app notice."
+      : "Profile archived. Email notice sent; in-app notice could not be saved.";
+  }
+  return "Profile archived, but resident notifications could not be sent.";
 }
 
 export function getSkeapStatusBadge(status?: string | null) {
@@ -67,6 +96,11 @@ export function getSkeapStatusBadge(status?: string | null) {
       return {
         label: "Former Scholar",
         className: "bg-slate-100 text-slate-600",
+      };
+    case "AGED_OUT_CONCLUDED":
+      return {
+        label: "Aged Out / Concluded",
+        className: "bg-amber-50 text-amber-800 ring-1 ring-amber-200",
       };
     default:
       return {
@@ -113,6 +147,7 @@ export function KKProfilingRegistrationsTable({
   }
   const [tableQuery, setTableQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [archiveSuccessMessage, setArchiveSuccessMessage] = useState<string | null>(null);
   const { searchQuery } = useAdminSearch();
   const pageSearch = useKKProfilingTableSearch();
   const registrySearchStatus = useRegistryMembersSearchStatus();
@@ -154,6 +189,12 @@ export function KKProfilingRegistrationsTable({
   const resultsKey = registrations.map(({ id }) => id).join("|");
   const displayedRowsKey = isLoading ? "loading" : `results-${resultsKey}`;
 
+  useEffect(() => {
+    if (!archiveSuccessMessage) return;
+    const timer = window.setTimeout(() => setArchiveSuccessMessage(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [archiveSuccessMessage]);
+
   const filteredRows = useMemo(() => {
     const workspaceQuery = deferredSearchQuery.trim().toLowerCase();
     const localQuery = deferredTableQuery.trim().toLowerCase();
@@ -176,17 +217,22 @@ export function KKProfilingRegistrationsTable({
     });
   }, [rows, deferredSearchQuery, deferredTableQuery]);
 
-  const handleArchive = async (id: string, archiveReason: KKMemberArchiveReason) => {
+  const handleArchive = async (
+    id: string,
+    archiveReason: KKMemberArchiveReasonOption,
+    customReason: string,
+  ) => {
     const response = await fetch(`/api/admin/members/${id}/archive`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ archiveReason }),
+      body: JSON.stringify({ archiveReason, customReason }),
     });
     const payload = await response.json();
     if (!response.ok) {
       throw new Error(payload?.error || "Failed to archive profile");
     }
 
+    setArchiveSuccessMessage(getArchiveNotificationMessage(payload.archiveNotification));
     setRowState((current) => ({
       ...current,
       rows: current.rows.filter((row) => row.id !== id),
@@ -198,6 +244,13 @@ export function KKProfilingRegistrationsTable({
   const handleUpdate = (updatedRegistration: KKProfilingRegistration) => {
     const normalizedTab = String(statusLabel ?? "").toLowerCase();
     const normalizedUpdated = String(updatedRegistration.reviewStatus ?? "").toLowerCase();
+    const wasAutoArchived =
+      normalizedUpdated === "archived" &&
+      isKKMemberAgeOutReason(updatedRegistration.archivedReason);
+    if (wasAutoArchived) {
+      setArchiveSuccessMessage(getArchiveNotificationMessage(updatedRegistration.archiveNotification));
+      router.refresh();
+    }
 
     // If the updated registration no longer belongs in this tab, remove it and refresh server data
     if (normalizedTab && normalizedUpdated && normalizedTab !== normalizedUpdated) {
@@ -238,6 +291,31 @@ export function KKProfilingRegistrationsTable({
   return (
     <div className="space-y-4">
       {error ? <FloatingFeedback message={error} type="error" onDismiss={() => setError(null)} /> : null}
+      {archiveSuccessMessage ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-[100] flex max-w-[calc(100vw-2rem)] items-start gap-3 rounded-xl border border-slate-200 border-l-4 border-l-amber-500 bg-white px-4 py-3 text-sm text-slate-800 shadow-lg sm:max-w-md"
+        >
+          <span className="min-w-0 flex-1 font-semibold">
+            {archiveSuccessMessage}
+            <Link
+              href="/admin/members/records"
+              className="ml-2 inline-flex font-semibold text-cyan-800 underline underline-offset-2 hover:text-cyan-950"
+            >
+              View Archived KK Youth
+            </Link>
+          </span>
+          <button
+            type="button"
+            onClick={() => setArchiveSuccessMessage(null)}
+            aria-label="Dismiss archive notification"
+            className="ml-1 text-slate-400 transition hover:text-slate-700"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
       <div className={flat ? "relative" : "relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"}>
         {!pageSearch && (
           <RegistryMembersViewRowsProvider rows={filteredRows}>

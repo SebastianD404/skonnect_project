@@ -45,11 +45,7 @@ export default async function SystemAdminUsersPage({
     ? resolvedSearchParams.q[0]
     : resolvedSearchParams.q;
   const selectedRole = isRoleFilter(rawRole) ? rawRole : "ALL";
-  const selectedMetric = selectedRole !== "ALL"
-    ? "all"
-    : isPlatformAccountMetricKey(rawMetric)
-      ? rawMetric
-      : "all";
+  const selectedMetric = isPlatformAccountMetricKey(rawMetric) ? rawMetric : "all";
   const searchQuery = rawQuery?.trim().slice(0, 100) ?? "";
   const requestedPage = Number(rawPage || 1);
   const page = Number.isSafeInteger(requestedPage) ? Math.max(1, requestedPage) : 1;

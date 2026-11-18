@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACADEMIC_JOURNEY_END_OPTIONS,
   ACADEMIC_JOURNEY_START_OPTIONS,
+  getAcademicJourneyGraduationYear,
   getAcademicJourneyLabels,
   getAcademicJourneyProgress,
   getAcademicJourneyTerms,
@@ -35,6 +36,13 @@ describe("academic journey configuration", () => {
     expect(getAcademicJourneyLabels("college-3", "college-4")).toEqual([
       "Y3 S1", "Y3 S2", "Y4 S1", "Y4 S2",
     ]);
+  });
+
+  it("supports fifth-year graduation targets without truncating the sequence", () => {
+    expect(getAcademicJourneyLabels("college-3", "college-5")).toEqual([
+      "Y3 S1", "Y3 S2", "Y4 S1", "Y4 S2", "Y5 S1", "Y5 S2",
+    ]);
+    expect(getAcademicJourneyGraduationYear("college-5")).toBe(5);
   });
 
   it("labels the transition from high school through college", () => {
@@ -226,7 +234,7 @@ describe("getAcademicJourneyProgress", () => {
     expect(progress.nodes.filter((node) => node.status === "VALIDATED")).toHaveLength(2);
   });
 
-  it("uses initial approved application documents for the first validated node", () => {
+  it("keeps approved application documents without validating an unsubmitted semester", () => {
     const progress = getAcademicJourneyProgress(
       [],
       new Date(2025, 6, 1),
@@ -234,22 +242,46 @@ describe("getAcademicJourneyProgress", () => {
       4,
       {
         semester: "2025-2026 First Semester",
-        approvedAt: new Date("2025-08-01T00:00:00.000Z"),
         gwa: 1.75,
         gradeReportUrl: "/grade-report.pdf",
         coeFileUrl: "/coe.pdf",
       },
     );
 
-    expect(progress.currentSemesterIndex).toBe(1);
+    expect(progress.currentSemesterIndex).toBe(0);
+    expect(progress.validatedSemesterIndexes).toEqual([]);
+    expect(progress.currentStepStatus).toBe("open_for_submit");
     expect(progress.nodes[0]).toMatchObject({
-      status: "VALIDATED",
+      status: "CURRENT",
       isInitialGrant: true,
       gwa: 1.75,
       gradeReportUrl: "/grade-report.pdf",
       coeFileUrl: "/coe.pdf",
     });
-    expect(progress.nodes[1].status).toBe("CURRENT");
+    expect(progress.nodes[1].status).toBe("LOCKED");
+  });
+
+  it("does not validate the intake term from an approved application when there are no submissions", () => {
+    const progress = getAcademicJourneyProgress(
+      [],
+      new Date("2026-08-01T00:00:00.000Z"),
+      new Date("2026-11-17T05:00:00.000Z"),
+      4,
+      { semester: "2026-2027 Second Semester" },
+      "2026-2027 Second Semester",
+      "1st Year",
+    );
+
+    expect(progress).toMatchObject({
+      currentSemesterIndex: 0,
+      currentStepSemester: "2026-2027 Second Semester",
+      validatedSemesterIndexes: [],
+      currentStepStatus: "open_for_submit",
+    });
+    expect(progress.nodes[0]).toMatchObject({
+      semester: "2026-2027 Second Semester",
+      status: "CURRENT",
+    });
   });
 
   it("distinguishes unsubmitted, pending, under-review, returned, and validated steps", () => {

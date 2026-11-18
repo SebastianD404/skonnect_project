@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import { getSystemBackupAdmin } from "@/lib/system-backup-auth";
 import { prisma } from "@/lib/prisma";
 import { getLiveBackupRecordCounts } from "@/lib/data-backup";
-import { getPhtDayBounds } from "@/lib/data-backup-schedule";
+import {
+  getPhtDayBounds,
+  getPhtTime,
+  isPhtTimeAtOrAfterBackupTarget,
+} from "@/lib/data-backup-schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +20,7 @@ export async function GET() {
 
     const now = new Date();
     const { start: currentPhtDayStart, end: nextPhtMidnight } = getPhtDayBounds(now);
+    const { hour: currentPhtHour, minute: currentPhtMinute } = getPhtTime(now);
     let recentBackups: Array<{
       id: string;
       fileName: string;
@@ -26,10 +31,12 @@ export async function GET() {
       checksumSha256: string;
       createdAt: Date;
       createdBy: { fullName: string | null } | null;
+      createdByLabel: string | null;
+      storagePath: string | null;
       errorMessage: string | null;
     }> = [];
     let lastSuccessfulBackupAt: Date | null = null;
-    let todayAutomatedBackups: Array<{ status: BackupStatus; createdAt: Date }> = [];
+    let todayScheduledBackups: Array<{ status: BackupStatus; createdAt: Date }> = [];
     let historyError: string | null = null;
 
     try {
@@ -47,6 +54,8 @@ export async function GET() {
             checksumSha256: true,
             createdAt: true,
             createdBy: { select: { fullName: true } },
+            createdByLabel: true,
+            storagePath: true,
             errorMessage: true,
           },
         }),
@@ -57,18 +66,7 @@ export async function GET() {
         }).then((backup) => backup?.createdAt ?? null),
       ]);
 
-      try {
-        todayAutomatedBackups = await prisma.backupLog.findMany({
-          where: {
-            trigger: { in: [BackupTrigger.AUTOMATED, BackupTrigger.SCHEDULED] },
-            createdAt: { gte: currentPhtDayStart, lt: nextPhtMidnight },
-          },
-          orderBy: { createdAt: "desc" },
-          select: { status: true, createdAt: true },
-        });
-      } catch (error) {
-        console.error("Could not query the new automated backup type; trying legacy scheduled logs.", error);
-        todayAutomatedBackups = await prisma.backupLog.findMany({
+      todayScheduledBackups = await prisma.backupLog.findMany({
           where: {
             trigger: BackupTrigger.SCHEDULED,
             createdAt: { gte: currentPhtDayStart, lt: nextPhtMidnight },
@@ -76,7 +74,6 @@ export async function GET() {
           orderBy: { createdAt: "desc" },
           select: { status: true, createdAt: true },
         });
-      }
     } catch (error) {
       console.error("Failed to load backup history:", error);
       historyError = "Unable to load backup history.";
@@ -91,15 +88,15 @@ export async function GET() {
       countsError = "Unable to load protected record counts.";
     }
 
-    const successfulAutomatedBackupToday = todayAutomatedBackups.some(
+    const successfulScheduledBackupToday = todayScheduledBackups.some(
       (backup) => backup.status === BackupStatus.COMPLETED,
     );
-    const latestAutomatedAttempt = todayAutomatedBackups[0] ?? null;
+    const latestScheduledAttempt = todayScheduledBackups[0] ?? null;
     const schedulerStatus = historyError
       ? "UNKNOWN"
-      : successfulAutomatedBackupToday
+      : successfulScheduledBackupToday
         ? "HEALTHY"
-        : now < currentPhtDayStart
+        : !isPhtTimeAtOrAfterBackupTarget(currentPhtHour, currentPhtMinute)
           ? "NOT_DUE"
           : "MISSED";
     const schedulerNotice =
@@ -107,9 +104,9 @@ export async function GET() {
         ? historyError
         : schedulerStatus !== "MISSED"
           ? null
-          : latestAutomatedAttempt?.status === BackupStatus.FAILED
-            ? "Today's automated backup failed (FAILED). Check the server backup log for details."
-            : "No successful automated backup is recorded for today's 12:00 AM PHT run.";
+          : latestScheduledAttempt?.status === BackupStatus.FAILED
+            ? "Today's scheduled backup failed. Check the backup log for details."
+            : "No successful scheduled backup is recorded for today's 8:15 PM PHT run.";
 
     return NextResponse.json({
       ...(historyError || countsError ? { error: historyError ?? countsError } : {}),
@@ -118,25 +115,26 @@ export async function GET() {
         id: log.id,
         fileName: log.fileName,
         trigger: log.trigger,
+        type: log.trigger === BackupTrigger.MANUAL ? "MANUAL" : "SCHEDULED",
         status: log.status,
         recordCounts: log.recordCounts,
         fileSizeBytes: log.fileSizeBytes,
         checksumSha256: log.checksumSha256,
         createdAt: log.createdAt,
-        storagePath: null,
+        storagePath: log.storagePath,
         errorMessage: log.errorMessage,
-        downloadAvailable:
-          log.status === BackupStatus.COMPLETED &&
-          log.trigger !== BackupTrigger.MANUAL,
-        createdBy:
-          log.trigger !== BackupTrigger.MANUAL
-            ? "System (Cron)"
-            : log.createdBy?.fullName ?? null,
+        downloadAvailable: log.status === BackupStatus.COMPLETED && Boolean(log.storagePath),
+        createdBy: log.createdByLabel ??
+          (log.trigger === BackupTrigger.MANUAL
+            ? log.createdBy?.fullName ?? null
+            : "System Cron"),
       })),
       lastSuccessfulBackupAt,
       schedulerStatus,
       schedulerNotice,
-      nextScheduledAt: nextPhtMidnight.toISOString(),
+      currentPhtHour,
+      currentPhtMinute,
+      scheduledBackupToday: successfulScheduledBackupToday,
       liveRecordCounts,
     });
   } catch (error) {

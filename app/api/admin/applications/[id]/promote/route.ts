@@ -231,7 +231,10 @@ export async function POST(
         });
       }
 
-      await tx.user.update({ where: { id: application.userId }, data: { role: Role.GRANTEE } });
+      await tx.user.update({
+        where: { id: application.userId },
+        data: { role: Role.GRANTEE, hasSeenOnboarding: false },
+      });
       const grantee = await tx.grantee.upsert({
         where: { userId: application.userId },
         create: {

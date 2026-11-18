@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   queryRaw: vi.fn(),
+  userFindMany: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $queryRaw: mocks.queryRaw,
+    user: { findMany: mocks.userFindMany },
   },
 }));
 
@@ -14,6 +16,7 @@ import {
   getPlatformAccountMetricSegment,
   getPlatformAccountMetrics,
   getPlatformAccountUsersPage,
+  getPlatformAccountUsersForExport,
 } from "@/lib/platform-metrics";
 
 describe("platform account metrics", () => {
@@ -101,5 +104,59 @@ describe("platform account metrics", () => {
     expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toMatch(
       /account\."role" IN \('SK_OFFICIAL', 'SUPER_ADMIN'\)/,
     );
+  });
+
+  it("loads every export user matching the active metric, role, and search filters", async () => {
+    const accounts = [
+      { id: "user-1", skeapStatus: "Active Scholar" },
+      { id: "user-2", skeapStatus: "N/A" },
+    ];
+    const users = [
+      {
+        id: "user-2",
+        fullName: "Ada Lovelace",
+        email: "ada@example.test",
+        role: "SK_OFFICIAL",
+        isActive: true,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      {
+        id: "user-1",
+        fullName: "Grace Hopper",
+        email: "grace@example.test",
+        role: "SK_OFFICIAL",
+        isActive: true,
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+      },
+    ];
+    mocks.queryRaw.mockResolvedValueOnce(accounts);
+    mocks.userFindMany.mockResolvedValueOnce(users);
+
+    const result = await getPlatformAccountUsersForExport({
+      metric: "adminStaff",
+      role: "SK_OFFICIAL",
+      query: "Ada",
+    });
+
+    expect(result).toEqual([
+      { ...users[1], skeapStatus: "Active Scholar" },
+      { ...users[0], skeapStatus: "N/A" },
+    ]);
+    const sql = mocks.queryRaw.mock.calls[0]?.[0].sql as string;
+    expect(sql).toContain(`account."metric_segment" = ?`);
+    expect(sql).toContain(`account."role" = ?`);
+    expect(sql).toContain(`LOWER(account."full_name")`);
+    expect(sql).not.toMatch(/\bLIMIT\b|\bOFFSET\b/i);
+    expect(mocks.userFindMany).toHaveBeenCalledWith({
+      where: { id: { in: ["user-1", "user-2"] } },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+    });
   });
 });

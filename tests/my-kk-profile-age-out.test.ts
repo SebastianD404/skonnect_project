@@ -56,15 +56,15 @@ describe("GET /api/my/kk-profile age-out status", () => {
   });
 
   it("returns an archived member's page notice even though the KK profile is no longer verified", async () => {
-    mocks.findRegistration
-      .mockResolvedValueOnce({
-        id: "registration-id",
-        fullName: "Aldrin Jay Acosta",
-        reviewStatus: "Archived",
-        birthDate,
-        submittedAt: new Date("2024-01-01T00:00:00.000Z"),
-      })
-      .mockResolvedValueOnce({ archivedAt });
+    mocks.findRegistration.mockResolvedValueOnce({
+      id: "registration-id",
+      fullName: "Aldrin Jay Acosta",
+      reviewStatus: "Archived",
+      archivedReason: "AGED_OUT",
+      archivedAt,
+      birthDate,
+      submittedAt: new Date("2024-01-01T00:00:00.000Z"),
+    });
 
     const response = await GET();
     const body = await response.json();
@@ -75,29 +75,53 @@ describe("GET /api/my/kk-profile age-out status", () => {
       requiresKkProfiling: false,
       profile: {
         status: "Archived",
-        ageOutNotice: { archivedAt: archivedAt.toISOString() },
+        archiveNotice: {
+          archivedAt: archivedAt.toISOString(),
+          archiveType: "AGED_OUT",
+        },
         registration: { reviewStatus: "Archived" },
       },
     });
   });
 
   it("continues to require profiling for ordinary unverified profiles", async () => {
-    mocks.findRegistration
-      .mockResolvedValueOnce({
-        id: "registration-id",
-        fullName: "Aldrin Jay Acosta",
-        reviewStatus: "Pending",
-        birthDate,
-      })
-      .mockResolvedValueOnce(null);
+    mocks.findRegistration.mockResolvedValueOnce({
+      id: "registration-id",
+      fullName: "Aldrin Jay Acosta",
+      reviewStatus: "Pending",
+      birthDate,
+    });
 
     const response = await GET();
     const body = await response.json();
 
     expect(body).toMatchObject({
-      profile: null,
       hasVerifiedKkProfile: false,
       requiresKkProfiling: true,
+      profile: { status: "Pending" },
+    });
+  });
+
+  it("returns an informational archive notice for profiles archived by an SK admin", async () => {
+    mocks.findRegistration.mockResolvedValueOnce({
+      id: "registration-id",
+      fullName: "Aldrin Jay Acosta",
+      reviewStatus: "Archived",
+      archivedReason: "Transferred Residence",
+      archivedAt,
+      birthDate,
+    });
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.profile).toMatchObject({
+      status: "Archived",
+      archiveNotice: {
+        archivedAt: archivedAt.toISOString(),
+        archiveType: "ADMIN_ARCHIVED",
+        reason: "Transferred Residence",
+      },
     });
   });
 });

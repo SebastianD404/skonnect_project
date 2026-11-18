@@ -180,7 +180,7 @@ export function GranteeStatusTable({
                     </p>
                   </div>
                 </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
+                <div className="flex shrink-0 items-center">
                   <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
                     grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
                       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -188,15 +188,6 @@ export function GranteeStatusTable({
                   }`}>
                     {STATUS_LABELS[grantee.status]}
                   </span>
-                  {grantee.exitClearanceStatus === "SUBMITTED" ? (
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800">
-                      Clearance Submitted
-                    </span>
-                  ) : (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
-                    <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[9px] font-semibold text-teal-800">
-                      Ready to Graduate
-                    </span>
-                  ) : null}
                 </div>
               </div>
 
@@ -206,7 +197,21 @@ export function GranteeStatusTable({
                   <dd className="mt-0.5 truncate font-semibold text-slate-800" title={normalizeSkeapSchoolName(grantee.school)}>
                     {normalizeSkeapSchoolName(grantee.school)}
                   </dd>
-                  <dd className="text-[11px] text-slate-500">{grantee.yearLevel}</dd>
+                  <dd className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-slate-500">{grantee.yearLevel}</span>
+                    {grantee.exitClearanceStatus === "SUBMITTED" ? (
+                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800">
+                        Clearance Submitted
+                      </span>
+                    ) : (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
+                      <span
+                        title="Ready to Graduate"
+                        className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20"
+                      >
+                        Graduating
+                      </span>
+                    ) : null}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Contact number</dt>
@@ -283,12 +288,12 @@ export function GranteeStatusTable({
               <th className="w-[12%] px-3 py-4 sm:px-4">Status</th>
               <th className="w-[16%] px-3 py-4 sm:px-4">Contact number</th>
               <th className="w-[14%] px-3 py-4 sm:px-4">Enrolled</th>
-              <th className="w-[10%] px-3 py-4 text-center sm:px-4">Action</th>
+              <th className="w-[10%] px-3 py-4 text-right sm:px-4">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white text-sm" aria-busy={isLoading}>
             {isLoading ? <GranteeTableSkeletonRows /> : grantees.map((grantee) => (
-                  <tr key={grantee.id} className="transition-colors hover:bg-slate-50/50">
+                  <tr key={grantee.id} className="h-[72px] transition-colors hover:bg-slate-50/50">
                     <td className="min-w-0 px-3 py-4 sm:px-4">
                       <div className="group/journey relative flex items-center gap-3">
                         <AcademicJourneyHoverCard
@@ -314,22 +319,29 @@ export function GranteeStatusTable({
                       <div className="truncate font-medium text-slate-900" title={normalizeSkeapSchoolName(grantee.school)}>
                         {normalizeSkeapSchoolName(grantee.school)}
                       </div>
-                      <div className="truncate text-xs text-slate-500">{grantee.yearLevel}</div>
-                    </td>
-                    <td className="px-3 py-4 sm:px-4">
-                      <div className="flex flex-col items-start gap-1">
-                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
-                          {STATUS_LABELS[grantee.status]}
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 md:flex-nowrap">
+                        <span className="text-xs text-slate-500 md:min-w-0 md:truncate" title={grantee.yearLevel}>
+                          {grantee.yearLevel}
                         </span>
                         {grantee.exitClearanceStatus === "SUBMITTED" ? (
-                          <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800">
+                          <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800">
                             Clearance Submitted
                           </span>
                         ) : (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
-                          <span className="inline-flex rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[9px] font-semibold text-teal-800">
-                            Ready to Graduate
+                          <span
+                            title="Ready to Graduate"
+                            className="inline-flex shrink-0 items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20"
+                          >
+                            Graduating
                           </span>
                         ) : null}
+                      </div>
+                    </td>
+                    <td className="align-middle px-3 py-4 sm:px-4">
+                      <div className="flex items-center">
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
+                          {STATUS_LABELS[grantee.status]}
+                        </span>
                       </div>
                     </td>
                     <td className="truncate px-3 py-4 sm:px-4" title={grantee.contactNumber ?? undefined}>
@@ -344,8 +356,8 @@ export function GranteeStatusTable({
                     <td className="whitespace-nowrap px-3 py-4 text-slate-500 sm:px-4">
                       {formatDate(grantee.dateEnrolled)}
                     </td>
-                    <td className="px-3 py-4 text-center sm:px-4">
-                      <div className="inline-flex items-center justify-center gap-2">
+                    <td className="px-3 py-4 text-right sm:px-4">
+                      <div className="inline-flex items-center justify-end gap-2">
                         {grantee.detailsHref ? (
                           <button
                             type="button"

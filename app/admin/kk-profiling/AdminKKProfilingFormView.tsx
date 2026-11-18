@@ -5,14 +5,64 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { rejectKKProfilingApplication } from "./actions";
 import type { KKProfilingRegistration } from "./types";
+import { getExactAge } from "@/lib/skeap-age";
+import { getKKYouthAgeGroup } from "@/lib/kk-youth-age";
+import { formatSexLabel, parseSex } from "@/lib/sex";
 
-function ReadOnlyField({ label, value }: { label: string; value: React.ReactNode }) {
+type MasterlistProfileDraft = {
+  fullName: string;
+  birthDate: string;
+  sex: string;
+  youthClassification: string;
+  address: string;
+  sitio: string;
+  contactNumber: string;
+  registeredSKVoter: string;
+};
+
+function toDateInputValue(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
+function getMasterlistProfileDraft(registration: KKProfilingRegistration): MasterlistProfileDraft {
+  const sex = parseSex(registration.kkProfile?.sex ?? registration.sex);
+  return {
+    fullName: registration.kkProfile?.fullName || registration.fullName,
+    birthDate: toDateInputValue(registration.birthDate),
+    sex: sex ? formatSexLabel(sex) : "Not specified",
+    youthClassification: registration.youthClassification,
+    address: registration.address,
+    sitio: registration.kkProfile?.purok ?? "",
+    contactNumber: registration.kkProfile?.contactNumber || registration.contactNumber,
+    registeredSKVoter: registration.registeredSKVoter === "No" ? "No" : "Yes",
+  };
+}
+
+const profileInputClassName =
+  "h-[46px] w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/10";
+
+function ReadOnlyField({
+  label,
+  value,
+  editing = false,
+  children,
+}: {
+  label: string;
+  value: React.ReactNode;
+  editing?: boolean;
+  children?: React.ReactNode;
+}) {
   return (
     <div className="min-w-0 text-left">
       <span className="mb-1 block text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</span>
-      <div className="w-full break-words rounded-xl border border-slate-100 bg-slate-50 p-3 text-left text-sm font-medium text-slate-900">
-        {value || "N/A"}
-      </div>
+      {editing && children ? (
+        children
+      ) : (
+        <div className="min-h-11 w-full break-words rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left text-sm font-medium text-slate-900">
+          {value || "N/A"}
+        </div>
+      )}
     </div>
   );
 }
@@ -58,12 +108,14 @@ export function AdminKKProfilingFormView({
   registration: initialRegistration,
   onClose,
   onEdit,
+  editInView = false,
   onReturn,
   onStatusUpdate,
 }: {
   registration: KKProfilingRegistration;
   onClose: () => void;
   onEdit?: () => void;
+  editInView?: boolean;
   onReturn?: (updatedRegistration: KKProfilingRegistration) => void;
   onStatusUpdate?: (status: "Approved" | "Returned" | "Rejected" | "For Physical CTC", registrationId: string) => void;
 }) {
@@ -86,6 +138,11 @@ export function AdminKKProfilingFormView({
   const [isConfirmingPhysicalCtc, setIsConfirmingPhysicalCtc] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
+  const [isProfileEditing, setIsProfileEditing] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileEditError, setProfileEditError] = useState<string | null>(null);
+  const [isConfirmingScholarAgeOut, setIsConfirmingScholarAgeOut] = useState(false);
+  const [profileDraft, setProfileDraft] = useState(() => getMasterlistProfileDraft(initialRegistration));
 
   const normalizedReviewStatus = (registration.reviewStatus ?? "pending").trim().toLowerCase().replace(/_/g, " ");
   const isApproved = normalizedReviewStatus === "approved";
@@ -111,6 +168,7 @@ export function AdminKKProfilingFormView({
         }
         if (active) {
           setRegistration(data as KKProfilingRegistration);
+          setProfileDraft(getMasterlistProfileDraft(data as KKProfilingRegistration));
           setDetailsError(null);
         }
       })
@@ -167,6 +225,69 @@ export function AdminKKProfilingFormView({
       : kkProfile?.sex === "NOT_SPECIFIED"
         ? "Not specified"
         : registration.sex;
+  const hasActiveScholarship = ["ACTIVE", "PROBATIONARY"].includes(
+    registration.user?.grantee?.status?.toUpperCase() ?? "",
+  );
+  const calculatedAge = profileDraft.birthDate
+    ? getExactAge(new Date(`${profileDraft.birthDate}T00:00:00.000Z`))
+    : null;
+  const calculatedAgeGroup = calculatedAge === null ? null : getKKYouthAgeGroup(calculatedAge);
+
+  const updateProfileDraft = <K extends keyof MasterlistProfileDraft>(
+    key: K,
+    value: MasterlistProfileDraft[K],
+  ) => {
+    setProfileDraft((current) => ({ ...current, [key]: value }));
+    setIsConfirmingScholarAgeOut(false);
+    setProfileEditError(null);
+  };
+
+  const handleSaveMasterlistProfile = async () => {
+    if (calculatedAge === null || calculatedAge < 0) {
+      setProfileEditError("Enter a valid date of birth that is not in the future.");
+      return;
+    }
+    if (calculatedAge >= 31 && hasActiveScholarship && !isConfirmingScholarAgeOut) {
+      setIsConfirmingScholarAgeOut(true);
+      return;
+    }
+
+    setIsSavingProfile(true);
+    setProfileEditError(null);
+    try {
+      const response = await fetch(`/api/admin/registry/masterlist/${registration.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...profileDraft,
+          confirmActiveScholarAgeOut: isConfirmingScholarAgeOut,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        if (data?.code === "ACTIVE_SCHOLAR_CONFIRMATION_REQUIRED") {
+          setIsConfirmingScholarAgeOut(true);
+          return;
+        }
+        throw new Error(data?.error || "Failed to save profile changes.");
+      }
+
+      const updatedRegistration = data as KKProfilingRegistration;
+      onReturn?.(updatedRegistration);
+      setRegistration(updatedRegistration);
+      if (String(updatedRegistration.reviewStatus).toLowerCase() === "archived") {
+        onClose();
+        return;
+      }
+      setProfileDraft(getMasterlistProfileDraft(updatedRegistration));
+      setIsProfileEditing(false);
+      setIsConfirmingScholarAgeOut(false);
+    } catch (error) {
+      setProfileEditError(error instanceof Error ? error.message : "Failed to save profile changes.");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   const handlePassDigitalReview = async () => {
     setApproveError(null);
@@ -372,7 +493,26 @@ export function AdminKKProfilingFormView({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {onEdit && !isLocked ? (
+            {editInView && isProfileEditing ? (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                Editing
+              </span>
+            ) : editInView ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileDraft(getMasterlistProfileDraft(registration));
+                  setProfileEditError(null);
+                  setIsConfirmingScholarAgeOut(false);
+                  setIsProfileEditing(true);
+                }}
+                disabled={detailsLoading}
+                className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+                Edit Profile
+              </button>
+            ) : onEdit && !isLocked && !isProfileEditing ? (
               <button
                 type="button"
                 onClick={onEdit}
@@ -459,7 +599,6 @@ export function AdminKKProfilingFormView({
               </div>
             ) : null}
           </div>
-          {/* Form layout identical to youth form but read-only */}
           <div className="grid min-w-0 grid-cols-1 gap-4">
             <div className="col-span-full mb-1 mt-2 border-b border-slate-200 pb-2">
               <h4 className="break-words text-left text-lg font-bold text-slate-800">PART I: Profile</h4>
@@ -467,27 +606,107 @@ export function AdminKKProfilingFormView({
             </div>
 
             <div className="col-span-full">
-              <ReadOnlyField label="Complete Name (Family, First, Middle)" value={kkProfile?.fullName || registration.fullName} />
+              <ReadOnlyField
+                label="Complete Name (Family, First, Middle)"
+                value={kkProfile?.fullName || registration.fullName}
+                editing={isProfileEditing}
+              >
+                <input
+                  type="text"
+                  value={profileDraft.fullName}
+                  onChange={(event) => updateProfileDraft("fullName", event.target.value)}
+                  className={profileInputClassName}
+                  autoComplete="name"
+                />
+              </ReadOnlyField>
             </div>
             <div className="col-span-full">
               <ReadOnlyField
                 label="Complete Address"
                 value={registration.address}
-              />
+                editing={isProfileEditing}
+              >
+                <input
+                  type="text"
+                  value={profileDraft.address}
+                  onChange={(event) => updateProfileDraft("address", event.target.value)}
+                  className={profileInputClassName}
+                  autoComplete="street-address"
+                />
+              </ReadOnlyField>
             </div>
             <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <ReadOnlyField label="Sitio / Purok" value={kkProfile?.purok} />
+              <ReadOnlyField label="Sitio / Purok" value={kkProfile?.purok} editing={isProfileEditing}>
+                <input
+                  type="text"
+                  value={profileDraft.sitio}
+                  onChange={(event) => updateProfileDraft("sitio", event.target.value)}
+                  className={profileInputClassName}
+                />
+              </ReadOnlyField>
               <ReadOnlyField label="Barangay" value={kkProfile?.barangay} />
               <ReadOnlyField label="Place of Birth" value={kkProfile?.placeOfBirth} />
             </div>
             <div className="col-span-full grid grid-cols-1 gap-4 md:grid-cols-3">
-              <ReadOnlyField label="Sex" value={kkSexLabel} />
+              <ReadOnlyField label="Sex" value={kkSexLabel} editing={isProfileEditing}>
+                <select
+                  value={profileDraft.sex}
+                  onChange={(event) => updateProfileDraft("sex", event.target.value)}
+                  className={profileInputClassName}
+                >
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Not specified">Not specified</option>
+                </select>
+              </ReadOnlyField>
               <ReadOnlyField
                 label="Birth Date"
                 value={new Date(kkProfile?.birthDate || registration.birthDate).toLocaleDateString()}
-              />
-              <ReadOnlyField label="Age" value={registration.age} />
+                editing={isProfileEditing}
+              >
+                <input
+                  type="date"
+                  value={profileDraft.birthDate}
+                  onChange={(event) => updateProfileDraft("birthDate", event.target.value)}
+                  className={profileInputClassName}
+                  required
+                />
+              </ReadOnlyField>
+              {isProfileEditing ? (
+                <div className="min-w-0 text-left">
+                  <span className="mb-1 block text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Age</span>
+                  <div
+                    className={`flex h-[46px] w-full items-center break-words rounded-xl border px-4 py-2.5 text-left text-sm font-medium ${
+                      calculatedAge !== null && calculatedAge >= 31
+                        ? "border-amber-300 bg-amber-50 text-amber-800"
+                        : "border-slate-300 bg-slate-50 text-slate-900"
+                    }`}
+                    aria-live="polite"
+                  >
+                    {calculatedAge !== null && calculatedAge >= 0
+                      ? `${calculatedAge} yrs old${calculatedAgeGroup ? ` · ${calculatedAgeGroup}` : ""}`
+                      : "Enter a valid birth date"}
+                  </div>
+                </div>
+              ) : (
+                <ReadOnlyField label="Age" value={registration.age} />
+              )}
             </div>
+            {isProfileEditing && calculatedAge !== null && calculatedAge >= 31 ? (
+              <div role="alert" className="col-span-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                Age-Out Notice (31+ yrs old): Exceeds the Katipunan ng Kabataan age limit (15–30 under RA 10742). Saving will automatically archive this profile and move it to Archived KK Youth.
+                {hasActiveScholarship ? (
+                  <span className="mt-1 block">
+                    Saving will also mark the active SKEAP scholarship as <strong>Aged Out / Concluded</strong>.
+                  </span>
+                ) : null}
+                {isConfirmingScholarAgeOut ? (
+                  <span className="mt-1 block font-semibold">
+                    Confirm that you want to conclude this resident&apos;s active SKEAP scholarship before saving the age-out archive.
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="col-span-full grid grid-cols-1 gap-4 md:grid-cols-2">
               <ReadOnlyField label="Email Address" value={kkProfile?.email || registration.email} />
@@ -495,7 +714,19 @@ export function AdminKKProfilingFormView({
             </div>
 
             <div className="col-span-full">
-              <ReadOnlyField label="Contact Number" value={kkProfile?.contactNumber || registration.contactNumber} />
+              <ReadOnlyField
+                label="Contact Number"
+                value={kkProfile?.contactNumber || registration.contactNumber}
+                editing={isProfileEditing}
+              >
+                <input
+                  type="tel"
+                  value={profileDraft.contactNumber}
+                  onChange={(event) => updateProfileDraft("contactNumber", event.target.value)}
+                  className={profileInputClassName}
+                  autoComplete="tel"
+                />
+              </ReadOnlyField>
             </div>
 
             <h4 className="col-span-full mb-1 mt-6 break-words border-b border-slate-200 pb-2 text-left text-lg font-bold text-slate-800">
@@ -504,7 +735,18 @@ export function AdminKKProfilingFormView({
 
             <ReadOnlyField label="Civil Status" value={registration.civilStatus} />
 
-            <ReadOnlyField label="Youth Classification" value={registration.youthClassification} />
+            <ReadOnlyField
+              label="Youth Classification"
+              value={registration.youthClassification}
+              editing={isProfileEditing}
+            >
+              <input
+                type="text"
+                value={profileDraft.youthClassification}
+                onChange={(event) => updateProfileDraft("youthClassification", event.target.value)}
+                className={profileInputClassName}
+              />
+            </ReadOnlyField>
 
             <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2">
               <ReadOnlyField label="Youth Age Group" value={registration.youthAgeGroup} />
@@ -516,7 +758,20 @@ export function AdminKKProfilingFormView({
             </div>
 
             <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <ReadOnlyField label="Registered SK Voter?" value={registration.registeredSKVoter} />
+              <ReadOnlyField
+                label="Registered SK Voter?"
+                value={registration.registeredSKVoter}
+                editing={isProfileEditing}
+              >
+                <select
+                  value={profileDraft.registeredSKVoter}
+                  onChange={(event) => updateProfileDraft("registeredSKVoter", event.target.value)}
+                  className={profileInputClassName}
+                >
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </ReadOnlyField>
               <ReadOnlyField label="Did you vote last SK election?" value={registration.votedLastSK} />
               <ReadOnlyField label="Registered National Voter?" value={registration.registeredNationalVoter} />
             </div>
@@ -580,7 +835,43 @@ export function AdminKKProfilingFormView({
           {approveSuccess || returnSuccess ? (
             <div className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{approveSuccess || returnSuccess}</div>
           ) : null}
+          {profileEditError ? (
+            <div role="alert" className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {profileEditError}
+            </div>
+          ) : null}
 
+          {isProfileEditing ? (
+            <div className="flex flex-col-reverse justify-end gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileDraft(getMasterlistProfileDraft(registration));
+                  setProfileEditError(null);
+                  setIsConfirmingScholarAgeOut(false);
+                  setIsProfileEditing(false);
+                }}
+                disabled={isSavingProfile}
+                className="inline-flex justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveMasterlistProfile()}
+                disabled={isSavingProfile || detailsLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSavingProfile ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                {isSavingProfile
+                  ? "Saving..."
+                  : isConfirmingScholarAgeOut
+                    ? "Confirm & Save Changes"
+                    : "Save Changes"}
+              </button>
+            </div>
+          ) : (
+          <>
           {canReturn && isCorrectionOpen ? (
             <div className="mt-4 w-full animate-in slide-in-from-bottom-2 border-t border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -720,6 +1011,8 @@ export function AdminKKProfilingFormView({
             ) : null}
 
           </div>
+          </>
+          )}
         </div>
         {canReturn && isRejectionOpen && typeof document !== "undefined"
           ? createPortal(

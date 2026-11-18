@@ -18,9 +18,10 @@ import {
   refreshSkeapApplicationsAdminView,
 } from "@/lib/application-admin-view-refresh";
 import {
-  persistScheduledBackup,
+  persistSystemBackup,
   removeScheduledBackupFiles,
 } from "@/lib/data-backup-storage";
+import { getPhtDateString } from "@/lib/data-backup-schedule";
 
 const APP_NAME = "SKonnect";
 const BARANGAY_NAME = "Barangay Pico, La Trinidad, Benguet";
@@ -120,8 +121,7 @@ function createFileName(date: Date) {
     hourCycle: "h23",
   }).formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const milliseconds = String(date.getMilliseconds()).padStart(3, "0");
-  return `skonnect-backup-${values.year}-${values.month}-${values.day}-${values.hour}${values.minute}${values.second}${milliseconds}.json`;
+  return `skonnect-backup-${values.year}-${values.month}-${values.day}-${values.hour}${values.minute}${values.second}.json`;
 }
 
 function checksumFor(meta: BackupSnapshot["meta"], data: BackupData) {
@@ -289,9 +289,11 @@ export async function getLiveBackupRecordCounts(): Promise<BackupCounts> {
 export async function generateSystemBackupSnapshot({
   actorId,
   trigger,
+  createdByLabel: requestedCreatedByLabel,
 }: {
   actorId: string | null;
   trigger: BackupTriggerInput;
+  createdByLabel?: string;
 }) {
   const createdAt = new Date();
   const fileName = createFileName(createdAt);
@@ -299,12 +301,13 @@ export async function generateSystemBackupSnapshot({
   let fileSizeBytes = 0;
   let checksumSha256 = "";
   let storagePath: string | null = null;
-  const triggerType =
-    trigger === "MANUAL" ? BackupTrigger.MANUAL : BackupTrigger.AUTOMATED;
-  const createdByLabel = trigger !== "MANUAL"
-    ? "System (Cron)"
-    : null;
-  const snapshotTrigger = trigger === "MANUAL" ? "MANUAL" : "AUTOMATED";
+  const triggerType = trigger === "MANUAL"
+    ? BackupTrigger.MANUAL
+    : trigger === "SCHEDULED"
+      ? BackupTrigger.SCHEDULED
+      : BackupTrigger.AUTOMATED;
+  const createdByLabel = requestedCreatedByLabel ??
+    (trigger === "MANUAL" ? null : "System Cron");
 
   try {
     const data = await readAllBackupData();
@@ -315,16 +318,19 @@ export async function generateSystemBackupSnapshot({
       barangay: BARANGAY_NAME,
       version: BACKUP_VERSION,
       createdAt: createdAt.toISOString(),
-      trigger: snapshotTrigger,
+      trigger,
       recordCounts: counts,
     };
     checksumSha256 = checksumFor(meta, data);
     const snapshot: BackupSnapshot = { meta, data, checksumSha256 };
     const jsonString = JSON.stringify(snapshot, null, 2);
     fileSizeBytes = Buffer.byteLength(jsonString, "utf8");
-    if (trigger !== "MANUAL") {
-      storagePath = await persistScheduledBackup(fileName, jsonString);
-    }
+    storagePath = await persistSystemBackup(
+      trigger === "MANUAL" ? "MANUAL" : "SCHEDULED",
+      getPhtDateString(createdAt),
+      fileName,
+      jsonString,
+    );
 
     try {
       const log = await prisma.backupLog.create({
@@ -344,9 +350,9 @@ export async function generateSystemBackupSnapshot({
 
       if (trigger !== "MANUAL") {
         try {
-          await pruneAutomatedBackupHistory();
+          await pruneScheduledBackupHistory();
         } catch (pruneError) {
-          console.error("Automated backup retention pruning failed:", pruneError);
+          console.error("Scheduled backup retention pruning failed:", pruneError);
         }
       }
 
@@ -379,14 +385,14 @@ export async function generateSystemBackupSnapshot({
   }
 }
 
-export async function pruneAutomatedBackupHistory() {
+export async function pruneScheduledBackupHistory(now = new Date()) {
+  const retentionCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const oldBackups = await prisma.backupLog.findMany({
     where: {
       trigger: { in: [BackupTrigger.AUTOMATED, BackupTrigger.SCHEDULED] },
-      status: BackupStatus.COMPLETED,
+      createdAt: { lt: retentionCutoff },
     },
     orderBy: { createdAt: "desc" },
-    skip: 30,
     select: {
       id: true,
       fileName: true,
@@ -404,6 +410,10 @@ export async function pruneAutomatedBackupHistory() {
   });
 
   return oldBackups.length;
+}
+
+export async function pruneAutomatedBackupHistory(now = new Date()) {
+  return pruneScheduledBackupHistory(now);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

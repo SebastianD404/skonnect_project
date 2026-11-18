@@ -9,13 +9,12 @@ const mocks = vi.hoisted(() => ({
   updateApplication: vi.fn(),
   updateInquiry: vi.fn(),
   createMessage: vi.fn(),
-  upsertNotification: vi.fn(),
+  notifyProfileArchived: vi.fn(),
   writeAuditLog: vi.fn(),
   refreshKkView: vi.fn(),
   refreshSkeapView: vi.fn(),
   refreshSystemUsersView: vi.fn(),
   syncKkProfile: vi.fn(),
-  sendEmail: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -50,13 +49,11 @@ vi.mock("@/lib/kk-archive-skeap-applications", () => ({
   }),
 }));
 
-vi.mock("@/lib/broadcast-email", () => ({
-  createGmailTransporter: vi.fn(() => ({})),
-  sendBroadcastEmail: mocks.sendEmail,
+vi.mock("@/lib/notify-profile-archived", () => ({
+  notifyProfileArchived: mocks.notifyProfileArchived,
 }));
 
 import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
-import { KK_MEMBER_AGE_OUT_NOTICE_MESSAGE } from "@/lib/kk-member-archive";
 
 function createProfile(birthDate = new Date("1990-01-01T00:00:00.000Z")) {
   return {
@@ -89,7 +86,10 @@ describe("sweepAgedOutKkProfiles", () => {
     mocks.findApplications.mockResolvedValue([]);
     mocks.updateApplication.mockResolvedValue({ count: 1 });
     mocks.createMessage.mockResolvedValue({ id: "message-id" });
-    mocks.upsertNotification.mockResolvedValue({});
+    mocks.notifyProfileArchived.mockResolvedValue({
+      emailStatus: "SENT",
+      inAppStatus: "SENT",
+    });
     mocks.transaction.mockImplementation(async (callback) => callback({
       profilingRegistration: { updateMany: mocks.updateProfile },
       user: { update: mocks.updateUser },
@@ -99,7 +99,6 @@ describe("sweepAgedOutKkProfiles", () => {
       },
       inquiry: { update: mocks.updateInquiry },
       granteeMessage: { create: mocks.createMessage },
-      notification: { upsert: mocks.upsertNotification },
     }));
     mocks.writeAuditLog.mockResolvedValue(undefined);
     mocks.refreshKkView.mockResolvedValue(undefined);
@@ -135,22 +134,13 @@ describe("sweepAgedOutKkProfiles", () => {
         archivedBy: "SYSTEM_AUTO",
       },
     }));
-    expect(mocks.upsertNotification).toHaveBeenCalledWith({
-      where: {
-        userId_sourceKey: {
-          userId: "user-id",
-          sourceKey: "kk-age-out:profile-id",
-        },
-      },
-      create: {
-        userId: "user-id",
-        sourceKey: "kk-age-out:profile-id",
-        message: expect.stringContaining(KK_MEMBER_AGE_OUT_NOTICE_MESSAGE),
-      },
-      update: {
-        message: expect.stringContaining(KK_MEMBER_AGE_OUT_NOTICE_MESSAGE),
-      },
-    });
+    expect(mocks.notifyProfileArchived).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-id",
+      email: "youth@example.com",
+      archiveType: "AGED_OUT",
+      reason: "AGED_OUT",
+      archivedAt: expect.any(Date),
+    }));
     expect(mocks.writeAuditLog).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       action: "PROFILE_ARCHIVED",
       afterData: expect.objectContaining({ archivedBy: "SYSTEM_AUTO" }),
@@ -203,9 +193,9 @@ describe("sweepAgedOutKkProfiles", () => {
     });
 
     expect(mocks.updateProfile).toHaveBeenCalledOnce();
-    expect(mocks.upsertNotification).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({
-        message: expect.stringContaining("Your recorded age is 31."),
+    expect(mocks.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        body: expect.stringContaining("Your recorded age is 31."),
       }),
     }));
   });

@@ -156,7 +156,6 @@ export default async function GranteeDashboardContent() {
   const pendingCount = submissions.filter(
     (s) => s.status === "PENDING" || s.status === "AWAITING_PHYSICAL_CTC",
   ).length;
-  const approvedCount = submissions.filter((s) => s.status === "APPROVED").length;
   const needsEditCount = submissions.filter((s) => s.status === "REJECTED" || s.status === "RETURNED_FOR_EDIT").length;
 
   const tracker = buildSemesterTracker(submissions);
@@ -175,6 +174,7 @@ export default async function GranteeDashboardContent() {
     ? schedules.find((schedule) => schedule.semester === getScheduleSemesterForTargetTerm(detectedTerm)) ?? null
     : null;
   const journeyProgress = academicTimeline.journeyProgress;
+  const approvedCount = journeyProgress.validatedSemesterIndexes.length;
   const graduationReadyAt =
     "graduationReadyAt" in appUser.grantee
       ? appUser.grantee.graduationReadyAt

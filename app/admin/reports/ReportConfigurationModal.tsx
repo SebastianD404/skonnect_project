@@ -4,18 +4,27 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Download, X } from "lucide-react";
 import type { ReportCard } from "./ReportsDashboard";
 import { downloadReport } from "./report-download";
+import { ARCHIVE_REASON_FILTER_OPTIONS } from "./report-filters";
 
 type ReportConfigurationModalProps = {
   report: ReportCard;
+  archivedReasonFilter: string;
+  onArchivedReasonChange: (reason: string) => void;
+  archivedStartDate: string;
+  archivedEndDate: string;
+  onArchivedDateRangeChange: (startDate: string, endDate: string) => void;
   onClose: () => void;
 };
 
 export default function ReportConfigurationModal({
   report,
+  archivedReasonFilter,
+  onArchivedReasonChange,
+  archivedStartDate,
+  archivedEndDate,
+  onArchivedDateRangeChange,
   onClose,
 }: ReportConfigurationModalProps) {
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
   const [semester, setSemester] = useState(() => (
     new URL(report.href, "http://reports.local").searchParams.get("semester")
       ?? report.semesterOptions?.[0]?.value
@@ -38,7 +47,12 @@ export default function ReportConfigurationModal({
 
   const generateReport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (report.reportType === "ARCHIVED_RECORDS" && startDate && endDate && startDate > endDate) {
+    if (
+      report.reportType === "ARCHIVED_RECORDS" &&
+      archivedStartDate &&
+      archivedEndDate &&
+      archivedStartDate > archivedEndDate
+    ) {
       setError("Start Date cannot be after End Date.");
       return;
     }
@@ -53,8 +67,9 @@ export default function ReportConfigurationModal({
           break;
         case "ARCHIVED_RECORDS":
           params = {
-            ...(startDate ? { startDate } : {}),
-            ...(endDate ? { endDate } : {}),
+            ...(archivedStartDate ? { startDate: archivedStartDate } : {}),
+            ...(archivedEndDate ? { endDate: archivedEndDate } : {}),
+            ...(archivedReasonFilter !== "all" ? { archiveReason: archivedReasonFilter } : {}),
           };
           break;
         case "REVOKED_GRANTEES":
@@ -106,8 +121,8 @@ export default function ReportConfigurationModal({
                 <span>Start Date</span>
                 <input
                   type="date"
-                  value={startDate}
-                  onChange={(event) => setStartDate(event.target.value)}
+                  value={archivedStartDate}
+                  onChange={(event) => onArchivedDateRangeChange(event.target.value, archivedEndDate)}
                   disabled={isGenerating}
                   className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 disabled:bg-slate-50"
                 />
@@ -116,13 +131,26 @@ export default function ReportConfigurationModal({
                 <span>End Date</span>
                 <input
                   type="date"
-                  value={endDate}
-                  onChange={(event) => setEndDate(event.target.value)}
+                  value={archivedEndDate}
+                  onChange={(event) => onArchivedDateRangeChange(archivedStartDate, event.target.value)}
                   disabled={isGenerating}
                   className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 disabled:bg-slate-50"
                 />
               </label>
             </div>
+            <label className="mt-3 block space-y-1.5 text-xs font-medium text-slate-600">
+              <span>Archive Reason</span>
+              <select
+                value={archivedReasonFilter}
+                onChange={(event) => onArchivedReasonChange(event.target.value)}
+                disabled={isGenerating}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 disabled:bg-slate-50"
+              >
+                {ARCHIVE_REASON_FILTER_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
           </fieldset>
         );
       case "REVOKED_GRANTEES":

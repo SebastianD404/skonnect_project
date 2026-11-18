@@ -49,9 +49,12 @@ export type AcademicJourneyMapProps = {
 
 const STEP_WIDTH = 120;
 const START_X = 80;
-const END_PADDING = 128;
 const COMPACT_END_PADDING = 48;
-const NODE_Y_POSITIONS = [100, 160];
+const MIN_MOBILE_TRACK_WIDTH = 680;
+const TRACK_SIDE_INSET = 64;
+const MIN_NODE_GAP = 120;
+const WAVE_CENTER_Y = 120;
+const WAVE_AMPLITUDE = 18;
 
 function formatJourneyDate(value: Date | string | null) {
   if (!value) return null;
@@ -202,6 +205,7 @@ export default function AcademicJourneyMap({
   const [selectedNode, setSelectedNode] = useState<AcademicJourneyNode | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [viewportWidth, setViewportWidth] = useState(0);
   const [hasMoreRight, setHasMoreRight] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null);
@@ -280,11 +284,19 @@ export default function AcademicJourneyMap({
   const firstEligibleIndex = eligibleNodeIndex < 0 ? termCount : eligibleNodeIndex;
   const pathNodeCount = termCount + (compact ? 0 : 1);
   const focusedIndex = Math.min(currentIndex, pathNodeCount - 1);
-  const trackWidth = START_X + (pathNodeCount - 1) * STEP_WIDTH + STEP_WIDTH / 2
-    + (compact ? COMPACT_END_PADDING : END_PADDING);
+  const minimumTrackWidth = TRACK_SIDE_INSET * 2 + Math.max(0, pathNodeCount - 1) * MIN_NODE_GAP;
+  const trackWidth = compact
+    ? START_X + (pathNodeCount - 1) * STEP_WIDTH + STEP_WIDTH / 2 + COMPACT_END_PADDING
+    : Math.max(viewportWidth, MIN_MOBILE_TRACK_WIDTH, minimumTrackWidth);
+  const startX = compact ? START_X : TRACK_SIDE_INSET;
+  const endX = compact ? START_X + (pathNodeCount - 1) * STEP_WIDTH : trackWidth - TRACK_SIDE_INSET;
   const nodePoints = Array.from({ length: pathNodeCount }, (_, index) => ({
-    x: START_X + index * STEP_WIDTH,
-    y: index === termCount ? 150 : NODE_Y_POSITIONS[index % NODE_Y_POSITIONS.length],
+    x: pathNodeCount <= 1
+      ? startX
+      : startX + ((endX - startX) * index) / (pathNodeCount - 1),
+    y: compact
+      ? 8
+      : WAVE_CENTER_Y + Math.sin((index / Math.max(1, pathNodeCount - 1)) * Math.PI * 2) * WAVE_AMPLITUDE,
   }));
   let activeBeamPath = "";
   if (currentIndex < nodePoints.length - 1) {
@@ -412,6 +424,9 @@ export default function AcademicJourneyMap({
     const updateRightFade = () => {
       setHasMoreRight(viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 1);
     };
+    const updateViewportWidth = () => {
+      if (viewport.clientWidth > 0) setViewportWidth(viewport.clientWidth);
+    };
     let scrollFrame = 0;
     const handleScroll = () => {
       if (scrollFrame) return;
@@ -426,8 +441,12 @@ export default function AcademicJourneyMap({
       centerCurrentNode();
       updateRightFade();
     });
-    const resizeObserver = new ResizeObserver(updateRightFade);
+    const resizeObserver = new ResizeObserver(() => {
+      updateViewportWidth();
+      updateRightFade();
+    });
     resizeObserver.observe(viewport);
+    updateViewportWidth();
     viewport.addEventListener("scroll", handleScroll, { passive: true });
     window.addEventListener("resize", centerCurrentNode);
 
@@ -438,7 +457,7 @@ export default function AcademicJourneyMap({
       viewport.removeEventListener("scroll", handleScroll);
       window.removeEventListener("resize", centerCurrentNode);
     };
-  }, [focusedIndex, termCount]);
+  }, [focusedIndex, termCount, trackWidth]);
 
   if (compact) {
     const progressStart = termCount > 1
@@ -533,15 +552,26 @@ export default function AcademicJourneyMap({
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold tracking-tight text-slate-900">Academic Journey</h2>
               {onConfigureJourney ? (
-                <button
-                  type="button"
-                  onClick={onConfigureJourney}
-                  aria-label="Edit academic journey setup"
-                  title="Edit academic journey setup"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
-                >
-                  <Settings className="h-4 w-4" aria-hidden="true" />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={onConfigureJourney}
+                    aria-label="Edit academic journey setup"
+                    title="Edit academic journey setup"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                  >
+                    <Settings className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  {validatedCount === 0 ? (
+                    <button
+                      type="button"
+                      onClick={onConfigureJourney}
+                      className="inline-flex h-7 items-center rounded-full border border-cyan-100 bg-cyan-50 px-2.5 text-[10px] font-semibold text-cyan-800 transition hover:border-cyan-200 hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                    >
+                      Confirm degree length
+                    </button>
+                  ) : null}
+                </>
               ) : null}
             </div>
             <p className="mt-0.5 text-xs text-slate-500">
@@ -570,18 +600,19 @@ export default function AcademicJourneyMap({
           onPointerUp={isExtendedCourse ? handlePointerEnd : undefined}
           onPointerCancel={isExtendedCourse ? handlePointerEnd : undefined}
           onLostPointerCapture={isExtendedCourse ? handlePointerEnd : undefined}
-          className={`scrollbar-hide hide-scrollbar relative w-full overflow-x-auto overflow-y-hidden whitespace-nowrap ${
+          className={`scrollbar-hide hide-scrollbar relative w-full scroll-smooth overflow-x-auto overflow-y-hidden whitespace-nowrap ${
             isExtendedCourse
               ? `select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`
               : "cursor-grab"
-          } ${compact ? "pb-0 pt-2" : "pb-8 pt-12"}`}
+          } ${compact ? "pb-0 pt-2" : "pb-5 pt-10"}`}
           style={{ touchAction: "pan-x" }}
         >
           <div
-            className={`relative ${compact ? "h-[74px]" : "min-w-[1150px] h-[300px] pl-12 pr-32"}`}
-            style={compact
-              ? { width: `${trackWidth}px`, paddingLeft: "24px", paddingRight: `${COMPACT_END_PADDING}px` }
-              : { width: `${trackWidth}px` }}
+            className={`relative ${compact ? "h-[74px]" : "min-w-[680px] h-[260px] md:min-w-0"}`}
+            style={{
+              width: `${trackWidth}px`,
+              ...(compact ? { paddingLeft: "24px", paddingRight: `${COMPACT_END_PADDING}px` } : {}),
+            }}
           >
 
             {!compact ? (
@@ -589,7 +620,7 @@ export default function AcademicJourneyMap({
                 className="pointer-events-none absolute inset-0 h-full w-full"
                 width="100%"
                 height="100%"
-                viewBox={`0 0 ${trackWidth} 300`}
+                viewBox={`0 0 ${trackWidth} 260`}
                 preserveAspectRatio="none"
                 aria-hidden="true"
               >
@@ -602,20 +633,6 @@ export default function AcademicJourneyMap({
                     </feMerge>
                   </filter>
                 </defs>
-                <path
-                  d={`M 0 75 Q ${trackWidth * 0.25} 130 ${trackWidth * 0.5} 70 T ${trackWidth} 115`}
-                  fill="none"
-                  stroke="#f1f5f9"
-                  strokeWidth="1.5"
-                  strokeDasharray="4 5"
-                />
-                <path
-                  d={`M 0 205 Q ${trackWidth * 0.25} 140 ${trackWidth * 0.5} 210 T ${trackWidth} 160`}
-                  fill="none"
-                  stroke="#f1f5f9"
-                  strokeWidth="1.5"
-                  strokeDasharray="4 5"
-                />
                 <path
                   d={journeyPath}
                   fill="none"
@@ -706,6 +723,7 @@ export default function AcademicJourneyMap({
                     : "locked";
               const yearNumber = Math.floor(index / 2) + 1;
               const isYearMilestone = index % 2 === 0;
+              const isFinalSemester = index === termCount - 1;
               const isMidpoint = yearNumber === Math.ceil(journeyYears / 2) && isYearMilestone && journeyYears > 2;
               const isFinalYear = yearNumber === journeyYears && isYearMilestone;
               const milestoneIcon = isYearMilestone
@@ -750,7 +768,7 @@ export default function AcademicJourneyMap({
                     />
                   ) : null}
 
-                  {!compact && hoveredIndex === index ? (
+                  {!compact && hoveredIndex === index && !isCurrent ? (
                     <div className={`pointer-events-none absolute z-30 px-3 py-2 bg-slate-900/95 backdrop-blur-sm border border-slate-700/50 text-white rounded-xl shadow-xl whitespace-nowrap animate-in fade-in zoom-in-95 duration-150 ${
                       isCurrent ? "top-16" : "-top-14"
                     } ${
@@ -780,8 +798,8 @@ export default function AcademicJourneyMap({
                   ) : null}
 
                   {!compact && isCurrent && studentName ? (
-                    <div className="animate-levitate pointer-events-none absolute -top-16 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center gap-1.5">
-                      <span className={`whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider shadow-sm backdrop-blur-sm ${stepStatusConfig.badgeClassName}`}>
+                    <div className="animate-levitate pointer-events-none absolute -top-12 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center">
+                      <span className={`absolute -top-9 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider shadow-sm backdrop-blur-sm ${stepStatusConfig.badgeClassName}`}>
                         Current step
                       </span>
                       <div className="flex flex-col items-center drop-shadow-md">
@@ -877,7 +895,7 @@ export default function AcademicJourneyMap({
                     )}
                   </button>
 
-                  <span className={`${index % 2 === 1 ? "mt-5" : "mt-2.5"} whitespace-nowrap text-[10px] font-bold uppercase tracking-wider ${
+                  <span className={`${compact ? index % 2 === 1 ? "mt-5" : "mt-2.5" : "mt-2.5"} whitespace-nowrap text-[10px] font-bold uppercase tracking-wider ${
                     isCurrent ? compact
                       ? stepStatusConfig.activeLabelClassName
                       : `font-extrabold ${stepStatusConfig.lightActiveLabelClassName}`
@@ -886,47 +904,72 @@ export default function AcademicJourneyMap({
                     {term.label}
                   </span>
                   {!compact && journeyNode.academicTermCaption ? (
-                    <span className="mt-0.5 whitespace-nowrap text-[10px] text-slate-400">
+                    <span className="mt-0.5 w-[120px] whitespace-normal text-center text-[10px] leading-3 text-slate-400">
                       {journeyNode.academicTermCaption.replace(/^(\d{4})-(\d{4})/, "$1–$2")}
                     </span>
                   ) : null}
 
-                  {!compact && isCompleted ? (
-                    <span className="mt-1 whitespace-nowrap rounded-full border border-emerald-200/60 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                  {!compact && isFinalSemester ? (
+                    <span
+                      title="Final semester"
+                      className={`mt-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase ${
+                        isCompleted
+                          ? "border-emerald-200/60 bg-emerald-100/80 text-emerald-700"
+                          : isCurrent
+                            ? stepStatusConfig.badgeClassName
+                            : journeyNode.status === "PENDING" || journeyNode.status === "UNDER_REVIEW"
+                              ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                              : journeyNode.status === "RETURNED"
+                                ? "border-amber-200 bg-amber-50 text-amber-800"
+                                : isPriorTerm
+                                  ? "border-slate-200 bg-slate-100 text-slate-500"
+                                  : "border-slate-200 bg-slate-50 text-slate-500"
+                      }`}
+                    >
+                      {isCompleted
+                        ? "Validated"
+                        : isCurrent
+                          ? journeyNodeScheduleLabel ?? stepStatusLabel
+                          : journeyNode.status === "PENDING" || journeyNode.status === "UNDER_REVIEW"
+                            ? journeyNode.status === "PENDING" ? "Pending" : "Under Review"
+                            : journeyNode.status === "RETURNED"
+                              ? "Returned"
+                              : isPriorTerm
+                                ? "Prior Term"
+                                : "FINAL SEM"}
+                    </span>
+                  ) : !compact && isCompleted ? (
+                    <span className="mt-1.5 whitespace-nowrap rounded-full border border-emerald-200/60 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                       VALIDATED
                     </span>
                   ) : !compact && isCurrent ? (() => {
                     const { badgeClassName, badgeIconClassName, Icon } = stepStatusConfig;
                     return (
-                      <span className={`mt-1 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${badgeClassName}`}>
+                      <span className={`mt-1.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${badgeClassName}`}>
                         <Icon className={`h-3 w-3 ${badgeIconClassName}`} aria-hidden="true" />
                         {journeyNodeScheduleLabel ?? stepStatusLabel}
                       </span>
                     );
                   })() : !compact && journeyNode.status === "PENDING" ? (
-                    <span className="mt-1 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase text-indigo-700">
+                    <span className="mt-1.5 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase text-indigo-700">
                       Pending
                     </span>
                   ) : !compact && journeyNode.status === "UNDER_REVIEW" ? (
-                    <span className="mt-1 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase text-indigo-700">
+                    <span className="mt-1.5 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase text-indigo-700">
                       Under Review
                     </span>
                   ) : !compact && journeyNode.status === "RETURNED" ? (
-                    <span className="mt-1 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-800">
+                    <span className="mt-1.5 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-800">
                       Returned
                     </span>
                   ) : !compact && isPriorTerm ? (
-                    <span className="mt-1 whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500">
+                    <span className="mt-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500">
                       Prior Term
-                    </span>
-                  ) : !compact && index === termCount - 1 ? (
-                    <span className="mt-1 whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500">
-                      Final semester
                     </span>
                   ) : null}
 
-                  {!compact && milestoneIcon && index !== 0 ? (
-                    <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 shadow-2xs">
+                  {!compact && !isFinalSemester && milestoneIcon && index !== 0 ? (
+                    <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 shadow-2xs">
                       {MilestoneIcon ? <MilestoneIcon className="h-3 w-3 text-emerald-600" aria-hidden="true" /> : null}
                       <span>{isMidpoint ? "Halfway milestone" : isFinalYear ? "Final year" : `Year ${yearNumber}`}</span>
                     </div>
@@ -993,12 +1036,7 @@ export default function AcademicJourneyMap({
         <p className="mt-2 text-[10px] text-slate-400">
           {validatedCount} of {eligibleCount} semesters validated
         </p>
-      ) : (
-        <div className="relative z-10 mt-2 flex items-center justify-center gap-1.5 px-6 pb-5 text-[11px] text-slate-400">
-          <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{validatedCount} of {eligibleCount} semesters validated</span>
-        </div>
-      )}
+      ) : null}
 
       {selectedNode && typeof document !== "undefined" ? createPortal(
         <div

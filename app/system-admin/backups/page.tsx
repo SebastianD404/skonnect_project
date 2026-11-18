@@ -1,9 +1,22 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
+import { runScheduledBackupIdempotent } from "@/lib/backup/snapshot";
+import {
+  getPhtTime,
+  isPhtTimeAtOrAfterBackupTarget,
+} from "@/lib/data-backup-schedule";
 import DataBackupSection from "../components/DataBackupSection";
 
 export default async function SystemAdminBackupsPage() {
   await requireRole([Role.SUPER_ADMIN]);
+  const { hour, minute } = getPhtTime(new Date());
+  if (isPhtTimeAtOrAfterBackupTarget(hour, minute)) {
+    try {
+      await runScheduledBackupIdempotent("System Cron");
+    } catch (error) {
+      console.error("Could not run the PHT daily backup catch-up on page load.", error);
+    }
+  }
 
   return (
     <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 sm:gap-8">

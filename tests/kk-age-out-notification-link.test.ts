@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   ensureProfile: vi.fn(),
   findMany: vi.fn(),
+  countNotifications: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -18,7 +19,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    notification: { findMany: mocks.findMany },
+    notification: { findMany: mocks.findMany, count: mocks.countNotifications },
   },
 }));
 
@@ -29,6 +30,7 @@ describe("age-out notification navigation", () => {
     vi.clearAllMocks();
     mocks.getUser.mockResolvedValue({ data: { user: { id: "auth-id" } } });
     mocks.ensureProfile.mockResolvedValue({ id: "member-id" });
+    mocks.countNotifications.mockResolvedValue(1);
     mocks.findMany.mockResolvedValue([{
       sourceKey: "kk-age-out:registration-id",
       message: "KK age-limit update: Your KK youth profile has been archived.",
@@ -43,6 +45,23 @@ describe("age-out notification navigation", () => {
 
     expect(body.notifications[0]).toMatchObject({
       id: "kk-age-out:registration-id",
+      href: "/programs/kk-profiling/status",
+    });
+  });
+
+  it("links centralized profile archive notifications to the member-facing KK status page", async () => {
+    mocks.findMany.mockResolvedValueOnce([{
+      sourceKey: "kk-profile-archived:admin_archived:2026-11-17T00:00:00.000Z",
+      message: "KK Profile Archived\n\nYour KK profile was archived by SK officials.",
+      isRead: false,
+      createdAt: new Date("2026-11-17T00:00:00.000Z"),
+    }]);
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.notifications[0]).toMatchObject({
+      id: "kk-profile-archived:admin_archived:2026-11-17T00:00:00.000Z",
       href: "/programs/kk-profiling/status",
     });
   });
