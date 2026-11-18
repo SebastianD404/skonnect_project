@@ -84,14 +84,14 @@ describe("/api/admin/backups", () => {
     );
   });
 
-  it("does not mark the scheduled backup missed before 8:15 PM PHT", async () => {
-    vi.setSystemTime(new Date("2026-11-18T12:14:00.000Z"));
+  it("marks the scheduled backup due after 12:00 AM PHT", async () => {
+    vi.setSystemTime(new Date("2026-11-18T16:01:00.000Z"));
 
     const response = await GET();
     const body = await response.json();
 
-    expect(body.schedulerStatus).toBe("NOT_DUE");
-    expect(body.currentPhtHour).toBe(20);
-    expect(body.currentPhtMinute).toBe(14);
+    expect(body.schedulerStatus).toBe("MISSED");
+    expect(body.currentPhtHour).toBe(0);
+    expect(body.currentPhtMinute).toBe(1);
   });
 });

@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/daily-backup",
-      "schedule": "15 12 * * *"
+      "schedule": "0 16 * * *"
     }
   ]
 }

@@ -106,7 +106,7 @@ export async function GET() {
           ? null
           : latestScheduledAttempt?.status === BackupStatus.FAILED
             ? "Today's scheduled backup failed. Check the backup log for details."
-            : "No successful scheduled backup is recorded for today's 8:15 PM PHT run.";
+            : "No successful scheduled backup is recorded for today's 12:00 AM PHT run.";
 
     return NextResponse.json({
       ...(historyError || countsError ? { error: historyError ?? countsError } : {}),

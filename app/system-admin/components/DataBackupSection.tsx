@@ -235,10 +235,10 @@ export default function DataBackupSection() {
   const start = filteredCount === 0 ? 0 : (currentPage - 1) * historyPageSize + 1;
   const end = Math.min(currentPage * historyPageSize, filteredCount);
   const nextRunLabel = overview?.scheduledBackupToday
-    ? "Tomorrow, 8:15 PM PHT"
+    ? "Tomorrow, 12:00 AM PHT"
     : overview && isPhtTimeAtOrAfterBackupTarget(overview.currentPhtHour, overview.currentPhtMinute)
       ? "Catch-up pending"
-      : "Today, 8:15 PM PHT";
+      : "Today, 12:00 AM PHT";
 
   async function handleDownloadBackup() {
     if (isDownloading) return;
@@ -469,7 +469,7 @@ export default function DataBackupSection() {
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Automated Schedule</p>
-            <p className="mt-1.5 text-sm font-semibold text-slate-900">Daily · 8:15 PM PHT</p>
+            <p className="mt-1.5 text-sm font-semibold text-slate-900">Daily · 12:00 AM PHT</p>
             <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-slate-500">
                 Next run: {loading ? "—" : nextRunLabel}

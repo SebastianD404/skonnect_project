@@ -22,15 +22,15 @@ describe("PHT automated backup schedule", () => {
     expect(end.toISOString()).toBe("2027-01-01T16:00:00.000Z");
   });
 
-  it("uses the 8:15 PM PHT target and crosses it at the exact minute", () => {
-    expect(TARGET_HOUR_PHT).toBe(20);
-    expect(TARGET_MINUTE_PHT).toBe(15);
-    expect(getPhtTime(new Date("2026-11-18T12:14:00.000Z"))).toEqual({
-      hour: 20,
-      minute: 14,
+  it("uses the 12:00 AM PHT target and crosses it at the exact minute", () => {
+    expect(TARGET_HOUR_PHT).toBe(0);
+    expect(TARGET_MINUTE_PHT).toBe(0);
+    expect(getPhtTime(new Date("2026-11-18T15:59:00.000Z"))).toEqual({
+      hour: 23,
+      minute: 59,
     });
-    expect(isPhtTimeAtOrAfterBackupTarget(20, 14)).toBe(false);
-    expect(isPhtTimeAtOrAfterBackupTarget(20, 15)).toBe(true);
-    expect(isPhtTimeAtOrAfterBackupTarget(21, 0)).toBe(true);
+    expect(isPhtTimeAtOrAfterBackupTarget(23, 59)).toBe(true);
+    expect(isPhtTimeAtOrAfterBackupTarget(0, 0)).toBe(true);
+    expect(isPhtTimeAtOrAfterBackupTarget(0, 1)).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 const PHT_TIME_ZONE = "Asia/Manila";
 const PHT_UTC_OFFSET_HOURS = 8;
-export const TARGET_HOUR_PHT = 20;
-export const TARGET_MINUTE_PHT = 15;
+export const TARGET_HOUR_PHT = 0;
+export const TARGET_MINUTE_PHT = 0;
 
 function getPhtCalendarDate(date: Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
