@@ -10,6 +10,7 @@ import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
 import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { buildIdentityFingerprint } from "@/lib/skeap-application-guard";
+import { getExactAge } from "@/lib/skeap-age";
 import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import {
   BARANGAY_PICO,
@@ -19,26 +20,6 @@ import {
   normalizePurok,
   splitFullName,
 } from "@/lib/kk";
-
-function computeAge(birthDate: Date) {
-  const now = new Date();
-  const currentYear = now.getUTCFullYear();
-  const currentMonth = now.getUTCMonth();
-  const currentDay = now.getUTCDate();
-
-  const birthYear = birthDate.getUTCFullYear();
-  const birthMonth = birthDate.getUTCMonth();
-  const birthDay = birthDate.getUTCDate();
-
-  let age = currentYear - birthYear;
-  if (
-    currentMonth < birthMonth ||
-    (currentMonth === birthMonth && currentDay < birthDay)
-  ) {
-    age -= 1;
-  }
-  return age;
-}
 
 function isEmailUniqueConstraintError(error: unknown) {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
@@ -273,8 +254,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid birth date" }, { status: 400 });
     }
 
-    const age = computeAge(birthDate);
-    if (age < 15 || age > 30) {
+    const age = getExactAge(birthDate);
+    if (age === null || age < 15 || age > 30) {
       return NextResponse.json(
         { error: "Age must be between 15 and 30 years old" },
         { status: 400 }

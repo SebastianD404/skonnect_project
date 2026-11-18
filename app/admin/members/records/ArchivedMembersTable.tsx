@@ -4,10 +4,57 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import { getKKMemberArchiveReasonLabel } from "@/lib/kk-member-archive";
+import { getExactAge } from "@/lib/skeap-age";
+import {
+  getKKMemberArchiveReasonLabel,
+  isKKMemberAgeOutReason,
+} from "@/lib/kk-member-archive";
 import AdminExportButton from "../../AdminExportButton";
 import type { KKProfilingRegistration } from "../../kk-profiling/types";
 import { ArchivedMemberRowActions } from "./ArchivedMemberRowActions";
+
+function toBirthDate(value: Date | string) {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function formatBirthDate(value: Date | string) {
+  const date = toBirthDate(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "medium",
+    timeZone: "Asia/Manila",
+  }).format(date);
+}
+
+function ArchiveReasonStatus({ record }: { record: KKProfilingRegistration }) {
+  const isAgedOut = isKKMemberAgeOutReason(record.archivedReason);
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+        isAgedOut
+          ? "border-amber-200 bg-amber-50 text-amber-800"
+          : "border-slate-200 bg-slate-50 text-slate-700"
+      }`}>
+        {isAgedOut ? "Aged Out · 31 yrs" : "Archived by Admin"}
+      </span>
+      {!isAgedOut ? (
+        <span className="text-xs text-slate-500">
+          {getKKMemberArchiveReasonLabel(record.archivedReason)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function BirthDateAge({ birthDate }: { birthDate: Date | string }) {
+  const age = getExactAge(toBirthDate(birthDate));
+  return (
+    <div className="flex flex-col">
+      <span>{formatBirthDate(birthDate)}</span>
+      <span className="text-xs text-slate-500">{age === null ? "Age unavailable" : `${age} yrs`}</span>
+    </div>
+  );
+}
 
 export function ArchivedMembersTable({
   records,
@@ -81,15 +128,15 @@ export function ArchivedMembersTable({
                   <h3 className="truncate text-sm font-semibold text-slate-900" title={memberName}>{memberName}</h3>
                   <p className="truncate text-xs text-slate-500" title={memberEmail}>{memberEmail}</p>
                 </div>
-                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                  record.reviewStatus === "Rejected"
-                    ? "bg-amber-50 text-amber-800"
-                    : "bg-slate-100 text-slate-700"
-                }`}>
-                  {record.reviewStatus}
-                </span>
+                <ArchiveReasonStatus record={record} />
               </div>
               <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-y border-slate-100 py-3">
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Birth date</dt>
+                  <dd className="mt-0.5 text-xs font-medium text-slate-700">
+                    <BirthDateAge birthDate={record.birthDate} />
+                  </dd>
+                </div>
                 <div>
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Age group</dt>
                   <dd className="mt-0.5 text-xs font-medium text-slate-700">{record.youthAgeGroup}</dd>
@@ -108,12 +155,6 @@ export function ArchivedMembersTable({
                 </div>
               </dl>
               <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Archive reason</p>
-                  <p className="mt-0.5 truncate text-xs font-medium text-slate-700">
-                    {getKKMemberArchiveReasonLabel(record.archivedReason)}
-                  </p>
-                </div>
                 <ArchivedMemberRowActions registration={record} />
               </div>
             </article>
@@ -140,11 +181,11 @@ export function ArchivedMembersTable({
           <thead className="bg-[#0f172a] text-white">
             <tr className="text-xs font-semibold tracking-wider">
               <th className="whitespace-nowrap px-4 py-3">NAME</th>
+              <th className="whitespace-nowrap px-4 py-3">BIRTH DATE</th>
               <th className="whitespace-nowrap px-4 py-3">AGE GROUP</th>
               <th className="whitespace-nowrap px-4 py-3">CLASSIFICATION</th>
               <th className="whitespace-nowrap px-4 py-3 text-center">SK VOTER</th>
-              <th className="whitespace-nowrap px-4 py-3 text-center">STATUS</th>
-              <th className="whitespace-nowrap px-4 py-3">ARCHIVE REASON</th>
+              <th className="whitespace-nowrap px-4 py-3">REASON / STATUS</th>
               <th className="whitespace-nowrap px-4 py-3">SUBMITTED</th>
               <th className="min-w-[112px] whitespace-nowrap px-4 py-3 text-right">ACTIONS</th>
             </tr>
@@ -160,22 +201,14 @@ export function ArchivedMembersTable({
                       {record.user?.email || record.email}
                     </div>
                   </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <BirthDateAge birthDate={record.birthDate} />
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3">{record.youthAgeGroup}</td>
                   <td className="whitespace-nowrap px-4 py-3">{record.youthClassification}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-center">{record.registeredSKVoter}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-center">
-                    <div className="flex flex-col items-center gap-1">
-                      <span className={`inline-flex max-w-full items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        record.reviewStatus === "Rejected"
-                          ? "bg-amber-50 text-amber-800"
-                          : "bg-slate-100 text-slate-700"
-                      }`}>
-                        {record.reviewStatus}
-                      </span>
-                    </div>
-                  </td>
                   <td className="whitespace-nowrap px-4 py-3">
-                    {getKKMemberArchiveReasonLabel(record.archivedReason)}
+                    <ArchiveReasonStatus record={record} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-500">{formatDate(record.submittedAt)}</td>
                   <td className="sticky right-0 whitespace-nowrap bg-white px-4 py-3 text-right shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.35)]">

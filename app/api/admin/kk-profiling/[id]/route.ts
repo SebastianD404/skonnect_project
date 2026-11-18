@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit/logger";
 import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
+import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
 import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 
 function normalizeReviewStatus(value: string) {
@@ -388,6 +389,16 @@ export async function PUT(
       };
     });
 
+    if (birthDate !== undefined) {
+      await sweepAgedOutKkProfiles(auth.user.id, "profile-save", {
+        resubmittedRegistrationId:
+          registration.reviewStatus === "Approved" &&
+          normalizeReviewStatus(transactionResult.saved.reviewStatus) === "resubmitted"
+            ? id
+            : undefined,
+      });
+    }
+
     await refreshKkProfilingApplicationsAdminView();
     if (
       transactionResult.stageNotification &&
@@ -409,7 +420,10 @@ export async function PUT(
         );
       }
     }
-    return NextResponse.json(transactionResult.saved);
+    const savedRegistration = birthDate !== undefined
+      ? await prisma.profilingRegistration.findUniqueOrThrow({ where: { id } })
+      : transactionResult.saved;
+    return NextResponse.json(savedRegistration);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("Failed to update profiling registration:", errorMessage, error);

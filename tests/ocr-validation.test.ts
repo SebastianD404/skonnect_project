@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   analyzeGradeReportText,
+  hasBackIdVerificationEvidence,
+  normalizeOcrText,
   validateRecognizedText,
 } from "@/lib/ocrValidation";
 import {
@@ -42,12 +44,43 @@ describe("browser OCR document validation", () => {
     expect(result.nameMatched).toBe(true);
   });
 
-  it("uses the non-blaming message when OCR returns too little text", () => {
-    const result = validateRecognizedText("front_id", "ID");
+  it("normalizes letter-spaced OCR text before matching ID keywords", () => {
+    expect(normalizeOcrText("BENGUET STATE COLLEGE S T U D E N T I D NO.")).toBe(
+      "BENGUET STATE COLLEGE STUDENT ID NO.",
+    );
+    const result = validateRecognizedText(
+      "front_id",
+      "BENGUET STATE COLLEGE S T U D E N T I D NO. B R I A N O. C O N N E R",
+      { firstName: "Brian", lastName: "Conner" },
+    );
 
-    expect(result.status).toBe("error");
+    expect(result.status).toBe("success");
+    expect(result.nameMatched).toBe(true);
+    expect(result.matchedKeywords).toContain("Student");
+  });
+
+  it("sends uncertain or low-text IDs for verification instead of blocking the upload", () => {
+    const result = validateRecognizedText("front_id", "ID");
+    const unrelated = validateRecognizedText(
+      "front_id",
+      "A menu of daily specials, soups, sandwiches and desserts.",
+    );
+
+    expect(result.status).toBe("needs_review");
     expect(result.errorCode).toBe("LOW_CONFIDENCE");
-    expect(result.message).toBe("Please Upload a Correct Valid ID.");
+    expect(unrelated.status).toBe("needs_review");
+    expect(unrelated.badgeText).toBe("For Verification");
+  });
+
+  it("accepts student IDs using academic keywords and a matching name token", () => {
+    const result = validateRecognizedText(
+      "front_id",
+      "BENGUET STATE COLLEGE STUDENT Brian O. Conner ID NO 2025-1047",
+      { firstName: "Brian", lastName: "Conner" },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.nameMatched).toBe(true);
   });
 
   it("accepts readable back-of-ID text without requiring front-side fields or a readable birthdate", () => {
@@ -84,29 +117,42 @@ describe("browser OCR document validation", () => {
 
     expect(result.status).toBe("success");
     expect(specimenCard.status).toBe("success");
-    expect(unrelatedCertificate.status).toBe("error");
-    expect(unrelatedCertificate.message).toBe("Please Upload a Correct Valid ID.");
+    expect(unrelatedCertificate.status).toBe("needs_review");
+    expect(unrelatedCertificate.badgeText).toBe("For Verification");
   });
 
-  it("rejects unrelated back-side text with the requested ID feedback", () => {
+  it("recognizes back-side verification evidence from birth date, contact, address, or emergency text", () => {
+    expect(hasBackIdVerificationEvidence("B I R T H D A T E: 01/15/2005")).toBe(true);
+    expect(hasBackIdVerificationEvidence("PERSON TO CONTACT IN CASE OF EMERGENCY")).toBe(true);
+    expect(hasBackIdVerificationEvidence("Address: Barangay Pico")).toBe(true);
+
+    const result = validateRecognizedText(
+      "back_id",
+      "PERSON TO CONTACT IN CASE OF EMERGENCY. Address and Birth Date.",
+    );
+    expect(result.status).toBe("success");
+  });
+
+  it("routes unrelated back-side text to verification instead of hard-blocking it", () => {
     const result = validateRecognizedText(
       "back_id",
       "A menu of daily specials, soups, sandwiches and desserts.",
     );
 
-    expect(result.status).toBe("error");
+    expect(result.status).toBe("needs_review");
     expect(result.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
-    expect(result.message).toBe("Please Upload a Correct Valid ID.");
+    expect(result.badgeText).toBe("For Verification");
   });
 
-  it("flags a readable but mismatched document for correction", () => {
+  it("flags a readable but mismatched ID for SK Admin verification", () => {
     const result = validateRecognizedText(
       "front_id",
-      "CERTIFICATE OF RESIDENCY FOR BARANGAY PICO RESIDENT",
+      "BENGUET STATE COLLEGE STUDENT ID NO 2025-1047",
+      { firstName: "Brian", lastName: "Conner" },
     );
 
-    expect(result.status).toBe("error");
-    expect(result.errorCode).toBe("UNRECOGNIZED_DOCUMENT");
+    expect(result.status).toBe("needs_review");
+    expect(result.errorCode).toBe("NAME_MISMATCH");
   });
 
   it("rejects a low-income certificate even if it mentions residency and six months", () => {

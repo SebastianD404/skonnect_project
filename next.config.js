@@ -5,6 +5,11 @@
 module.exports = {
   // keep in sync with next.config.ts
   poweredByHeader: false,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
+  },
   serverExternalPackages: ["sharp"],
   outputFileTracingIncludes: {
     "/api/**/*": ["./node_modules/sharp/**/*", "./node_modules/@img/**/*"],

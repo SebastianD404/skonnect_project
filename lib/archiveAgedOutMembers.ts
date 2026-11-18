@@ -5,9 +5,10 @@ import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 import {
   refreshKkProfilingApplicationsAdminView,
   refreshSkeapApplicationsAdminView,
+  refreshSystemUsersAdminView,
 } from "@/lib/application-admin-view-refresh";
 import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
-import { getExactAge } from "@/lib/skeap-age";
+import { getAgeOutCutoffDate, getExactAge } from "@/lib/skeap-age";
 import {
   KK_MEMBER_AGE_OUT_NOTICE_MESSAGE,
   KK_MEMBER_AGE_OUT_REASON,
@@ -22,17 +23,31 @@ type AgedOutNotificationRecipient = {
 
 export async function sweepAgedOutKkProfiles(
   actorId: string,
-  trigger: "admin-page" | "scheduled" = "admin-page",
+  trigger: "admin-page" | "scheduled" | "profile-save" = "admin-page",
+  options: { resubmittedRegistrationId?: string } = {},
 ) {
   const today = new Date();
-  const cutoffDate = new Date(today);
-  cutoffDate.setUTCFullYear(cutoffDate.getUTCFullYear() - 31);
+  const cutoffDate = getAgeOutCutoffDate(today);
+  const where = options.resubmittedRegistrationId
+    ? {
+        program: "KK",
+        birthDate: { lte: cutoffDate },
+        OR: [
+          { reviewStatus: "Approved" },
+          {
+            id: options.resubmittedRegistrationId,
+            reviewStatus: "Resubmitted",
+          },
+        ],
+      }
+    : {
+        program: "KK",
+        reviewStatus: "Approved",
+        birthDate: { lte: cutoffDate },
+      };
 
   const profiles = await prisma.profilingRegistration.findMany({
-    where: {
-      reviewStatus: "Approved",
-      birthDate: { lte: cutoffDate },
-    },
+    where,
     select: {
       id: true,
       fullName: true,
@@ -47,6 +62,7 @@ export async function sweepAgedOutKkProfiles(
           email: true,
           fullName: true,
           emailNotifications: true,
+          kkStatus: true,
         },
       },
     },
@@ -66,7 +82,7 @@ export async function sweepAgedOutKkProfiles(
       const archived = await tx.profilingRegistration.updateMany({
         where: {
           id: profile.id,
-          reviewStatus: "Approved",
+          reviewStatus: profile.reviewStatus,
           birthDate: { lte: cutoffDate },
         },
         data: {
@@ -80,6 +96,10 @@ export async function sweepAgedOutKkProfiles(
 
       let closedApplications = 0;
       if (profile.userId) {
+        await tx.user.update({
+          where: { id: profile.userId },
+          data: { kkStatus: "AGED_OUT" },
+        });
         await syncKkProfileFromLatestRegistration(tx, profile.userId);
         const closed = await closeOpenSkeapApplicationsForKkArchive(tx, {
           userId: profile.userId,
@@ -147,11 +167,13 @@ export async function sweepAgedOutKkProfiles(
           archivedReason: KK_MEMBER_AGE_OUT_REASON,
           archivedAt: archivedAt.toISOString(),
           archivedBy: "SYSTEM_AUTO",
+          ...(profile.userId ? { kkStatus: "AGED_OUT" } : {}),
         },
         metadata: {
           fullName: profile.fullName,
           birthDate: profile.birthDate.toISOString(),
           currentAge,
+          accountRemainsActive: true,
           trigger,
         },
       });
@@ -169,6 +191,7 @@ export async function sweepAgedOutKkProfiles(
     await Promise.all([
       refreshKkProfilingApplicationsAdminView(),
       refreshSkeapApplicationsAdminView(),
+      refreshSystemUsersAdminView(),
     ]);
   }
 

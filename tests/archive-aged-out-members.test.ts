@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   transaction: vi.fn(),
   updateProfile: vi.fn(),
+  updateUser: vi.fn(),
   findApplications: vi.fn(),
   updateApplication: vi.fn(),
   updateInquiry: vi.fn(),
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   writeAuditLog: vi.fn(),
   refreshKkView: vi.fn(),
   refreshSkeapView: vi.fn(),
+  refreshSystemUsersView: vi.fn(),
   syncKkProfile: vi.fn(),
   sendEmail: vi.fn(),
 }));
@@ -30,6 +32,7 @@ vi.mock("@/lib/audit/logger", () => ({
 vi.mock("@/lib/application-admin-view-refresh", () => ({
   refreshKkProfilingApplicationsAdminView: mocks.refreshKkView,
   refreshSkeapApplicationsAdminView: mocks.refreshSkeapView,
+  refreshSystemUsersAdminView: mocks.refreshSystemUsersView,
 }));
 
 vi.mock("@/lib/kk-profile-sync", () => ({
@@ -74,16 +77,22 @@ function createProfile(birthDate = new Date("1990-01-01T00:00:00.000Z")) {
 }
 
 describe("sweepAgedOutKkProfiles", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.findMany.mockResolvedValue([createProfile()]);
     mocks.updateProfile.mockResolvedValue({ count: 1 });
+    mocks.updateUser.mockResolvedValue({});
     mocks.findApplications.mockResolvedValue([]);
     mocks.updateApplication.mockResolvedValue({ count: 1 });
     mocks.createMessage.mockResolvedValue({ id: "message-id" });
     mocks.upsertNotification.mockResolvedValue({});
     mocks.transaction.mockImplementation(async (callback) => callback({
       profilingRegistration: { updateMany: mocks.updateProfile },
+      user: { update: mocks.updateUser },
       skeapApplication: {
         findMany: mocks.findApplications,
         updateMany: mocks.updateApplication,
@@ -95,6 +104,7 @@ describe("sweepAgedOutKkProfiles", () => {
     mocks.writeAuditLog.mockResolvedValue(undefined);
     mocks.refreshKkView.mockResolvedValue(undefined);
     mocks.refreshSkeapView.mockResolvedValue(undefined);
+    mocks.refreshSystemUsersView.mockResolvedValue(undefined);
     mocks.syncKkProfile.mockResolvedValue(undefined);
   });
 
@@ -105,6 +115,7 @@ describe("sweepAgedOutKkProfiles", () => {
 
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
+        program: "KK",
         reviewStatus: "Approved",
         birthDate: { lte: expect.any(Date) },
       },
@@ -119,7 +130,7 @@ describe("sweepAgedOutKkProfiles", () => {
       },
       data: {
         reviewStatus: "Archived",
-        archivedReason: "AGED_OUT_31",
+        archivedReason: "AGED_OUT",
         archivedAt: expect.any(Date),
         archivedBy: "SYSTEM_AUTO",
       },
@@ -146,6 +157,11 @@ describe("sweepAgedOutKkProfiles", () => {
     }));
     expect(mocks.refreshKkView).toHaveBeenCalledOnce();
     expect(mocks.refreshSkeapView).toHaveBeenCalledOnce();
+    expect(mocks.refreshSystemUsersView).toHaveBeenCalledOnce();
+    expect(mocks.updateUser).toHaveBeenCalledWith({
+      where: { id: "user-id" },
+      data: { kkStatus: "AGED_OUT" },
+    });
     expect(result).toEqual({ archivedCount: 1, closedApplicationCount: 0 });
   });
 
@@ -163,10 +179,9 @@ describe("sweepAgedOutKkProfiles", () => {
   });
 
   it("does not archive a profile until its exact current age reaches 31", async () => {
-    const today = new Date();
-    const birthDate = new Date(today);
-    birthDate.setUTCFullYear(birthDate.getUTCFullYear() - 31);
-    birthDate.setUTCDate(birthDate.getUTCDate() + 1);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
+    const birthDate = new Date("1995-06-16T00:00:00.000Z");
     mocks.findMany.mockResolvedValue([createProfile(birthDate)]);
 
     await expect(sweepAgedOutKkProfiles("admin-id")).resolves.toEqual({
@@ -177,8 +192,9 @@ describe("sweepAgedOutKkProfiles", () => {
   });
 
   it("archives the profile on its 31st birthday and includes the exact age in its notice", async () => {
-    const birthDate = new Date();
-    birthDate.setUTCFullYear(birthDate.getUTCFullYear() - 31);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
+    const birthDate = new Date("1995-06-15T00:00:00.000Z");
     mocks.findMany.mockResolvedValue([createProfile(birthDate)]);
 
     await expect(sweepAgedOutKkProfiles("admin-id")).resolves.toEqual({
@@ -191,6 +207,37 @@ describe("sweepAgedOutKkProfiles", () => {
       create: expect.objectContaining({
         message: expect.stringContaining("Your recorded age is 31."),
       }),
+    }));
+  });
+
+  it("archives a formerly approved registration after it is resubmitted with an age-out birth date", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
+    const profile = {
+      ...createProfile(new Date("1995-06-15T00:00:00.000Z")),
+      reviewStatus: "Resubmitted",
+    };
+    mocks.findMany.mockResolvedValue([profile]);
+
+    await sweepAgedOutKkProfiles("admin-id", "profile-save", {
+      resubmittedRegistrationId: "profile-id",
+    });
+
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        program: "KK",
+        OR: [
+          { reviewStatus: "Approved" },
+          { id: "profile-id", reviewStatus: "Resubmitted" },
+        ],
+      }),
+    }));
+    expect(mocks.updateProfile).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: "profile-id",
+        reviewStatus: "Resubmitted",
+        birthDate: { lte: expect.any(Date) },
+      },
     }));
   });
 

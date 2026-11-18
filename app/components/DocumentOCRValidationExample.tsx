@@ -18,10 +18,11 @@ export type OcrStrategy =
 type ScannerDocumentType = "front_id" | "validIdFront" | "validIdBack" | "certificate";
 
 export type DocumentOCRState = {
-  status: "idle" | "scanning" | "success" | "error";
+  status: "idle" | "scanning" | "success" | "needs_review" | "error";
   badgeText?: string;
   message?: string;
   errorCode?: string;
+  manualReviewRequired?: boolean;
   text?: string;
   parsedDates?: string[];
   birthdateMatched?: boolean;
@@ -84,7 +85,16 @@ export function getCompactIdErrorMessage(
   if (errorCode === "SCANNER_UNAVAILABLE") {
     return "This ID could not be checked. It will be reviewed manually.";
   }
-  return "Please Upload a Correct Valid ID.";
+  if (errorCode === "FILE_TOO_LARGE") {
+    return "ID images must be no larger than 10 MB.";
+  }
+  if (errorCode === "INVALID_FILE_FORMAT") {
+    return "Please upload a JPG/JFIF, PNG, or WebP ID image.";
+  }
+  if (errorCode === "INVALID_IMAGE") {
+    return "This image is blank or damaged. Please upload a clear photo of the ID.";
+  }
+  return "This ID could not be checked automatically. It will be reviewed manually.";
 }
 
 function getScannerDocumentType(strategy: OcrStrategy): ScannerDocumentType | null {
@@ -233,14 +243,24 @@ export function DocumentUploadCard({
       setSelectedFile(null);
       onUpload(null);
       setFileError(`Choose a file in these formats: ${acceptedFormats}.`);
-      publishOcrState({ status: "error", message: "Unsupported file format.", file: null });
+      publishOcrState({
+        status: "error",
+        message: "Unsupported file format.",
+        errorCode: "INVALID_FILE_FORMAT",
+        file: null,
+      });
       return;
     }
     if (file.size === 0 || file.size > maxSize) {
       setSelectedFile(null);
       onUpload(null);
       setFileError(`File must be no larger than ${formatFileSize(maxSize)}.`);
-      publishOcrState({ status: "error", message: "File exceeds the upload size limit.", file: null });
+      publishOcrState({
+        status: "error",
+        message: "File exceeds the upload size limit.",
+        errorCode: file.size > maxSize ? "FILE_TOO_LARGE" : "INVALID_IMAGE",
+        file: null,
+      });
       return;
     }
 
@@ -287,36 +307,54 @@ export function DocumentUploadCard({
           });
       if (generation !== generationRef.current) return;
 
-      const evaluation = ocrStrategy === "residency"
+      const isIdStrategy =
+        ocrStrategy === "validIdFront" ||
+        ocrStrategy === "validIdBack" ||
+        ocrStrategy === "front-id" ||
+        ocrStrategy === "back-id";
+      const needsManualReview = isIdStrategy && result.status === "needs_review";
+      const evaluation = ocrStrategy === "residency" || isIdStrategy
         ? null
         : evaluateDocumentOcr(
             ocrStrategy,
             result.text,
             result.status === "success" && result.isValid,
           );
-      const isValid = evaluation?.isValid ?? (result.status === "success" && result.isValid);
+      const isValid = needsManualReview || (evaluation?.isValid ?? (result.status === "success" && result.isValid));
       const state: DocumentOCRState = {
-        status: isValid ? "success" : "error",
-        badgeText: result.badgeText,
+        status: needsManualReview ? "needs_review" : isValid ? "success" : "error",
+        badgeText: needsManualReview ? "For Verification" : result.badgeText,
         message: evaluation?.error ?? result.message,
         errorCode: evaluation?.error ? "DOCUMENT_STRATEGY_FAILED" : result.errorCode,
+        manualReviewRequired: needsManualReview,
         text: result.text,
         parsedDates: result.parsedDates,
         birthdateMatched: result.birthdateMatched,
         file,
       };
-      if (!isValid) {
+      if (!isValid && !(
+        isIdStrategy &&
+        ["INVALID_IMAGE", "FILE_TOO_LARGE", "INVALID_FILE_FORMAT"].includes(result.errorCode ?? "")
+      )) {
         onFailedOcrAttempt?.();
       }
       publishOcrState(state);
     } catch {
       if (generation !== generationRef.current) return;
       const evaluation = evaluateDocumentOcr(ocrStrategy, "");
+      const isIdStrategy =
+        ocrStrategy === "validIdFront" ||
+        ocrStrategy === "validIdBack" ||
+        ocrStrategy === "front-id" ||
+        ocrStrategy === "back-id";
       publishOcrState({
-        status: "error",
-        badgeText: "Scanner unavailable",
-        message: evaluation.error ?? "We couldn't check this file automatically. Our team will review it.",
+        status: isIdStrategy ? "needs_review" : "error",
+        badgeText: isIdStrategy ? "For Verification" : "Scanner unavailable",
+        message: isIdStrategy
+          ? "This ID could not be checked automatically. An SK Admin will verify it."
+          : evaluation.error ?? "We couldn't check this file automatically. Our team will review it.",
         errorCode: "SCANNER_UNAVAILABLE",
+        manualReviewRequired: isIdStrategy,
         file,
       });
     }

@@ -40,6 +40,7 @@ type UserItem = {
   skeapStatus: "Active Scholar" | "Waitlisted" | "Revoked" | "N/A";
   skeapApplicationStatus: SubmissionStatus | null;
   isActive: boolean;
+  kkStatus: string;
   granteeStatus: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED" | null;
   username: string | null;
   phoneNumber: string | null;
@@ -923,9 +924,16 @@ export default function UserRoleManager({
                         {renderRoleBadge(user)}
                       </td>
                       <td className="px-6 py-3">
-                        <div className={`flex items-center gap-1.5 text-sm font-medium ${user.isActive ? "text-emerald-700" : "text-slate-500"}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
-                          {user.isActive ? "Active" : "Inactive"}
+                        <div className="flex flex-col items-start gap-1">
+                          <span className={`flex items-center gap-1.5 text-sm font-medium ${user.isActive ? "text-emerald-700" : "text-slate-500"}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
+                            {user.isActive ? "Active" : "Inactive"}
+                          </span>
+                          {user.kkStatus === "AGED_OUT" ? (
+                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                              KK Aged Out
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-6 py-3">
@@ -1085,6 +1093,13 @@ export default function UserRoleManager({
                           <span className={`h-1.5 w-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
                           {user.isActive ? "Active" : "Inactive"}
                         </dd>
+                        {user.kkStatus === "AGED_OUT" ? (
+                          <dd className="mt-1">
+                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                              KK Aged Out
+                            </span>
+                          </dd>
+                        ) : null}
                       </div>
                       <div className="min-w-0">
                         <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -1322,6 +1337,13 @@ export default function UserRoleManager({
                     </div>
                   );
                 })()}
+                {viewingUser.kkStatus === "AGED_OUT" ? (
+                  <div className="mt-1.5">
+                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                      KK Aged Out
+                    </span>
+                  </div>
+                ) : null}
               </div>
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">SKEAP Status</span>

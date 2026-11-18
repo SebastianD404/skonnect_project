@@ -110,6 +110,7 @@ export default async function SystemAdminUsersPage({
           avatarUrl: user.avatarUrl,
           role: user.role,
           isActive: user.isActive,
+          kkStatus: user.kkStatus,
           granteeStatus: user.granteeStatus,
           skeapApplicationStatus: user.skeapApplicationStatus,
           skeapStatus: user.skeapStatus,

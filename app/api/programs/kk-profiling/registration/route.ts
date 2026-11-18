@@ -6,6 +6,7 @@ import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-input
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
 
 export async function PUT(request: NextRequest) {
   const supabase = await createClient();
@@ -104,6 +105,12 @@ export async function PUT(request: NextRequest) {
     return saved;
   });
 
+  if (birthDate) {
+    await sweepAgedOutKkProfiles(appUser.id, "profile-save");
+  }
   await refreshKkProfilingApplicationsAdminView();
-  return NextResponse.json(updated);
+  const savedRegistration = birthDate
+    ? await prisma.profilingRegistration.findUniqueOrThrow({ where: { id: registration.id } })
+    : updated;
+  return NextResponse.json(savedRegistration);
 }

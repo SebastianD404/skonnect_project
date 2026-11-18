@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   CloudDownload,
+  Copy,
   Database,
   Download,
   FileCheck2,
@@ -46,6 +48,37 @@ type VerifyResponse = {
   createdAt: string;
   recordCounts: BackupCounts;
 };
+
+const RECORD_COUNT_LABELS: Record<string, string> = {
+  users: "Users",
+  kkProfiles: "KK Profiles",
+  profilingRegistrations: "Profiling Reg.",
+  skeapApplications: "SKEAP Apps",
+  grantees: "Grantees",
+  submissions: "Submissions",
+  accountingPayouts: "Accounting Payouts",
+  inquiries: "Inquiries",
+  announcements: "Announcements",
+  notifications: "Notifications",
+  notificationLogs: "Notification Logs",
+  adminNotifications: "Admin Alerts",
+  granteeMessages: "Grantee Messages",
+  registrations: "Registrations",
+  systemSettings: "System Settings",
+  adminSettings: "Admin Settings",
+  academicTermSchedules: "Term Schedules",
+  semesters: "Semesters",
+  reminderSettings: "Reminder Rules",
+  messageTemplates: "Message Templates",
+};
+
+function formatRecordCountLabel(key: string) {
+  return RECORD_COUNT_LABELS[key] ?? key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 function formatDate(value: string | null) {
   if (!value) return "No backup yet";
@@ -130,6 +163,8 @@ export default function DataBackupSection() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [restoreSuccess, setRestoreSuccess] = useState<string | null>(null);
+  const [checksumCopied, setChecksumCopied] = useState(false);
+  const [checksumCopyError, setChecksumCopyError] = useState<string | null>(null);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -224,6 +259,8 @@ export default function DataBackupSection() {
     setConfirmation("");
     setRestoreSuccess(null);
     setRestoreError(null);
+    setChecksumCopied(false);
+    setChecksumCopyError(null);
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".json")) {
       setRestoreError("Select a .json backup file.");
@@ -272,6 +309,22 @@ export default function DataBackupSection() {
       setRestoreError(restoreFailure instanceof Error ? restoreFailure.message : "Unable to restore this backup.");
     } finally {
       setIsRestoring(false);
+    }
+  }
+
+  async function handleCopyChecksum() {
+    if (!verification) return;
+    try {
+      await navigator.clipboard.writeText(verification.checksumSha256);
+      setChecksumCopied(true);
+      setChecksumCopyError(null);
+      window.setTimeout(() => setChecksumCopied(false), 1500);
+    } catch (copyError) {
+      setChecksumCopyError(
+        copyError instanceof Error
+          ? `Unable to copy checksum: ${copyError.message}`
+          : "Unable to copy checksum.",
+      );
     }
   }
 
@@ -449,14 +502,14 @@ export default function DataBackupSection() {
       </article>
 
       {restoreOpen ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 px-4 py-6">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-4">
           <section
             role="dialog"
             aria-modal="true"
             aria-labelledby="backup-restore-title"
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
           >
-            <header className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 sm:p-6">
+            <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 p-5 sm:p-6">
               <div className="flex items-start gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
                   <FileCheck2 className="h-5 w-5" aria-hidden="true" />
@@ -477,7 +530,7 @@ export default function DataBackupSection() {
               </button>
             </header>
 
-            <div className="space-y-5 p-5 sm:p-6">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-slate-800">Backup file (.json)</span>
                 <input
@@ -485,7 +538,7 @@ export default function DataBackupSection() {
                   accept=".json,application/json"
                   disabled={isVerifying || isRestoring}
                   onChange={(event) => void handleFileChange(event.target.files?.[0] ?? null)}
-                  className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700"
+                  className="block w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-300 hover:bg-slate-100/70 active:scale-[0.995] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600/30 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700 file:transition-colors file:duration-150 file:hover:bg-cyan-50 file:hover:text-cyan-800 file:active:scale-[0.98]"
                 />
               </label>
 
@@ -497,29 +550,68 @@ export default function DataBackupSection() {
               ) : null}
 
               {verification ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-                  <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden="true" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-emerald-900">SHA-256 Checksum Verified</p>
-                      <p className="mt-1 break-all font-mono text-[11px] text-emerald-800">{verification.checksumSha256}</p>
-                      <p className="mt-2 text-xs text-emerald-800">
-                        {verification.fileName} · created {formatDate(verification.createdAt)}
-                      </p>
+                <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_8px_30px_-12px_rgba(15,23,42,0.08)]">
+                  <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-r from-emerald-50/80 via-teal-50/35 to-white px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-500/10 text-emerald-600">
+                        <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900">SHA-256 Checksum Verified</p>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                          {verification.fileName} · Created {formatDate(verification.createdAt)}
+                        </p>
+                        <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-lg border border-slate-200/80 bg-slate-100/80 px-2.5 py-1 font-mono text-[11px] text-slate-600">
+                          <span
+                            className="truncate"
+                            title={verification.checksumSha256}
+                          >
+                            {verification.checksumSha256.slice(0, 12)}...{verification.checksumSha256.slice(-12)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void handleCopyChecksum()}
+                            aria-label={checksumCopied ? "Checksum copied" : "Copy checksum"}
+                            title={checksumCopied ? "Checksum copied" : "Copy checksum"}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-sans text-[10px] font-semibold text-slate-600 transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+                          >
+                            {checksumCopied ? (
+                              <Check className="h-3 w-3 text-emerald-600" aria-hidden="true" />
+                            ) : (
+                              <Copy className="h-3 w-3" aria-hidden="true" />
+                            )}
+                            {checksumCopied ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                        {checksumCopyError ? (
+                          <p role="alert" className="mt-1 text-xs text-rose-700">{checksumCopyError}</p>
+                        ) : null}
+                      </div>
                     </div>
+                    <span className="inline-flex w-fit shrink-0 items-center rounded-full border border-emerald-200/80 bg-emerald-50 px-3 py-1 text-xs font-semibold tabular-nums text-emerald-700">
+                      {Object.values(verification.recordCounts).reduce((total, count) => total + count, 0).toLocaleString()} total records
+                    </span>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4">
                     {Object.entries(verification.recordCounts).map(([table, count]) => (
-                      <div key={table} className="rounded-lg border border-emerald-200/70 bg-white/70 px-3 py-2">
-                        <p className="truncate text-[10px] font-medium text-slate-500">{table}</p>
-                        <p className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">{count.toLocaleString("en-PH")}</p>
+                      <div
+                        key={table}
+                        className={`rounded-xl border border-slate-200/75 bg-slate-50/50 px-3 py-2.5 transition-colors hover:bg-slate-50 ${
+                          count === 0 ? "opacity-55" : ""
+                        }`}
+                      >
+                        <p className="truncate text-[11px] font-medium text-slate-500">{formatRecordCountLabel(table)}</p>
+                        <p className="mt-0.5 text-base font-bold tracking-tight tabular-nums text-slate-900">{count.toLocaleString()}</p>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : null}
 
-              <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4">
+            </div>
+
+            <footer className="sticky bottom-0 shrink-0 space-y-3 border-t border-slate-200 bg-white px-6 py-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5">
                 <div className="flex gap-2.5">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
                   <p className="text-xs leading-5 text-amber-900">
@@ -530,7 +622,7 @@ export default function DataBackupSection() {
 
               {selectedFile && verification ? (
                 <label className="block">
-                  <span className="mb-2 block text-sm font-semibold text-slate-800">
+                  <span className="mb-1.5 block text-sm font-semibold text-slate-800">
                     Type <span className="font-mono text-rose-700">RESTORE</span> to enable database restore
                   </span>
                   <input
@@ -538,33 +630,33 @@ export default function DataBackupSection() {
                     onChange={(event) => setConfirmation(event.target.value)}
                     disabled={isRestoring}
                     autoComplete="off"
-                    className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-medium outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                    className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm font-medium outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
                   />
                 </label>
               ) : null}
 
               {restoreError ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{restoreError}</p> : null}
               {restoreSuccess ? <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{restoreSuccess}</p> : null}
-            </div>
 
-            <footer className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:justify-end sm:p-6">
-              <button
-                type="button"
-                onClick={closeRestore}
-                disabled={isVerifying || isRestoring}
-                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleRestore}
-                disabled={!verification || confirmation !== "RESTORE" || isRestoring}
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isRestoring ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="h-4 w-4" aria-hidden="true" />}
-                {isRestoring ? "Restoring database…" : "Restore Database"}
-              </button>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeRestore}
+                  disabled={isVerifying || isRestoring}
+                  className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRestore}
+                  disabled={!verification || confirmation !== "RESTORE" || isRestoring}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isRestoring ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="h-4 w-4" aria-hidden="true" />}
+                  {isRestoring ? "Restoring database…" : "Restore Database"}
+                </button>
+              </div>
             </footer>
           </section>
         </div>

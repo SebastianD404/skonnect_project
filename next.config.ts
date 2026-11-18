@@ -3,6 +3,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   poweredByHeader: false,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
+  },
   serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist", "sharp", "tesseract.js"],
   outputFileTracingIncludes: {
     "/api/**/*": ["./node_modules/sharp/**/*", "./node_modules/@img/**/*"],

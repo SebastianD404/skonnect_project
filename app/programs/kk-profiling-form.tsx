@@ -263,10 +263,17 @@ export default function KKProfilingForm({
   });
 
   const areDocumentsReady = Object.values(ocrValidationState).every(
-    (state) => state.status === "success"
+    (state) => state.status === "success" || state.status === "needs_review"
+  );
+  const hasHardDocumentError = Object.values(ocrValidationState).some(
+    (state) =>
+      state.status === "error" &&
+      ["INVALID_IMAGE", "FILE_TOO_LARGE", "INVALID_FILE_FORMAT"].includes(state.errorCode ?? ""),
   );
   const manualReviewAvailable =
-    Object.values(failedOcrAttempts).some((attempts) => attempts >= 3);
+    !hasHardDocumentError &&
+    (Object.values(failedOcrAttempts).some((attempts) => attempts >= 3) ||
+      Object.values(ocrValidationState).some((state) => state.manualReviewRequired));
   const lastNameError = getNameFieldError("lastName");
   const firstNameError = getNameFieldError("firstName");
   const middleNameError = getNameFieldError("middleInitial");
@@ -605,6 +612,9 @@ export default function KKProfilingForm({
   }
 
   function validate(manualReview = false) {
+    if (hasHardDocumentError) {
+      return "Please replace the blank, damaged, unsupported, or oversized document before submitting.";
+    }
     if (!form.lastName.trim()) return "Last name is required";
     if (!form.firstName.trim()) return "First name is required";
     if (!form.middleInitial.trim()) return "Middle name is required";
@@ -658,7 +668,7 @@ export default function KKProfilingForm({
     }
 
     if (!areDocumentsReady && !manualReview) {
-      return "Please upload each document and complete its OCR check, or submit for manual review after three unsuccessful scans on a document.";
+      return "Please upload each document and complete its OCR check, or submit the ID images for SK Admin verification.";
     }
 
     if (!manualReview && !doesProfileNameMatchIdText()) {
@@ -1264,8 +1274,8 @@ export default function KKProfilingForm({
                 <DocumentUploadCard
                   title="Front"
                   required
-                  acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
-                  accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
+                  acceptedFormats="JPG/JFIF, PNG, WebP"
+                  accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
                   maxSize={10 * 1024 * 1024}
                   ocrStrategy="validIdFront"
                   compact
@@ -1280,8 +1290,8 @@ export default function KKProfilingForm({
                 <DocumentUploadCard
                   title="Back"
                   required
-                  acceptedFormats="PDF, JPG/JFIF, PNG, WebP"
-                  accept="application/pdf,image/jpeg,image/jfif,.jfif,image/png,image/webp"
+                  acceptedFormats="JPG/JFIF, PNG, WebP"
+                  accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
                   maxSize={10 * 1024 * 1024}
                   ocrStrategy="validIdBack"
                   compact

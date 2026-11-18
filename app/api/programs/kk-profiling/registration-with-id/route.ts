@@ -8,6 +8,7 @@ import { isValidContactNumber, isValidNameInput } from "@/lib/kk-profiling-input
 import { formatSexLabel, parseSex } from "@/lib/sex";
 import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
 
 const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jfif", "image/jpg", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -208,10 +209,19 @@ export async function PUT(request: NextRequest) {
       return saved;
     });
 
+    if (formData.has("birthDate") && registration.reviewStatus === "Approved") {
+      await sweepAgedOutKkProfiles(appUser.id, "profile-save", {
+        resubmittedRegistrationId: registration.id,
+      });
+    }
     await refreshKkProfilingApplicationsAdminView();
+    const savedRegistration =
+      formData.has("birthDate") && registration.reviewStatus === "Approved"
+        ? await prisma.profilingRegistration.findUniqueOrThrow({ where: { id: registration.id } })
+        : updated;
     return NextResponse.json({
-      ...updated,
-      submittedAt: updated.submittedAt.toISOString(),
+      ...savedRegistration,
+      submittedAt: savedRegistration.submittedAt.toISOString(),
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

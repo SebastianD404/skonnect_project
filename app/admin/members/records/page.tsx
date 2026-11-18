@@ -25,6 +25,7 @@ export default async function MemberRecordsPage({ searchParams }: {
   const query = String(getParam(resolved.q) || "").trim();
 
   const where = {
+    program: "KK",
     reviewStatus: "Archived",
     ...(query
       ? {

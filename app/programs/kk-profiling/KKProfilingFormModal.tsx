@@ -75,7 +75,7 @@ type UnifiedDocumentDropzoneProps = {
   onFileChange: (file: File | null) => void;
 };
 
-type DocumentValidationStatus = "idle" | "scanning" | "success" | "error";
+type DocumentValidationStatus = "idle" | "scanning" | "success" | "needs_review" | "error";
 
 type SimpleDocumentReplacementProps = {
   title: string;
@@ -184,6 +184,13 @@ function UnifiedDocumentDropzone({
       setValidationMessage("Please upload a JPG/JFIF, PNG, or WebP image.");
       return;
     }
+    if (file && (file.size === 0 || file.size > 10 * 1024 * 1024)) {
+      if (inputRef.current) inputRef.current.value = "";
+      onFileChange(null);
+      setValidationStatus("error");
+      setValidationMessage("ID images must be greater than 0 bytes and no larger than 10 MB.");
+      return;
+    }
 
     onFileChange(file);
     setValidationMessage(null);
@@ -204,7 +211,13 @@ function UnifiedDocumentDropzone({
       });
 
       if (scanAttempt !== scanAttemptRef.current) return;
-      setValidationStatus(result.status === "success" && result.isValid ? "success" : "error");
+      setValidationStatus(
+        result.status === "needs_review"
+          ? "needs_review"
+          : result.status === "success" && result.isValid
+            ? "success"
+            : "error",
+      );
       setValidationMessage(result.message || result.badgeText || null);
     } catch (error) {
       if (scanAttempt !== scanAttemptRef.current) return;
@@ -226,6 +239,8 @@ function UnifiedDocumentDropzone({
 
   const statusBadge = validationStatus === "success"
     ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-emerald-700">VERIFIED</span>
+    : validationStatus === "needs_review"
+    ? <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-amber-700">FOR VERIFICATION</span>
     : validationStatus === "error"
     ? <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold tracking-wider text-rose-700">REVIEW REQUIRED</span>
     : validationStatus === "idle" && hasExistingFile
@@ -314,6 +329,11 @@ function UnifiedDocumentDropzone({
                     {documentType === "certificate"
                       ? "We couldn't clearly read this certificate. Please upload a clearer image."
                       : validationMessage || "We couldn't clearly read this document. Please upload a clearer photo."}
+                  </span>
+                ) : null}
+                {validationStatus === "needs_review" ? (
+                  <span className="font-medium text-amber-700" role="status">
+                    {validationMessage || "An SK Admin will verify this ID."}
                   </span>
                 ) : null}
               </>

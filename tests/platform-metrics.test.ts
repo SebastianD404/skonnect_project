@@ -63,6 +63,7 @@ describe("platform account metrics", () => {
       avatarUrl: null,
       role: "SK_OFFICIAL",
       isActive: true,
+      kkStatus: "UNPROFILED",
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
       username: null,
@@ -93,8 +94,10 @@ describe("platform account metrics", () => {
 
     expect(result).toEqual({ rows, totalCount: 1 });
     expect(mocks.queryRaw).toHaveBeenCalledTimes(2);
-    expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toContain(`"metric_segment" = ?`);
+    expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toContain(`account."metric_segment" = ?`);
     expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toContain("categorized_users");
+    expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toContain(`LEFT JOIN "public"."users" AS user_record`);
+    expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toContain(`AS "kkStatus"`);
     expect(mocks.queryRaw.mock.calls[0]?.[0].sql).toMatch(
       /account\."role" IN \('SK_OFFICIAL', 'SUPER_ADMIN'\)/,
     );

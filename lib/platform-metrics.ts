@@ -24,6 +24,7 @@ export type PlatformAccountUserRow = {
   avatarUrl: string | null;
   role: Role;
   isActive: boolean;
+  kkStatus: string;
   createdAt: Date;
   updatedAt: Date;
   username: string | null;
@@ -118,14 +119,14 @@ export async function getPlatformAccountUsersPage({
 }) {
   const filters: Prisma.Sql[] = [];
   const segment = getPlatformAccountMetricSegment(metric);
-  if (segment) filters.push(Prisma.sql`"metric_segment" = ${segment}`);
-  if (role) filters.push(Prisma.sql`"role" = ${role}`);
+  if (segment) filters.push(Prisma.sql`account."metric_segment" = ${segment}`);
+  if (role) filters.push(Prisma.sql`account."role" = ${role}`);
 
   const normalizedQuery = query.trim().slice(0, 100);
   if (normalizedQuery) {
     filters.push(Prisma.sql`(
-      POSITION(LOWER(${normalizedQuery}) IN LOWER("full_name")) > 0
-      OR POSITION(LOWER(${normalizedQuery}) IN LOWER("email")) > 0
+      POSITION(LOWER(${normalizedQuery}) IN LOWER(account."full_name")) > 0
+      OR POSITION(LOWER(${normalizedQuery}) IN LOWER(account."email")) > 0
     )`);
   }
   const whereClause = filters.length
@@ -137,38 +138,41 @@ export async function getPlatformAccountUsersPage({
     prisma.$queryRaw<PlatformAccountUserRow[]>(Prisma.sql`
       ${CATEGORIZED_USERS_CTE}
       SELECT
-        "user_id" AS "id",
-        "full_name" AS "fullName",
-        "display_name" AS "displayName",
-        "email",
-        "avatar_url" AS "avatarUrl",
-        "role",
-        "is_active" AS "isActive",
-        "created_at" AS "createdAt",
-        "updated_at" AS "updatedAt",
-        "username",
-        "phone_number" AS "phoneNumber",
-        "barangay",
-        "language_pref"::TEXT AS "languagePref",
-        "skeap_status" AS "skeapStatus",
-        "skeap_application_status" AS "skeapApplicationStatus",
-        "grantee_status" AS "granteeStatus",
-        "grantee_school" AS "granteeSchool",
-        "grantee_year_level" AS "granteeYearLevel",
-        "grantee_general_average" AS "granteeGeneralAverage",
-        "grantee_date_enrolled" AS "granteeDateEnrolled",
-        "grantee_archived_at" AS "granteeArchivedAt",
-        "grantee_retention_expires_at" AS "granteeRetentionExpiresAt"
-      FROM categorized_users
+        account."user_id" AS "id",
+        account."full_name" AS "fullName",
+        account."display_name" AS "displayName",
+        account."email",
+        account."avatar_url" AS "avatarUrl",
+        account."role",
+        account."is_active" AS "isActive",
+        COALESCE(user_record."kk_status", 'UNPROFILED') AS "kkStatus",
+        account."created_at" AS "createdAt",
+        account."updated_at" AS "updatedAt",
+        account."username",
+        account."phone_number" AS "phoneNumber",
+        account."barangay",
+        account."language_pref"::TEXT AS "languagePref",
+        account."skeap_status" AS "skeapStatus",
+        account."skeap_application_status" AS "skeapApplicationStatus",
+        account."grantee_status" AS "granteeStatus",
+        account."grantee_school" AS "granteeSchool",
+        account."grantee_year_level" AS "granteeYearLevel",
+        account."grantee_general_average" AS "granteeGeneralAverage",
+        account."grantee_date_enrolled" AS "granteeDateEnrolled",
+        account."grantee_archived_at" AS "granteeArchivedAt",
+        account."grantee_retention_expires_at" AS "granteeRetentionExpiresAt"
+      FROM categorized_users AS account
+      LEFT JOIN "public"."users" AS user_record
+        ON user_record."id" = account."user_id"
       ${whereClause}
-      ORDER BY "created_at" DESC, "user_id" DESC
+      ORDER BY account."created_at" DESC, account."user_id" DESC
       LIMIT ${pageSize}
       OFFSET ${offset}
     `),
     prisma.$queryRaw<UserCount[]>(Prisma.sql`
       ${CATEGORIZED_USERS_CTE}
       SELECT COUNT(*) AS "count"
-      FROM categorized_users
+      FROM categorized_users AS account
       ${whereClause}
     `),
   ]);

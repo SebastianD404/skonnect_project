@@ -5,6 +5,13 @@ const mocks = vi.hoisted(() => ({
   ensureProfile: vi.fn(),
   parseSnapshot: vi.fn(),
   restoreSnapshot: vi.fn(),
+  ValidationError: class BackupSnapshotValidationError extends Error {
+    code: string;
+    constructor(message: string, code = "INVALID_SCHEMA") {
+      super(message);
+      this.code = code;
+    }
+  },
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -12,7 +19,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ ensureProfile: mocks.ensureProfile }));
 vi.mock("@/lib/data-backup", () => ({
-  BackupSnapshotValidationError: class BackupSnapshotValidationError extends Error {},
+  BackupSnapshotValidationError: mocks.ValidationError,
   BackupRestoreCommittedError: class BackupRestoreCommittedError extends Error {},
   parseAndVerifyBackupSnapshot: mocks.parseSnapshot,
   verifyAndRestoreBackupSnapshot: mocks.restoreSnapshot,
@@ -97,4 +104,59 @@ describe("admin backup restore authorization", () => {
       restoredCounts: { users: 1 },
     });
   });
+
+  it("reports checksum verification failures separately from restore failures", async () => {
+    mocks.parseSnapshot.mockImplementationOnce(() => {
+      throw new mocks.ValidationError(
+        "Backup file failed SHA-256 integrity verification.",
+        "CHECKSUM_MISMATCH",
+      );
+    });
+
+    const response = await postRestore(makeRequest("verify"));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Backup file failed SHA-256 integrity verification.",
+      code: "CHECKSUM_MISMATCH",
+    });
+  });
+
+  it("returns a clean Prisma code and summary for database restore failures", async () => {
+    mocks.restoreSnapshot.mockRejectedValue(Object.assign(
+      new Error("Unique constraint failed"),
+      { code: "P2002", meta: { modelName: "User", target: ["email"] } },
+    ));
+
+    const response = await postRestore(makeRequest("restore", "RESTORE"));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "PRISMA_P2002",
+      error: "Database restore failed (P2002, User): A unique constraint conflicts with an existing record (email).",
+    });
+  });
+
+  it("strips Prisma invocation paths and code frames from transaction timeout errors", async () => {
+    const rawError = Object.assign(
+      new Error("Invalid `tx.user.update()` invocation in C:\\app\\lib\\data-backup.ts:123:45\n\n  120 await prisma.$transaction([\n  121   tx.user.update(...)\nTransaction already closed: query expired."),
+      { code: "P2028", meta: { modelName: "User" } },
+    );
+    mocks.restoreSnapshot.mockRejectedValueOnce(rawError);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await postRestore(makeRequest("restore", "RESTORE"));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "PRISMA_P2028",
+      error: "Database restore failed (P2028): Transaction expired while syncing User records.",
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "System backup verification or restore failed:",
+      expect.objectContaining({ error: rawError, stack: rawError.stack }),
+    );
+    consoleError.mockRestore();
+  });
+
 });

@@ -87,7 +87,7 @@ export type BackupSnapshot = {
 };
 
 export class BackupSnapshotValidationError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly code = "INVALID_SCHEMA") {
     super(message);
     this.name = "BackupSnapshotValidationError";
   }
@@ -436,6 +436,7 @@ export function parseAndVerifyBackupSnapshot(rawContent: string): BackupSnapshot
   if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
     throw new BackupSnapshotValidationError(
       "Backup file failed SHA-256 integrity verification and may be corrupted or modified.",
+      "CHECKSUM_MISMATCH",
     );
   }
 
@@ -491,76 +492,167 @@ function requiredRecordId(row: BackupRow) {
   return row.id;
 }
 
-async function upsertRows(
-  rows: BackupRow[],
-  upsert: (row: BackupRow, id: string) => Promise<unknown>,
-) {
-  for (const row of rows) {
-    await upsert(row, requiredRecordId(row));
+type RestorePlan<CreateData> = {
+  matchKeys: string[];
+  createData: CreateData;
+  updateOperation: (matchedKeys: string[]) => Prisma.PrismaPromise<unknown>;
+};
+
+async function runUpdateBatches(operations: Prisma.PrismaPromise<unknown>[]) {
+  for (let index = 0; index < operations.length; index += 200) {
+    await prisma.$transaction(operations.slice(index, index + 200));
   }
+}
+
+async function restoreTableRows<CreateData>(
+  rows: BackupRow[],
+  loadExistingKeys: () => Promise<string[]>,
+  createMany: (data: CreateData[]) => Promise<unknown>,
+  createPlan: (row: BackupRow) => RestorePlan<CreateData>,
+) {
+  const existingKeys = new Set(await loadExistingKeys());
+  const createData: CreateData[] = [];
+  const updateOperations: Prisma.PrismaPromise<unknown>[] = [];
+
+  for (const row of rows) {
+    const plan = createPlan(row);
+    const matchedKeys = plan.matchKeys.filter((key) => existingKeys.has(key));
+    if (matchedKeys.length > 0) {
+      updateOperations.push(plan.updateOperation(matchedKeys));
+      plan.matchKeys.forEach((key) => existingKeys.add(key));
+    } else {
+      createData.push(plan.createData);
+      plan.matchKeys.forEach((key) => existingKeys.add(key));
+    }
+  }
+
+  if (createData.length > 0) {
+    await createMany(createData);
+  }
+  await runUpdateBatches(updateOperations);
   return rows.length;
 }
 
-async function applyRows(
-  rows: BackupRow[],
-  apply: (row: BackupRow) => Promise<unknown>,
-) {
-  for (const row of rows) {
-    await apply(row);
+function idMatchKey(id: string) {
+  return `id:${id}`;
+}
+
+function requiredStringField(row: BackupRow, field: string, message: string) {
+  const value = row[field];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new BackupSnapshotValidationError(message);
   }
-  return rows.length;
+  return value.trim();
 }
 
 const ID_DATES = ["createdAt", "updatedAt"] as const;
 
+function remapUserReferences(
+  row: BackupRow,
+  userIdMap: Map<string, string>,
+  fields: readonly string[],
+): BackupRow {
+  const mapped = { ...row };
+  for (const field of fields) {
+    const value = row[field];
+    if (typeof value === "string") mapped[field] = userIdMap.get(value) ?? value;
+  }
+  return mapped;
+}
+
 async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
   const restoredCounts = {} as BackupCounts;
   const rows = snapshot.data;
-
-  await prisma.$transaction(async (tx) => {
-    restoredCounts.kkProfiles = await upsertRows(rows.kkProfiles, (row, id) =>
-      tx.kKProfile.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.KKProfileUncheckedCreateInput>(
-          row,
-          ["id", "firstName", "middleName", "lastName", "fullName", "purok", "addressLine", "barangay", "birthDate", "placeOfBirth", "contactNumber", "sex", "email", "isVerified", ...ID_DATES],
-          ["birthDate", ...ID_DATES],
-        ),
-        update: recordToInput<PrismaTypes.KKProfileUncheckedUpdateInput>(
-          row,
-          ["firstName", "middleName", "lastName", "fullName", "purok", "addressLine", "barangay", "birthDate", "placeOfBirth", "contactNumber", "sex", "email", "isVerified", ...ID_DATES],
-          ["birthDate", ...ID_DATES],
-        ),
-      }),
-    );
-
-    restoredCounts.users = await upsertRows(rows.users, async (row, id) => {
-      const current = await tx.user.findUnique({ where: { id }, select: { role: true } });
-      const requestedRole = row.role;
-      const restoredRole =
-        typeof requestedRole === "string" &&
-        (Object.values(Role) as string[]).includes(requestedRole) &&
-        requestedRole !== Role.SUPER_ADMIN
-          ? requestedRole as Role
-          : Role.YOUTH;
-      const createData = recordToInput<PrismaTypes.UserUncheckedCreateInput>(
-        row,
-        ["id", "authId", "email", "fullName", "phoneNumber", "role", "kkStatus", "languagePref", "barangay", "isActive", ...ID_DATES, "settings", "avatarUrl", "hasSeenOnboarding", "username", "kkProfileId", "emailNotifications"],
-        [...ID_DATES],
+  const userIdMap = new Map<string, string>();
+  const existingUsers = await prisma.user.findMany({
+    select: { id: true, email: true, role: true },
+  });
+  const usersById = new Map(existingUsers.map((user) => [user.id, user]));
+  const usersByEmail = new Map<string, (typeof existingUsers)[number]>();
+  for (const user of existingUsers) {
+    const email = user.email.trim().toLowerCase();
+    if (!email) continue;
+    const duplicate = usersByEmail.get(email);
+    if (duplicate && duplicate.id !== user.id) {
+      throw new BackupSnapshotValidationError(
+        "Existing user records contain duplicate normalized email addresses.",
+        "USER_EMAIL_CONFLICT",
       );
-      createData.role = restoredRole;
+    }
+    usersByEmail.set(email, user);
+  }
 
+  const userCreateData: PrismaTypes.UserCreateManyInput[] = [];
+  const userUpdates: Prisma.PrismaPromise<unknown>[] = [];
+  for (const row of rows.users) {
+    const id = requiredRecordId(row);
+    const email = requiredStringField(
+      row,
+      "email",
+      "Backup user is missing a valid email address.",
+    );
+    if (!/^[^\s@]+@[^\s@]+$/.test(email)) {
+      throw new BackupSnapshotValidationError("Backup user has an invalid email address.");
+    }
+    const normalizedEmail = email.toLowerCase();
+    const idMatch = usersById.get(id);
+    const emailMatch = usersByEmail.get(normalizedEmail);
+    if (idMatch && emailMatch && idMatch.id !== emailMatch.id) {
+      throw new BackupSnapshotValidationError(
+        "A backup user ID and email match different existing accounts.",
+        "USER_ID_EMAIL_CONFLICT",
+      );
+    }
+
+    const current = idMatch ?? emailMatch;
+    const targetId = current?.id ?? id;
+    userIdMap.set(id, targetId);
+    const requestedRole = row.role;
+    const restoredRole =
+      typeof requestedRole === "string" &&
+      (Object.values(Role) as string[]).includes(requestedRole) &&
+      requestedRole !== Role.SUPER_ADMIN
+        ? requestedRole as Role
+        : Role.YOUTH;
+
+    if (current) {
+      const protectedAccount =
+        targetId === actorId ||
+        current.role === Role.SUPER_ADMIN ||
+        (current.role as string) === "SK_ADMIN";
       const updateData = recordToInput<PrismaTypes.UserUncheckedUpdateInput>(
         row,
         [
-          "authId",
-          "email",
           "fullName",
           "phoneNumber",
           "kkStatus",
           "languagePref",
           "barangay",
-          ...(id === actorId || current?.role === Role.SUPER_ADMIN ? [] : ["isActive"]),
+          ...(protectedAccount ? [] : ["isActive"]),
+          ...ID_DATES,
+          "settings",
+          "avatarUrl",
+          "hasSeenOnboarding",
+          "emailNotifications",
+        ],
+        [...ID_DATES],
+      );
+      if (!protectedAccount) updateData.role = restoredRole;
+      userUpdates.push(prisma.user.update({ where: { id: targetId }, data: updateData }));
+    } else {
+      const createData = recordToInput<PrismaTypes.UserCreateManyInput>(
+        { ...row, email: normalizedEmail },
+        [
+          "id",
+          "authId",
+          "email",
+          "fullName",
+          "phoneNumber",
+          "role",
+          "kkStatus",
+          "languagePref",
+          "barangay",
+          "isActive",
           ...ID_DATES,
           "settings",
           "avatarUrl",
@@ -571,311 +663,449 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
         ],
         [...ID_DATES],
       );
-      if (id !== actorId && current?.role !== Role.SUPER_ADMIN) {
-        updateData.role = restoredRole;
-      }
-      return tx.user.upsert({
-        where: { id },
-        create: createData,
-        update: updateData,
-      });
-    });
+      createData.role = restoredRole;
+      createData.kkProfileId = null;
+      userCreateData.push(createData);
 
-    restoredCounts.profilingRegistrations = await upsertRows(rows.profilingRegistrations, (row, id) =>
-      tx.profilingRegistration.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.ProfilingRegistrationUncheckedCreateInput>(
-          row,
-          ["id", "program", "userId", "fullName", "address", "sex", "age", "birthDate", "email", "facebook", "contactNumber", "civilStatus", "youthClassification", "youthAgeGroup", "workStatus", "educationalBackground", "registeredSKVoter", "votedLastSK", "registeredNationalVoter", "attendedKKAssembly", "assemblyTimes", "noAssemblyReason", "consent", "submittedAt", "reviewStatus", "withdrawnAt", "withdrawalReason", "archivedReason", "archivedAt", "archivedBy", "reviewNotes", "idBackFileUrl", "birthCertificateFileUrl", "idDocumentType", "idFrontFileUrl", "photoFileUrl", "idSingleFileUrl", "residencyStatementAcknowledgement", "middleName", "requiresManualReview"],
-          ["birthDate", "submittedAt", "withdrawnAt", "archivedAt"],
-        ),
-        update: recordToInput<PrismaTypes.ProfilingRegistrationUncheckedUpdateInput>(
-          row,
-          ["program", "userId", "fullName", "address", "sex", "age", "birthDate", "email", "facebook", "contactNumber", "civilStatus", "youthClassification", "youthAgeGroup", "workStatus", "educationalBackground", "registeredSKVoter", "votedLastSK", "registeredNationalVoter", "attendedKKAssembly", "assemblyTimes", "noAssemblyReason", "consent", "submittedAt", "reviewStatus", "withdrawnAt", "withdrawalReason", "archivedReason", "archivedAt", "archivedBy", "reviewNotes", "idBackFileUrl", "birthCertificateFileUrl", "idDocumentType", "idFrontFileUrl", "photoFileUrl", "idSingleFileUrl", "residencyStatementAcknowledgement", "middleName", "requiresManualReview"],
-          ["birthDate", "submittedAt", "withdrawnAt", "archivedAt"],
-        ),
-      }),
-    );
+      const restoredUser = { id: targetId, email: normalizedEmail, role: restoredRole };
+      usersById.set(id, restoredUser);
+      usersByEmail.set(normalizedEmail, restoredUser);
+    }
+  }
+  if (userCreateData.length > 0) {
+    await prisma.user.createMany({ data: userCreateData, skipDuplicates: true });
+  }
+  await runUpdateBatches(userUpdates);
+  restoredCounts.users = rows.users.length;
 
-    restoredCounts.skeapApplications = await upsertRows(rows.skeapApplications, (row, id) =>
-      tx.skeapApplication.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.SkeapApplicationUncheckedCreateInput>(
-          row,
-          ["id", "userId", "currentCourse", "yearLevel", "gwa", "enrollmentFileUrl", "reportCardFileUrl", "status", "physicalDocumentsConfirmed", "submittedAt", "updatedAt", "withdrawnAt", "withdrawalReason", "applicantName", "permanentAddress", "dateOfBirth", "placeOfBirth", "fathersName", "fathersOccupation", "fathersContact", "mothersMaidenName", "mothersOccupation", "mothersContact", "contactNumber", "emailAddress", "uploadedFiles", "photoFileUrl", "age", "civilStatus", "school", "gender", "grades", "timeline", "parentGuardianRegisteredVoter", "parentGuardianVoterFullName", "waitlistPosition", "waitlistFinalPosition", "waitlistRemark", "educationalBackground", "registeredVoter", "totalFamilyMonthlyIncome", "educationLevel"],
-          ["submittedAt", "updatedAt", "withdrawnAt", "dateOfBirth"],
-        ),
-        update: recordToInput<PrismaTypes.SkeapApplicationUncheckedUpdateInput>(
-          row,
-          ["userId", "currentCourse", "yearLevel", "gwa", "enrollmentFileUrl", "reportCardFileUrl", "status", "physicalDocumentsConfirmed", "submittedAt", "updatedAt", "withdrawnAt", "withdrawalReason", "applicantName", "permanentAddress", "dateOfBirth", "placeOfBirth", "fathersName", "fathersOccupation", "fathersContact", "mothersMaidenName", "mothersOccupation", "mothersContact", "contactNumber", "emailAddress", "uploadedFiles", "photoFileUrl", "age", "civilStatus", "school", "gender", "grades", "timeline", "parentGuardianRegisteredVoter", "parentGuardianVoterFullName", "waitlistPosition", "waitlistFinalPosition", "waitlistRemark", "educationalBackground", "registeredVoter", "totalFamilyMonthlyIncome", "educationLevel"],
-          ["submittedAt", "updatedAt", "withdrawnAt", "dateOfBirth"],
-        ),
-      }),
-    );
+  restoredCounts.kkProfiles = await restoreTableRows(
+    rows.kkProfiles,
+    async () => (await prisma.kKProfile.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.KKProfileCreateManyInput[]) =>
+      prisma.kKProfile.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const fields = ["id", "firstName", "middleName", "lastName", "fullName", "purok", "addressLine", "barangay", "birthDate", "placeOfBirth", "contactNumber", "sex", "email", "isVerified", ...ID_DATES];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.KKProfileCreateManyInput>(row, fields, ["birthDate", ...ID_DATES]),
+        updateOperation: () => prisma.kKProfile.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.KKProfileUncheckedUpdateInput>(row, fields, ["birthDate", ...ID_DATES]),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.grantees = await upsertRows(rows.grantees, (row, id) =>
-      tx.grantee.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.GranteeUncheckedCreateInput>(
-          row,
-          ["id", "userId", "status", "revocationReason", "revocationNotes", "isPermanentlyDisqualified", "identityFingerprint", "revocationNotificationStatus", "revocationNotificationAttempts", "revocationNotificationError", "revocationNotificationSentAt", "yearLevel", "entryAcademicYear", "entrySemester", "journeyStart", "journeyEnd", "school", "generalAverage", "dateEnrolled", "dateRemoved", "remarks", "createdAt", "updatedAt", "graduatedAt", "graduatedBy", "graduationReadyAt", "exitClearanceStatus", "exitClearanceUrl", "schoolClearanceVerified", "skClearanceVerified", "graduationRemarks", "retentionExpiresAt"],
-          ["revocationNotificationSentAt", "dateEnrolled", "dateRemoved", "createdAt", "updatedAt", "graduatedAt", "graduationReadyAt", "retentionExpiresAt"],
-        ),
-        update: recordToInput<PrismaTypes.GranteeUncheckedUpdateInput>(
-          row,
-          ["userId", "status", "revocationReason", "revocationNotes", "isPermanentlyDisqualified", "identityFingerprint", "revocationNotificationStatus", "revocationNotificationAttempts", "revocationNotificationError", "revocationNotificationSentAt", "yearLevel", "entryAcademicYear", "entrySemester", "journeyStart", "journeyEnd", "school", "generalAverage", "dateEnrolled", "dateRemoved", "remarks", "createdAt", "updatedAt", "graduatedAt", "graduatedBy", "graduationReadyAt", "exitClearanceStatus", "exitClearanceUrl", "schoolClearanceVerified", "skClearanceVerified", "graduationRemarks", "retentionExpiresAt"],
-          ["revocationNotificationSentAt", "dateEnrolled", "dateRemoved", "createdAt", "updatedAt", "graduatedAt", "graduationReadyAt", "retentionExpiresAt"],
-        ),
-      }),
-    );
+  const profileLinkUpdates = rows.users.flatMap((row) => {
+    if (typeof row.kkProfileId !== "string") return [];
+    const id = requiredRecordId(row);
+    return [prisma.user.update({
+      where: { id: userIdMap.get(id) ?? id },
+      data: { kkProfileId: row.kkProfileId },
+    })];
+  });
+  await runUpdateBatches(profileLinkUpdates);
 
-    restoredCounts.submissions = await upsertRows(rows.submissions, (row, id) =>
-      tx.submission.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.SubmissionUncheckedCreateInput>(
-          row,
-          ["id", "granteeId", "semester", "gradeFileUrl", "coeFileUrl", "generalAverage", "status", "reviewedById", "reviewNotes", "submittedAt", "reviewedAt", "physicalVerifiedBy", "physicalVerifiedAt", "flaggedFields", "coeStatus", "gradesStatus", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt", "gradeRows", "gradeReportSemester", "ocrConfidence", "ocrGwa", "ocrParsedRows", "ocrRawText", "ocrStatus", "ocrTotalUnits", "requiresStrictManualReview", "resubmittedFields"],
-          ["submittedAt", "reviewedAt", "physicalVerifiedAt", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt"],
-        ),
-        update: recordToInput<PrismaTypes.SubmissionUncheckedUpdateInput>(
-          row,
-          ["granteeId", "semester", "gradeFileUrl", "coeFileUrl", "generalAverage", "status", "reviewedById", "reviewNotes", "submittedAt", "reviewedAt", "physicalVerifiedBy", "physicalVerifiedAt", "flaggedFields", "coeStatus", "gradesStatus", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt", "gradeRows", "gradeReportSemester", "ocrConfidence", "ocrGwa", "ocrParsedRows", "ocrRawText", "ocrStatus", "ocrTotalUnits", "requiresStrictManualReview", "resubmittedFields"],
-          ["submittedAt", "reviewedAt", "physicalVerifiedAt", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt"],
-        ),
-      }),
-    );
+  restoredCounts.profilingRegistrations = await restoreTableRows(
+    rows.profilingRegistrations,
+    async () => (await prisma.profilingRegistration.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.ProfilingRegistrationCreateManyInput[]) =>
+      prisma.profilingRegistration.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["userId", "archivedBy"]);
+      const createFields = ["id", "program", "userId", "fullName", "address", "sex", "age", "birthDate", "email", "facebook", "contactNumber", "civilStatus", "youthClassification", "youthAgeGroup", "workStatus", "educationalBackground", "registeredSKVoter", "votedLastSK", "registeredNationalVoter", "attendedKKAssembly", "assemblyTimes", "noAssemblyReason", "consent", "submittedAt", "reviewStatus", "withdrawnAt", "withdrawalReason", "archivedReason", "archivedAt", "archivedBy", "reviewNotes", "idBackFileUrl", "birthCertificateFileUrl", "idDocumentType", "idFrontFileUrl", "photoFileUrl", "idSingleFileUrl", "residencyStatementAcknowledgement", "middleName", "requiresManualReview"];
+      const updateFields = ["program", "userId", "fullName", "address", "sex", "age", "birthDate", "email", "facebook", "contactNumber", "civilStatus", "youthClassification", "youthAgeGroup", "workStatus", "educationalBackground", "registeredSKVoter", "votedLastSK", "registeredNationalVoter", "attendedKKAssembly", "assemblyTimes", "noAssemblyReason", "consent", "submittedAt", "reviewStatus", "withdrawnAt", "withdrawalReason", "archivedReason", "archivedAt", "archivedBy", "reviewNotes", "idBackFileUrl", "birthCertificateFileUrl", "idDocumentType", "idFrontFileUrl", "photoFileUrl", "idSingleFileUrl", "residencyStatementAcknowledgement", "middleName", "requiresManualReview"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.ProfilingRegistrationCreateManyInput>(mapped, createFields, ["birthDate", "submittedAt", "withdrawnAt", "archivedAt"]),
+        updateOperation: () => prisma.profilingRegistration.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.ProfilingRegistrationUncheckedUpdateInput>(mapped, updateFields, ["birthDate", "submittedAt", "withdrawnAt", "archivedAt"]),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.accountingPayouts = await upsertRows(rows.accountingPayouts, (row, id) =>
-      tx.accountingPayout.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.AccountingPayoutUncheckedCreateInput>(
-          row,
-          ["id", "granteeId", "amount", "semester", "status", "disbursedAt", "claimedAt", "disbursementEmailSentAt", "createdAt"],
-          ["disbursedAt", "claimedAt", "disbursementEmailSentAt", "createdAt"],
-        ),
-        update: recordToInput<PrismaTypes.AccountingPayoutUncheckedUpdateInput>(
-          row,
-          ["granteeId", "amount", "semester", "status", "disbursedAt", "claimedAt", "disbursementEmailSentAt", "createdAt"],
-          ["disbursedAt", "claimedAt", "disbursementEmailSentAt", "createdAt"],
-        ),
-      }),
-    );
+  restoredCounts.skeapApplications = await restoreTableRows(
+    rows.skeapApplications,
+    async () => (await prisma.skeapApplication.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.SkeapApplicationCreateManyInput[]) =>
+      prisma.skeapApplication.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["userId"]);
+      const fields = ["id", "userId", "currentCourse", "yearLevel", "gwa", "enrollmentFileUrl", "reportCardFileUrl", "status", "physicalDocumentsConfirmed", "submittedAt", "updatedAt", "withdrawnAt", "withdrawalReason", "applicantName", "permanentAddress", "dateOfBirth", "placeOfBirth", "fathersName", "fathersOccupation", "fathersContact", "mothersMaidenName", "mothersOccupation", "mothersContact", "contactNumber", "emailAddress", "uploadedFiles", "photoFileUrl", "age", "civilStatus", "school", "gender", "grades", "timeline", "parentGuardianRegisteredVoter", "parentGuardianVoterFullName", "waitlistPosition", "waitlistFinalPosition", "waitlistRemark", "educationalBackground", "registeredVoter", "totalFamilyMonthlyIncome", "educationLevel"];
+      const dateFields = ["submittedAt", "updatedAt", "withdrawnAt", "dateOfBirth"];
+      const updateFields = fields.filter((field) => field !== "id");
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.SkeapApplicationCreateManyInput>(mapped, fields, dateFields),
+        updateOperation: () => prisma.skeapApplication.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.SkeapApplicationUncheckedUpdateInput>(mapped, updateFields, dateFields),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.inquiries = await upsertRows(rows.inquiries, (row, id) =>
-      tx.inquiry.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.InquiryUncheckedCreateInput>(
-          row,
-          ["id", "userId", "subject", "message", "language", "isResolved", "response", "respondedAt", "createdAt", "reviewThread", "lastUpdatedBy", "resubmittedAt", "reviewStatus", "applicationId"],
-          ["respondedAt", "createdAt", "resubmittedAt"],
-        ),
-        update: recordToInput<PrismaTypes.InquiryUncheckedUpdateInput>(
-          row,
-          ["userId", "subject", "message", "language", "isResolved", "response", "respondedAt", "createdAt", "reviewThread", "lastUpdatedBy", "resubmittedAt", "reviewStatus", "applicationId"],
-          ["respondedAt", "createdAt", "resubmittedAt"],
-        ),
-      }),
-    );
+  restoredCounts.grantees = await restoreTableRows(
+    rows.grantees,
+    async () => (await prisma.grantee.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.GranteeCreateManyInput[]) =>
+      prisma.grantee.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["userId", "graduatedBy"]);
+      const fields = ["id", "userId", "status", "revocationReason", "revocationNotes", "isPermanentlyDisqualified", "identityFingerprint", "revocationNotificationStatus", "revocationNotificationAttempts", "revocationNotificationError", "revocationNotificationSentAt", "yearLevel", "entryAcademicYear", "entrySemester", "journeyStart", "journeyEnd", "school", "generalAverage", "dateEnrolled", "dateRemoved", "remarks", "createdAt", "updatedAt", "graduatedAt", "graduatedBy", "graduationReadyAt", "exitClearanceStatus", "exitClearanceUrl", "schoolClearanceVerified", "skClearanceVerified", "graduationRemarks", "retentionExpiresAt"];
+      const dateFields = ["revocationNotificationSentAt", "dateEnrolled", "dateRemoved", "createdAt", "updatedAt", "graduatedAt", "graduationReadyAt", "retentionExpiresAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.GranteeCreateManyInput>(mapped, fields, dateFields),
+        updateOperation: () => prisma.grantee.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.GranteeUncheckedUpdateInput>(mapped, fields.filter((field) => field !== "id"), dateFields),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.announcements = await upsertRows(rows.announcements, (row, id) =>
-      tx.announcement.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.AnnouncementUncheckedCreateInput>(
-          row,
-          ["id", "title", "content", "authorId", "isPublished", "publishedAt", "createdAt", "updatedAt", "imageUrl"],
-          ["publishedAt", "createdAt", "updatedAt"],
-        ),
-        update: recordToInput<PrismaTypes.AnnouncementUncheckedUpdateInput>(
-          row,
-          ["title", "content", "authorId", "isPublished", "publishedAt", "createdAt", "updatedAt", "imageUrl"],
-          ["publishedAt", "createdAt", "updatedAt"],
-        ),
-      }),
-    );
+  restoredCounts.submissions = await restoreTableRows(
+    rows.submissions,
+    async () => (await prisma.submission.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.SubmissionCreateManyInput[]) =>
+      prisma.submission.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["reviewedById", "physicalVerifiedBy"]);
+      const fields = ["id", "granteeId", "semester", "gradeFileUrl", "coeFileUrl", "generalAverage", "status", "reviewedById", "reviewNotes", "submittedAt", "reviewedAt", "physicalVerifiedBy", "physicalVerifiedAt", "flaggedFields", "coeStatus", "gradesStatus", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt", "gradeRows", "gradeReportSemester", "ocrConfidence", "ocrGwa", "ocrParsedRows", "ocrRawText", "ocrStatus", "ocrTotalUnits", "requiresStrictManualReview", "resubmittedFields"];
+      const dateFields = ["submittedAt", "reviewedAt", "physicalVerifiedAt", "coeSubmittedAt", "coeApprovedAt", "gradesSubmittedAt", "gradesApprovedAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.SubmissionCreateManyInput>(mapped, fields, dateFields),
+        updateOperation: () => prisma.submission.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.SubmissionUncheckedUpdateInput>(mapped, fields.filter((field) => field !== "id"), dateFields),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.notifications = await upsertRows(rows.notifications, (row, id) =>
-      tx.notification.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.NotificationUncheckedCreateInput>(
-          row,
-          ["id", "userId", "sourceKey", "message", "isRead", "readAt", "createdAt"],
-          ["readAt", "createdAt"],
-        ),
-        update: recordToInput<PrismaTypes.NotificationUncheckedUpdateInput>(
-          row,
-          ["userId", "sourceKey", "message", "isRead", "readAt", "createdAt"],
-          ["readAt", "createdAt"],
-        ),
-      }),
-    );
+  restoredCounts.accountingPayouts = await restoreTableRows(
+    rows.accountingPayouts,
+    async () => (await prisma.accountingPayout.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.AccountingPayoutCreateManyInput[]) =>
+      prisma.accountingPayout.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const fields = ["id", "granteeId", "amount", "semester", "status", "disbursedAt", "claimedAt", "disbursementEmailSentAt", "createdAt"];
+      const dateFields = ["disbursedAt", "claimedAt", "disbursementEmailSentAt", "createdAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.AccountingPayoutCreateManyInput>(row, fields, dateFields),
+        updateOperation: () => prisma.accountingPayout.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.AccountingPayoutUncheckedUpdateInput>(row, fields.filter((field) => field !== "id"), dateFields),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.notificationLogs = await upsertRows(rows.notificationLogs, (row, id) =>
-      tx.notificationLog.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.NotificationLogUncheckedCreateInput>(
-          row,
-          ["id", "userId", "type", "channel", "subject", "sentAt", "success"],
-          ["sentAt"],
-        ),
-        update: recordToInput<PrismaTypes.NotificationLogUncheckedUpdateInput>(
-          row,
-          ["userId", "type", "channel", "subject", "sentAt", "success"],
-          ["sentAt"],
-        ),
-      }),
-    );
+  restoredCounts.inquiries = await restoreTableRows(
+    rows.inquiries,
+    async () => (await prisma.inquiry.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.InquiryCreateManyInput[]) =>
+      prisma.inquiry.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["userId", "lastUpdatedBy"]);
+      const fields = ["id", "userId", "subject", "message", "language", "isResolved", "response", "respondedAt", "createdAt", "reviewThread", "lastUpdatedBy", "resubmittedAt", "reviewStatus", "applicationId"];
+      const dateFields = ["respondedAt", "createdAt", "resubmittedAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.InquiryCreateManyInput>(mapped, fields, dateFields),
+        updateOperation: () => prisma.inquiry.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.InquiryUncheckedUpdateInput>(mapped, fields.filter((field) => field !== "id"), dateFields),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.adminNotifications = await upsertRows(rows.adminNotifications, (row, id) =>
-      tx.adminNotification.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.AdminNotificationUncheckedCreateInput>(
-          row,
-          ["id", "sourceKey", "title", "message", "type", "createdAt"],
-          ["createdAt"],
-        ),
-        update: recordToInput<PrismaTypes.AdminNotificationUncheckedUpdateInput>(
-          row,
-          ["sourceKey", "title", "message", "type", "createdAt"],
-          ["createdAt"],
-        ),
-      }),
-    );
+  restoredCounts.announcements = await restoreTableRows(
+    rows.announcements,
+    async () => (await prisma.announcement.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.AnnouncementCreateManyInput[]) =>
+      prisma.announcement.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["authorId"]);
+      const fields = ["id", "title", "content", "authorId", "isPublished", "publishedAt", "createdAt", "updatedAt", "imageUrl"];
+      const dateFields = ["publishedAt", "createdAt", "updatedAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.AnnouncementCreateManyInput>(mapped, fields, dateFields),
+        updateOperation: () => prisma.announcement.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.AnnouncementUncheckedUpdateInput>(mapped, fields.filter((field) => field !== "id"), dateFields),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.granteeMessages = await upsertRows(rows.granteeMessages, (row, id) =>
-      tx.granteeMessage.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.GranteeMessageUncheckedCreateInput>(
-          row,
-          ["id", "userId", "senderId", "subject", "body", "createdAt"],
-          ["createdAt"],
-        ),
-        update: recordToInput<PrismaTypes.GranteeMessageUncheckedUpdateInput>(
-          row,
-          ["userId", "senderId", "subject", "body", "createdAt"],
-          ["createdAt"],
-        ),
-      }),
-    );
+  restoredCounts.notifications = await restoreTableRows(
+    rows.notifications,
+    async () => (await prisma.notification.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.NotificationCreateManyInput[]) =>
+      prisma.notification.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["userId"]);
+      const fields = ["id", "userId", "sourceKey", "message", "isRead", "readAt", "createdAt"];
+      const dateFields = ["readAt", "createdAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.NotificationCreateManyInput>(mapped, fields, dateFields),
+        updateOperation: () => prisma.notification.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.NotificationUncheckedUpdateInput>(mapped, fields.filter((field) => field !== "id"), dateFields),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.registrations = await upsertRows(rows.registrations, (row, id) =>
-      tx.registrations.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.registrationsUncheckedCreateInput>(
-          row,
-          ["id", "eventId", "userId", "registeredAt", "address", "age", "contactNumber", "email", "fullName", "sex"],
-          ["registeredAt"],
-        ),
-        update: recordToInput<PrismaTypes.registrationsUncheckedUpdateInput>(
-          row,
-          ["eventId", "userId", "registeredAt", "address", "age", "contactNumber", "email", "fullName", "sex"],
-          ["registeredAt"],
-        ),
-      }),
-    );
+  restoredCounts.notificationLogs = await restoreTableRows(
+    rows.notificationLogs,
+    async () => (await prisma.notificationLog.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.NotificationLogCreateManyInput[]) =>
+      prisma.notificationLog.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["userId"]);
+      const fields = ["id", "userId", "type", "channel", "subject", "sentAt", "success"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.NotificationLogCreateManyInput>(mapped, fields, ["sentAt"]),
+        updateOperation: () => prisma.notificationLog.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.NotificationLogUncheckedUpdateInput>(mapped, fields.filter((field) => field !== "id"), ["sentAt"]),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.systemSettings = await upsertRows(rows.systemSettings, async (row, id) =>
-      tx.systemSetting.upsert({
-        where: { key: typeof row.key === "string" ? row.key : id },
-        create: recordToInput<PrismaTypes.SystemSettingCreateInput>(
-          row,
-          ["id", "key", "value", "updatedAt"],
-          ["updatedAt"],
-        ),
-        update: recordToInput<PrismaTypes.SystemSettingUpdateInput>(
-          row,
-          ["value", "updatedAt"],
-          ["updatedAt"],
-        ),
-      }),
-    );
+  restoredCounts.adminNotifications = await restoreTableRows(
+    rows.adminNotifications,
+    async () => (await prisma.adminNotification.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.AdminNotificationCreateManyInput[]) =>
+      prisma.adminNotification.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const fields = ["id", "sourceKey", "title", "message", "type", "createdAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.AdminNotificationCreateManyInput>(row, fields, ["createdAt"]),
+        updateOperation: () => prisma.adminNotification.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.AdminNotificationUncheckedUpdateInput>(row, fields.filter((field) => field !== "id"), ["createdAt"]),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.adminSettings = await applyRows(rows.adminSettings, (row) => {
-      if (typeof row.key !== "string" || !row.key) {
-        throw new BackupSnapshotValidationError("Backup admin setting is missing its key.");
-      }
-      return tx.adminSettings.upsert({
-        where: { key: row.key },
-        create: recordToInput<PrismaTypes.AdminSettingsCreateInput>(row, ["key", "totalBudget"]),
-        update: recordToInput<PrismaTypes.AdminSettingsUpdateInput>(row, ["totalBudget"]),
-      });
-    });
+  restoredCounts.granteeMessages = await restoreTableRows(
+    rows.granteeMessages,
+    async () => (await prisma.granteeMessage.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.GranteeMessageCreateManyInput[]) =>
+      prisma.granteeMessage.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["userId", "senderId"]);
+      const fields = ["id", "userId", "senderId", "subject", "body", "createdAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.GranteeMessageCreateManyInput>(mapped, fields, ["createdAt"]),
+        updateOperation: () => prisma.granteeMessage.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.GranteeMessageUncheckedUpdateInput>(mapped, fields.filter((field) => field !== "id"), ["createdAt"]),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.academicTermSchedules = await upsertRows(rows.academicTermSchedules, (row, id) =>
-      tx.academicTermSchedule.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.AcademicTermScheduleUncheckedCreateInput>(
-          row,
-          ["id", "semester", "opensAt", "closesAt", "createdAt", "updatedAt"],
-          ["opensAt", "closesAt", "createdAt", "updatedAt"],
-        ),
-        update: recordToInput<PrismaTypes.AcademicTermScheduleUncheckedUpdateInput>(
-          row,
-          ["semester", "opensAt", "closesAt", "createdAt", "updatedAt"],
-          ["opensAt", "closesAt", "createdAt", "updatedAt"],
-        ),
-      }),
-    );
+  restoredCounts.registrations = await restoreTableRows(
+    rows.registrations,
+    async () => (await prisma.registrations.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.registrationsCreateManyInput[]) =>
+      prisma.registrations.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const mapped = remapUserReferences(row, userIdMap, ["userId"]);
+      const fields = ["id", "eventId", "userId", "registeredAt", "address", "age", "contactNumber", "email", "fullName", "sex"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.registrationsCreateManyInput>(mapped, fields, ["registeredAt"]),
+        updateOperation: () => prisma.registrations.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.registrationsUncheckedUpdateInput>(mapped, fields.filter((field) => field !== "id"), ["registeredAt"]),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.semesters = await upsertRows(rows.semesters, (row, id) =>
-      tx.semester.upsert({
-        where: { id },
-        create: recordToInput<PrismaTypes.SemesterCreateInput>(row, ["id", "name", "isCurrent"]),
-        update: recordToInput<PrismaTypes.SemesterUpdateInput>(row, ["name", "isCurrent"]),
-      }),
-    );
+  restoredCounts.systemSettings = await restoreTableRows(
+    rows.systemSettings,
+    async () => {
+      const existing = await prisma.systemSetting.findMany({ select: { id: true, key: true } });
+      return existing.flatMap(({ id, key }) => [idMatchKey(id), `key:${key}`]);
+    },
+    (data: PrismaTypes.SystemSettingCreateManyInput[]) =>
+      prisma.systemSetting.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const key = requiredStringField(row, "key", "Backup system setting is missing its key.");
+      const matchKey = `key:${key}`;
+      return {
+        matchKeys: [idMatchKey(id), matchKey],
+        createData: recordToInput<PrismaTypes.SystemSettingCreateManyInput>(row, ["id", "key", "value", "updatedAt"], ["updatedAt"]),
+        updateOperation: (matchedKeys) => prisma.systemSetting.update({
+          where: matchedKeys.includes(idMatchKey(id)) ? { id } : { key },
+          data: recordToInput<PrismaTypes.SystemSettingUpdateManyMutationInput>(row, ["value", "updatedAt"], ["updatedAt"]),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.reminderSettings = await applyRows(rows.reminderSettings, (row) => {
-      if (typeof row.type !== "string") {
-        throw new BackupSnapshotValidationError("Backup reminder setting is missing its type.");
-      }
-      return tx.reminderSetting.upsert({
-        where: { type: row.type as ReminderType },
-        create: recordToInput<PrismaTypes.ReminderSettingCreateInput>(
-          row,
-          ["type", "offsets", "deadline", "active", "createdAt", "updatedAt"],
-          ["deadline", "createdAt", "updatedAt"],
-        ),
-        update: recordToInput<PrismaTypes.ReminderSettingUpdateInput>(
-          row,
-          ["offsets", "deadline", "active", "createdAt", "updatedAt"],
-          ["deadline", "createdAt", "updatedAt"],
-        ),
-      });
-    });
+  restoredCounts.adminSettings = await restoreTableRows(
+    rows.adminSettings,
+    async () => (await prisma.adminSettings.findMany({ select: { key: true } }))
+      .map(({ key }) => `key:${key}`),
+    (data: PrismaTypes.AdminSettingsCreateManyInput[]) =>
+      prisma.adminSettings.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const key = requiredStringField(row, "key", "Backup admin setting is missing its key.");
+      return {
+        matchKeys: [`key:${key}`],
+        createData: recordToInput<PrismaTypes.AdminSettingsCreateManyInput>(row, ["key", "totalBudget"]),
+        updateOperation: () => prisma.adminSettings.update({
+          where: { key },
+          data: recordToInput<PrismaTypes.AdminSettingsUpdateManyMutationInput>(row, ["totalBudget"]),
+        }),
+      };
+    },
+  );
 
-    restoredCounts.messageTemplates = await applyRows(rows.messageTemplates, (row) => {
+  restoredCounts.academicTermSchedules = await restoreTableRows(
+    rows.academicTermSchedules,
+    async () => (await prisma.academicTermSchedule.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.AcademicTermScheduleCreateManyInput[]) =>
+      prisma.academicTermSchedule.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      const fields = ["id", "semester", "opensAt", "closesAt", "createdAt", "updatedAt"];
+      const dateFields = ["opensAt", "closesAt", "createdAt", "updatedAt"];
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.AcademicTermScheduleCreateManyInput>(row, fields, dateFields),
+        updateOperation: () => prisma.academicTermSchedule.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.AcademicTermScheduleUncheckedUpdateInput>(row, fields.filter((field) => field !== "id"), dateFields),
+        }),
+      };
+    },
+  );
+
+  restoredCounts.semesters = await restoreTableRows(
+    rows.semesters,
+    async () => (await prisma.semester.findMany({ select: { id: true } }))
+      .map(({ id }) => idMatchKey(id)),
+    (data: PrismaTypes.SemesterCreateManyInput[]) =>
+      prisma.semester.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const id = requiredRecordId(row);
+      return {
+        matchKeys: [idMatchKey(id)],
+        createData: recordToInput<PrismaTypes.SemesterCreateManyInput>(row, ["id", "name", "isCurrent"]),
+        updateOperation: () => prisma.semester.update({
+          where: { id },
+          data: recordToInput<PrismaTypes.SemesterUncheckedUpdateInput>(row, ["name", "isCurrent"]),
+        }),
+      };
+    },
+  );
+
+  restoredCounts.reminderSettings = await restoreTableRows(
+    rows.reminderSettings,
+    async () => (await prisma.reminderSetting.findMany({ select: { id: true, type: true } }))
+      .map(({ type }) => `type:${type}`),
+    (data: PrismaTypes.ReminderSettingCreateManyInput[]) =>
+      prisma.reminderSetting.createMany({ data, skipDuplicates: true }),
+    (row) => {
+      const type = requiredStringField(row, "type", "Backup reminder setting is missing its type.") as ReminderType;
+      const fields = ["id", "type", "offsets", "deadline", "active", "createdAt", "updatedAt"];
+      const dateFields = ["deadline", "createdAt", "updatedAt"];
+      return {
+        matchKeys: [`type:${type}`],
+        createData: recordToInput<PrismaTypes.ReminderSettingCreateManyInput>(row, fields, dateFields),
+        updateOperation: () => prisma.reminderSetting.update({
+          where: { type },
+          data: recordToInput<PrismaTypes.ReminderSettingUpdateManyMutationInput>(row, ["offsets", "deadline", "active", "createdAt", "updatedAt"], dateFields),
+        }),
+      };
+    },
+  );
+
+  restoredCounts.messageTemplates = await restoreTableRows(
+    rows.messageTemplates,
+    async () => (await prisma.messageTemplate.findMany({ select: { id: true, type: true, channel: true } }))
+      .map(({ type, channel }) => `type:${type};channel:${channel}`),
+    (data: PrismaTypes.MessageTemplateCreateManyInput[]) =>
+      prisma.messageTemplate.createMany({ data, skipDuplicates: true }),
+    (row) => {
       if (typeof row.type !== "string" || typeof row.channel !== "string") {
         throw new BackupSnapshotValidationError("Backup message template is missing its type or channel.");
       }
       const type = row.type as MessageTemplateType;
       const channel = row.channel as MessageTemplateChannel;
-      return tx.messageTemplate.upsert({
-        where: { type_channel: { type, channel } },
-        create: recordToInput<PrismaTypes.MessageTemplateCreateInput>(
-          row,
-          ["type", "channel", "subject", "body", "createdAt", "updatedAt"],
-          ["createdAt", "updatedAt"],
-        ),
-        update: recordToInput<PrismaTypes.MessageTemplateUpdateInput>(
-          row,
-          ["subject", "body", "createdAt", "updatedAt"],
-          ["createdAt", "updatedAt"],
-        ),
-      });
-    });
+      const fields = ["id", "type", "channel", "subject", "body", "createdAt", "updatedAt"];
+      const dateFields = ["createdAt", "updatedAt"];
+      return {
+        matchKeys: [`type:${type};channel:${channel}`],
+        createData: recordToInput<PrismaTypes.MessageTemplateCreateManyInput>(row, fields, dateFields),
+        updateOperation: () => prisma.messageTemplate.update({
+          where: { type_channel: { type, channel } },
+          data: recordToInput<PrismaTypes.MessageTemplateUpdateManyMutationInput>(row, ["subject", "body", "createdAt", "updatedAt"], dateFields),
+        }),
+      };
+    },
+  );
 
-    await writeAuditLog(tx, {
-      action: "RESTORE_SYSTEM_BACKUP",
-      actorId,
-      targetTable: "backup_snapshot",
-      targetId: snapshot.checksumSha256,
-      afterData: { restoredCounts },
-      metadata: {
-        checksumSha256: snapshot.checksumSha256,
-        snapshotCreatedAt: snapshot.meta.createdAt,
-        restoredCounts,
-      },
-    });
+  await writeAuditLog(prisma, {
+    action: "RESTORE_SYSTEM_BACKUP",
+    actorId,
+    targetTable: "backup_snapshot",
+    targetId: snapshot.checksumSha256,
+    afterData: { restoredCounts },
+    metadata: {
+      checksumSha256: snapshot.checksumSha256,
+      snapshotCreatedAt: snapshot.meta.createdAt,
+      restoredCounts,
+    },
   });
 
   try {

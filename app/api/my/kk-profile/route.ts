@@ -5,26 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getKKProfilingReviewStatus } from "@/lib/kk-profiling-review";
 import { databaseUnavailableResponse } from "@/lib/database-errors";
 import { KK_MEMBER_AGE_OUT_REASON } from "@/lib/kk-member-archive";
-
-function computeAge(birthDate: Date) {
-  const now = new Date();
-  const currentYear = now.getUTCFullYear();
-  const currentMonth = now.getUTCMonth();
-  const currentDay = now.getUTCDate();
-
-  const birthYear = birthDate.getUTCFullYear();
-  const birthMonth = birthDate.getUTCMonth();
-  const birthDay = birthDate.getUTCDate();
-
-  let age = currentYear - birthYear;
-  if (
-    currentMonth < birthMonth ||
-    (currentMonth === birthMonth && currentDay < birthDay)
-  ) {
-    age -= 1;
-  }
-  return age;
-}
+import { getExactAge } from "@/lib/skeap-age";
 
 export async function GET() {
   try {
@@ -123,7 +104,7 @@ async function getKKProfile() {
         userId: appUser.id,
         program: "KK",
         archivedReason: {
-          in: [KK_MEMBER_AGE_OUT_REASON, "Aged Out (31+)", "Aged Out (Turned 31)"],
+          in: [KK_MEMBER_AGE_OUT_REASON, "AGED_OUT_31", "Aged Out (31+)", "Aged Out (Turned 31)"],
         },
         archivedAt: { not: null },
       },
@@ -175,7 +156,7 @@ async function getKKProfile() {
       birthDate: kkProfile?.birthDate ?? latestRegistration?.birthDate ?? null,
       placeOfBirth: kkProfile?.placeOfBirth ?? null,
       age: kkProfile
-        ? computeAge(kkProfile.birthDate)
+        ? getExactAge(kkProfile.birthDate) ?? 0
         : latestRegistration?.age ?? 0,
       isVerified: kkProfile?.isVerified ?? false,
       status,
