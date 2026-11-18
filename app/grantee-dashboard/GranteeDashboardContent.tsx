@@ -162,7 +162,7 @@ export default async function GranteeDashboardContent() {
   const journeyProgress = academicTimeline.journeyProgress;
   const isJourneyConfigured = Boolean(
     grantee.journeyStart && grantee.journeyEnd,
-  );
+  ) || journeyProgress.nodes.length > 0;
   const isDueForGraduation = isGranteeDueForGraduation({
     status: grantee.status,
     journeyStart: grantee.journeyStart,
@@ -415,9 +415,6 @@ export default async function GranteeDashboardContent() {
             journeyConfigured={isJourneyConfigured}
             journeyStart={grantee.journeyStart ?? null}
             journeyEnd={grantee.journeyEnd ?? null}
-            yearLevel={grantee.yearLevel}
-            entryAcademicYear={grantee.entryAcademicYear}
-            entrySemester={grantee.entrySemester}
             mapProps={{
               studentName: appUser.fullName,
               photoUrl: journeyPhotoUrl,
