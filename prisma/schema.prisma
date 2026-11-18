@@ -476,6 +476,7 @@ model AdminNotification {
   title     String
   message   String
   type      String
+  href      String?
   createdAt DateTime @default(now())
 
   @@map("admin_notifications")
@@ -726,6 +727,7 @@ enum GranteeStatus {
 enum ExitClearanceStatus {
   NONE
   SUBMITTED
+  RETURNED
   CLEARED
 }
 

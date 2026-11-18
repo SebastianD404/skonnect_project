@@ -247,7 +247,7 @@ export function KKProfilingRegistrationsTable({
     id: string,
     archiveReason: KKMemberArchiveReasonOption,
     customReason: string,
-  ) => {
+  ): Promise<{ granteeStatus: string; searchQuery: string } | void> => {
     const response = await fetch(`/api/admin/members/${id}/archive`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -255,6 +255,13 @@ export function KKProfilingRegistrationsTable({
     });
     const payload = await response.json();
     if (!response.ok) {
+      if (
+        payload?.blocker &&
+        typeof payload.blocker.granteeStatus === "string" &&
+        typeof payload.blocker.searchQuery === "string"
+      ) {
+        return payload.blocker;
+      }
       throw new Error(payload?.error || "Failed to archive profile");
     }
 

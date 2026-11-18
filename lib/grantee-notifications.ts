@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getEmailAppBaseUrl } from "@/lib/app-url";
 import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
 import {
   detectGranteeTargetTerm,
@@ -62,17 +63,7 @@ function formatDeadline(value: Date | string) {
 }
 
 function getRequirementsUrl() {
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  const configuredUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    (vercelUrl ? `https://${vercelUrl}` : null);
-  if (!configuredUrl) return null;
-
-  const appUrl = new URL(configuredUrl);
-  if (appUrl.protocol !== "https:" && appUrl.protocol !== "http:") {
-    throw new Error("The grantee requirements URL must use HTTP or HTTPS.");
-  }
+  const appUrl = new URL(getEmailAppBaseUrl());
   const hostname = appUrl.hostname.toLowerCase();
   if (
     hostname === "localhost" ||

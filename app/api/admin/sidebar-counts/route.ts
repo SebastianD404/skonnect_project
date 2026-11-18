@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { GranteeStatus, Role } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
 import { getProfilingRegistrationCountByStatusSince, prisma } from "@/lib/prisma";
@@ -115,6 +115,12 @@ export async function GET(request: NextRequest) {
         },
       }),
       getProfilingRegistrationCountByStatusSince("Approved", membersLastViewed ?? startOfToday),
+      prisma.grantee.count({
+        where: {
+          status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+          exitClearanceStatus: "SUBMITTED",
+        },
+      }),
     ]);
 
     let countResults: Awaited<ReturnType<typeof loadCounts>>;
@@ -133,6 +139,7 @@ export async function GET(request: NextRequest) {
       resubmittedProfilingRegistrationCount,
       newGranteeCount,
       approvedMemberCount,
+      exitClearanceCount,
     ] = countResults;
 
     return NextResponse.json(
@@ -147,6 +154,7 @@ export async function GET(request: NextRequest) {
           resubmittedProfilingRegistrationCount,
           newGranteeCount,
           approvedMemberCount,
+          exitClearanceCount,
         },
       },
       { headers: { "Cache-Control": "no-store, max-age=0" } }

@@ -1077,7 +1077,7 @@ async function restoreSnapshot(snapshot: BackupSnapshot, actorId: string) {
       prisma.adminNotification.createMany({ data, skipDuplicates: true }),
     (row) => {
       const id = requiredRecordId(row);
-      const fields = ["id", "sourceKey", "title", "message", "type", "createdAt"];
+      const fields = ["id", "sourceKey", "title", "message", "type", "href", "createdAt"];
       return {
         matchKeys: [idMatchKey(id)],
         createData: recordToInput<PrismaTypes.AdminNotificationCreateManyInput>(row, fields, ["createdAt"]),

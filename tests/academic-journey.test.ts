@@ -27,7 +27,7 @@ describe("academic journey configuration", () => {
     expect(ACADEMIC_JOURNEY_END_OPTIONS.every(({ value }) => !value.startsWith("vocational-"))).toBe(true);
     expect(ACADEMIC_JOURNEY_START_OPTIONS.map(({ value }) => value)).toEqual([
       "grade-7", "grade-8", "grade-9", "grade-10", "grade-11", "grade-12",
-      "college-1", "college-2", "college-3",
+      "college-1", "college-2", "college-3", "college-4", "college-5",
     ]);
     expect(ACADEMIC_JOURNEY_END_OPTIONS.map(({ value }) => value)).toEqual(["college-4", "college-5"]);
   });

@@ -6,6 +6,7 @@ type NotificationContextValue = {
   readNotificationIds: Set<string>;
   unreadCount: number;
   refreshNotifications: () => Promise<void>;
+  syncNotificationSnapshot: (unreadCount: number, readIds: string[]) => void;
   markNotificationAsRead: (notificationId: string) => Promise<boolean>;
   markAllNotificationsAsRead: () => Promise<boolean>;
 };
@@ -42,6 +43,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
+  const syncNotificationSnapshot = useCallback((unreadCount: number, readIds: string[]) => {
+    if (!Number.isFinite(unreadCount) || pendingReadIds.current.size > 0) return;
+    setServerUnreadCount(Math.max(0, Math.floor(unreadCount)));
+    setReadNotificationIds(new Set(readIds));
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
@@ -59,7 +66,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
         await refreshNotifications();
         if (cancelled) return;
-        timer = window.setInterval(refreshWhenVisible, 5000);
+        timer = window.setInterval(refreshWhenVisible, 10000);
         window.addEventListener("focus", refreshWhenVisible);
         document.addEventListener("visibilitychange", refreshWhenVisible);
       } catch {
@@ -168,9 +175,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     readNotificationIds,
     unreadCount: serverUnreadCount ?? 0,
     refreshNotifications,
+    syncNotificationSnapshot,
     markNotificationAsRead,
     markAllNotificationsAsRead,
-  }), [readNotificationIds, serverUnreadCount, refreshNotifications, markNotificationAsRead, markAllNotificationsAsRead]);
+  }), [
+    readNotificationIds,
+    serverUnreadCount,
+    refreshNotifications,
+    syncNotificationSnapshot,
+    markNotificationAsRead,
+    markAllNotificationsAsRead,
+  ]);
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }

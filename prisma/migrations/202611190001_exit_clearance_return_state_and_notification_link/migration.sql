@@ -1,0 +1,4 @@
+ALTER TYPE "ExitClearanceStatus" ADD VALUE IF NOT EXISTS 'RETURNED';
+
+ALTER TABLE "admin_notifications"
+  ADD COLUMN IF NOT EXISTS "href" TEXT;

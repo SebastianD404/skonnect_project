@@ -4,8 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { ensureProfile, getRoleHomePath } from "@/lib/auth";
+import { getEmailAppBaseUrl } from "@/lib/app-url";
 
 export type AuthState = {
   error?: string;
@@ -23,6 +23,23 @@ function isStrongPassword(value: string) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(value);
 }
 
+function getSafeLocalRedirect(value: FormDataEntryValue | null): string | null {
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    value.includes("\\")
+  ) {
+    return null;
+  }
+
+  const base = "https://skonnect.invalid";
+  const target = new URL(value, base);
+  return target.origin === base
+    ? `${target.pathname}${target.search}${target.hash}`
+    : null;
+}
+
 export async function requestPasswordReset(
   _prevState: PasswordRecoveryState,
   formData: FormData
@@ -32,14 +49,9 @@ export async function requestPasswordReset(
     return { error: "Enter the email address for your account." };
   }
 
-  const requestHeaders = await headers();
-  const origin =
-    requestHeaders.get("origin") ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "http://localhost:3000";
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/reset-password")}`,
+    redirectTo: `${getEmailAppBaseUrl()}/auth/callback?next=${encodeURIComponent("/reset-password")}`,
   });
 
   if (error) {
@@ -173,17 +185,12 @@ export async function signup(
   }
 
   const supabase = await createClient();
-  const requestHeaders = await headers();
-  const origin =
-    requestHeaders.get("origin") ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "http://localhost:3000";
   const next = "/youth/dashboard?welcome=1";
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      emailRedirectTo: `${getEmailAppBaseUrl()}/auth/callback?next=${encodeURIComponent(next)}`,
     },
   });
 
@@ -297,13 +304,12 @@ export async function login(
     };
   }
 
-  const next = (formData.get("next") as string) || "";
+  const requestedNext = formData.get("redirectTo") ?? formData.get("next");
+  const next = getSafeLocalRedirect(requestedNext);
   if (profile.mustSecureAccount) {
     const destination = profile.role === "YOUTH"
       ? "/youth/dashboard"
-      : next.startsWith("/") && !next.startsWith("//")
-        ? next
-        : "";
+      : next ?? "";
     const secureRedirect = destination
       ? `/secure-account?redirect=${encodeURIComponent(destination)}`
       : "/secure-account";
@@ -314,16 +320,15 @@ export async function login(
     return redirect("/youth/dashboard");
   }
 
-  const isSafeNext = next.startsWith("/") && !next.startsWith("//");
-  const nextRequiresGranteeRole = next.startsWith("/grantee-dashboard");
+  const nextRequiresGranteeRole = next?.startsWith("/grantee-dashboard") ?? false;
   const nextRequiresYouthRole =
-    next.startsWith("/youth-dashboard") || next.startsWith("/youth/");
+    next?.startsWith("/youth-dashboard") || next?.startsWith("/youth/");
   const nextMatchesRole =
     (!nextRequiresGranteeRole || profile.role === "GRANTEE") &&
     !nextRequiresYouthRole;
 
   // Never send a downgraded user back to a dashboard their current role cannot access.
-  if (isSafeNext && nextMatchesRole) {
+  if (next && nextMatchesRole) {
     return redirect(next);
   }
 

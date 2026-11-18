@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Circle, LoaderCircle, Settings, X } from "lucide-react";
+import { ChevronDown, GraduationCap, LoaderCircle, X } from "lucide-react";
 import AcademicJourneyMap, { type AcademicJourneyMapProps } from "@/app/components/AcademicJourneyMap";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import {
@@ -23,6 +23,37 @@ type MapProps = Omit<
 function formatYearsRemaining(semesterCount: number) {
   const years = semesterCount / 2;
   return Number.isInteger(years) ? `${years} ${years === 1 ? "year" : "years"}` : `${years} years`;
+}
+
+function getSuggestedJourneyStart(yearLevel: string) {
+  const gradeMatch = /\bgrade\s*(7|8|9|10|11|12)\b/i.exec(yearLevel);
+  if (gradeMatch) return `grade-${gradeMatch[1]}`;
+
+  const normalizedYearLevel = yearLevel.trim().toLowerCase();
+  if (/incoming freshman|new trainee/.test(normalizedYearLevel)) return "college-1";
+
+  const numericYearMatch = /\b([1-6])(?:st|nd|rd|th)?\s+year\b/i.exec(yearLevel);
+  const wordYearMatch = /\b(first|second|third|fourth|fifth|sixth)\s+year\b/i.exec(normalizedYearLevel);
+  const wordYears: Record<string, number> = {
+    first: 1,
+    second: 2,
+    third: 3,
+    fourth: 4,
+    fifth: 5,
+    sixth: 6,
+  };
+  const year = numericYearMatch
+    ? Number(numericYearMatch[1])
+    : wordYearMatch
+      ? wordYears[wordYearMatch[1]]
+      : null;
+
+  return year ? `college-${Math.min(year, 5)}` : "";
+}
+
+function getSuggestedJourneyEnd(start: string) {
+  const collegeYear = /^college-(\d+)$/.exec(start);
+  return collegeYear && Number(collegeYear[1]) >= 5 ? "college-5" : "college-4";
 }
 
 function getOptimisticMapProps(mapProps: MapProps, journeyStart: string, journeyEnd: string): MapProps {
@@ -95,11 +126,17 @@ export default function AcademicJourneySetup({
   journeyConfigured: initiallyConfigured,
   journeyStart: initialJourneyStart,
   journeyEnd: initialJourneyEnd,
+  yearLevel,
+  entryAcademicYear,
+  entrySemester,
   mapProps,
 }: {
   journeyConfigured: boolean;
   journeyStart: string | null;
   journeyEnd: string | null;
+  yearLevel: string;
+  entryAcademicYear: string | null;
+  entrySemester: string | null;
   mapProps: MapProps;
 }) {
   const router = useRouter();
@@ -112,6 +149,8 @@ export default function AcademicJourneySetup({
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState(initiallyConfigured);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const suggestedStart = getSuggestedJourneyStart(yearLevel);
+  const suggestedEntryTerm = [entryAcademicYear, entrySemester].filter(Boolean).join(" ");
   const [optimisticRange, setOptimisticRange] = useState<{
     start: string;
     end: string;
@@ -149,9 +188,14 @@ export default function AcademicJourneySetup({
 
   const openDialog = () => {
     setError(null);
-    setDraftStart(journeyStart);
+    const suggestedStartValue = journeyStart || suggestedStart;
+    setDraftStart(suggestedStartValue);
     setDraftEnd(
-      ACADEMIC_JOURNEY_END_OPTIONS.some(({ value }) => value === journeyEnd) ? journeyEnd : "",
+      ACADEMIC_JOURNEY_END_OPTIONS.some(({ value }) => value === journeyEnd)
+        ? journeyEnd
+        : suggestedStartValue
+          ? getSuggestedJourneyEnd(suggestedStartValue)
+          : "",
     );
     setShowDialog(true);
   };
@@ -201,70 +245,38 @@ export default function AcademicJourneySetup({
 
   return (
     <>
-      {configured || mapProps.isGraduated ? (
+      {configured ? (
         <AcademicJourneyMap
           {...optimisticMapProps}
           journeyStart={journeyStart}
           journeyEnd={journeyEnd}
-          onConfigureJourney={optimisticMapProps.isGraduated ? undefined : openDialog}
+          onConfigureJourney={openDialog}
         />
       ) : (
-        <section className="relative flex min-h-[420px] flex-col items-center gap-10 overflow-hidden rounded-2xl border border-slate-100 bg-white p-8 shadow-[0_8px_32px_rgba(15,23,42,0.06)] lg:min-h-[390px] lg:flex-row lg:p-12">
-          <div className="pointer-events-none absolute -right-20 -top-32 h-96 w-96 rounded-full bg-teal-50 opacity-70 blur-3xl" aria-hidden="true" />
-          <div className="relative z-10 w-full text-left lg:w-1/2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-100 bg-white/80 px-3 py-1.5">
-              <Circle className="h-2 w-2 fill-amber-500 text-amber-500" aria-hidden="true" />
-              <span className="text-xs font-bold tracking-wider text-slate-500">SETUP REQUIRED</span>
-            </div>
-            <h2 className="mt-5 text-4xl font-extrabold tracking-tight text-slate-900">
-              Map your path to <span className="text-teal-600">graduation.</span>
-            </h2>
-            <p className="mt-4 text-lg leading-relaxed text-slate-500">
-              Set your starting point and target graduation to unlock your personalized SKEAP milestone tracker.
+        <section className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-slate-100 bg-white px-6 py-12 text-center shadow-[0_8px_32px_rgba(15,23,42,0.06)] sm:px-12">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-50 to-amber-50 text-teal-700 ring-1 ring-inset ring-teal-100">
+            <GraduationCap className="h-8 w-8" aria-hidden="true" />
+          </div>
+          <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-900">
+            Set Up Your Academic Journey
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+            Confirm your degree length and expected graduation term to generate your personalized semester-by-semester SKEAP compliance roadmap.
+          </p>
+          {yearLevel || suggestedEntryTerm ? (
+            <p className="mt-3 text-xs text-slate-500">
+              Suggested from your grantee record{yearLevel ? `: ${yearLevel}` : ""}
+              {suggestedEntryTerm ? ` · Entry term ${suggestedEntryTerm}` : ""}
             </p>
-            <button
-              type="button"
-              onClick={openDialog}
-              className="mt-8 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-3 font-medium text-white transition-all hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2"
-            >
-              <Settings className="h-4 w-4" aria-hidden="true" />
-              Set Up Journey
-            </button>
-          </div>
-
-          <div className="relative z-10 flex min-h-[250px] w-full items-center justify-center lg:w-1/2" aria-label="Preview of academic journey milestones">
-            <div className="pointer-events-none absolute h-56 w-56 rounded-full bg-teal-100/70 blur-3xl" aria-hidden="true" />
-            <div className="absolute left-[5%] top-[48%] w-[min(250px,78%)] -translate-y-1/2 -rotate-[3deg] rounded-2xl border border-slate-100 bg-white p-5 shadow-lg transition-transform duration-500 hover:scale-105 sm:left-[12%]">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-slate-300 bg-slate-50 text-[10px] font-semibold text-slate-400">
-                  Y2
-                </span>
-                <div>
-                  <p className="text-xs font-semibold text-slate-500">UP NEXT</p>
-                  <p className="mt-0.5 text-sm font-medium text-slate-400">Y2 S1 milestone</p>
-                </div>
-              </div>
-              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full w-1/3 rounded-full bg-slate-300" />
-              </div>
-            </div>
-            <div className="absolute right-[3%] top-[44%] w-[min(270px,82%)] -translate-y-1/2 rotate-[2deg] rounded-2xl border border-slate-100 bg-white p-5 shadow-xl transition-transform duration-500 hover:scale-105 sm:right-[8%]">
-              <div className="flex items-center gap-3">
-                <span className="relative flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
-                  <span className="absolute inset-0 animate-ping rounded-full bg-emerald-300/30" />
-                  <span className="relative h-4 w-4 rounded-full border-4 border-white bg-emerald-500 shadow-sm" />
-                </span>
-                <div>
-                  <p className="text-[10px] font-bold tracking-[0.16em] text-emerald-600">CURRENT STEP</p>
-                  <p className="mt-0.5 text-base font-bold text-slate-900">Y1 S1</p>
-                </div>
-              </div>
-              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-                <span className="text-xs font-medium text-slate-500">Your journey begins here</span>
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              </div>
-            </div>
-          </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={openDialog}
+            className="mt-7 inline-flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2"
+          >
+            <GraduationCap className="h-4 w-4" aria-hidden="true" />
+            Set Up Your Academic Journey
+          </button>
         </section>
       )}
 
@@ -303,6 +315,13 @@ export default function AcademicJourneySetup({
                 </div>
 
                 <div className="mt-5 space-y-4">
+                  {yearLevel || suggestedEntryTerm ? (
+                    <p className="rounded-xl border border-teal-100 bg-teal-50/60 px-3 py-2.5 text-xs leading-5 text-teal-900">
+                      Suggested from your grantee record{yearLevel ? `: ${yearLevel}` : ""}
+                      {suggestedEntryTerm ? ` · Entry term ${suggestedEntryTerm}` : ""}.
+                      You can adjust these before saving.
+                    </p>
+                  ) : null}
                   <label className="block text-sm font-medium text-slate-700">
                     Starting Point
                     <span className="relative mt-1.5 block">

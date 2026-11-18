@@ -70,6 +70,9 @@ describe("AcademicJourneySetup", () => {
         journeyConfigured
         journeyStart="college-3"
         journeyEnd="college-4"
+        yearLevel="3rd Year"
+        entryAcademicYear="2026-2027"
+        entrySemester="Second Semester"
         mapProps={{
           currentSemesterIndex: 0,
           validatedSemesterIndexes: [],
@@ -103,5 +106,45 @@ describe("AcademicJourneySetup", () => {
       }),
     );
     expect(screen.getByRole("status")).toHaveTextContent("Academic journey updated.");
+  });
+
+  it("shows setup first and prefills suggestions from the grantee record", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ journeyStart: "college-3", journeyEnd: "college-4" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AcademicJourneySetup
+        journeyConfigured={false}
+        journeyStart={null}
+        journeyEnd={null}
+        yearLevel="3rd Year"
+        entryAcademicYear="2026-2027"
+        entrySemester="Second Semester"
+        mapProps={{
+          currentSemesterIndex: 0,
+          validatedSemesterIndexes: [],
+          eligibleSemesterCount: 7,
+          journeyNodes: initialJourneyNodes,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Set Up Your Academic Journey" })).toBeInTheDocument();
+    expect(screen.getByText(/Confirm your degree length and expected graduation term/)).toBeInTheDocument();
+    expect(screen.queryByTestId("journey-summary")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Set Up Your Academic Journey" }));
+    expect(screen.getByRole("combobox", { name: "Starting Point" })).toHaveValue("college-3");
+    expect(screen.getByRole("combobox", { name: "Target Graduation" })).toHaveValue("college-4");
+    expect(screen.getAllByText(/Entry term 2026-2027 Second Semester/)).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Journey" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("journey-summary")).toHaveTextContent("3 nodes / 3 eligible");
+    });
+    expect(mocks.refresh).toHaveBeenCalledOnce();
   });
 });

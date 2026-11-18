@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Archive, Eye, Loader2, Search } from "lucide-react";
+import { Archive, Eye, GraduationCap, Loader2, Search, X } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
@@ -10,16 +10,25 @@ import AcademicJourneyHoverCard from "./AcademicJourneyHoverCard";
 
 export interface GranteeTableRow {
   id: string;
+  lastName?: string | null;
+  firstName?: string | null;
+  middleName?: string | null;
+  profileFullName?: string | null;
   fullName: string;
   email: string;
   school: string;
   yearLevel: string;
   currentJourneySemesterIndex: number;
   validatedJourneySemesterIndexes: number[];
+  isDueForGraduation?: boolean;
   status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED";
   graduationReadyAt: string | null;
   isReadyForGraduation?: boolean;
-  exitClearanceStatus: "NONE" | "SUBMITTED" | "CLEARED";
+  exitClearanceStatus: "NONE" | "SUBMITTED" | "RETURNED" | "CLEARED";
+  exitClearanceUrl?: string | null;
+  exitClearanceFileName?: string | null;
+  exitClearanceSubmittedAt?: string | null;
+  graduationRemarks?: string | null;
   contactNumber: string | null;
   dateEnrolled: string;
   graduatedAt?: string | null;
@@ -103,21 +112,37 @@ export function GranteeStatusTable({
   page,
   pageSize,
   totalCount,
+  allCount = totalCount,
   query,
   onQueryChange,
+  onClearSearch,
+  dueCount = 0,
+  dueFilter = false,
+  submittedCount = 0,
+  submittedFilter = false,
+  onGranteeFilterChange,
   isLoading,
   startNavigation,
   onRevokeGrantee,
+  onReviewGrantee,
 }: {
   grantees: GranteeTableRow[];
   page: number;
   pageSize: number;
   totalCount: number;
+  allCount?: number;
   query: string;
   onQueryChange: (query: string) => void;
+  onClearSearch: () => void;
+  dueCount?: number;
+  dueFilter?: boolean;
+  submittedCount?: number;
+  submittedFilter?: boolean;
+  onGranteeFilterChange?: (filter: "all" | "due" | "submitted") => void;
   isLoading: boolean;
   startNavigation: (callback: () => void) => void;
   onRevokeGrantee?: (grantee: GranteeTableRow) => void;
+  onReviewGrantee?: (grantee: GranteeTableRow) => void;
 }) {
   const [pendingGranteeId, setPendingGranteeId] = useState<string | null>(null);
   const [isViewingGrantee, startViewTransition] = useTransition();
@@ -131,25 +156,123 @@ export function GranteeStatusTable({
     startViewTransition(() => router.push(href));
   };
 
-  const emptyMessage = query.trim()
-    ? `No active grantees match “${query.trim()}”.`
-    : "No active grantees found.";
+  const emptyMessage = submittedFilter
+    ? "No active grantees have submitted exit clearance."
+    : dueFilter
+      ? "No active grantees are due for graduation."
+      : query.trim()
+        ? `No active grantees match “${query.trim()}”.`
+        : "No active grantees found.";
+  const emptyState = (
+    <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
+      <p>{emptyMessage}</p>
+      {query.trim() ? (
+        <button
+          type="button"
+          onClick={onClearSearch}
+          className="mt-2 text-xs font-medium text-teal-700 hover:underline"
+        >
+          Clear search
+        </button>
+      ) : null}
+    </div>
+  );
 
   return (
     <div className="mt-4 flex h-fit flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-      <div className="flex flex-col items-center justify-between gap-4 border-b border-slate-100 bg-white p-4 sm:flex-row sm:p-5">
-        <label className="relative block w-full sm:w-80">
+      <div className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:p-5">
+        <div className="inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-slate-100/90 p-1">
+          <button
+            type="button"
+            onClick={() => onGranteeFilterChange?.("all")}
+            aria-pressed={!dueFilter && !submittedFilter}
+            className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 ${
+              !dueFilter && !submittedFilter
+                ? "bg-[#0C2D48] text-white shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <span>All</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+                !dueFilter && !submittedFilter
+                  ? "bg-white/15 text-white"
+                  : "bg-slate-200/80 text-slate-600"
+              }`}
+            >
+              {allCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onGranteeFilterChange?.("due")}
+            aria-pressed={dueFilter}
+            className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 ${
+              dueFilter
+                ? "bg-[#0C2D48] text-white shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <span>Due for Graduation</span>
+            {!dueFilter && dueCount > 0 ? (
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+            ) : null}
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+                dueFilter
+                  ? "bg-white/15 text-white"
+                  : dueCount > 0
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-slate-200/80 text-slate-600"
+              }`}
+            >
+              {dueCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onGranteeFilterChange?.("submitted")}
+            aria-pressed={submittedFilter}
+            className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 ${
+              submittedFilter
+                ? "bg-[#0C2D48] text-white shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <span>Clearance Submitted</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+                submittedFilter
+                  ? "bg-white/15 text-white"
+                  : "bg-slate-200/80 text-slate-600"
+              }`}
+            >
+              {submittedCount}
+            </span>
+          </button>
+        </div>
+        <div className="relative block w-full sm:w-80">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="search"
             aria-label="Search all active grantees"
             title="Search all active grantees by name, email, contact number, school, or year"
-            placeholder="Search name, email, contact, school..."
+            placeholder="Search name, email, or school..."
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm text-slate-700 shadow-sm outline-none placeholder:text-slate-400 transition-colors focus:border-cyan-500"
+            className="w-full sm:w-80 rounded-full border border-slate-200 bg-white py-2 pl-10 pr-10 text-sm text-slate-700 shadow-sm outline-none placeholder:text-slate-400 transition-colors focus:border-cyan-500"
           />
-        </label>
+          {query.length > 0 ? (
+            <button
+              type="button"
+              onClick={onClearSearch}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="relative w-full" aria-busy={isLoading}>
@@ -181,13 +304,25 @@ export function GranteeStatusTable({
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center">
-                  <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                    grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : STATUS_CLASSES[grantee.status]
-                  }`}>
-                    {STATUS_LABELS[grantee.status]}
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                      grantee.status === "ACTIVE" || grantee.status === "PROBATIONARY"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : STATUS_CLASSES[grantee.status]
+                    }`}>
+                      {STATUS_LABELS[grantee.status]}
+                    </span>
+                    {grantee.isDueForGraduation ? (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800">
+                        Due for Graduation
+                      </span>
+                    ) : null}
+                    {grantee.exitClearanceStatus === "SUBMITTED" ? (
+                      <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-1 text-[10px] font-semibold text-teal-800">
+                        Exit Clearance Pending
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
@@ -199,11 +334,7 @@ export function GranteeStatusTable({
                   </dd>
                   <dd className="mt-0.5 flex flex-wrap items-center gap-1.5">
                     <span className="text-[11px] text-slate-500">{grantee.yearLevel}</span>
-                    {grantee.exitClearanceStatus === "SUBMITTED" ? (
-                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800">
-                        Clearance Submitted
-                      </span>
-                    ) : (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
+                    {grantee.exitClearanceStatus !== "SUBMITTED" && !grantee.isDueForGraduation && (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
                       <span
                         title="Ready to Graduate"
                         className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20"
@@ -239,7 +370,16 @@ export function GranteeStatusTable({
                   Enrolled {formatDate(grantee.dateEnrolled)}
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
-                  {grantee.detailsHref ? (
+                  {grantee.exitClearanceStatus === "SUBMITTED" ? (
+                    <button
+                      type="button"
+                      onClick={() => onReviewGrantee?.(grantee)}
+                      className="inline-flex min-h-9 items-center rounded-lg bg-teal-800 px-3 text-xs font-semibold text-white transition-colors hover:bg-teal-900"
+                    >
+                      <GraduationCap className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      Review &amp; Graduate
+                    </button>
+                  ) : grantee.detailsHref ? (
                     <button
                       type="button"
                       onClick={() => handleViewGrantee(grantee)}
@@ -270,9 +410,7 @@ export function GranteeStatusTable({
             </article>
           ))}
           {!isLoading && grantees.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
-              {emptyMessage}
-            </div>
+            emptyState
           ) : null}
         </div>
 
@@ -280,15 +418,15 @@ export function GranteeStatusTable({
           className="hidden w-full overflow-x-auto whitespace-nowrap scrollbar-thin md:block"
           style={{ touchAction: "pan-x", WebkitOverflowScrolling: "touch" }}
         >
-        <table className="w-full min-w-[760px] table-fixed border-collapse text-left text-sm md:min-w-0">
+        <table className="w-full min-w-[840px] table-fixed border-collapse text-left text-sm md:min-w-0">
           <thead className="relative z-30 bg-gradient-to-r from-slate-900 to-cyan-900">
             <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
-              <th className="w-[22%] px-3 py-4 sm:px-4">Name</th>
-              <th className="w-[26%] px-3 py-4 sm:px-4">School / Year</th>
-              <th className="w-[12%] px-3 py-4 sm:px-4">Status</th>
-              <th className="w-[16%] px-3 py-4 sm:px-4">Contact number</th>
-              <th className="w-[14%] px-3 py-4 sm:px-4">Enrolled</th>
-              <th className="w-[10%] px-3 py-4 text-right sm:px-4">Action</th>
+              <th className="w-[20%] px-3 py-4 sm:px-4">Name</th>
+              <th className="w-[24%] px-3 py-4 sm:px-4">School / Year</th>
+              <th className="w-[13%] px-3 py-4 sm:px-4">Status</th>
+              <th className="w-[15%] px-3 py-4 sm:px-4">Contact number</th>
+              <th className="w-[12%] px-3 py-4 sm:px-4">Enrolled</th>
+              <th className="w-[16%] px-3 py-4 text-right sm:px-4">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white text-sm" aria-busy={isLoading}>
@@ -323,11 +461,7 @@ export function GranteeStatusTable({
                         <span className="text-xs text-slate-500 md:min-w-0 md:truncate" title={grantee.yearLevel}>
                           {grantee.yearLevel}
                         </span>
-                        {grantee.exitClearanceStatus === "SUBMITTED" ? (
-                          <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800">
-                            Clearance Submitted
-                          </span>
-                        ) : (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
+                        {grantee.exitClearanceStatus !== "SUBMITTED" && !grantee.isDueForGraduation && (grantee.isReadyForGraduation ?? Boolean(grantee.graduationReadyAt)) ? (
                           <span
                             title="Ready to Graduate"
                             className="inline-flex shrink-0 items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20"
@@ -338,10 +472,20 @@ export function GranteeStatusTable({
                       </div>
                     </td>
                     <td className="align-middle px-3 py-4 sm:px-4">
-                      <div className="flex items-center">
+                      <div className="flex flex-col items-start gap-1">
                         <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STATUS_CLASSES[grantee.status]}`}>
                           {STATUS_LABELS[grantee.status]}
                         </span>
+                        {grantee.isDueForGraduation ? (
+                          <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                            Due for Graduation
+                          </span>
+                        ) : null}
+                        {grantee.exitClearanceStatus === "SUBMITTED" ? (
+                          <span className="inline-flex rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-800">
+                            Exit Clearance Pending
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td className="truncate px-3 py-4 sm:px-4" title={grantee.contactNumber ?? undefined}>
@@ -358,7 +502,16 @@ export function GranteeStatusTable({
                     </td>
                     <td className="px-3 py-4 text-right sm:px-4">
                       <div className="inline-flex items-center justify-end gap-2">
-                        {grantee.detailsHref ? (
+                        {grantee.exitClearanceStatus === "SUBMITTED" ? (
+                          <button
+                            type="button"
+                            onClick={() => onReviewGrantee?.(grantee)}
+                            className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg bg-teal-800 px-2.5 text-xs font-semibold text-white transition-colors hover:bg-teal-900"
+                          >
+                            Review &amp; Graduate
+                          </button>
+                        ) : null}
+                        {grantee.detailsHref && grantee.exitClearanceStatus !== "SUBMITTED" ? (
                           <button
                             type="button"
                             onClick={() => handleViewGrantee(grantee)}
@@ -409,9 +562,7 @@ export function GranteeStatusTable({
           </tbody>
         </table>
         {!isLoading && grantees.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-slate-500">
-            {emptyMessage}
-          </div>
+          emptyState
         ) : null}
         </div>
       </div>

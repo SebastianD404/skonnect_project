@@ -245,6 +245,8 @@ export async function POST(
           dateEnrolled: promotionTime,
           entryAcademicYear: entryTerm.schoolYear,
           entrySemester: entryTerm.semester,
+          journeyStart: null,
+          journeyEnd: null,
         },
         update: {
           school: normalizeSkeapSchoolName(application.school || application.currentCourse || GRANTEE_PLACEHOLDER_SCHOOL),

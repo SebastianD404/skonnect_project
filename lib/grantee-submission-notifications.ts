@@ -84,24 +84,6 @@ type SubmissionReviewEmailInput = {
   reviewerNotes?: string | null;
 };
 
-function getAppUrl() {
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  const configuredUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    (vercelUrl ? `https://${vercelUrl}` : null) ||
-    (process.env.NODE_ENV === "development" ? "http://localhost:3000" : null);
-  if (!configuredUrl) {
-    throw new Error("Set NEXT_PUBLIC_APP_URL or VERCEL_URL to create submission review email links.");
-  }
-
-  const appUrl = new URL(configuredUrl);
-  if (appUrl.protocol !== "https:" && appUrl.protocol !== "http:") {
-    throw new Error("The submission review email URL must use HTTP or HTTPS.");
-  }
-  return appUrl.toString();
-}
-
 export async function sendGranteeSubmissionReviewEmail({
   stage,
   submissionId,
@@ -126,7 +108,6 @@ export async function sendGranteeSubmissionReviewEmail({
       semesterLabel: semester,
       documentLabel,
       reviewerNotes: reviewerNotes?.trim() || "",
-      appUrl: getAppUrl(),
     });
     const transporter = createGmailTransporter();
     await sendTransactionalEmail(

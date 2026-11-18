@@ -24,6 +24,13 @@ export function normalizePlaceOfBirthKey(value: string) {
   return value.trim().replace(/\s+/g, " ").replace(/[.\s,-]+/g, "").toUpperCase();
 }
 
+export function getCanonicalPlaceOfBirth(
+  profilePlaceOfBirth: string | null | undefined,
+  submittedPlaceOfBirth: string,
+) {
+  return profilePlaceOfBirth?.trim() || submittedPlaceOfBirth.trim();
+}
+
 export function validatePlaceOfBirth(value: string): string | null {
   const trimmed = value.trim().replace(/\s+/g, " ");
   const compact = normalizePlaceOfBirthKey(trimmed);

@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { prisma } from "@/lib/prisma";
+import { getEmailAppBaseUrl } from "@/lib/app-url";
 
 const db = prisma;
 
@@ -38,20 +39,7 @@ export function createGmailTransporter() {
 }
 
 export function getSkeapDashboardUrl() {
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  const configuredUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    (vercelUrl ? `https://${vercelUrl}` : null);
-  if (!configuredUrl) {
-    throw new Error("Set NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_SITE_URL to create the grantee dashboard link.");
-  }
-
-  const baseUrl = new URL(configuredUrl);
-  if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
-    throw new Error("The grantee dashboard URL must use HTTP or HTTPS.");
-  }
-  return new URL("/", baseUrl).toString();
+  return new URL("/grantee-dashboard", getEmailAppBaseUrl()).toString();
 }
 
 export function buildBroadcastHtml(subject: string, body: string) {
@@ -96,7 +84,6 @@ export interface SubmissionReviewEmailInput {
   semesterLabel: string;
   documentLabel?: string;
   reviewerNotes?: string | null;
-  appUrl: string;
 }
 
 export function buildSubmissionReviewEmail({
@@ -105,13 +92,13 @@ export function buildSubmissionReviewEmail({
   semesterLabel,
   documentLabel = "submission",
   reviewerNotes,
-  appUrl,
 }: SubmissionReviewEmailInput) {
-  const trimmedNotes = reviewerNotes?.trim() || "";
+  const trimmedNotes =
+    reviewerNotes && reviewerNotes.trim().length > 0 ? reviewerNotes.trim() : "";
   const safeName = escapeHtml(granteeFullName);
   const safeSemester = escapeHtml(semesterLabel);
   const safeDocument = escapeHtml(documentLabel);
-  const appLink = new URL("/grantee-dashboard/documents", appUrl);
+  const appLink = new URL("/grantee-dashboard/documents", getEmailAppBaseUrl());
   if (appLink.protocol !== "https:" && appLink.protocol !== "http:") {
     throw new Error("The submission review URL must use HTTP or HTTPS.");
   }
@@ -193,6 +180,66 @@ export function buildSubmissionReviewEmail({
 </html>`;
 
   return { subject: title, text, html };
+}
+
+export interface ExitClearanceReturnedEmailInput {
+  granteeFullName: string;
+  remarks: string;
+  dashboardUrl: string;
+}
+
+export function buildExitClearanceReturnedEmail({
+  granteeFullName,
+  remarks,
+  dashboardUrl,
+}: ExitClearanceReturnedEmailInput) {
+  const dashboardLink = new URL(dashboardUrl);
+  if (dashboardLink.protocol !== "https:" && dashboardLink.protocol !== "http:") {
+    throw new Error("The grantee dashboard URL must use HTTP or HTTPS.");
+  }
+
+  const name = granteeFullName.trim() || "Scholar";
+  const reason = remarks.trim();
+  const safeName = escapeHtml(name);
+  const safeReason = escapeHtml(reason);
+  const safeDashboardUrl = escapeHtml(dashboardLink.toString());
+  const subject = "Action Required: Re-upload Your SKEAP Exit Clearance";
+  const text = [
+    `Dear ${name},`,
+    "",
+    "Your SKEAP Exit Clearance was returned for re-upload. Please review the SK Admin's reason and upload a clearer copy.",
+    "",
+    "Reason from SK Admin:",
+    reason,
+    "",
+    `Open your Grantee Dashboard: ${dashboardLink.toString()}`,
+    "",
+    "SK Council of Barangay Pico",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;background:#eef5f8;padding:40px 16px;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #d7e3e8;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(15,61,92,0.08);">
+      <div style="height:5px;background:#16a3b8;font-size:0;line-height:0;">&nbsp;</div>
+      <div style="padding:28px 32px 24px;background:#0f3d5c;color:#ffffff;">
+        <p style="margin:0;font-size:11px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;color:#9fe4eb;">SKONNECT · SKEAP</p>
+        <h1 style="margin:12px 0 0;font-size:25px;line-height:1.25;color:#ffffff;">${escapeHtml(subject)}</h1>
+      </div>
+      <div style="padding:30px 32px 32px;">
+        <p style="margin:0 0 16px;color:#0f172a;font-size:15px;line-height:1.6;">Dear ${safeName},</p>
+        <p style="margin:0;color:#475569;font-size:14px;line-height:1.75;">Your SKEAP Exit Clearance was returned for re-upload. Please review the SK Admin's reason and upload a clearer copy.</p>
+        <div style="margin:24px 0 0;background:#f8fafc;border-left:3px solid #0f766e;padding:12px 14px;border-radius:8px;">
+          <p style="margin:0 0 6px;color:#475569;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;">Reason from SK Admin</p>
+          <p style="margin:0;color:#334155;font-size:14px;line-height:1.65;white-space:pre-line;">${safeReason}</p>
+        </div>
+        <a href="${safeDashboardUrl}" style="display:block;margin:24px 0 0;border-radius:8px;background:#0f3d56;padding:14px 20px;color:#ffffff;text-align:center;text-decoration:none;font-size:14px;font-weight:700;">Open Grantee Dashboard</a>
+      </div>
+      <div style="border-top:1px solid #d7e3e8;padding:18px 32px;color:#64748b;font-size:12px;line-height:1.5;">Sangguniang Kabataan of Barangay Pico · La Trinidad, Benguet</div>
+    </div>
+  </body>
+</html>`;
+
+  return { subject, text, html };
 }
 
 export interface GranteeApprovalEmailInput {

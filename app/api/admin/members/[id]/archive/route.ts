@@ -48,6 +48,14 @@ export async function PATCH(
               grantee: {
                 select: { id: true, status: true, remarks: true },
               },
+              kkProfile: {
+                select: {
+                  fullName: true,
+                  firstName: true,
+                  middleName: true,
+                  lastName: true,
+                },
+              },
               fullName: true,
             },
           },
@@ -63,8 +71,28 @@ export async function PATCH(
         registration.user?.grantee?.status === "ACTIVE" ||
         registration.user?.grantee?.status === "PROBATIONARY"
       ) {
+        const profileName = registration.user.kkProfile;
+        const searchQuery = [
+          profileName?.lastName,
+          profileName?.firstName,
+          profileName?.middleName,
+        ]
+          .filter((name): name is string => Boolean(name?.trim()))
+          .join(" ")
+          .replace(/[.,]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim() ||
+          (profileName?.fullName ?? registration.fullName)
+            .replace(/[.,]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
         return {
           error: "Active SKEAP grantees must be managed in Active Grantees before archiving their KK profile.",
+          code: "ACTIVE_GRANTEE_ARCHIVE_BLOCKED",
+          blocker: {
+            granteeStatus: registration.user.grantee.status,
+            searchQuery,
+          },
           status: 400 as const,
         };
       }
@@ -124,7 +152,14 @@ export async function PATCH(
     });
 
     if ("error" in result) {
-      return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json(
+        {
+          error: result.error,
+          ...("code" in result ? { code: result.code } : {}),
+          ...("blocker" in result ? { blocker: result.blocker } : {}),
+        },
+        { status: result.status },
+      );
     }
 
     const archiveNotification = await notifyProfileArchived({

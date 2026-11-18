@@ -17,17 +17,22 @@ interface RegistrationRowActionsProps {
     id: string,
     reason: KKMemberArchiveReasonOption,
     customReason: string,
-  ) => Promise<void>;
+  ) => Promise<ArchiveBlocker | void>;
   onUpdate: (registration: KKProfilingRegistration) => void;
   onStatusUpdate: (status: "Approved" | "Returned" | "Rejected" | "For Physical CTC", registrationId: string) => void;
   compact?: boolean;
   cardView?: boolean;
 }
 
+interface ArchiveBlocker {
+  granteeStatus: string;
+  searchQuery: string;
+}
+
 export function KKProfilingRowActions({ registration, onArchive, onUpdate, onStatusUpdate, compact = false, cardView = false }: RegistrationRowActionsProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [showActiveGranteeGuard, setShowActiveGranteeGuard] = useState(false);
+  const [archiveBlocker, setArchiveBlocker] = useState<ArchiveBlocker | null>(null);
   const [confirmAction, setConfirmAction] = useState<"archive" | null>(null);
   const [archiveReason, setArchiveReason] = useState<KKMemberArchiveReasonOption | "">("");
   const [customArchiveReason, setCustomArchiveReason] = useState("");
@@ -38,6 +43,21 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
   const [editForm, setEditForm] = useState<KKProfilingRegistration>(registration);
   const granteeStatus = (registration.user?.grantee?.status ?? registration.skeapStatus)?.toUpperCase();
   const isActiveGrantee = granteeStatus === "ACTIVE" || granteeStatus === "PROBATIONARY";
+  const profileName = registration.user?.kkProfile ?? registration.kkProfile;
+  const profileSearchQuery = [
+    profileName?.lastName,
+    profileName?.firstName,
+    profileName?.middleName,
+  ]
+    .filter((name): name is string => Boolean(name?.trim()))
+    .join(" ")
+    .replace(/[.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() ||
+    (profileName?.fullName ?? registration.fullName)
+      .replace(/[.,]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
   const handleConfirmAction = async () => {
     const isCustomReasonValid =
@@ -46,7 +66,12 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
     setIsConfirmingAction(true);
     setActionError(null);
     try {
-      await onArchive(registration.id, archiveReason, customArchiveReason);
+      const result = await onArchive(registration.id, archiveReason, customArchiveReason);
+      if (result) {
+        setArchiveBlocker(result);
+        setConfirmAction(null);
+        return;
+      }
       setConfirmAction(null);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Failed to update profile");
@@ -109,7 +134,10 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
         isActiveGrantee ? (
           <button
             type="button"
-            onClick={() => setShowActiveGranteeGuard(true)}
+            onClick={() => setArchiveBlocker({
+              granteeStatus: granteeStatus ?? "ACTIVE",
+              searchQuery: profileSearchQuery,
+            })}
             className={`group inline-flex ${cardView ? "h-9 w-9 rounded-lg" : compact ? "h-8 w-8 rounded-full" : "h-10 w-10 rounded-full"} items-center justify-center border border-slate-200 bg-slate-100 text-slate-500 transition hover:bg-slate-200`}
             title="Active SKEAP grantees must be managed in Active Grantees first"
             aria-label="Active SKEAP grantee archive restriction"
@@ -388,7 +416,7 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
         </div>
       )}
 
-      {showActiveGranteeGuard && typeof document !== "undefined" ? createPortal(
+      {archiveBlocker && typeof document !== "undefined" ? createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
           <section
             role="dialog"
@@ -404,17 +432,25 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 id="active-grantee-archive-title" className="text-lg font-bold tracking-tight text-slate-900">
-                    Manage in Active Grantees first
+                    {archiveBlocker.granteeStatus === "GRADUATED"
+                      ? "View in Graduated Grantees"
+                      : archiveBlocker.granteeStatus === "REVOKED" || archiveBlocker.granteeStatus === "REMOVED"
+                        ? "View in Revoked Grantees"
+                        : "Manage in Grantees first"}
                   </h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    This youth is currently an Active SKEAP Grantee. Update or close their scholarship status in Active Grantees before archiving their KK profile.
+                    {archiveBlocker.granteeStatus === "GRADUATED"
+                      ? "This scholar’s record is in the graduated grantee archive."
+                      : archiveBlocker.granteeStatus === "REVOKED" || archiveBlocker.granteeStatus === "REMOVED"
+                        ? "This scholar’s record is in the revoked grantee list."
+                        : "This youth is currently an Active SKEAP Grantee. Update or close their scholarship status in Grantees before archiving their KK profile."}
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowActiveGranteeGuard(false)}
+                  onClick={() => setArchiveBlocker(null)}
                   className="shrink-0 rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                  aria-label="Close Active Grantee notice"
+                  aria-label="Close grantee notice"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -422,18 +458,16 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
               <div className="mt-5 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  onClick={() => setShowActiveGranteeGuard(false)}
+                  onClick={() => setArchiveBlocker(null)}
                   className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
                   Cancel
                 </button>
                 <Link
-                  href={registration.fullName?.trim()
-                    ? `/admin/grantees?search=${encodeURIComponent(registration.fullName.trim())}`
-                    : "/admin/grantees"}
+                  href={getArchiveBlockerHref(archiveBlocker)}
                   className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                 >
-                  Go to Active Grantees →
+                  {getArchiveBlockerLabel(archiveBlocker)} →
                 </Link>
               </div>
             </div>
@@ -564,4 +598,22 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
       ) : null}
     </div>
   );
+}
+
+function getArchiveBlockerHref(blocker: ArchiveBlocker) {
+  const search = blocker.searchQuery.trim();
+  const encodedSearch = search ? `?search=${encodeURIComponent(search)}` : "";
+  if (blocker.granteeStatus === "GRADUATED") return `/admin/grantees/records${encodedSearch}`;
+  if (blocker.granteeStatus === "REVOKED" || blocker.granteeStatus === "REMOVED") {
+    return `/admin/skeap/revoked${encodedSearch}`;
+  }
+  return `/admin/grantees${encodedSearch}`;
+}
+
+function getArchiveBlockerLabel(blocker: ArchiveBlocker) {
+  if (blocker.granteeStatus === "GRADUATED") return "Go to Graduated Grantees";
+  if (blocker.granteeStatus === "REVOKED" || blocker.granteeStatus === "REMOVED") {
+    return "Go to Revoked Grantees";
+  }
+  return "Go to Grantees";
 }

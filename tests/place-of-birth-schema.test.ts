@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getCanonicalPlaceOfBirth,
   getPlaceOfBirthSuggestion,
   PLACE_OF_BIRTH_ERROR_MESSAGE,
   placeOfBirthSchema,
@@ -42,5 +43,14 @@ describe("placeOfBirthSchema", () => {
 
   it("trims surrounding whitespace", () => {
     expect(placeOfBirthSchema.parse("  Baguio City  ")).toBe("Baguio City");
+  });
+
+  it("uses the KK profile value over a submitted value", () => {
+    expect(getCanonicalPlaceOfBirth("  La Trinidad, Benguet  ", "Baguio City"))
+      .toBe("La Trinidad, Benguet");
+  });
+
+  it("uses the submitted value when the KK profile value is missing", () => {
+    expect(getCanonicalPlaceOfBirth(null, "  Baguio City  ")).toBe("Baguio City");
   });
 });

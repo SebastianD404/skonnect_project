@@ -10,6 +10,8 @@ export const ACADEMIC_JOURNEY_START_OPTIONS = [
   { value: "college-1", label: "1st Year College" },
   { value: "college-2", label: "2nd Year College" },
   { value: "college-3", label: "3rd Year College" },
+  { value: "college-4", label: "4th Year College" },
+  { value: "college-5", label: "5th Year College" },
 ] as const;
 
 export const ACADEMIC_JOURNEY_END_OPTIONS = [

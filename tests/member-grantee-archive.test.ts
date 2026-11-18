@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   refreshKkAdminView: vi.fn(),
   refreshSkeapAdminView: vi.fn(),
   closeSkeapApplications: vi.fn(),
+  notifyProfileArchived: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -36,6 +37,9 @@ vi.mock("@/lib/kk-archive-skeap-applications", () => ({
 
 vi.mock("@/lib/kk-profile-sync", () => ({
   syncKkProfileFromLatestRegistration: vi.fn(),
+}));
+vi.mock("@/lib/notify-profile-archived", () => ({
+  notifyProfileArchived: mocks.notifyProfileArchived,
 }));
 
 import { PATCH } from "@/app/api/admin/members/[id]/archive/route";
@@ -84,6 +88,10 @@ describe("KK member profile archive lifecycle", () => {
     mocks.writeAuditLog.mockResolvedValue(undefined);
     mocks.refreshKkAdminView.mockResolvedValue(undefined);
     mocks.refreshSkeapAdminView.mockResolvedValue(undefined);
+    mocks.notifyProfileArchived.mockResolvedValue({
+      emailStatus: "SENT",
+      inAppStatus: "SENT",
+    });
   });
 
   it("blocks archiving an active SKEAP grantee in the KK registry", async () => {
@@ -92,7 +100,17 @@ describe("KK member profile archive lifecycle", () => {
       userId: "user-id",
       reviewStatus: "Approved",
       fullName: "Aldrin Jay Acosta",
-      user: { id: "user-id", grantee: { id: "grantee-id", status: "ACTIVE" } },
+      user: {
+        id: "user-id",
+        fullName: "Aldrin Jay Acosta",
+        grantee: { id: "grantee-id", status: "ACTIVE" },
+        kkProfile: {
+          fullName: "LUMEREZ, LEIZEL, PALANGCHAN",
+          lastName: "Lumerez",
+          firstName: "Leizel",
+          middleName: "Palangchan",
+        },
+      },
     });
 
     const response = await PATCH(requestWithReason("Transferred Residence"), {
@@ -102,6 +120,11 @@ describe("KK member profile archive lifecycle", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: "Active SKEAP grantees must be managed in Active Grantees before archiving their KK profile.",
+      code: "ACTIVE_GRANTEE_ARCHIVE_BLOCKED",
+      blocker: {
+        granteeStatus: "ACTIVE",
+        searchQuery: "Lumerez Leizel Palangchan",
+      },
     });
     expect(mocks.updateRegistration).not.toHaveBeenCalled();
     expect(mocks.closeSkeapApplications).not.toHaveBeenCalled();
@@ -135,7 +158,7 @@ describe("KK member profile archive lifecycle", () => {
   });
 
   it("does not close SKEAP applications for a duplicate-record archive", async () => {
-    const response = await PATCH(requestWithReason("Duplicate Record"), {
+    const response = await PATCH(requestWithReason("Duplicate or Invalid Record"), {
       params: Promise.resolve({ id: "profile-id" }),
     });
 

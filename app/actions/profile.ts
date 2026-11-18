@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { refreshSystemUsersAdminView } from "@/lib/application-admin-view-refresh";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
-import { headers } from "next/headers";
+import { getEmailAppBaseUrl } from "@/lib/app-url";
 import {
   GRANTEE_PLACEHOLDER_SCHOOL,
   GRANTEE_PLACEHOLDER_YEAR_LEVEL,
@@ -131,12 +131,10 @@ export async function updateProfileName(
   }
 
   if (sessionEmail !== email) {
-    const requestHeaders = await headers();
-    const origin = requestHeaders.get("origin") || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     console.log("Submitting new email:", email);
     const { error: authUpdateError } = await supabase.auth.updateUser(
       { email },
-      { emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/profile")}` }
+      { emailRedirectTo: `${getEmailAppBaseUrl()}/auth/callback?next=${encodeURIComponent("/profile")}` }
     );
 
     if (authUpdateError) {

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAdminSearch } from "./AdminSearchContext";
 import { GranteeStatusTable, type GranteeTableRow } from "./grantees/GranteeStatusTable";
+import GraduationAction from "./grantees/[id]/GraduationAction";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
 import RevokeGranteeModal from "./submissions/RevokeGranteeModal";
 
@@ -18,7 +19,12 @@ interface AdminGranteesPageClientProps {
   page: number;
   pageSize: number;
   totalCount: number;
+  allCount?: number;
   query: string;
+  dueCount?: number;
+  dueFilter?: boolean;
+  submittedCount?: number;
+  submittedFilter?: boolean;
 }
 
 export default function AdminGranteesPageClient({
@@ -26,29 +32,31 @@ export default function AdminGranteesPageClient({
   page,
   pageSize,
   totalCount,
+  allCount = totalCount,
   query,
+  dueCount = 0,
+  dueFilter = false,
+  submittedCount = 0,
+  submittedFilter = false,
 }: AdminGranteesPageClientProps) {
   const { searchQuery, setSearchQuery } = useAdminSearch();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, startTransition] = useTransition();
-  const [hasEditedSearch, setHasEditedSearch] = useState(false);
-  const initializedRouteQuery = useRef(false);
-  const lastRouteQuery = useRef(query);
+  const routeQuery = searchParams.get("q") ?? searchParams.get("search") ?? "";
+  const graduateId = searchParams.get("graduateId");
+  const [graduationCandidate, setGraduationCandidate] = useState<GranteeTableRow | null>(() => {
+    const linkedId = searchParams.get("graduateId");
+    return linkedId ? grantees.find((grantee) => grantee.id === linkedId) ?? null : null;
+  });
 
   useEffect(() => {
-    if (!initializedRouteQuery.current || lastRouteQuery.current !== query) {
-      initializedRouteQuery.current = true;
-      lastRouteQuery.current = query;
-      if (searchQuery.trim() !== query) {
-        setSearchQuery(query);
-        return;
-      }
-    }
+    setSearchQuery(routeQuery);
+  }, [routeQuery, setSearchQuery]);
 
+  useEffect(() => {
     const nextQuery = searchQuery.trim();
-    const routeQuery = searchParams.get("q") ?? searchParams.get("search") ?? "";
     if (routeQuery === nextQuery) return;
 
     const timeout = window.setTimeout(() => {
@@ -64,8 +72,69 @@ export default function AdminGranteesPageClient({
     }, 250);
 
     return () => window.clearTimeout(timeout);
-  }, [pathname, query, router, searchParams, searchQuery, setSearchQuery, startTransition]);
-  const isSearchLoading = hasEditedSearch && searchQuery.trim() !== query;
+  }, [pathname, router, routeQuery, searchParams, searchQuery, startTransition]);
+
+  useEffect(() => {
+    if (!graduateId) return;
+    const candidate = grantees.find((grantee) => grantee.id === graduateId);
+    if (!candidate) return;
+    if (graduationCandidate?.id !== candidate.id) {
+      void Promise.resolve().then(() => setGraduationCandidate(candidate));
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("graduateId");
+    const queryString = params.toString();
+    startTransition(() => {
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    });
+  }, [graduateId, grantees, graduationCandidate?.id, pathname, router, searchParams, startTransition]);
+
+  const queryTokens = normalizeTokens(searchQuery);
+  const visibleGrantees = grantees.filter((grantee) => {
+    const haystack = [
+      grantee.lastName,
+      grantee.firstName,
+      grantee.middleName,
+      grantee.fullName,
+      grantee.profileFullName,
+      grantee.email,
+      grantee.school,
+      grantee.contactNumber,
+      grantee.yearLevel,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .replace(/[.,]/g, " ");
+    return queryTokens.every((token) => haystack.includes(token));
+  });
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("q");
+    params.delete("search");
+    params.set("page", "1");
+    const queryString = params.toString();
+    startTransition(() => {
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    });
+  };
+
+  const changeGranteeFilter = (filter: "all" | "due" | "submitted") => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (filter === "due" || filter === "submitted") params.set("filter", filter);
+    else params.delete("filter");
+    params.set("page", "1");
+    const queryString = params.toString();
+    startTransition(() => {
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    });
+  };
+
+  const isSearchLoading = searchQuery.trim() !== query;
+  const activeGraduationCandidate = graduationCandidate;
   const [scholarshipCandidate, setScholarshipCandidate] = useState<GranteeTableRow | null>(null);
   const [isRevokingGrantee, setIsRevokingGrantee] = useState(false);
   const [revocationError, setRevocationError] = useState<string | null>(null);
@@ -169,18 +238,23 @@ export default function AdminGranteesPageClient({
         </header>
 
         <GranteeStatusTable
-          grantees={grantees}
+          grantees={visibleGrantees}
           page={page}
           pageSize={pageSize}
           totalCount={totalCount}
-          query={hasEditedSearch ? searchQuery : query}
-          onQueryChange={(value) => {
-            setHasEditedSearch(true);
-            setSearchQuery(value);
-          }}
+          allCount={allCount}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          onClearSearch={clearSearch}
+          dueCount={dueCount}
+          dueFilter={dueFilter}
+          submittedCount={submittedCount}
+          submittedFilter={submittedFilter}
+          onGranteeFilterChange={changeGranteeFilter}
           isLoading={isLoading || isSearchLoading}
           startNavigation={(callback) => startTransition(callback)}
           onRevokeGrantee={handleRevokeGranteeRequest}
+          onReviewGrantee={setGraduationCandidate}
         />
       </div>
       {scholarshipCandidate ? (
@@ -207,6 +281,19 @@ export default function AdminGranteesPageClient({
           }}
         />
       ) : null}
+      {activeGraduationCandidate ? (
+        <GraduationAction
+          key={activeGraduationCandidate.id}
+          granteeId={activeGraduationCandidate.id}
+          granteeName={activeGraduationCandidate.fullName}
+          exitClearanceUrl={activeGraduationCandidate.exitClearanceUrl ?? null}
+          exitClearanceFileName={activeGraduationCandidate.exitClearanceFileName ?? null}
+          exitClearanceSubmittedAt={activeGraduationCandidate.exitClearanceSubmittedAt ?? null}
+          initiallyOpen
+          hideTrigger
+          onClose={() => setGraduationCandidate(null)}
+        />
+      ) : null}
       {revocationSuccess ? (
         <FloatingFeedback
           message={revocationSuccess}
@@ -216,4 +303,12 @@ export default function AdminGranteesPageClient({
       ) : null}
     </>
   );
+}
+
+function normalizeTokens(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[.,]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
 }

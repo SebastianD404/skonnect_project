@@ -22,7 +22,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  getAcademicJourneyTerms,
   getAcademicJourneyTermsForRange,
   normalizeAcademicJourneyStepStatus,
   type AcademicJourneyNode,
@@ -33,7 +32,6 @@ import type { LucideIcon } from "lucide-react";
 export type AcademicJourneyMapProps = {
   studentName?: string;
   photoUrl?: string;
-  totalYears?: number;
   currentSemesterIndex: number;
   validatedSemesterIndexes: number[];
   currentStepStatus?: AcademicJourneyStepStatus;
@@ -186,7 +184,6 @@ const STEP_STATUS_CONFIG: Record<
 export default function AcademicJourneyMap({
   studentName,
   photoUrl,
-  totalYears = 4,
   currentSemesterIndex,
   validatedSemesterIndexes,
   currentStepStatus = "scheduled_locked",
@@ -209,7 +206,6 @@ export default function AcademicJourneyMap({
   const [hasMoreRight, setHasMoreRight] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null);
-  const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const terms = useMemo(
     () => journeyNodes?.length
       ? journeyNodes.map((node, index) => {
@@ -224,8 +220,8 @@ export default function AcademicJourneyMap({
         })
       : journeyStart && journeyEnd
         ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd)
-        : getAcademicJourneyTerms(years),
-    [journeyEnd, journeyStart, journeyNodes, years],
+        : [],
+    [journeyEnd, journeyStart, journeyNodes],
   );
   const journeyYears = terms.length / 2;
   const termCount = terms.length;
@@ -458,6 +454,8 @@ export default function AcademicJourneyMap({
       window.removeEventListener("resize", centerCurrentNode);
     };
   }, [focusedIndex, termCount, trackWidth]);
+
+  if (termCount === 0) return null;
 
   if (compact) {
     const progressStart = termCount > 1

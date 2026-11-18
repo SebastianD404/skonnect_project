@@ -5,6 +5,12 @@ export interface KKProfilingRegistration {
   user?: {
     fullName?: string | null;
     email?: string | null;
+    kkProfile?: {
+      fullName?: string | null;
+      firstName?: string | null;
+      middleName?: string | null;
+      lastName?: string | null;
+    } | null;
     grantee?: {
       id: string;
       status: string;

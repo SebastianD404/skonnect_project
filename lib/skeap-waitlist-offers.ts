@@ -2,6 +2,7 @@ import { ReminderType, type Prisma } from "@prisma/client";
 import { createGmailTransporter, sendTransactionalEmail } from "@/lib/broadcast-email";
 import { getAcademicYearDateRange } from "@/lib/semester";
 import { prisma } from "@/lib/prisma";
+import { getEmailAppBaseUrl } from "@/lib/app-url";
 import {
   DEFAULT_SKEAP_WAITLIST_OFFER_DAYS,
   MAX_SKEAP_WAITLIST_OFFER_DAYS,
@@ -157,21 +158,7 @@ function escapeEmailHtml(value: string) {
 }
 
 function getSkeapDashboardUrl() {
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  const configuredUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    (vercelUrl ? `https://${vercelUrl}` : null) ||
-    (process.env.NODE_ENV !== "production" ? "http://localhost:3000" : null);
-  if (!configuredUrl) {
-    throw new Error("Set NEXT_PUBLIC_APP_URL or VERCEL_URL to create SKEAP waitlist links.");
-  }
-
-  const appUrl = new URL(configuredUrl);
-  if (appUrl.protocol !== "https:" && appUrl.protocol !== "http:") {
-    throw new Error("The SKEAP dashboard URL must use HTTP or HTTPS.");
-  }
-  return new URL("/youth-dashboard", appUrl).toString();
+  return new URL("/youth-dashboard", getEmailAppBaseUrl()).toString();
 }
 
 export function buildWaitlistOfferEmailTemplate({

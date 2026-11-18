@@ -77,7 +77,7 @@ Remove-Item Env:SEED_DEMO_DATA
 
 ### Payout confirmation email links
 
-Set `NEXT_PUBLIC_APP_URL` to the canonical public origin of the deployed app (for example, `https://skonnect.example`). Vercel deployments can use the platform-provided `VERCEL_URL`. Local development falls back to `http://localhost:3000`; that link is only reachable from the developer's own machine. After correcting the URL, retry the payout email from Admin Accounting without disbursing the payout again.
+Set `NEXT_PUBLIC_APP_URL` (or server-only `APP_URL`) to the canonical public origin of the deployed app. Production defaults to `https://skonnect-project-three.vercel.app`; deployment-specific `VERCEL_URL` values are intentionally not used for public links. Local development falls back to `http://localhost:3000`. After correcting the URL, retry the payout email from Admin Accounting without disbursing the payout again.
 
 ### Private application documents
 

@@ -6,6 +6,14 @@ import { prisma } from "@/lib/prisma";
 import { isPermanentlyBarredFromSkeap } from "@/lib/skeap-application-guard";
 import RevokedGranteesTable from "./RevokedGranteesTable";
 
+function normalizeTokens(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[.,]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
 export default async function RevokedGranteesPage({
   searchParams,
 }: {
@@ -13,6 +21,7 @@ export default async function RevokedGranteesPage({
     page?: string | string[];
     pageSize?: string | string[];
     q?: string | string[];
+    search?: string | string[];
   }>;
 }) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
@@ -22,43 +31,78 @@ export default async function RevokedGranteesPage({
   const requestedPage = Number(getParam(resolved.page) || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const pageSize = normalizeAdminTablePageSize(Number(getParam(resolved.pageSize)));
-  const query = String(getParam(resolved.q) || "").trim();
-  const containsQuery = { contains: query, mode: "insensitive" as const };
+  const query = String(getParam(resolved.q) ?? getParam(resolved.search) ?? "").trim();
+  const queryTokens = normalizeTokens(query);
 
   const where: Prisma.GranteeWhereInput = {
     status: { in: [GranteeStatus.REMOVED, GranteeStatus.REVOKED] },
     dateRemoved: { not: null },
-    ...(query
+    ...(queryTokens.length
       ? {
-          OR: [
-            { user: { is: { fullName: containsQuery } } },
-            { user: { is: { email: containsQuery } } },
-            {
-              user: {
-                is: {
-                  kkProfile: {
+          AND: queryTokens.map((token) => {
+            const containsToken = { contains: token, mode: "insensitive" as const };
+            return {
+              OR: [
+                { user: { is: { fullName: containsToken } } },
+                { user: { is: { email: containsToken } } },
+                { user: { is: { phoneNumber: containsToken } } },
+                {
+                  user: {
                     is: {
-                      firstName: containsQuery,
-                      middleName: containsQuery,
-                      lastName: containsQuery,
-                      purok: containsQuery,
+                      kkProfile: { is: { fullName: containsToken } },
                     },
                   },
                 },
-              },
-            },
-            { revocationReason: containsQuery },
-            { revocationNotes: containsQuery },
-            { remarks: containsQuery },
-            {
-              submissions: {
-                some: {
-                  status: SubmissionStatus.REMOVED,
-                  reviewNotes: containsQuery,
+                {
+                  user: {
+                    is: {
+                      kkProfile: { is: { firstName: containsToken } },
+                    },
+                  },
                 },
-              },
-            },
-          ],
+                {
+                  user: {
+                    is: {
+                      kkProfile: { is: { middleName: containsToken } },
+                    },
+                  },
+                },
+                {
+                  user: {
+                    is: {
+                      kkProfile: { is: { lastName: containsToken } },
+                    },
+                  },
+                },
+                {
+                  user: {
+                    is: {
+                      kkProfile: { is: { email: containsToken } },
+                    },
+                  },
+                },
+                {
+                  user: {
+                    is: {
+                      kkProfile: { is: { purok: containsToken } },
+                    },
+                  },
+                },
+                { school: containsToken },
+                { revocationReason: containsToken },
+                { revocationNotes: containsToken },
+                { remarks: containsToken },
+                {
+                  submissions: {
+                    some: {
+                      status: SubmissionStatus.REMOVED,
+                      reviewNotes: containsToken,
+                    },
+                  },
+                },
+              ],
+            };
+          }),
         }
       : {}),
   };
@@ -172,6 +216,7 @@ export default async function RevokedGranteesPage({
     if (status === "REVOKED" && !revokeAuditByGrantee.has(audit.targetId)) {
       revokeAuditByGrantee.set(audit.targetId, audit);
     }
+
   }
   const records = grantees.flatMap((grantee) => {
     if (!grantee.dateRemoved) return [];
@@ -262,6 +307,7 @@ export default async function RevokedGranteesPage({
 
       <section className="flex w-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
         <RevokedGranteesTable
+          key={query}
           records={records}
           query={query}
           page={currentPage}

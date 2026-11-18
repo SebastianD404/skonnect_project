@@ -18,6 +18,9 @@ import {
 
 const db = prisma;
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 

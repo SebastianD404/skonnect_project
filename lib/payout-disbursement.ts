@@ -3,24 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { createGmailTransporter, sendPayoutDisbursementEmail } from "@/lib/broadcast-email";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { getSkeapGrantAmount } from "@/lib/skeap-payout";
+import { getEmailAppBaseUrl } from "@/lib/app-url";
 
 function getPayoutConfirmationUrl() {
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  const configuredUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    (vercelUrl ? `https://${vercelUrl}` : null) ||
-    (process.env.NODE_ENV === "development" ? "http://localhost:3000" : null);
-  if (!configuredUrl) {
-    throw new Error(
-      "Set NEXT_PUBLIC_APP_URL or VERCEL_URL to create payout confirmation links in production.",
-    );
-  }
-
-  const appUrl = new URL(configuredUrl);
-  if (appUrl.protocol !== "https:" && appUrl.protocol !== "http:") {
-    throw new Error("The payout confirmation URL must use HTTP or HTTPS.");
-  }
-  const loginUrl = new URL("/login", appUrl);
+  const loginUrl = new URL("/login", getEmailAppBaseUrl());
   loginUrl.searchParams.set("next", "/grantee/payouts");
   return loginUrl.toString();
 }

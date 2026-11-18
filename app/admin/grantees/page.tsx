@@ -1,3 +1,4 @@
+import { GranteeStatus } from "@prisma/client";
 import { hasGranteeColumn, hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { formatDisplayName } from "@/lib/display-name";
@@ -9,10 +10,18 @@ import { ensureProfile } from "@/lib/auth";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { getGranteeGraduationProgress } from "@/lib/grantee-graduation-readiness";
 import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
-import { ACTIVE_GRANTEE_WHERE } from "@/lib/skeap-capacity";
 import type { Prisma } from "@prisma/client";
+import { isGranteeDueForGraduation } from "@/lib/grantee-due-for-graduation";
 
 export const dynamic = "force-dynamic";
+
+function normalizeTokens(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[.,]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
 
 export default async function AdminGranteesPage({ searchParams }: {
   searchParams: Promise<{
@@ -20,6 +29,7 @@ export default async function AdminGranteesPage({ searchParams }: {
     pageSize?: string | string[];
     q?: string | string[];
     search?: string | string[];
+    filter?: string | string[];
   }>;
 }) {
   const resolvedSearchParams = await searchParams;
@@ -29,92 +39,122 @@ export default async function AdminGranteesPage({ searchParams }: {
   const rawSearch = Array.isArray(resolvedSearchParams.search)
     ? resolvedSearchParams.search[0]
     : resolvedSearchParams.search;
+  const rawFilter = Array.isArray(resolvedSearchParams.filter)
+    ? resolvedSearchParams.filter[0]
+    : resolvedSearchParams.filter;
   const rawQuery = rawQ ?? rawSearch;
   const query = String(rawQuery || "").trim();
+  const dueFilter = rawFilter === "due";
+  const submittedFilter = rawFilter === "submitted";
   const requestedPage = Number(rawPage || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(rawPageSize);
   const pageSize = normalizeAdminTablePageSize(requestedPageSize);
   const skip = (page - 1) * pageSize;
-  const [hasRetentionColumn, hasGraduationReadyAtColumn] = await Promise.all([
+  const [
+    hasRetentionColumn,
+    hasGraduationReadyAtColumn,
+    hasExitClearanceFileNameColumn,
+    hasExitClearanceSubmittedAtColumn,
+  ] = await Promise.all([
     hasGranteeRetentionColumn(),
     hasGranteeColumn("graduationReadyAt"),
+    hasGranteeColumn("exitClearanceFileName"),
+    hasGranteeColumn("exitClearanceSubmittedAt"),
   ]);
-  const searchFilter: Prisma.GranteeWhereInput = query
+  const queryTokens = normalizeTokens(query);
+  const searchFilter: Prisma.GranteeWhereInput = queryTokens.length
     ? {
-        OR: [
-          { user: { is: { fullName: { contains: query, mode: "insensitive" } } } },
-          { user: { is: { email: { contains: query, mode: "insensitive" } } } },
-          { user: { is: { phoneNumber: { contains: query, mode: "insensitive" } } } },
-          {
-            user: {
-              is: {
-                kkProfile: {
-                  is: { fullName: { contains: query, mode: "insensitive" } },
+        AND: queryTokens.map((token) => ({
+          OR: [
+            { user: { is: { fullName: { contains: token, mode: "insensitive" } } } },
+            { user: { is: { email: { contains: token, mode: "insensitive" } } } },
+            { user: { is: { phoneNumber: { contains: token, mode: "insensitive" } } } },
+            { user: { is: { kkProfile: { is: { fullName: { contains: token, mode: "insensitive" } } } } } },
+            { user: { is: { kkProfile: { is: { firstName: { contains: token, mode: "insensitive" } } } } } },
+            { user: { is: { kkProfile: { is: { middleName: { contains: token, mode: "insensitive" } } } } } },
+            { user: { is: { kkProfile: { is: { lastName: { contains: token, mode: "insensitive" } } } } } },
+            { school: { contains: token, mode: "insensitive" } },
+            { yearLevel: { contains: token, mode: "insensitive" } },
+            {
+              user: {
+                is: {
+                  skeapApplications: {
+                    some: { contactNumber: { contains: token, mode: "insensitive" } },
+                  },
                 },
               },
             },
-          },
-          {
-            user: {
-              is: {
-                kkProfile: {
-                  is: { firstName: { contains: query, mode: "insensitive" } },
-                },
-              },
-            },
-          },
-          {
-            user: {
-              is: {
-                kkProfile: {
-                  is: { middleName: { contains: query, mode: "insensitive" } },
-                },
-              },
-            },
-          },
-          {
-            user: {
-              is: {
-                kkProfile: {
-                  is: { lastName: { contains: query, mode: "insensitive" } },
-                },
-              },
-            },
-          },
-          {
-            user: {
-              is: {
-                kkProfile: {
-                  is: { contactNumber: { contains: query, mode: "insensitive" } },
-                },
-              },
-            },
-          },
-          { school: { contains: query, mode: "insensitive" } },
-          { yearLevel: { contains: query, mode: "insensitive" } },
-          {
-            user: {
-              is: {
-                skeapApplications: {
-                  some: { contactNumber: { contains: query, mode: "insensitive" } },
-                },
-              },
-            },
-          },
-        ],
+          ],
+        })),
       }
     : {};
-  const where: Prisma.GranteeWhereInput = { ...ACTIVE_GRANTEE_WHERE, ...searchFilter };
+  const where: Prisma.GranteeWhereInput = {
+    status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+    ...searchFilter,
+  };
+  const now = new Date();
+  const dueCandidates = await prisma.grantee.findMany({
+    where,
+    select: {
+      id: true,
+      status: true,
+      exitClearanceStatus: true,
+      yearLevel: true,
+      entryAcademicYear: true,
+      entrySemester: true,
+      journeyStart: true,
+      journeyEnd: true,
+      dateEnrolled: true,
+      submissions: {
+        orderBy: { submittedAt: "desc" },
+        select: {
+          semester: true,
+          status: true,
+          submittedAt: true,
+        },
+      },
+    },
+  });
+  const dueGranteeIds = dueCandidates.flatMap((grantee) => {
+    const journeyProgress = getGranteeGraduationProgress({
+      submissions: grantee.submissions,
+      dateEnrolled: grantee.dateEnrolled,
+      yearLevel: grantee.yearLevel,
+      journeyStart: grantee.journeyStart,
+      journeyEnd: grantee.journeyEnd,
+      entryTerm: grantee.entryAcademicYear && grantee.entrySemester
+        ? `${grantee.entryAcademicYear} ${grantee.entrySemester}`
+        : undefined,
+      now,
+    });
+    const isDue = grantee.exitClearanceStatus !== "CLEARED" &&
+      isGranteeDueForGraduation({
+        status: grantee.status,
+        journeyStart: grantee.journeyStart,
+        journeyEnd: grantee.journeyEnd,
+        currentStepSemester: journeyProgress.currentStepSemester,
+        finalJourneySemester: journeyProgress.nodes.at(-1)?.semester ?? null,
+      }, now);
+    return isDue ? [grantee.id] : [];
+  });
+  const submittedGranteeIds = dueCandidates.flatMap((grantee) =>
+    grantee.exitClearanceStatus === "SUBMITTED" ? [grantee.id] : [],
+  );
+  const filteredWhere: Prisma.GranteeWhereInput = dueFilter
+    ? { AND: [where, { id: { in: dueGranteeIds } }] }
+    : submittedFilter
+      ? { AND: [where, { id: { in: submittedGranteeIds } }] }
+      : where;
   const [pageKeys, totalCount] = await Promise.all([
     prisma.grantee.findMany({
-      where,
+      where: filteredWhere,
       select: { id: true },
       orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
       skip,
       take: pageSize,
     }),
-    prisma.grantee.count({ where }),
+    prisma.grantee.count({ where: filteredWhere }),
   ]);
   const grantees = await prisma.grantee.findMany({
       where: { id: { in: pageKeys.map((item) => item.id) } },
@@ -124,6 +164,10 @@ export default async function AdminGranteesPage({ searchParams }: {
         status: true,
         ...(hasGraduationReadyAtColumn ? { graduationReadyAt: true } : {}),
         exitClearanceStatus: true,
+        exitClearanceUrl: true,
+        ...(hasExitClearanceFileNameColumn ? { exitClearanceFileName: true } : {}),
+        ...(hasExitClearanceSubmittedAtColumn ? { exitClearanceSubmittedAt: true } : {}),
+        graduationRemarks: true,
         yearLevel: true,
         entryAcademicYear: true,
         entrySemester: true,
@@ -140,6 +184,7 @@ export default async function AdminGranteesPage({ searchParams }: {
           select: {
             semester: true,
             status: true,
+            submittedAt: true,
           },
         },
         user: {
@@ -152,6 +197,7 @@ export default async function AdminGranteesPage({ searchParams }: {
                 firstName: true,
                 middleName: true,
                 lastName: true,
+                fullName: true,
               },
             },
             skeapApplications: {
@@ -190,9 +236,14 @@ export default async function AdminGranteesPage({ searchParams }: {
       entryTerm: grantee.entryAcademicYear && grantee.entrySemester
         ? `${grantee.entryAcademicYear} ${grantee.entrySemester}`
         : undefined,
+      now,
     });
     return {
       id: grantee.id,
+      lastName: grantee.user.kkProfile?.lastName ?? null,
+      firstName: grantee.user.kkProfile?.firstName ?? null,
+      middleName: grantee.user.kkProfile?.middleName ?? null,
+      profileFullName: grantee.user.kkProfile?.fullName ?? null,
       fullName: formatDisplayName(grantee.user.kkProfile, grantee.user.fullName),
       email: grantee.user.email,
       contactNumber:
@@ -203,7 +254,16 @@ export default async function AdminGranteesPage({ searchParams }: {
       yearLevel: grantee.yearLevel,
       currentJourneySemesterIndex: journeyProgress.currentSemesterIndex,
       validatedJourneySemesterIndexes: journeyProgress.validatedSemesterIndexes,
-      status: "ACTIVE",
+      isDueForGraduation:
+        grantee.exitClearanceStatus !== "CLEARED" &&
+        isGranteeDueForGraduation({
+          status: grantee.status,
+          journeyStart: grantee.journeyStart,
+          journeyEnd: grantee.journeyEnd,
+          currentStepSemester: journeyProgress.currentStepSemester,
+          finalJourneySemester: journeyProgress.nodes.at(-1)?.semester ?? null,
+        }, now),
+      status: grantee.status,
       graduationReadyAt:
         "graduationReadyAt" in grantee
           ? grantee.graduationReadyAt?.toISOString() ?? null
@@ -213,6 +273,14 @@ export default async function AdminGranteesPage({ searchParams }: {
         (journeyProgress.nodes.length > 0 &&
           journeyProgress.validatedSemesterIndexes.length >= journeyProgress.nodes.length),
       exitClearanceStatus: grantee.exitClearanceStatus,
+      exitClearanceUrl: grantee.exitClearanceUrl,
+      exitClearanceFileName:
+        "exitClearanceFileName" in grantee ? grantee.exitClearanceFileName : null,
+      exitClearanceSubmittedAt:
+        "exitClearanceSubmittedAt" in grantee
+          ? grantee.exitClearanceSubmittedAt?.toISOString() ?? null
+          : null,
+      graduationRemarks: grantee.graduationRemarks,
       dateEnrolled: grantee.dateEnrolled.toISOString(),
       graduatedAt: grantee.graduatedAt?.toISOString() ?? null,
       retentionExpiresAt: getRetentionExpiryDate(grantee)?.toISOString() ?? null,
@@ -233,7 +301,12 @@ export default async function AdminGranteesPage({ searchParams }: {
         page={page}
         pageSize={pageSize}
         totalCount={totalCount}
+        allCount={dueCandidates.length}
         query={query}
+        dueCount={dueGranteeIds.length}
+        dueFilter={dueFilter}
+        submittedCount={submittedGranteeIds.length}
+        submittedFilter={submittedFilter}
       />
     </div>
   );

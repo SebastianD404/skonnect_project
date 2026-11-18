@@ -35,6 +35,7 @@ export default function RevokedGranteesTable({
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery) params.set("q", normalizedQuery);
     else params.delete("q");
+    params.delete("search");
     params.set("page", "1");
     startTransition(() => router.push(`${pathname}?${params.toString()}`, { scroll: false }));
   }

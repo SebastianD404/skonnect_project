@@ -61,6 +61,7 @@ interface AdminSidebarProps {
   profilingRegistrationCount: number;
   newGranteesToday: number;
   approvedMemberCount: number;
+  exitClearanceCount: number;
   userRole: Role;
 }
 
@@ -73,6 +74,7 @@ interface SidebarCounts {
   resubmittedProfilingRegistrationCount: number;
   newGranteeCount: number;
   approvedMemberCount: number;
+  exitClearanceCount: number;
 }
 
 const GRANTEES_LAST_VIEWED_KEY = "admin-grantees-last-viewed";
@@ -115,6 +117,7 @@ export default function AdminSidebar({
   profilingRegistrationCount,
   newGranteesToday,
   approvedMemberCount,
+  exitClearanceCount,
   userRole,
 }: AdminSidebarProps) {
   const pathname = usePathname();
@@ -130,6 +133,7 @@ export default function AdminSidebar({
     resubmittedProfilingRegistrationCount: 0,
     newGranteeCount: newGranteesToday,
     approvedMemberCount,
+    exitClearanceCount,
   });
   const countsRequest = useRef(false);
   const displayName = useMemo(
@@ -299,6 +303,7 @@ export default function AdminSidebar({
         { label: "Term Schedules", href: "/admin/term-schedules", icon: CalendarClock },
         { label: "Non-Compliant", href: "/admin/skeap/non-compliant", icon: AlertTriangle },
         { label: "Revoked Grantees", href: "/admin/skeap/revoked", icon: UserX },
+        { label: "Exit Clearances", href: "/admin/exit-clearances", icon: FileCheck, badge: liveCounts.exitClearanceCount },
         { label: "Graduated Scholars", href: "/admin/grantees/records", icon: History },
       ],
     },

@@ -15,6 +15,10 @@ type HistoricalGranteeRecord = {
   exitClearanceStatus: string;
   exitClearanceUrl: string | null;
   fullName: string | null;
+  profileFullName: string | null;
+  firstName: string | null;
+  middleName: string | null;
+  lastName: string | null;
   email: string | null;
 };
 
@@ -24,13 +28,15 @@ export default async function GranteeRecordsPage({ searchParams }: {
     pageSize?: string | string[];
     status?: string | string[];
     q?: string | string[];
+    search?: string | string[];
   }>;
 }) {
   await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
 
   const resolved = await searchParams;
   const rawQuery = Array.isArray(resolved.q) ? resolved.q[0] : resolved.q;
-  const query = String(rawQuery || "").trim();
+  const rawSearch = Array.isArray(resolved.search) ? resolved.search[0] : resolved.search;
+  const query = String(rawQuery ?? rawSearch ?? "").trim();
   const records = await prisma.$queryRaw<HistoricalGranteeRecord[]>(Prisma.sql`
       SELECT
         grantee."id",
@@ -43,9 +49,14 @@ export default async function GranteeRecordsPage({ searchParams }: {
         grantee."exitClearanceStatus"::text AS "exitClearanceStatus",
         grantee."exitClearanceUrl",
         account."fullName",
+        profile."fullName" AS "profileFullName",
+        profile."firstName" AS "firstName",
+        profile."middleName" AS "middleName",
+        profile."lastName" AS "lastName",
         account."email"
       FROM "public"."grantees" AS grantee
       INNER JOIN "public"."users" AS account ON account."id" = grantee."userId"
+      LEFT JOIN "public"."kk_profiles" AS profile ON profile."id" = account."kkProfileId"
       WHERE grantee."status" = 'GRADUATED'::"GranteeStatus"
       ORDER BY grantee."graduatedAt" DESC NULLS LAST, grantee."updatedAt" DESC
     `);
@@ -64,7 +75,7 @@ export default async function GranteeRecordsPage({ searchParams }: {
       </header>
 
       <section className="flex w-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-        <ArchivedGranteesTable allRecords={records} initialQuery={query} />
+        <ArchivedGranteesTable key={query} allRecords={records} initialQuery={query} />
       </section>
     </div>
   );

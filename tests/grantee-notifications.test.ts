@@ -43,6 +43,7 @@ beforeEach(() => {
   delete process.env.GMAIL_USER;
   delete process.env.GMAIL_APP_PASSWORD;
   delete process.env.NEXT_PUBLIC_APP_URL;
+  delete process.env.APP_URL;
   delete process.env.NEXT_PUBLIC_SITE_URL;
   delete process.env.VERCEL_URL;
   mocks.userFindMany.mockResolvedValue([
@@ -173,7 +174,7 @@ describe("notifyGranteesToUploadRequirements", () => {
     delete process.env.NEXT_PUBLIC_APP_URL;
   });
 
-  it("omits unconfigured localhost requirements links from development emails", async () => {
+  it("uses a public requirements link in development emails without a configured URL", async () => {
     vi.stubEnv("NODE_ENV", "development");
     process.env.GMAIL_USER = "mailer@example.com";
     process.env.GMAIL_APP_PASSWORD = "configured";
@@ -183,13 +184,15 @@ describe("notifyGranteesToUploadRequirements", () => {
 
       const emailBody = mocks.sendTransactionalEmail.mock.calls[0][3] as string;
       expect(emailBody).not.toContain("localhost");
-      expect(emailBody).not.toContain("Open your requirements:");
+      expect(emailBody).toContain(
+        "https://skonnect-project-three.vercel.app/grantee-dashboard/documents",
+      );
     } finally {
       vi.unstubAllEnvs();
     }
   });
 
-  it("omits requirements links when the configured app URL is loopback", async () => {
+  it("uses the public requirements URL when the configured app URL is loopback", async () => {
     process.env.GMAIL_USER = "mailer@example.com";
     process.env.GMAIL_APP_PASSWORD = "configured";
     process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
@@ -198,7 +201,9 @@ describe("notifyGranteesToUploadRequirements", () => {
 
     const emailBody = mocks.sendTransactionalEmail.mock.calls[0][3] as string;
     expect(emailBody).not.toContain("localhost");
-    expect(emailBody).not.toContain("Open your requirements:");
+    expect(emailBody).toContain(
+      "https://skonnect-project-three.vercel.app/grantee-dashboard/documents",
+    );
   });
 
   it("treats a duplicate database key as an idempotent skip", async () => {

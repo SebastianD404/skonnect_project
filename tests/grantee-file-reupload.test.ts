@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   userFindFirst: vi.fn(),
+  granteeFindFirst: vi.fn(),
   submissionFindFirst: vi.fn(),
   submissionUpdate: vi.fn(),
   transactionSubmissionFindFirst: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   adminNotificationUpsert: vi.fn(),
   transaction: vi.fn(),
   storageUpload: vi.fn(),
+  createSignedUrl: vi.fn(),
   uploadPrivateDocument: vi.fn(),
   removePrivateDocument: vi.fn(),
   detectGranteeTargetTerm: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock("@/lib/prisma", () => ({
   hasGranteeColumn: mocks.hasGranteeColumn,
   prisma: {
     user: { findFirst: mocks.userFindFirst },
+    grantee: { findFirst: mocks.granteeFindFirst },
     submission: {
       findFirst: mocks.submissionFindFirst,
       update: mocks.submissionUpdate,
@@ -41,12 +44,18 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     storage: {
-      from: () => ({ upload: mocks.storageUpload }),
+      from: () => ({
+        upload: mocks.storageUpload,
+        createSignedUrl: mocks.createSignedUrl,
+      }),
     },
   }),
 }));
 
 vi.mock("@/lib/private-documents", () => ({
+  PRIVATE_DOCUMENT_BUCKET: "private-documents",
+  getPrivateDocumentPath: (url: string) =>
+    url.startsWith("/api/private-documents/") ? url.slice("/api/private-documents/".length) : null,
   uploadPrivateDocument: mocks.uploadPrivateDocument,
   removePrivateDocument: mocks.removePrivateDocument,
 }));
@@ -72,11 +81,21 @@ vi.mock("next/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("next/server")>();
   return { ...actual, after: mocks.after };
 });
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+}));
 
 import { NextRequest } from "next/server";
 import { POST as uploadRequirement } from "../app/api/grantee/submissions/upload/route";
 import { POST as submitRequirements } from "../app/api/grantee/submissions/route";
-import { POST as submitExitClearance } from "../app/api/grantee/exit-clearance/route";
+import {
+  GET as viewExitClearance,
+  POST as submitExitClearance,
+} from "../app/api/grantee/exit-clearance/route";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const returnedTerm = {
   schoolYear: "2025-2026",
@@ -123,6 +142,13 @@ describe("grantee file re-uploads", () => {
         exitClearanceUrl: "/api/private-documents/grantee-clearances/auth-1/old-clearance.pdf",
       },
     });
+    mocks.granteeFindFirst.mockResolvedValue({
+      id: "grantee-1",
+      status: "ACTIVE",
+      exitClearanceStatus: "SUBMITTED",
+      exitClearanceUrl: "/api/private-documents/grantee-clearances/auth-1/old-clearance.pdf",
+      user: { authId: "auth-1" },
+    });
     mocks.detectGranteeTargetTerm.mockResolvedValue(returnedTerm);
     mocks.getAcademicTermScheduleState.mockResolvedValue({
       schedules: [],
@@ -130,6 +156,10 @@ describe("grantee file re-uploads", () => {
     });
     mocks.submissionFindFirst.mockResolvedValue(returnedSubmission);
     mocks.storageUpload.mockResolvedValue({ error: null });
+    mocks.createSignedUrl.mockResolvedValue({
+      data: { signedUrl: "https://storage.example/clearance?token=short-lived" },
+      error: null,
+    });
     mocks.uploadPrivateDocument.mockResolvedValue({
       path: "grantee-clearances/auth-1/new-clearance.pdf",
       url: "/api/private-documents/grantee-clearances/auth-1/new-clearance.pdf",
@@ -230,9 +260,16 @@ describe("grantee file re-uploads", () => {
 
     expect(response.status).toBe(200);
     expect(body.exitClearanceStatus).toBe("SUBMITTED");
+    expect(mocks.granteeFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        userId: "user-1",
+        status: { in: ["ACTIVE", "PROBATIONARY"] },
+      },
+      orderBy: { createdAt: "desc" },
+    }));
     expect(mocks.transactionGranteeUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        exitClearanceStatus: { in: ["NONE", "SUBMITTED"] },
+        exitClearanceStatus: { in: ["NONE", "SUBMITTED", "RETURNED"] },
         exitClearanceUrl: "/api/private-documents/grantee-clearances/auth-1/old-clearance.pdf",
       }),
       data: expect.objectContaining({
@@ -243,6 +280,79 @@ describe("grantee file re-uploads", () => {
         graduationRemarks: "Updated scan",
       }),
     }));
+    expect(mocks.adminNotificationUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        title: "Exit Clearance Submitted",
+        message: "Test Grantee uploaded their Exit Clearance for graduation verification.",
+        href: "/admin/grantees?search=Test%20Grantee&graduateId=grantee-1",
+      }),
+    }));
+  });
+
+  it("reports secure-storage failures with an actionable error", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.uploadPrivateDocument.mockRejectedValueOnce(new Error("Bucket not found"));
+    const formData = new FormData();
+    formData.set("file", new File(["%PDF-1.7 clearance"], "clearance.pdf", { type: "application/pdf" }));
+
+    const response = await submitExitClearance(
+      new NextRequest("http://localhost/api/grantee/exit-clearance", {
+        method: "POST",
+        body: formData,
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error).toContain("Secure file storage");
+    expect(errorLog).toHaveBeenCalledWith(
+      "[POST /api/grantee/exit-clearance]",
+      expect.any(Error),
+    );
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("reports database failures separately and removes the uncommitted upload", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.transaction.mockRejectedValueOnce(new Error("Notification column is missing"));
+    const formData = new FormData();
+    formData.set("file", new File(["%PDF-1.7 clearance"], "clearance.pdf", { type: "application/pdf" }));
+
+    const response = await submitExitClearance(
+      new NextRequest("http://localhost/api/grantee/exit-clearance", {
+        method: "POST",
+        body: formData,
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).toContain("couldn't save the submission");
+    expect(mocks.removePrivateDocument).toHaveBeenCalledWith(
+      "grantee-clearances/auth-1/new-clearance.pdf",
+    );
+    expect(errorLog).toHaveBeenCalledWith(
+      "[POST /api/grantee/exit-clearance]",
+      expect.any(Error),
+    );
+  });
+
+  it("returns not found when the account has no active Grantee record", async () => {
+    mocks.granteeFindFirst.mockResolvedValueOnce(null);
+    const formData = new FormData();
+    formData.set("file", new File(["%PDF-1.7 clearance"], "clearance.pdf", { type: "application/pdf" }));
+
+    const response = await submitExitClearance(
+      new NextRequest("http://localhost/api/grantee/exit-clearance", {
+        method: "POST",
+        body: formData,
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error).toContain("No active Grantee record");
+    expect(mocks.uploadPrivateDocument).not.toHaveBeenCalled();
   });
 
   it("uploads exit clearance when optional metadata columns are not deployed", async () => {
@@ -261,6 +371,23 @@ describe("grantee file re-uploads", () => {
     const [options] = mocks.transactionGranteeUpdateMany.mock.calls[0];
     expect(options.data).not.toHaveProperty("exitClearanceFileName");
     expect(options.data).not.toHaveProperty("exitClearanceSubmittedAt");
+  });
+
+  it("returns a 60-second signed URL for the active grantee's uploaded exit clearance", async () => {
+    const response = await viewExitClearance();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      url: "https://storage.example/clearance?token=short-lived",
+      fileName: "old-clearance.pdf",
+      mimeType: "application/pdf",
+    });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(mocks.createSignedUrl).toHaveBeenCalledWith(
+      "grantee-clearances/auth-1/old-clearance.pdf",
+      60,
+    );
   });
 
   it("allows replacing a pending submission until an admin starts its review", async () => {

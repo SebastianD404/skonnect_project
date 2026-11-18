@@ -116,12 +116,19 @@ export default function DocumentViewerClient({
               className="h-full w-full border-0"
             />
           ) : previewType === "image" ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={previewUrl ?? ""}
-              alt={title}
-              className="h-full w-full bg-slate-50 object-contain"
-            />
+            previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewUrl}
+                alt={title}
+                className="h-full w-full bg-slate-50 object-contain"
+              />
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-slate-500" role="status">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Loading document preview...
+              </div>
+            )
           ) : previewType === "unsupported" ? (
             <div className="max-w-md px-6 text-center">
               <FileText className="mx-auto h-10 w-10 text-slate-400" aria-hidden="true" />

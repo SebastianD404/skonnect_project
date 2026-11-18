@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 
 const db = prisma;
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const normalizeSemester = (value?: string | null) =>
   String(value ?? "").replace(/\s*\(current\)$/i, "").trim();
 

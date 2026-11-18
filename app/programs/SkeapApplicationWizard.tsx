@@ -573,6 +573,7 @@ type GroupedPresetComboboxProps = {
   placeholder?: string;
   disabled?: boolean;
   emptyMessage: string;
+  schoolDropdown?: boolean;
 };
 
 function GroupedPresetCombobox({
@@ -589,6 +590,7 @@ function GroupedPresetCombobox({
   placeholder,
   disabled = false,
   emptyMessage,
+  schoolDropdown = false,
 }: GroupedPresetComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -623,6 +625,15 @@ function GroupedPresetCombobox({
     : showCustomEntry && activeIndex === customOptionIndex
       ? `${listboxId}-custom-option`
       : undefined;
+  const dropdownClassName = schoolDropdown
+    ? "absolute left-0 top-full z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+    : "absolute left-0 top-full z-30 mt-1.5 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg";
+  const scrollContainerClassName = schoolDropdown
+    ? "max-h-64 overflow-y-auto overscroll-contain dropdown-scrollbar"
+    : "";
+  const groupHeaderClassName = schoolDropdown
+    ? "sticky top-0 z-10 bg-slate-50 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-100"
+    : "sticky top-0 z-10 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400";
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -755,52 +766,51 @@ function GroupedPresetCombobox({
           </button>
         ) : null}
         {isOpen && !disabled ? (
-          <div
-            className="absolute left-0 top-full z-30 mt-1.5 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
-          >
-            {filteredOptions.length === 0 ? (
-              <p className="px-2.5 py-2 text-xs text-slate-500" role="status">
-                {emptyMessage}
-              </p>
-            ) : null}
-            <div id={listboxId} role="listbox" aria-label={`${label} suggestions`}>
-              {filteredGroups.map((group) => (
-                <div key={group.label} role="group" aria-label={group.label}>
-                  <p
-                    className="sticky top-0 z-10 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400"
-                    aria-hidden="true"
-                  >
-                    {group.label}
-                  </p>
-                  {group.options.map((option) => (
-                    <div
-                      id={`${listboxId}-option-${option.index}`}
-                      key={option.value}
-                      role="option"
-                      aria-selected={option.value === value}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onMouseEnter={() => setActiveIndex(option.index)}
-                      onClick={() => selectOption(option.value)}
-                      className={`cursor-pointer px-4 py-2 text-sm text-slate-700 transition-colors ${option.index === activeIndex ? "bg-slate-100" : "hover:bg-slate-100"}`}
-                    >
-                      {option.value}
-                    </div>
-                  ))}
-                </div>
-              ))}
-              {showCustomEntry ? (
-                <div
-                  id={`${listboxId}-custom-option`}
-                  role="option"
-                  aria-selected={activeIndex === customOptionIndex}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onMouseEnter={() => setActiveIndex(customOptionIndex)}
-                  onClick={acceptCustomEntry}
-                  className={`cursor-pointer rounded-lg px-2.5 py-2 text-sm text-slate-600 transition-colors ${activeIndex === customOptionIndex ? "bg-slate-100" : "hover:bg-slate-50"}`}
-                >
-                  Use &quot;{query}&quot;
-                </div>
+          <div className={dropdownClassName}>
+            <div className={scrollContainerClassName}>
+              {filteredOptions.length === 0 ? (
+                <p className="px-2.5 py-2 text-xs text-slate-500" role="status">
+                  {emptyMessage}
+                </p>
               ) : null}
+              <div id={listboxId} role="listbox" aria-label={`${label} suggestions`}>
+                {filteredGroups.map((group) => (
+                  <div key={group.label} role="group" aria-label={group.label}>
+                    <p className={groupHeaderClassName} aria-hidden="true">
+                      {group.label}
+                    </p>
+                    {group.options.map((option) => (
+                      <div
+                        id={`${listboxId}-option-${option.index}`}
+                        key={option.value}
+                        role="option"
+                        aria-selected={option.value === value}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setActiveIndex(option.index)}
+                        onClick={() => selectOption(option.value)}
+                        className={schoolDropdown
+                          ? `px-3.5 py-2.5 text-sm text-slate-700 transition-colors hover:bg-sky-50/70 focus:bg-sky-50 cursor-pointer ${option.index === activeIndex ? "bg-sky-50" : ""}`
+                          : `cursor-pointer px-4 py-2 text-sm text-slate-700 transition-colors ${option.index === activeIndex ? "bg-slate-100" : "hover:bg-slate-100"}`}
+                      >
+                        {option.value}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                {showCustomEntry ? (
+                  <div
+                    id={`${listboxId}-custom-option`}
+                    role="option"
+                    aria-selected={activeIndex === customOptionIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveIndex(customOptionIndex)}
+                    onClick={acceptCustomEntry}
+                    className={`cursor-pointer rounded-lg px-2.5 py-2 text-sm text-slate-600 transition-colors ${activeIndex === customOptionIndex ? "bg-slate-100" : "hover:bg-slate-50"}`}
+                  >
+                    Use &quot;{query}&quot;
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         ) : null}
@@ -817,7 +827,7 @@ function GroupedPresetCombobox({
 type SchoolComboboxProps = Omit<GroupedPresetComboboxProps, "emptyMessage">;
 
 function SchoolCombobox(props: SchoolComboboxProps) {
-  return <GroupedPresetCombobox {...props} emptyMessage="No matching schools." />;
+  return <GroupedPresetCombobox {...props} emptyMessage="No matching schools." schoolDropdown />;
 }
 
 type OccupationComboboxProps = Omit<GroupedPresetComboboxProps, "emptyMessage" | "groups">;
@@ -871,7 +881,9 @@ export default function SkeapApplicationWizard({
   const [step, setStep] = useState(0);
   const parsedProfileName = parseProfileName(userProfile?.fullName ?? "");
   const profileMiddleName = userProfile?.middleName?.trim() || parsedProfileName.middleName;
-  const profilePlaceOfBirth = userProfile?.placeOfBirth;
+  const profilePlaceOfBirth = userProfile?.placeOfBirth?.trim() || "";
+  const initialPlaceOfBirth = profilePlaceOfBirth;
+  const isPlaceOfBirthLocked = Boolean(profilePlaceOfBirth);
   const profileBirthDate = userProfile?.birthDate ? String(userProfile.birthDate).slice(0, 10) : "";
   const profileAge = profileBirthDate ? computeAgeFromDateValue(profileBirthDate) : undefined;
 
@@ -898,8 +910,8 @@ export default function SkeapApplicationWizard({
       userProfile?.addressLine,
     ])
   );
-  const [placeOfBirth, setPlaceOfBirth] = useState(userProfile?.placeOfBirth ?? "");
-  const hasHydratedPlaceOfBirthRef = useRef(Boolean(userProfile?.placeOfBirth));
+  const [placeOfBirth, setPlaceOfBirth] = useState(initialPlaceOfBirth);
+  const hasHydratedPlaceOfBirthRef = useRef(Boolean(initialPlaceOfBirth));
   const [dateOfBirth, setDateOfBirth] = useState(profileBirthDate);
   const [age, setAge] = useState(
     profileAge !== undefined ? String(profileAge) : String(userProfile?.age ?? "")
@@ -921,7 +933,6 @@ export default function SkeapApplicationWizard({
   const [parentGuardianVoterFullName, setParentGuardianVoterFullName] = useState("");
   const [parentGuardianContact, setParentGuardianContact] = useState("");
   const [totalFamilyMonthlyIncome, setTotalFamilyMonthlyIncome] = useState("");
-  const [numberOfDependents, setNumberOfDependents] = useState("");
   const yearLevels = educationLevel
     ? SKEAP_YEAR_LEVELS[educationLevel].filter((year) => isEligibleSkeapApplicantYearLevel(educationLevel, year))
     : [];
@@ -1202,14 +1213,6 @@ export default function SkeapApplicationWizard({
       if (!mothersOccupation.trim()) addError("mothersOccupation", "Mother's occupation is required.");
       if (!mothersContact.trim()) addError("mothersContact", "Mother's contact is required.");
       if (!totalFamilyMonthlyIncome.trim()) addError("totalFamilyMonthlyIncome", "Total family monthly income is required.");
-      const dependentsCount = Number(numberOfDependents);
-      if (
-        !numberOfDependents.trim() ||
-        !Number.isInteger(dependentsCount) ||
-        dependentsCount < 0
-      ) {
-        addError("numberOfDependents", "Enter a whole number of dependents, including zero if none.");
-      }
     }
     if (step === 3) {
       const requiredKeys = requiredDocuments.map((document) => document.key);
@@ -1711,7 +1714,6 @@ export default function SkeapApplicationWizard({
             : "",
           voterCertificateFileUrl: doneUrls.find((u, idx) => files.findIndex((f) => f.requirement === "voter_certificate" && f.url === u) >= 0) || null,
           totalFamilyMonthlyIncome,
-          numberOfDependents,
           educationalBackground: {
             elementary: elementarySchool,
             elementaryYearGraduated,
@@ -1904,6 +1906,7 @@ export default function SkeapApplicationWizard({
                 required
                 aria-required="true"
                 value={placeOfBirth}
+                readOnly={isPlaceOfBirthLocked}
                 placeholder="e.g., La Trinidad, Benguet"
                 aria-invalid={invalidFields.has("placeOfBirth")}
                 aria-describedby={invalidFields.has("placeOfBirth") ? "skeap-place-of-birth-error" : undefined}
@@ -1911,7 +1914,7 @@ export default function SkeapApplicationWizard({
                   setPlaceOfBirth(e.target.value);
                   markFieldValid("placeOfBirth");
                 }}
-                className={`mt-1 w-full rounded-lg border px-3 py-2 text-slate-900 shadow-sm transition-colors focus:ring-2 ${invalidFields.has("placeOfBirth") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-blue-100"}`}
+                className={`mt-1 w-full rounded-lg border px-3 py-2 shadow-sm transition-colors focus:ring-2 ${invalidFields.has("placeOfBirth") ? "border-rose-300 bg-rose-50/30 text-slate-900 ring-2 ring-rose-100" : isPlaceOfBirthLocked ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-600" : "border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-100"}`}
               />
               {invalidFields.has("placeOfBirth") ? (
                 <span id="skeap-place-of-birth-error" role="alert" className="mt-1 text-xs text-rose-600">
@@ -2566,27 +2569,6 @@ export default function SkeapApplicationWizard({
                   aria-invalid={invalidFields.has("totalFamilyMonthlyIncome")}
                   className={`mt-1 rounded-xl border px-3 py-2 text-slate-900 ${invalidFields.has("totalFamilyMonthlyIncome") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
                 />
-              </label>
-            </div>
-            <div className="mt-3">
-              <label className="flex flex-col">
-                <FormFieldLabel required className="text-sm font-semibold">Number of Household Dependents</FormFieldLabel>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  required
-                  value={numberOfDependents}
-                  onChange={(event) => {
-                    setNumberOfDependents(event.target.value);
-                    markFieldValid("numberOfDependents");
-                  }}
-                  aria-invalid={invalidFields.has("numberOfDependents")}
-                  className={`mt-1 rounded-xl border px-3 py-2 text-slate-900 ${invalidFields.has("numberOfDependents") ? "border-rose-300 bg-rose-50/30 ring-2 ring-rose-100" : "border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"}`}
-                />
-                {validationErrors.numberOfDependents ? (
-                  <span className="mt-1 text-xs text-rose-600" role="alert">{validationErrors.numberOfDependents}</span>
-                ) : null}
               </label>
             </div>
           </div>

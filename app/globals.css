@@ -51,6 +51,32 @@ html {
   scrollbar-color: #cbd5e1 transparent;
 }
 
+.dropdown-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-button {
+  display: none;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
 .review-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -652,50 +678,5 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
   .system-users-skeleton,
   .system-users-row-enter {
     animation: none;
-  }
-}
-
-.graduation-confetti-piece {
-  position: absolute;
-  top: 2rem;
-  left: 50%;
-  width: 0.4rem;
-  height: 0.7rem;
-  border-radius: 9999px;
-  opacity: 0;
-  animation: graduation-confetti-burst 1.4s ease-out both;
-}
-
-.graduation-confetti-piece:nth-child(1) { --confetti-x: -9rem; --confetti-y: 4.5rem; --confetti-turn: -170deg; left: 12%; background: #6ee7b7; }
-.graduation-confetti-piece:nth-child(2) { --confetti-x: 6rem; --confetti-y: 5rem; --confetti-turn: 130deg; left: 22%; background: #fcd34d; animation-delay: 50ms; }
-.graduation-confetti-piece:nth-child(3) { --confetti-x: -4rem; --confetti-y: 6rem; --confetti-turn: 220deg; left: 34%; background: #5eead4; animation-delay: 100ms; }
-.graduation-confetti-piece:nth-child(4) { --confetti-x: 8rem; --confetti-y: 5.5rem; --confetti-turn: -120deg; left: 46%; background: #fde68a; animation-delay: 30ms; }
-.graduation-confetti-piece:nth-child(5) { --confetti-x: -7rem; --confetti-y: 5rem; --confetti-turn: 180deg; left: 58%; background: #a7f3d0; animation-delay: 120ms; }
-.graduation-confetti-piece:nth-child(6) { --confetti-x: 10rem; --confetti-y: 4rem; --confetti-turn: 150deg; left: 68%; background: #fcd34d; animation-delay: 80ms; }
-.graduation-confetti-piece:nth-child(7) { --confetti-x: -5rem; --confetti-y: 6.5rem; --confetti-turn: -210deg; left: 78%; background: #6ee7b7; animation-delay: 140ms; }
-.graduation-confetti-piece:nth-child(8) { --confetti-x: 7rem; --confetti-y: 5rem; --confetti-turn: 210deg; left: 88%; background: #fde68a; animation-delay: 60ms; }
-.graduation-confetti-piece:nth-child(9) { --confetti-x: -8rem; --confetti-y: 5.5rem; --confetti-turn: 120deg; left: 30%; background: #fcd34d; animation-delay: 180ms; }
-.graduation-confetti-piece:nth-child(10) { --confetti-x: 5rem; --confetti-y: 6rem; --confetti-turn: -160deg; left: 72%; background: #5eead4; animation-delay: 110ms; }
-
-@keyframes graduation-confetti-burst {
-  0% {
-    opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(0) scale(0.7);
-  }
-
-  12% {
-    opacity: 1;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translate3d(var(--confetti-x), var(--confetti-y), 0) rotate(var(--confetti-turn)) scale(0.4);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .graduation-confetti-piece {
-    animation: none;
-    display: none;
   }
 }

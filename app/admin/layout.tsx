@@ -1,6 +1,7 @@
-import { Role } from "@prisma/client";
+import { GranteeStatus, Role } from "@prisma/client";
 import { Search } from "lucide-react";
 import { requireRole } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import AdminSidebar from "./AdminSidebar";
 import { AdminSearchProvider } from "./AdminSearchContext";
 
@@ -10,6 +11,12 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }>) {
   const adminUser = await requireRole([Role.SK_OFFICIAL, Role.SUPER_ADMIN]);
+  const exitClearanceCount = await prisma.grantee.count({
+    where: {
+      status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+      exitClearanceStatus: "SUBMITTED",
+    },
+  });
 
   return (
     <AdminSearchProvider>
@@ -22,6 +29,7 @@ export default async function AdminLayout({
             profilingRegistrationCount={0}
             newGranteesToday={0}
             approvedMemberCount={0}
+            exitClearanceCount={exitClearanceCount}
             userRole={adminUser.role}
           />
         </div>

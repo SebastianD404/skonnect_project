@@ -73,7 +73,12 @@ export async function proxy(request: NextRequest) {
 
   // Redirect unauthenticated users away from protected routes
   if (!user && request.nextUrl.pathname.startsWith("/grantee-dashboard")) {
-    return redirectWithAuthCookies(new URL("/login", request.url));
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set(
+      "redirectTo",
+      `${request.nextUrl.pathname}${request.nextUrl.search}`,
+    );
+    return redirectWithAuthCookies(loginUrl);
   }
 
   if (!user && request.nextUrl.pathname.startsWith("/admin")) {

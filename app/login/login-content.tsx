@@ -8,7 +8,7 @@ import Link from "next/link";
 import { AlertCircle, ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck, UserX } from "lucide-react";
 import { SkLogo } from "@/app/components/SkLogo";
 
-function LoginForm() {
+function LoginForm({ initialRedirectTo }: { initialRedirectTo: string }) {
   const ACCOUNT_DEACTIVATED_ERROR = "ACCOUNT_DEACTIVATED";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,7 +27,7 @@ function LoginForm() {
     null
   );
   const search = useSearchParams();
-  const next = search.get("next") ?? "";
+  const next = initialRedirectTo || search.get("redirectTo") || search.get("next") || "";
   const sessionExpired = search.get("reason") === "session_expired";
   const signupHref = `/signup${next ? `?next=${encodeURIComponent(next)}` : ""}`;
   const accountDeactivated = !submitting && state?.error === ACCOUNT_DEACTIVATED_ERROR;
@@ -201,10 +201,10 @@ function LoginForm() {
   );
 }
 
-export default function LoginContentWrapper() {
+export default function LoginContentWrapper({ redirectTo = "" }: { redirectTo?: string }) {
   return (
     <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
-      <LoginForm />
+      <LoginForm initialRedirectTo={redirectTo} />
     </Suspense>
   );
 }

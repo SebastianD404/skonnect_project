@@ -11,6 +11,7 @@ import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacit
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
+import { getEmailAppBaseUrl } from "@/lib/app-url";
 import {
   createSkeapGranteeApprovalNotification,
   notifyGranteesToUploadRequirements,
@@ -59,21 +60,7 @@ function escapeHtml(value: string) {
 }
 
 function getApplicationPageUrl(applicationId: string) {
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  const configuredUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    (vercelUrl ? `https://${vercelUrl}` : null);
-  if (!configuredUrl) {
-    throw new Error("Set NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_SITE_URL to create application email links.");
-  }
-
-  const baseUrl = new URL(configuredUrl);
-  if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
-    throw new Error("The application email URL must use HTTP or HTTPS.");
-  }
-
-  return new URL(`/applications/${encodeURIComponent(applicationId)}`, baseUrl).toString();
+  return new URL(`/applications/${encodeURIComponent(applicationId)}`, getEmailAppBaseUrl()).toString();
 }
 
 async function authorizeReviewUser() {
@@ -511,6 +498,8 @@ export async function PATCH(
               dateEnrolled: promotionTime,
               entryAcademicYear: entryTerm.schoolYear,
               entrySemester: entryTerm.semester,
+              journeyStart: null,
+              journeyEnd: null,
             },
             update: {
               school,

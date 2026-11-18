@@ -93,7 +93,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
   const {
     readNotificationIds,
     unreadCount: liveUnreadCount,
-    refreshNotifications,
+    syncNotificationSnapshot,
     markNotificationAsRead,
     markAllNotificationsAsRead,
   } = useNotificationState();
@@ -119,10 +119,15 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
   const [visibleCount, setVisibleCount] = useState(INITIAL_NOTIFICATION_COUNT);
   const [relativeTimeNow, setRelativeTimeNow] = useState<number | null>(null);
   const [notificationActionError, setNotificationActionError] = useState<string | null>(null);
+  const [pulseUnreadBadge, setPulseUnreadBadge] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const notificationRefreshInFlight = useRef(false);
+  const notificationRefreshQueuedRef = useRef(false);
   const notificationFetchController = useRef<AbortController | null>(null);
   const pendingReadsRef = useRef(new Set<string>());
+  const previousUnreadNotificationIdsRef = useRef<Set<string> | null>(null);
+  const previousUnreadCountRef = useRef<number | null>(null);
+  const badgePulseTimerRef = useRef<number | null>(null);
   const isSupportInboxActive =
     pathname === supportInboxPath || pathname.startsWith(`${supportInboxPath}/`);
 
@@ -233,6 +238,12 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKeyDown);
     };
+  }, []);
+
+  useEffect(() => () => {
+    if (badgePulseTimerRef.current !== null) {
+      window.clearTimeout(badgePulseTimerRef.current);
+    }
   }, []);
 
   useEffect(() => {
@@ -474,20 +485,30 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
   }, [profileId, serverRole]);
 
   useEffect(() => {
-    if (serverRole !== "GRANTEE" || !profileId) return;
+    if ((serverRole !== "GRANTEE" && serverRole !== "YOUTH") || !profileId) return;
 
     const userId = profileId;
     let active = true;
     let realtimeClient: ReturnType<typeof createBrowserClient> | null = null;
     let realtimeChannel: ReturnType<ReturnType<typeof createBrowserClient>["channel"]> | null = null;
+    notificationRefreshQueuedRef.current = false;
+    previousUnreadNotificationIdsRef.current = null;
+    previousUnreadCountRef.current = null;
+    if (badgePulseTimerRef.current !== null) {
+      window.clearTimeout(badgePulseTimerRef.current);
+      badgePulseTimerRef.current = null;
+    }
 
     async function refreshGranteeNotifications() {
       if (
         !active ||
         document.visibilityState !== "visible" ||
-        notificationRefreshInFlight.current ||
         pendingReadsRef.current.size > 0
       ) return;
+      if (notificationRefreshInFlight.current) {
+        notificationRefreshQueuedRef.current = true;
+        return;
+      }
       notificationRefreshInFlight.current = true;
       const controller = new AbortController();
       notificationFetchController.current = controller;
@@ -520,6 +541,28 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
             isRead: item.isRead === true,
           }];
         });
+        const unreadItems = items.filter((item) => !item.isRead);
+        const unreadCount = typeof payload?.unreadCount === "number"
+          ? payload.unreadCount
+          : unreadItems.length;
+        const previousUnreadIds = previousUnreadNotificationIdsRef.current;
+        const previousUnreadCount = previousUnreadCountRef.current;
+        const newlyArrived = previousUnreadIds === null
+          ? []
+          : unreadItems.filter((item) => !previousUnreadIds.has(item.id));
+        const arrival = newlyArrived[0] ??
+          (previousUnreadCount !== null && unreadCount > previousUnreadCount
+            ? unreadItems[0]
+            : undefined);
+        previousUnreadNotificationIdsRef.current = new Set(
+          unreadItems.map((item) => item.id),
+        );
+        previousUnreadCountRef.current = unreadCount;
+
+        const readIds = payload && Array.isArray(payload.readIds)
+          ? payload.readIds.filter((value): value is string => typeof value === "string")
+          : [];
+        syncNotificationSnapshot(unreadCount, readIds);
 
         setInAppNotifications((current) => [
           ...current.filter((item) =>
@@ -527,13 +570,30 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
           ),
           ...items,
         ]);
-        await refreshNotifications();
+
+        if (arrival) {
+          setPulseUnreadBadge(true);
+          if (badgePulseTimerRef.current !== null) {
+            window.clearTimeout(badgePulseTimerRef.current);
+          }
+          badgePulseTimerRef.current = window.setTimeout(() => {
+            setPulseUnreadBadge(false);
+            badgePulseTimerRef.current = null;
+          }, 1400);
+          router.refresh();
+        }
       } catch {
         // Keep the last successful notification state when the background request is unavailable.
       } finally {
         notificationRefreshInFlight.current = false;
         if (notificationFetchController.current === controller) {
           notificationFetchController.current = null;
+        }
+        if (notificationRefreshQueuedRef.current) {
+          notificationRefreshQueuedRef.current = false;
+          if (active && document.visibilityState === "visible") {
+            void refreshGranteeNotifications();
+          }
         }
       }
     }
@@ -543,14 +603,14 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     };
 
     void refreshGranteeNotifications();
-    const timer = window.setInterval(refreshWhenVisible, 5000);
+    const timer = window.setInterval(refreshWhenVisible, 10000);
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
 
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       realtimeClient = createBrowserClient();
       realtimeChannel = realtimeClient
-        .channel(`grantee-notifications:${userId}`)
+        .channel(`user-notifications-${userId}`)
         .on(
           "postgres_changes",
           {
@@ -562,7 +622,6 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
           () => {
             if (document.visibilityState !== "visible") return;
             void refreshGranteeNotifications();
-            router.refresh();
           },
         )
         .subscribe();
@@ -573,11 +632,12 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
       window.clearInterval(timer);
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
+      notificationFetchController.current?.abort();
       if (realtimeClient && realtimeChannel) {
         void realtimeClient.removeChannel(realtimeChannel);
       }
     };
-  }, [profileId, refreshNotifications, router, serverRole]);
+  }, [profileId, router, serverRole, syncNotificationSnapshot]);
 
   const markSupportInboxViewed = () => {
     const keys = supportThreads
@@ -617,7 +677,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
           {liveUnreadCount > 0 && (
             <span
               aria-label={`${liveUnreadCount} unread notifications`}
-              className="absolute -top-1 -right-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold leading-none tabular-nums text-white ring-2 ring-white shadow-sm"
+              className={`absolute -top-1 -right-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold leading-none tabular-nums text-white ring-2 ring-white shadow-sm ${pulseUnreadBadge ? "animate-pulse" : ""}`}
             >
               {liveUnreadCount > 99 ? "99+" : liveUnreadCount}
             </span>

@@ -12,7 +12,7 @@ import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacit
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";
 import { isEligibleSkeapApplicantYearLevel, isSkeapEducationLevel } from "@/lib/skeap-education";
-import { placeOfBirthSchema } from "@/lib/place-of-birth-schema";
+import { getCanonicalPlaceOfBirth, placeOfBirthSchema } from "@/lib/place-of-birth-schema";
 import {
   getActiveSkeapEducationLevels,
   getSkeapEducationLevelGuardError,
@@ -83,6 +83,7 @@ async function getSkeapIdentityCandidate(
           middleName: true,
           lastName: true,
           birthDate: true,
+          placeOfBirth: true,
         },
       },
     },
@@ -95,6 +96,7 @@ async function getSkeapIdentityCandidate(
     middleName: user?.kkProfile?.middleName,
     lastName: user?.kkProfile?.lastName,
     dateOfBirth: user?.kkProfile?.birthDate,
+    placeOfBirth: user?.kkProfile?.placeOfBirth,
   };
 }
 
@@ -388,7 +390,7 @@ export async function POST(request: NextRequest) {
     const permanentAddress = formatSkeapPermanentAddress({}, permanentAddressInput);
     const dateOfBirthRaw = String(body.dateOfBirth ?? "").trim();
     const dateOfBirth = dateOfBirthRaw ? new Date(dateOfBirthRaw) : null;
-    const placeOfBirth = String(body.placeOfBirth ?? "").trim();
+    const submittedPlaceOfBirth = String(body.placeOfBirth ?? "").trim();
     const civilStatus = String(body.civilStatus ?? "").trim();
     const gender = String(body.gender ?? "").trim();
     const contactNumber = String(body.contactNumber ?? "").trim();
@@ -441,13 +443,6 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "All personal information fields are required, including the applicant photo." },
-        { status: 400 }
-      );
-    }
-    const placeOfBirthResult = placeOfBirthSchema.safeParse(placeOfBirth);
-    if (!placeOfBirthResult.success) {
-      return NextResponse.json(
-        { error: placeOfBirthResult.error.issues[0]?.message ?? "Enter a valid place of birth." },
         { status: 400 }
       );
     }
@@ -508,9 +503,12 @@ export async function POST(request: NextRequest) {
       );
     }
     if (
-      numberOfDependents === null ||
-      !Number.isInteger(numberOfDependents) ||
-      numberOfDependents < 0
+      numberOfDependentsRaw &&
+      (
+        numberOfDependents === null ||
+        !Number.isInteger(numberOfDependents) ||
+        numberOfDependents < 0
+      )
     ) {
       return NextResponse.json(
         { error: "Enter a whole number of household dependents, including zero if none." },
@@ -530,7 +528,7 @@ export async function POST(request: NextRequest) {
       getApprovedKkProfileIdentity(appUser.id),
       prisma.user.findUnique({
         where: { id: appUser.id },
-        select: { kkProfile: { select: { isVerified: true } } },
+        select: { kkProfile: { select: { isVerified: true, placeOfBirth: true } } },
       }),
     ]);
     const approvedKkRegistration = approvedKkIdentity.registration;
@@ -543,6 +541,16 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       );
     }
+    const placeOfBirthResult = placeOfBirthSchema.safeParse(
+      getCanonicalPlaceOfBirth(kkProfile?.kkProfile?.placeOfBirth, submittedPlaceOfBirth),
+    );
+    if (!placeOfBirthResult.success) {
+      return NextResponse.json(
+        { error: placeOfBirthResult.error.issues[0]?.message ?? "Enter a valid place of birth." },
+        { status: 400 }
+      );
+    }
+    const placeOfBirth = placeOfBirthResult.data;
 
     const identityDocuments = approvedKkIdentity.documents;
     if (!hasCompleteKkIdentityDocuments(identityDocuments)) {
@@ -695,6 +703,28 @@ export async function POST(request: NextRequest) {
       });
       if (activeApplication) throw new Error("SKEAP_APPLICATION_IN_PROGRESS");
 
+      let canonicalPlaceOfBirth = getCanonicalPlaceOfBirth(currentIdentity.placeOfBirth, placeOfBirth);
+      if (!currentIdentity.placeOfBirth?.trim() && currentIdentity.kkProfileId) {
+        const backfilled = await tx.kKProfile.updateMany({
+          where: {
+            id: currentIdentity.kkProfileId,
+            OR: [{ placeOfBirth: null }, { placeOfBirth: "" }],
+          },
+          data: { placeOfBirth: placeOfBirth },
+        });
+        if (backfilled.count === 0) {
+          const latestKkProfile = await tx.kKProfile.findUnique({
+            where: { id: currentIdentity.kkProfileId },
+            select: { placeOfBirth: true },
+          });
+          canonicalPlaceOfBirth = latestKkProfile?.placeOfBirth?.trim() || canonicalPlaceOfBirth;
+        }
+      }
+      const canonicalPlaceOfBirthResult = placeOfBirthSchema.safeParse(canonicalPlaceOfBirth);
+      if (!canonicalPlaceOfBirthResult.success) {
+        throw new Error("SKEAP_PLACE_OF_BIRTH_INVALID");
+      }
+
       const capacity = await getSkeapCapacitySnapshot(tx, appUser.id);
       const isWaitlisted = capacity.isFull;
       const waitlistPosition = isWaitlisted
@@ -707,6 +737,7 @@ export async function POST(request: NextRequest) {
         : null;
       const createData = {
         ...baseCreateData,
+        placeOfBirth: canonicalPlaceOfBirthResult.data,
         status: (isWaitlisted ? "WAITLISTED" : "PENDING") as SubmissionStatus,
         waitlistPosition,
       };
@@ -798,6 +829,9 @@ export async function POST(request: NextRequest) {
         { error: "The SKEAP application cycle is closed. Please check your application status for waitlist updates." },
         { status: 409 },
       );
+    }
+    if (message === "SKEAP_PLACE_OF_BIRTH_INVALID") {
+      return NextResponse.json({ error: "Enter a valid place of birth." }, { status: 400 });
     }
     return NextResponse.json({ error: message }, { status: 500 });
   }

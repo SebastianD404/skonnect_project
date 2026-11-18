@@ -49,6 +49,7 @@ describe("dispatchPayout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_APP_URL = "https://skonnect.example";
+    delete process.env.APP_URL;
     delete process.env.VERCEL_URL;
     mocks.granteeFindUnique.mockResolvedValue({
       id: "grantee-1",
@@ -168,7 +169,7 @@ describe("dispatchPayout", () => {
     expect(mocks.payoutUpdateMany).toHaveBeenCalledTimes(1);
   });
 
-  it("uses localhost for payout confirmation links in development when no public URL is configured", async () => {
+  it("uses the canonical public URL for payout confirmation links in development", async () => {
     delete process.env.NEXT_PUBLIC_APP_URL;
     vi.stubEnv("NODE_ENV", "development");
 
@@ -182,7 +183,8 @@ describe("dispatchPayout", () => {
       expect.anything(),
       "student@example.test",
       expect.objectContaining({
-        confirmationUrl: "http://localhost:3000/login?next=%2Fgrantee%2Fpayouts",
+        confirmationUrl:
+          "https://skonnect-project-three.vercel.app/login?next=%2Fgrantee%2Fpayouts",
       }),
     );
   });

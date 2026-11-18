@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCircle, CheckCircle2, Clock, CornerUpLeft, Download, Eye, FileCheck2, FileText, Loader2, RefreshCcw, RefreshCw, Search, Send, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, Clock, CornerUpLeft, Download, Eye, FileCheck2, FileText, Loader2, RefreshCcw, RefreshCw, Search, Send, X, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import AdminPaginationControls from "../AdminPaginationControls";
@@ -471,6 +471,34 @@ function findDocumentByReviewKey(application: ApplicationRecord, reviewKey: stri
   };
 }
 
+function getReviewDocumentQueue(application: ApplicationRecord): DocumentItem[] {
+  const queue: DocumentItem[] = (application.uploadGroups ?? []).map((group) => {
+    const matchedDocument = findDocumentByReviewKey(application, group.key);
+    return {
+      id: group.key,
+      label: group.label,
+      type: group.type,
+      previewUrl: group.url,
+      verified: group.verified ?? matchedDocument?.verified ?? false,
+      comment: group.adminRemark ?? matchedDocument?.comment ?? "",
+      isImage: group.isImage,
+      verificationStatus: group.verificationStatus,
+      ocrNameStatus: group.ocrNameStatus,
+      ocrNameMessage: group.ocrNameMessage,
+    };
+  });
+
+  for (const document of application.documents) {
+    const isAlreadyQueued = queue.some((queuedDocument) =>
+      queuedDocument.id === document.id ||
+      normalizeUrlForMatch(queuedDocument.previewUrl) === normalizeUrlForMatch(document.previewUrl)
+    );
+    if (!isAlreadyQueued) queue.push(document);
+  }
+
+  return queue;
+}
+
 function getDocumentInlineRemark(doc: DocumentItem, reviewThread: ApplicationMessage[]) {
   return (
     reviewThread
@@ -553,13 +581,18 @@ export default function SkeapApplicationsClient({
   const [isReturning, setIsReturning] = useState(false);
   const [returnError, setReturnError] = useState<string | null>(null);
   const [activeReviewFile, setActiveReviewFile] = useState<string | null>(null);
+  const [activeReviewDocuments, setActiveReviewDocuments] = useState<DocumentItem[]>([]);
+  const [activeReviewIndex, setActiveReviewIndex] = useState(0);
+  const [activeReviewApplicationId, setActiveReviewApplicationId] = useState<string | null>(null);
   const [reviewModalNote, setReviewModalNote] = useState("");
   const [reviewModalError, setReviewModalError] = useState<string | null>(null);
   const [isSavingReviewNote, setIsSavingReviewNote] = useState(false);
   const [isSavingDocumentVerification, setIsSavingDocumentVerification] = useState(false);
   const [reviewPreviewStatus, setReviewPreviewStatus] = useState<{
+    applicationId: string;
     url: string;
-    status: "loaded" | "failed";
+    status: "ready" | "loaded" | "failed";
+    previewUrl?: string;
   } | null>(null);
   const [optimisticVerification, setOptimisticVerification] = useState<{
     applicationId: string;
@@ -945,10 +978,25 @@ export default function SkeapApplicationsClient({
     activeReviewDocument?.isImage === true ||
     isImageUrl(activeReviewPreviewUrl);
   const previewRequiresLoad = activeReviewIsPdf || activeReviewIsImage;
+  const activeReviewPreviewSource = !previewRequiresLoad
+    ? activeReviewPreviewUrl
+    : reviewPreviewStatus?.applicationId === activeReviewApplicationId &&
+      reviewPreviewStatus.url === activeReviewPreviewUrl
+      ? reviewPreviewStatus.status === "ready" || reviewPreviewStatus.status === "loaded"
+        ? reviewPreviewStatus.previewUrl ?? null
+        : reviewPreviewStatus.status === "failed"
+          ? activeReviewPreviewUrl
+          : null
+      : null;
+  const isReviewPreviewLoading =
+    Boolean(activeReviewFile && previewRequiresLoad && isValidPreviewUrl(activeReviewPreviewUrl)) &&
+    (reviewPreviewStatus?.applicationId !== activeReviewApplicationId ||
+      reviewPreviewStatus?.url !== activeReviewPreviewUrl);
   const hasValidPreview =
     isValidPreviewUrl(activeReviewPreviewUrl) &&
     (!previewRequiresLoad ||
-      (reviewPreviewStatus?.url === activeReviewPreviewUrl &&
+      (reviewPreviewStatus?.applicationId === activeReviewApplicationId &&
+        reviewPreviewStatus.url === activeReviewPreviewUrl &&
         reviewPreviewStatus.status === "loaded"));
 
   const persistedReviewVerified = activeReviewGroup?.verified ?? activeReviewDocument?.verified ?? false;
@@ -958,6 +1006,59 @@ export default function SkeapApplicationsClient({
     optimisticVerification.reviewFile === activeReviewFile
       ? optimisticVerification.verified
       : persistedReviewVerified;
+
+  useEffect(() => {
+    if (
+      !activeReviewFile ||
+      !activeReviewApplicationId ||
+      (!activeReviewIsPdf && !activeReviewIsImage) ||
+      !isValidPreviewUrl(activeReviewPreviewUrl)
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    const requestContext = {
+      applicationId: activeReviewApplicationId,
+      url: activeReviewPreviewUrl,
+    };
+
+    void fetch(activeReviewPreviewUrl, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load this document preview.");
+        return response.blob();
+      })
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setReviewPreviewStatus({
+          ...requestContext,
+          status: "ready",
+          previewUrl: objectUrl,
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error("Failed to load active SKEAP document preview:", error);
+        setReviewPreviewStatus({ ...requestContext, status: "failed" });
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [
+    activeReviewApplicationId,
+    activeReviewFile,
+    activeReviewIsImage,
+    activeReviewIsPdf,
+    activeReviewPreviewUrl,
+  ]);
+
   const activityMessages = useMemo(
     () => [...(selectedApplication?.messages ?? [])].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -1363,20 +1464,21 @@ export default function SkeapApplicationsClient({
     setCurrentPage(nextPage);
   }
 
-  function updateSelectedApplication(
-    updater: (application: ApplicationRecord) => ApplicationRecord
-  ) {
-    setApplications((current) =>
-      current.map((application) =>
-        application.id === selectedApplication?.id ? updater(application) : application
-      )
-    );
-    setSearchApplications((current) =>
-      current.map((application) =>
-        application.id === selectedApplication?.id ? updater(application) : application
-      )
-    );
-  }
+  const updateSelectedApplication = useCallback(
+    (updater: (application: ApplicationRecord) => ApplicationRecord) => {
+      setApplications((current) =>
+        current.map((application) =>
+          application.id === selectedApplication?.id ? updater(application) : application
+        )
+      );
+      setSearchApplications((current) =>
+        current.map((application) =>
+          application.id === selectedApplication?.id ? updater(application) : application
+        )
+      );
+    },
+    [selectedApplication?.id]
+  );
 
   async function toggleDocumentVerified(documentId: string) {
     if (!selectedApplication || isReviewFinalized) return;
@@ -1438,18 +1540,22 @@ export default function SkeapApplicationsClient({
     }
   }
 
-  async function handleSaveAndCloseReviewNote() {
+  const saveActiveReviewRemark = useCallback(async () => {
     const note = reviewModalNote.trim();
-    if (!note || !selectedApplication || !activeReviewFile || isSavingReviewNote) return;
+    if (!selectedApplication || !activeReviewFile || isSavingReviewNote) return false;
 
+    const matchedDocument = findDocumentByReviewKey(selectedApplication, activeReviewFile);
     const uploadGroup = selectedApplication.uploadGroups?.find(
       (group) =>
         group.key === activeReviewFile ||
-        normalizeUrlForMatch(group.url) === normalizeUrlForMatch(activeReviewFile.startsWith("url-") ? activeReviewFile.slice(4) : findDocumentByReviewKey(selectedApplication, activeReviewFile)?.previewUrl ?? "")
+        normalizeUrlForMatch(group.url) === normalizeUrlForMatch(matchedDocument?.previewUrl ?? "")
     );
+    const savedRemark = uploadGroup?.adminRemark ?? matchedDocument?.comment ?? "";
+    if (note === savedRemark.trim()) return true;
+
     if (!uploadGroup) {
       setReviewModalError("This document could not be matched to the application. Keep the note open and try again.");
-      return;
+      return false;
     }
 
     setIsSavingReviewNote(true);
@@ -1471,19 +1577,112 @@ export default function SkeapApplicationsClient({
 
       updateSelectedApplication((application) => ({
         ...application,
+        documents: application.documents.map((document) =>
+          normalizeUrlForMatch(document.previewUrl) === normalizeUrlForMatch(uploadGroup.url)
+            ? { ...document, comment: note }
+            : document
+        ),
         uploadGroups: application.uploadGroups?.map((group) =>
           group.key === uploadGroup.key ? { ...group, adminRemark: note } : group
         ),
       }));
-      setActiveReviewFile(null);
-      setReviewModalNote("");
+      setReviewModalNote(note);
+      return true;
     } catch (error) {
       console.error(error);
       setReviewModalError(error instanceof Error ? error.message : "Failed to save the private document remark.");
+      return false;
     } finally {
       setIsSavingReviewNote(false);
     }
+  }, [
+    activeReviewFile,
+    isSavingReviewNote,
+    reviewModalNote,
+    selectedApplication,
+    updateSelectedApplication,
+  ]);
+
+  const navigateToReviewIndex = useCallback(async (nextIndex: number) => {
+    if (
+      nextIndex < 0 ||
+      nextIndex >= activeReviewDocuments.length ||
+      isSavingReviewNote ||
+      isSavingDocumentVerification
+    ) {
+      return;
+    }
+
+    if (!(await saveActiveReviewRemark())) return;
+
+    const nextDocument = activeReviewDocuments[nextIndex];
+    if (!nextDocument) return;
+    const nextGroup = selectedApplication?.uploadGroups?.find(
+      (group) =>
+        group.key === nextDocument.id ||
+        normalizeUrlForMatch(group.url) === normalizeUrlForMatch(nextDocument.previewUrl)
+    );
+    setReviewPreviewStatus(null);
+    setActiveReviewIndex(nextIndex);
+    setActiveReviewFile(nextDocument.id);
+    setReviewModalNote(nextGroup?.adminRemark ?? nextDocument.comment ?? "");
+    setReviewModalError(null);
+  }, [
+    activeReviewDocuments,
+    isSavingDocumentVerification,
+    isSavingReviewNote,
+    saveActiveReviewRemark,
+    selectedApplication,
+  ]);
+
+  async function handleSaveAndCloseReviewNote() {
+    if (!(await saveActiveReviewRemark())) return;
+    setActiveReviewFile(null);
+    setActiveReviewDocuments([]);
+    setActiveReviewIndex(0);
+    setActiveReviewApplicationId(null);
+    setReviewModalNote("");
+    setReviewModalError(null);
   }
+
+  async function handleSaveAndNextReviewNote() {
+    if (activeReviewIndex < activeReviewDocuments.length - 1) {
+      await navigateToReviewIndex(activeReviewIndex + 1);
+      return;
+    }
+    await handleSaveAndCloseReviewNote();
+  }
+
+  useEffect(() => {
+    if (!activeReviewFile) return;
+
+    function handleReviewNavigationKeyDown(event: KeyboardEvent) {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLTextAreaElement || activeElement instanceof HTMLInputElement) return;
+      if (isSavingReviewNote || isSavingDocumentVerification) return;
+
+      if (event.key === "ArrowLeft" && activeReviewIndex > 0) {
+        event.preventDefault();
+        void navigateToReviewIndex(activeReviewIndex - 1);
+      } else if (
+        event.key === "ArrowRight" &&
+        activeReviewIndex < activeReviewDocuments.length - 1
+      ) {
+        event.preventDefault();
+        void navigateToReviewIndex(activeReviewIndex + 1);
+      }
+    }
+
+    window.addEventListener("keydown", handleReviewNavigationKeyDown);
+    return () => window.removeEventListener("keydown", handleReviewNavigationKeyDown);
+  }, [
+    activeReviewDocuments.length,
+    activeReviewFile,
+    activeReviewIndex,
+    isSavingDocumentVerification,
+    isSavingReviewNote,
+    navigateToReviewIndex,
+  ]);
 
   function openReturnModal() {
     const documentRemarks = (selectedApplication?.uploadGroups ?? [])
@@ -1502,16 +1701,46 @@ export default function SkeapApplicationsClient({
     if (!selectedApplication) return;
 
     const document = findDocumentByReviewKey(selectedApplication, reviewKey);
-    const targetUrl = reviewKey.startsWith("url-") ? reviewKey.slice(4) : document?.previewUrl;
-    const uploadGroup = selectedApplication.uploadGroups?.find(
-      (group) =>
-        group.key === reviewKey ||
-        normalizeUrlForMatch(group.url) === normalizeUrlForMatch(targetUrl ?? "")
+    const targetUrl = reviewKey.startsWith("url-") ? reviewKey.slice(4) : document?.previewUrl ?? "";
+    const documents = getReviewDocumentQueue(selectedApplication);
+    let activeIndex = documents.findIndex(
+      (candidate) =>
+        candidate.id === reviewKey ||
+        (targetUrl && normalizeUrlForMatch(candidate.previewUrl) === normalizeUrlForMatch(targetUrl))
     );
 
-    setReviewModalNote(uploadGroup?.adminRemark ?? "");
+    if (activeIndex < 0) {
+      const fallbackDocument = document ?? (targetUrl
+        ? {
+            id: reviewKey,
+            label: extractFileNameFromUrl(targetUrl),
+            type: isPdfUrl(targetUrl) ? "PDF" : "Document",
+            previewUrl: targetUrl,
+            verified: false,
+            comment: "",
+            isImage: isImageUrl(targetUrl),
+          }
+        : undefined);
+      if (!fallbackDocument) return;
+      documents.push(fallbackDocument);
+      activeIndex = documents.length - 1;
+    }
+
+    const activeDocument = documents[activeIndex];
+    if (!activeDocument) return;
+    const uploadGroup = selectedApplication.uploadGroups?.find(
+      (group) =>
+        group.key === activeDocument.id ||
+        normalizeUrlForMatch(group.url) === normalizeUrlForMatch(activeDocument.previewUrl)
+    );
+
+    setActiveReviewDocuments(documents);
+    setActiveReviewIndex(activeIndex);
+    setActiveReviewApplicationId(selectedApplication.id);
+    setReviewPreviewStatus(null);
+    setReviewModalNote(uploadGroup?.adminRemark ?? activeDocument.comment ?? "");
     setReviewModalError(null);
-    setActiveReviewFile(reviewKey);
+    setActiveReviewFile(activeDocument.id);
   }
 
   async function saveReviewUpdate(
@@ -2770,6 +2999,37 @@ export default function SkeapApplicationsClient({
                   <h2 className="mt-1 text-lg font-black text-slate-900">{activeReviewLabel}</h2>
                 </div>
                 <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void navigateToReviewIndex(activeReviewIndex - 1)}
+                      disabled={
+                        activeReviewIndex === 0 ||
+                        isSavingReviewNote ||
+                        isSavingDocumentVerification
+                      }
+                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                      Prev
+                    </button>
+                    <span className="px-2 text-xs font-medium text-slate-500">
+                      {activeReviewIndex + 1} of {activeReviewDocuments.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void navigateToReviewIndex(activeReviewIndex + 1)}
+                      disabled={
+                        activeReviewIndex === activeReviewDocuments.length - 1 ||
+                        isSavingReviewNote ||
+                        isSavingDocumentVerification
+                      }
+                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      Next
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                   {activeReviewPreviewUrl && isValidPreviewUrl(activeReviewPreviewUrl) ? (
                     <a
                       href={activeReviewPreviewUrl}
@@ -2786,8 +3046,12 @@ export default function SkeapApplicationsClient({
                     type="button"
                     onClick={() => {
                       setActiveReviewFile(null);
+                      setActiveReviewDocuments([]);
+                      setActiveReviewIndex(0);
+                      setActiveReviewApplicationId(null);
                       setReviewModalNote("");
                       setReviewModalError(null);
+                      setReviewPreviewStatus(null);
                     }}
                     disabled={isSavingReviewNote || isSavingDocumentVerification}
                     title="Close preview"
@@ -2802,23 +3066,50 @@ export default function SkeapApplicationsClient({
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100/60 sm:flex-row">
                 <div className="flex min-h-0 min-w-0 flex-1 items-start justify-center overflow-auto p-4 sm:p-8">
                   <div className="w-full max-w-3xl shrink-0 overflow-hidden rounded-sm bg-white shadow-md ring-1 ring-slate-200">
-                    {activeReviewIsPdf && isValidPreviewUrl(activeReviewPreviewUrl) ? (
+                    {isReviewPreviewLoading ? (
+                      <div className="flex h-[500px] flex-col items-center justify-center gap-3 text-sm text-slate-500">
+                        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                        Loading document preview...
+                      </div>
+                    ) : activeReviewIsPdf &&
+                      isValidPreviewUrl(activeReviewPreviewUrl) &&
+                      activeReviewPreviewSource ? (
                       <iframe
-                        src={activeReviewPreviewUrl}
+                        src={activeReviewPreviewSource}
                         title="PDF preview"
-                        loading="lazy"
                         className="h-[800px] w-full rounded-sm border-0 bg-white"
-                        onLoad={() => setReviewPreviewStatus({ url: activeReviewPreviewUrl, status: "loaded" })}
-                        onError={() => setReviewPreviewStatus({ url: activeReviewPreviewUrl, status: "failed" })}
+                        onLoad={() => setReviewPreviewStatus((current) =>
+                          current?.applicationId === activeReviewApplicationId &&
+                          current.url === activeReviewPreviewUrl
+                            ? { ...current, status: "loaded" }
+                            : current
+                        )}
+                        onError={() => setReviewPreviewStatus((current) =>
+                          current?.applicationId === activeReviewApplicationId &&
+                          current.url === activeReviewPreviewUrl
+                            ? { ...current, status: "failed" }
+                            : current
+                        )}
                       />
-                    ) : activeReviewIsImage && isValidPreviewUrl(activeReviewPreviewUrl) ? (
+                    ) : activeReviewIsImage &&
+                      isValidPreviewUrl(activeReviewPreviewUrl) &&
+                      activeReviewPreviewSource ? (
                       <img
-                        src={activeReviewPreviewUrl}
+                        src={activeReviewPreviewSource}
                         alt="Document preview"
-                        loading="lazy"
                         className="h-auto w-full rounded-sm object-contain"
-                        onLoad={() => setReviewPreviewStatus({ url: activeReviewPreviewUrl, status: "loaded" })}
-                        onError={() => setReviewPreviewStatus({ url: activeReviewPreviewUrl, status: "failed" })}
+                        onLoad={() => setReviewPreviewStatus((current) =>
+                          current?.applicationId === activeReviewApplicationId &&
+                          current.url === activeReviewPreviewUrl
+                            ? { ...current, status: "loaded" }
+                            : current
+                        )}
+                        onError={() => setReviewPreviewStatus((current) =>
+                          current?.applicationId === activeReviewApplicationId &&
+                          current.url === activeReviewPreviewUrl
+                            ? { ...current, status: "failed" }
+                            : current
+                        )}
                       />
                     ) : activeReviewPreviewUrl && isValidPreviewUrl(activeReviewPreviewUrl) ? (
                       <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center text-slate-700">
@@ -2916,11 +3207,15 @@ export default function SkeapApplicationsClient({
                     <div className="shrink-0 border-t border-slate-100 bg-slate-50 p-5">
                       <button
                         type="button"
-                        onClick={handleSaveAndCloseReviewNote}
-                        disabled={!reviewModalNote.trim() || isSavingReviewNote || isSavingDocumentVerification}
+                        onClick={() => void handleSaveAndNextReviewNote()}
+                        disabled={isSavingReviewNote || isSavingDocumentVerification}
                         className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {isSavingReviewNote ? "Saving..." : "Save Note & Close"}
+                        {isSavingReviewNote
+                          ? "Saving..."
+                          : activeReviewIndex < activeReviewDocuments.length - 1
+                            ? "Save & Next"
+                            : "Save Note & Close"}
                       </button>
                     </div>
                   </aside>

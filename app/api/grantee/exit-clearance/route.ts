@@ -1,8 +1,15 @@
 import { GranteeStatus, Role } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import { hasGranteeColumn, prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { uploadPrivateDocument, removePrivateDocument } from "@/lib/private-documents";
+import {
+  getPrivateDocumentPath,
+  PRIVATE_DOCUMENT_BUCKET,
+  uploadPrivateDocument,
+  removePrivateDocument,
+} from "@/lib/private-documents";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   GRADE_REPORT_MIME_TYPES,
   hasGradeReportSignature,
@@ -11,6 +18,91 @@ import {
   MAX_SKEAP_UPLOAD_SIZE_BYTES,
   SKEAP_UPLOAD_TOO_LARGE_MESSAGE,
 } from "@/lib/skeap-upload";
+
+function getMimeType(fileName: string) {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "png") return "image/png";
+  if (extension === "webp") return "image/webp";
+  if (extension === "jpg" || extension === "jpeg" || extension === "jfif") {
+    return "image/jpeg";
+  }
+  return "application/octet-stream";
+}
+
+export async function GET() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const appUser = await prisma.user.findFirst({
+    where: { authId: user.id, isActive: true, role: Role.GRANTEE },
+    select: { id: true },
+  });
+  if (!appUser) {
+    return NextResponse.json({ error: "Only active grantees can view exit clearance." }, { status: 403 });
+  }
+
+  const hasFileNameColumn = await hasGranteeColumn("exitClearanceFileName");
+  const grantee = await prisma.grantee.findFirst({
+    where: {
+      userId: appUser.id,
+      status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      exitClearanceUrl: true,
+      ...(hasFileNameColumn ? { exitClearanceFileName: true } : {}),
+      user: { select: { authId: true } },
+    },
+  });
+  if (!grantee?.exitClearanceUrl) {
+    return NextResponse.json({ error: "No exit-clearance document has been submitted." }, { status: 404 });
+  }
+
+  const objectPath =
+    getPrivateDocumentPath(grantee.exitClearanceUrl) ??
+    (grantee.exitClearanceUrl.startsWith("grantee-clearances/")
+      ? grantee.exitClearanceUrl
+      : null);
+  const ownerPrefix = `grantee-clearances/${grantee.user.authId}/`;
+  if (
+    !objectPath ||
+    !objectPath.startsWith(ownerPrefix) ||
+    objectPath.split("/").some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    console.error("Stored exit-clearance path is invalid or does not belong to the scholar.");
+    return NextResponse.json(
+      { error: "Unable to generate a secure preview link for this document." },
+      { status: 500 },
+    );
+  }
+
+  const { data, error } = await createAdminClient()
+    .storage.from(PRIVATE_DOCUMENT_BUCKET)
+    .createSignedUrl(objectPath, 60);
+  if (error || !data?.signedUrl) {
+    console.error(
+      "Could not create an exit-clearance preview URL.",
+      error ?? new Error("Supabase Storage returned no signed URL."),
+    );
+    return NextResponse.json(
+      { error: "Unable to generate a secure preview link for this document." },
+      { status: 500 },
+    );
+  }
+
+  const fileName =
+    "exitClearanceFileName" in grantee && grantee.exitClearanceFileName
+      ? grantee.exitClearanceFileName
+      : grantee.exitClearanceUrl.split("/").pop() || "Exit clearance";
+  return NextResponse.json(
+    { url: data.signedUrl, fileName, mimeType: getMimeType(fileName) },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,24 +118,30 @@ export async function POST(request: NextRequest) {
         id: true,
         role: true,
         fullName: true,
-        grantee: {
-          select: { id: true, status: true, exitClearanceStatus: true, exitClearanceUrl: true },
-        },
       },
     });
-    if (!appUser || appUser.role !== Role.GRANTEE || !appUser.grantee) {
+    if (!appUser || appUser.role !== Role.GRANTEE) {
       return NextResponse.json({ error: "Only active grantees can submit exit clearance." }, { status: 403 });
     }
-    if (
-      appUser.grantee.status !== GranteeStatus.ACTIVE &&
-      appUser.grantee.status !== GranteeStatus.PROBATIONARY
-    ) {
-      return NextResponse.json({ error: "Exit clearance can only be submitted by an active scholar." }, { status: 409 });
+    const grantee = await prisma.grantee.findFirst({
+      where: {
+        userId: appUser.id,
+        status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        status: true,
+        exitClearanceStatus: true,
+        exitClearanceUrl: true,
+      },
+    });
+    if (!grantee) {
+      return NextResponse.json({ error: "No active Grantee record was found for this account." }, { status: 404 });
     }
-    if (appUser.grantee.exitClearanceStatus === "CLEARED") {
+    if (grantee.exitClearanceStatus === "CLEARED") {
       return NextResponse.json({ error: "Exit clearance has already been completed." }, { status: 409 });
     }
-    const grantee = appUser.grantee;
 
     const formData = await request.formData();
     const file = formData.get("file");
@@ -84,10 +182,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "The uploaded file does not match its declared file type." }, { status: 400 });
     }
 
-    let uploadedPath: string | null = null;
+    let uploaded: Awaited<ReturnType<typeof uploadPrivateDocument>>;
     try {
-      const uploaded = await uploadPrivateDocument(user.id, uploadFile, "grantee-clearances", "exit-clearance");
-      uploadedPath = uploaded.path;
+      uploaded = await uploadPrivateDocument(user.id, uploadFile, "grantee-clearances", "exit-clearance");
+    } catch (error) {
+      console.error("[POST /api/grantee/exit-clearance]", error);
+      return NextResponse.json(
+        { error: "Secure file storage could not accept your clearance. Please try again or contact SK Admin." },
+        { status: 503 },
+      );
+    }
+
+    const uploadedPath = uploaded.path;
+    try {
       const submittedAt = new Date();
       const [hasFileNameColumn, hasSubmittedAtColumn] = await Promise.all([
         hasGranteeColumn("exitClearanceFileName"),
@@ -99,7 +206,7 @@ export async function POST(request: NextRequest) {
           where: {
             id: grantee.id,
             status: { in: [GranteeStatus.ACTIVE, GranteeStatus.PROBATIONARY] },
-            exitClearanceStatus: { in: ["NONE", "SUBMITTED"] },
+            exitClearanceStatus: { in: ["NONE", "SUBMITTED", "RETURNED"] },
             exitClearanceUrl: grantee.exitClearanceUrl,
           },
           data: {
@@ -117,20 +224,27 @@ export async function POST(request: NextRequest) {
         }
 
         const sourceKey = `exit-clearance-submitted:${grantee.id}`;
+        const href = `/admin/grantees?search=${encodeURIComponent(appUser.fullName)}&graduateId=${encodeURIComponent(grantee.id)}`;
         await tx.adminNotification.upsert({
           where: { sourceKey },
           create: {
             sourceKey,
-            title: "Graduation Exit Clearance Submitted",
-            message: `${appUser.fullName} uploaded their Exit Clearance for verification`,
+            title: "Exit Clearance Submitted",
+            message: `${appUser.fullName} uploaded their Exit Clearance for graduation verification.`,
             type: "EXIT_CLEARANCE_SUBMITTED",
+            href,
           },
           update: {
-            title: "Graduation Exit Clearance Submitted",
-            message: `${appUser.fullName} uploaded their Exit Clearance for verification`,
+            title: "Exit Clearance Submitted",
+            message: `${appUser.fullName} uploaded their Exit Clearance for graduation verification.`,
+            href,
           },
         });
       });
+
+      revalidatePath("/admin/exit-clearances");
+      revalidatePath("/admin/grantees");
+      revalidatePath("/admin/grantees/records");
 
       return NextResponse.json({
         success: true,
@@ -150,11 +264,17 @@ export async function POST(request: NextRequest) {
       if (error instanceof Error && error.message === "EXIT_CLEARANCE_SUBMISSION_CONFLICT") {
         return NextResponse.json({ error: "Your clearance changed while this upload was processing. Refresh and try again." }, { status: 409 });
       }
-      console.error("Failed to submit grantee exit clearance:", error);
-      return NextResponse.json({ error: "Unable to submit exit clearance right now." }, { status: 500 });
+      console.error("[POST /api/grantee/exit-clearance]", error);
+      return NextResponse.json(
+        { error: "Your file was uploaded, but we couldn't save the submission. Please try again." },
+        { status: 500 },
+      );
     }
   } catch (error) {
-    console.error("Exit-clearance request failed.", error);
-    return NextResponse.json({ error: "Unable to submit exit clearance right now." }, { status: 500 });
+    console.error("[POST /api/grantee/exit-clearance]", error);
+    return NextResponse.json(
+      { error: "We couldn't process your exit-clearance submission. Please try again." },
+      { status: 500 },
+    );
   }
 }
