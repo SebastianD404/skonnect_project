@@ -12,6 +12,7 @@ import {
   removeNameNumbers,
 } from "@/lib/kk-profiling-inputs";
 import { scanDocument } from "@/lib/ocrValidation";
+import { compressImageForUpload } from "@/lib/image-compression";
 import FormFieldLabel from "@/app/components/FormFieldLabel";
 import {
   getPlaceOfBirthSuggestion,
@@ -517,6 +518,11 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [idHashCheckStatus, setIdHashCheckStatus] = useState<
+    "idle" | "checking" | "verified" | "duplicate" | "error"
+  >("idle");
+  const [idHashCheckError, setIdHashCheckError] = useState<string | null>(null);
+  const idHashCheckGenerationRef = useRef(0);
   const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<{ type: "success" | "error" | "warning"; message: string } | null>(null);
@@ -528,6 +534,9 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     setSelectedFiles(emptyFiles);
     setMessage(null);
     setValidationMessage(null);
+    setIdHashCheckStatus("idle");
+    setIdHashCheckError(null);
+    idHashCheckGenerationRef.current += 1;
     setTouchedFields({});
     setFieldErrors({});
     // Keep a selected replacement when the parent recreates this registration object.
@@ -583,9 +592,66 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
     };
     selectedFilesRef.current = updatedFiles;
     setSelectedFiles(updatedFiles);
+    if (field !== "front") return;
+
+    const generation = ++idHashCheckGenerationRef.current;
+    setIdHashCheckError(null);
+    if (!file) {
+      setIdHashCheckStatus("idle");
+      return;
+    }
+
+    setIdHashCheckStatus("checking");
+    void (async () => {
+      try {
+        const digest = await window.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+        const hash = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        const response = await fetch("/api/kk-profiling/check-id-hash", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hash }),
+        });
+        const result: unknown = await response.json();
+        if (!response.ok || typeof result !== "object" || result === null) {
+          throw new Error("Unable to verify this ID document right now. Please try again.");
+        }
+        const payload = result as { isDuplicate?: unknown };
+        if (generation !== idHashCheckGenerationRef.current) return;
+        if (payload.isDuplicate === true) {
+          const clearedFiles = { ...selectedFilesRef.current, front: null };
+          selectedFilesRef.current = clearedFiles;
+          setSelectedFiles(clearedFiles);
+          setIdHashCheckStatus("duplicate");
+          setIdHashCheckError(
+            "This ID document has already been submitted under another SKonnect account. Please upload your own valid ID.",
+          );
+          return;
+        }
+        if (payload.isDuplicate !== false) {
+          throw new Error("Unable to verify this ID document right now. Please try again.");
+        }
+        setIdHashCheckStatus("verified");
+      } catch (error) {
+        if (generation !== idHashCheckGenerationRef.current) return;
+        console.error("KK profiling ID uniqueness check failed", error);
+        setIdHashCheckStatus("error");
+        setIdHashCheckError(
+          "Unable to verify this ID document right now. Please try again.",
+        );
+      }
+    })();
   }
 
   function validate(files: SelectedFiles) {
+    if (idHashCheckStatus === "checking") {
+      return "Please wait while we verify your ID document.";
+    }
+    if (idHashCheckStatus === "duplicate" || idHashCheckStatus === "error") {
+      return idHashCheckError ?? "Please upload a different valid ID.";
+    }
     if (!form.lastName.trim() || !form.firstName.trim() || !form.middleName.trim()) return "First, middle, and last name are required.";
     if (![form.firstName, form.middleName, form.lastName].every(isValidNameInput)) {
       return "First, middle, and last names must each contain at least two letters and no numbers.";
@@ -696,17 +762,26 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
       formData.append("assemblyTimes", form.assemblyTimes ?? "");
       formData.append("noAssemblyReason", form.noAssemblyReason ?? "");
       formData.append("documentType", "Valid ID + Certificate of Residency");
+      if (files.front) {
+        const digest = await window.crypto.subtle.digest("SHA-256", await files.front.arrayBuffer());
+        const originalIdHash = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        formData.append("idDocumentHash", originalIdHash);
+      }
 
-      const appendSelectedFile = (field: string, file: File | null | undefined) => {
+      const appendSelectedFile = async (field: string, file: File | null | undefined) => {
         if (file instanceof File && file.size > 0) {
-          formData.append(field, file);
+          formData.append(field, await compressImageForUpload(file));
         }
       };
-      appendSelectedFile("frontFile", files.front);
-      appendSelectedFile("backFile", files.back);
-      appendSelectedFile("residencyFile", files.single);
-      appendSelectedFile("photoFile", files.photo);
-      appendSelectedFile("birthCertificateFile", files.birthCertificate);
+      await Promise.all([
+        appendSelectedFile("frontFile", files.front),
+        appendSelectedFile("backFile", files.back),
+        appendSelectedFile("residencyFile", files.single),
+        appendSelectedFile("photoFile", files.photo),
+        appendSelectedFile("birthCertificateFile", files.birthCertificate),
+      ]);
 
       const response = await fetch("/api/programs/kk-profiling/registration-with-id", {
         method: "PUT",
@@ -1121,18 +1196,33 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
             </div>
 
             <div className="grid grid-cols-1 items-stretch gap-5 md:grid-cols-3">
-              <UnifiedDocumentDropzone
-                title="Front of ID"
-                documentType="front_id"
-                existingUrl={registration.idFrontFileUrl}
-                selectedFile={selectedFiles.front}
-                accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
-                helper="JPG/JFIF, PNG, or WebP (max. 10MB)"
-                firstName={form.firstName}
-                lastName={form.lastName}
-                middleInitial={form.middleName}
-                onFileChange={(file) => handleFileChange("front", file)}
-              />
+              <div className="space-y-2">
+                <UnifiedDocumentDropzone
+                  title="Front of ID"
+                  documentType="front_id"
+                  existingUrl={registration.idFrontFileUrl}
+                  selectedFile={selectedFiles.front}
+                  accept="image/jpeg,image/jfif,.jfif,image/png,image/webp"
+                  helper="JPG/JFIF, PNG, or WebP (max. 10MB)"
+                  firstName={form.firstName}
+                  lastName={form.lastName}
+                  middleInitial={form.middleName}
+                  onFileChange={(file) => handleFileChange("front", file)}
+                />
+                {idHashCheckStatus === "checking" ? (
+                  <p className="text-xs text-slate-500" role="status">
+                    Verifying document uniqueness...
+                  </p>
+                ) : null}
+                {idHashCheckError ? (
+                  <p
+                    className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-800"
+                    role="alert"
+                  >
+                    {idHashCheckError}
+                  </p>
+                ) : null}
+              </div>
               <UnifiedDocumentDropzone
                 title="Back of ID"
                 documentType="back_id"
@@ -1163,7 +1253,12 @@ export default function KKProfilingFormModal({ isOpen, registration, onClose, on
             <button
               type="button"
               onClick={onClose}
-              disabled={isSubmitting}
+              disabled={
+                isSubmitting ||
+                idHashCheckStatus === "checking" ||
+                idHashCheckStatus === "duplicate" ||
+                idHashCheckStatus === "error"
+              }
               className="inline-flex justify-center rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel

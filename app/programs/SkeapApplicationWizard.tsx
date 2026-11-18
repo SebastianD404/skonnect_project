@@ -16,11 +16,11 @@ import {
   type SkeapUploadKey,
 } from "@/lib/skeap-upload";
 import {
-  compressImageForUpload,
   ensureSkeapUploadWithinLimit,
   getSkeapUploadErrorMessage,
   isSkeapRasterImage,
 } from "@/lib/skeap-upload-client";
+import { compressImageForUpload } from "@/lib/image-compression";
 import type { KKProfile } from "@/lib/kk-profile-client";
 import { validateDocumentOCR, verifyOcrDocumentName } from "@/lib/skeap-document-ocr";
 import { formatSkeapPermanentAddress } from "@/lib/grantee-address";

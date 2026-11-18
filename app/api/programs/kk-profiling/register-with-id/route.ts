@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { uploadPrivateDocument } from "@/lib/private-documents";
@@ -9,8 +10,8 @@ import { KKProfileSchema } from "@/lib/kk-profile-schema";
 import { validatePlaceOfBirth } from "@/lib/place-of-birth-schema";
 import { MINIMUM_RESIDENCY_MONTHS_TEXT } from "@/lib/residency-requirement";
 import { formatSexLabel, parseSex } from "@/lib/sex";
-import { buildIdentityFingerprint } from "@/lib/skeap-application-guard";
 import { getExactAge } from "@/lib/skeap-age";
+import { getKkProfileDuplicateAssessment } from "@/lib/kk-deduplication";
 import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import {
   BARANGAY_PICO,
@@ -93,29 +94,6 @@ function parseAddress(address: string) {
     addressLine: addressLine || "Address pending verification",
     barangay,
   };
-}
-
-function getUtcDateRange(date: Date) {
-  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  return { gte: start, lt: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
-}
-
-function hasDuplicateKkIdentity(
-  profiles: Array<{
-    id: string;
-    firstName: string;
-    middleName: string | null;
-    lastName: string;
-    birthDate: Date;
-  }>,
-  fingerprint: string,
-  currentProfileId: string | null,
-) {
-  return profiles.some((profile) => {
-    if (profile.id === currentProfileId) return false;
-
-    return buildIdentityFingerprint(profile)?.exact === fingerprint;
-  });
 }
 
 export async function POST(req: NextRequest) {
@@ -262,40 +240,29 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const identityFingerprint = buildIdentityFingerprint({
+    const { purok, addressLine } = parseAddress(String(body.address || ""));
+    const submittedSitio = normalizeSitio(String(body.sitio || "").trim());
+    const resolvedSite = submittedSitio || purok;
+    const identity = {
       firstName: names.firstName,
       middleName: names.middleName,
       lastName: names.lastName,
-      dateOfBirth: birthDate,
-    });
-    if (!identityFingerprint) {
-      return NextResponse.json({ error: "Enter a valid name and date of birth." }, { status: 400 });
-    }
-
-    const matchingBirthDateProfiles = await prisma.kKProfile.findMany({
-      where: { birthDate: getUtcDateRange(birthDate) },
-      select: {
-        id: true,
-        firstName: true,
-        middleName: true,
-        lastName: true,
-        birthDate: true,
-      },
-    });
-    if (hasDuplicateKkIdentity(
-      matchingBirthDateProfiles,
-      identityFingerprint.exact,
-      appUser.kkProfileId,
-    )) {
+      suffix: String(formData.get("suffix") || ""),
+      birthDate,
+      sitio: resolvedSite,
+    };
+    const duplicateAssessment = await prisma.$transaction((tx) =>
+      getKkProfileDuplicateAssessment(tx, identity, appUser.id),
+    );
+    if (duplicateAssessment.isExactDuplicate) {
       return NextResponse.json(
-        { error: "A KK profile with these details already exists. Please sign in to your existing registered account." },
+        {
+          error: "A Katipunan ng Kabataan profile with this exact full name and date of birth is already registered in Barangay Pico. If you already have an account, please sign in or contact the SK Council for assistance.",
+        },
         { status: 409 },
       );
     }
 
-    const { purok, addressLine } = parseAddress(String(body.address || ""));
-    const submittedSitio = normalizeSitio(String(body.sitio || "").trim());
-    const resolvedSite = submittedSitio || purok;
     const municipality = String(body.municipality || "").trim();
     const province = String(body.province || "").trim();
     // Upload ID and residency files
@@ -353,6 +320,34 @@ export async function POST(req: NextRequest) {
       validId: { front: frontFile, back: backFile },
       certificateOfResidency: residencyFile,
     } = documentValidation.data;
+    const uploadedIdDocumentHash = createHash("sha256")
+      .update(Buffer.from(await frontFile.arrayBuffer()))
+      .digest("hex");
+    const submittedIdDocumentHash = String(formData.get("idDocumentHash") || "").toLowerCase();
+    const idDocumentHash = /^[a-f0-9]{64}$/.test(submittedIdDocumentHash)
+      ? submittedIdDocumentHash
+      : uploadedIdDocumentHash;
+    const idDocumentHashes = [...new Set([idDocumentHash, uploadedIdDocumentHash])];
+    const duplicateIdDocument = await prisma.kKProfile.findFirst({
+      where: {
+        idDocumentHash: { in: idDocumentHashes },
+        user: {
+          is: {
+            id: { not: appUser.id },
+            kkStatus: { in: ["PENDING", "APPROVED"] },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (duplicateIdDocument) {
+      return NextResponse.json(
+        {
+          error: "This ID document has already been submitted under another SKonnect account. Please upload your own valid ID.",
+        },
+        { status: 409 },
+      );
+    }
 
     // If a residency file was uploaded, the residency acknowledgement checkbox
     // is redundant because the document itself should state the 8-month residency.
@@ -395,22 +390,24 @@ export async function POST(req: NextRequest) {
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      const profilesForBirthDate = await tx.kKProfile.findMany({
-        where: { birthDate: getUtcDateRange(birthDate) },
-        select: {
-          id: true,
-          firstName: true,
-          middleName: true,
-          lastName: true,
-          birthDate: true,
-        },
-      });
-      if (hasDuplicateKkIdentity(
-        profilesForBirthDate,
-        identityFingerprint.exact,
-        appUser.kkProfileId,
-      )) {
+      const currentDuplicateAssessment = await getKkProfileDuplicateAssessment(tx, identity, appUser.id);
+      if (currentDuplicateAssessment.isExactDuplicate) {
         throw new Error("KK_PROFILE_DUPLICATE_IDENTITY");
+      }
+      const duplicateIdDocument = await tx.kKProfile.findFirst({
+        where: {
+          idDocumentHash: { in: idDocumentHashes },
+          user: {
+            is: {
+              id: { not: appUser.id },
+              kkStatus: { in: ["PENDING", "APPROVED"] },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (duplicateIdDocument) {
+        throw new Error("KK_PROFILE_DUPLICATE_ID_DOCUMENT");
       }
 
       let kkProfile = appUser.kkProfileId
@@ -443,6 +440,9 @@ export async function POST(req: NextRequest) {
             contactNumber,
             sex,
             isVerified: false,
+            idDocumentHash,
+            duplicateFlag: currentDuplicateAssessment.duplicateFlag,
+            duplicateNote: currentDuplicateAssessment.duplicateNote,
           },
         });
       } else {
@@ -461,6 +461,9 @@ export async function POST(req: NextRequest) {
             sex,
             email,
             isVerified: false,
+            idDocumentHash,
+            duplicateFlag: currentDuplicateAssessment.duplicateFlag,
+            duplicateNote: currentDuplicateAssessment.duplicateNote,
           },
         });
       }
@@ -572,7 +575,18 @@ export async function POST(req: NextRequest) {
 
     if (err instanceof Error && err.message === "KK_PROFILE_DUPLICATE_IDENTITY") {
       return NextResponse.json(
-        { error: "A KK profile with these details already exists. Please sign in to your existing registered account." },
+        {
+          error: "A Katipunan ng Kabataan profile with this exact full name and date of birth is already registered in Barangay Pico. If you already have an account, please sign in or contact the SK Council for assistance.",
+        },
+        { status: 409 }
+      );
+    }
+
+    if (err instanceof Error && err.message === "KK_PROFILE_DUPLICATE_ID_DOCUMENT") {
+      return NextResponse.json(
+        {
+          error: "This ID document has already been submitted under another SKonnect account. Please upload your own valid ID.",
+        },
         { status: 409 }
       );
     }

@@ -361,11 +361,21 @@ export function DocumentUploadCard({
   }, [accept, acceptedFormats, firstName, lastName, maxSize, middleInitial, ocrStrategy, onFailedOcrAttempt, onUpload, publishOcrState]);
 
   useEffect(() => {
+    if (initialFile === null && selectedFile) {
+      const timer = window.setTimeout(() => {
+        generationRef.current += 1;
+        setSelectedFile(null);
+        setFileError(null);
+        publishOcrState({ status: "idle", file: null });
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+
     if (initialFile && initialFile !== selectedFile) {
       const timer = window.setTimeout(() => void processFile(initialFile), 0);
       return () => window.clearTimeout(timer);
     }
-  }, [initialFile, processFile, selectedFile]);
+  }, [initialFile, processFile, publishOcrState, selectedFile]);
 
   function removeFile(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();

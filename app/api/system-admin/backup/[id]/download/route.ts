@@ -1,6 +1,6 @@
 import { BackupStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
-import { createSystemBackupSignedUrl } from "@/lib/data-backup-storage";
+import { downloadSystemBackup } from "@/lib/data-backup-storage";
 import { prisma } from "@/lib/prisma";
 import { getSystemBackupAdmin } from "@/lib/system-backup-auth";
 
@@ -27,8 +27,14 @@ export async function GET(
       return NextResponse.json({ error: "Stored backup file was not found." }, { status: 404 });
     }
 
-    const signedUrl = await createSystemBackupSignedUrl(backup.storagePath, backup.fileName);
-    return NextResponse.redirect(signedUrl);
+    const file = await downloadSystemBackup(backup.storagePath);
+    return new Response(new Uint8Array(file), {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${backup.fileName}"`,
+        "Cache-Control": "private, no-store, max-age=0",
+      },
+    });
   } catch (error) {
     console.error("System backup download failed:", error);
     return NextResponse.json({ error: "Unable to download the system backup." }, { status: 500 });

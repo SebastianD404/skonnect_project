@@ -125,7 +125,8 @@ function createFileName(date: Date) {
 }
 
 function checksumFor(meta: BackupSnapshot["meta"], data: BackupData) {
-  return createHash("sha256").update(JSON.stringify({ meta, data })).digest("hex");
+  const checksumBuffer = Buffer.from(JSON.stringify({ meta, data }), "utf8");
+  return createHash("sha256").update(checksumBuffer).digest("hex");
 }
 
 function getBackupErrorMessage(error: unknown) {
@@ -324,12 +325,13 @@ export async function generateSystemBackupSnapshot({
     checksumSha256 = checksumFor(meta, data);
     const snapshot: BackupSnapshot = { meta, data, checksumSha256 };
     const jsonString = JSON.stringify(snapshot, null, 2);
-    fileSizeBytes = Buffer.byteLength(jsonString, "utf8");
+    const jsonBuffer = Buffer.from(jsonString, "utf8");
+    fileSizeBytes = jsonBuffer.byteLength;
     storagePath = await persistSystemBackup(
       trigger === "MANUAL" ? "MANUAL" : "SCHEDULED",
       getPhtDateString(createdAt),
       fileName,
-      jsonString,
+      jsonBuffer,
     );
 
     try {

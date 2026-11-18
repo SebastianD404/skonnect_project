@@ -10,7 +10,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock,
-  ExternalLink,
   FileText,
   GraduationCap,
   Loader2,
@@ -19,6 +18,7 @@ import {
   Search,
   ShieldCheck,
   Undo2,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
@@ -206,9 +206,16 @@ function DocumentCard({
   const viewerUrl = `/api/submissions/${submissionId}/file?kind=${documentKind}`;
   const [previewType, setPreviewType] = useState<"pdf" | "image" | "unsupported" | "missing" | null>(null);
   const [rawStorageUrl, setRawStorageUrl] = useState<string | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  function openDocumentPreview() {
+    setPreviewType(null);
+    setRawStorageUrl(null);
+    setIsPreviewOpen(true);
+  }
 
   useEffect(() => {
-    if (!storedFilePath) return;
+    if (!storedFilePath || !isPreviewOpen) return;
 
     const controller = new AbortController();
     fetch(`${viewerUrl}&metadata=true`, {
@@ -246,7 +253,7 @@ function DocumentCard({
       });
 
     return () => controller.abort();
-  }, [storedFilePath, viewerUrl]);
+  }, [isPreviewOpen, storedFilePath, viewerUrl]);
 
   return (
     <article className="review-card flex h-full flex-col">
@@ -275,61 +282,29 @@ function DocumentCard({
         ) : null}
       </div>
 
-      <div className={`review-card__preview group relative h-44 w-full flex items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 p-3 ${storedFilePath && previewType !== null && previewType !== "missing" ? "cursor-pointer" : ""}`}>
-        {previewType === "pdf" ? (
-          <iframe
-            src={viewerUrl}
-            title={`${title} preview`}
-            className="h-full w-full max-h-full max-w-full border-0"
-          />
-        ) : previewType === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={viewerUrl}
-            alt={title}
-            className="max-h-full max-w-full object-contain"
-          />
-        ) : previewType === null && storedFilePath ? (
-          <span className="flex items-center gap-2 text-xs font-medium text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            Checking preview...
-          </span>
+      <div className="review-card__preview flex h-44 w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+        {storedFilePath ? (
+          <>
+            <FileText className="h-8 w-8 text-slate-400" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={openDocumentPreview}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500"
+            >
+              View document
+            </button>
+          </>
         ) : (
           <div className="space-y-2 text-center">
             <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/60 bg-white text-slate-700 shadow-2xs">
               <FileText className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-xs font-bold text-slate-700">
-                {previewType === "missing"
-                  ? "Uploaded file not found"
-                  : storedFilePath
-                    ? "Preview not available"
-                    : "No document uploaded"}
-              </p>
-              <p className="mt-0.5 text-[11px] text-slate-400">
-                {previewType === "missing"
-                  ? "The file is missing from storage. Re-upload the document before reviewing it."
-                  : storedFilePath
-                    ? "Open in a new tab to view or download."
-                    : "This submission does not include this document."}
-              </p>
+              <p className="text-xs font-bold text-slate-700">No document uploaded</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">This submission does not include this document.</p>
             </div>
           </div>
         )}
-        {storedFilePath && rawStorageUrl && previewType === "image" ? (
-          <button
-            type="button"
-            onClick={() => window.open(rawStorageUrl, "_blank", "noopener,noreferrer")}
-            aria-label={`View ${title} in a new tab`}
-            className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/0 text-slate-900 transition-colors hover:bg-slate-900/10 focus-visible:bg-slate-900/10 focus-visible:outline focus-visible:outline-2 focus-visible:[outline-offset:-3px] focus-visible:outline-sky-500"
-          >
-            <span className="inline-flex translate-y-1 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-900 opacity-0 shadow-md transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              View
-            </span>
-          </button>
-        ) : null}
       </div>
 
       <div className="review-card__notes flex min-h-0 flex-1 flex-col">
@@ -480,6 +455,73 @@ function DocumentCard({
         </div>
       )}
 
+      {isPreviewOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${title} preview`}
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/75 p-4"
+          onClick={() => setIsPreviewOpen(false)}
+        >
+          <div
+            className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-3">
+              <h3 className="truncate text-sm font-semibold text-slate-900">{title}</h3>
+              <div className="flex items-center gap-2">
+                {rawStorageUrl ? (
+                  <a
+                    href={rawStorageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-semibold text-sky-700 underline"
+                  >
+                    Open in new tab
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setIsPreviewOpen(false)}
+                  aria-label="Close document preview"
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            </header>
+            <div className="min-h-[40vh] overflow-auto bg-slate-100 p-4">
+              {previewType === "pdf" ? (
+                <iframe
+                  src={viewerUrl}
+                  title={`${title} preview`}
+                  loading="lazy"
+                  className="h-[75vh] w-full border-0 bg-white"
+                />
+              ) : previewType === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={viewerUrl}
+                  alt={title}
+                  loading="lazy"
+                  className="mx-auto max-h-[75vh] max-w-full object-contain"
+                />
+              ) : previewType === null ? (
+                <div className="flex h-[40vh] items-center justify-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Checking document...
+                </div>
+              ) : (
+                <p role="alert" className="py-16 text-center text-sm text-slate-600">
+                  {previewType === "missing"
+                    ? "The uploaded file is missing from storage."
+                    : "Preview is not available for this file."}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }

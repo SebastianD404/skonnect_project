@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       .storage.from("grantee-submissions")
       .upload(filePath, buffer, {
         contentType: contentType === "image/jpg" ? "image/jpeg" : contentType,
-        cacheControl: "0",
+        cacheControl: "31536000",
         upsert: true,
       });
 

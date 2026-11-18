@@ -359,13 +359,6 @@ function getDocumentFormat(doc: DocumentItem) {
   return doc.type || "Document";
 }
 
-function getFileTypeFromUrl(url: string): "image" | "pdf" | "office" | "document" {
-  if (isImageUrl(url)) return "image";
-  if (isPdfUrl(url)) return "pdf";
-  if (/\.(docx?|xlsx?|pptx?)(\?|$)/i.test(url)) return "office";
-  return "document";
-}
-
 function normalizeUrlForMatch(url: string): string {
   const candidate = String(url || "").trim();
   try {
@@ -2468,18 +2461,9 @@ export default function SkeapApplicationsClient({
                               <div key={doc.id} className="w-full">
                                 <div className={`flex items-center gap-3 px-4 py-3 transition ${isReviewFinalized ? "" : "hover:bg-slate-50"}`}>
                                   <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
-                                    {doc.isImage ? (
-                                      <img
-                                        key={doc.previewUrl}
-                                        src={doc.previewUrl}
-                                        alt={doc.label}
-                                        className="h-full w-full object-cover"
-                                      />
-                                    ) : (
-                                      <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
-                                        <FileText className="h-4 w-4" />
-                                      </div>
-                                    )}
+                                    <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
+                                      <FileText className="h-4 w-4" />
+                                    </div>
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <div className="flex min-w-0 items-center gap-2">
@@ -2677,22 +2661,23 @@ export default function SkeapApplicationsClient({
                                 className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:bg-slate-100"
                               >
                                 <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100">
-                                  {attachment.fileType?.toLowerCase().includes("image") || attachment.fileUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                                    <img
-                                      src={attachment.fileUrl}
-                                      alt={attachment.fileName}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
-                                      <FileText className="h-4 w-4" />
-                                    </div>
-                                  )}
+                                  <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-600">
+                                    <FileText className="h-4 w-4" />
+                                  </div>
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="truncate text-sm font-semibold text-slate-900">{attachment.fileName}</p>
                                   <p className="truncate text-xs text-slate-600">{attachment.adminRemark}</p>
                                 </div>
+                                {attachment.fileUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openDocumentReview(`url-${attachment.fileUrl}`)}
+                                    className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50"
+                                  >
+                                    View
+                                  </button>
+                                ) : null}
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2821,6 +2806,7 @@ export default function SkeapApplicationsClient({
                       <iframe
                         src={activeReviewPreviewUrl}
                         title="PDF preview"
+                        loading="lazy"
                         className="h-[800px] w-full rounded-sm border-0 bg-white"
                         onLoad={() => setReviewPreviewStatus({ url: activeReviewPreviewUrl, status: "loaded" })}
                         onError={() => setReviewPreviewStatus({ url: activeReviewPreviewUrl, status: "failed" })}
@@ -2829,6 +2815,7 @@ export default function SkeapApplicationsClient({
                       <img
                         src={activeReviewPreviewUrl}
                         alt="Document preview"
+                        loading="lazy"
                         className="h-auto w-full rounded-sm object-contain"
                         onLoad={() => setReviewPreviewStatus({ url: activeReviewPreviewUrl, status: "loaded" })}
                         onError={() => setReviewPreviewStatus({ url: activeReviewPreviewUrl, status: "failed" })}

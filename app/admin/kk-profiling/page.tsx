@@ -12,11 +12,20 @@ import { KKProfilingTableSearchField, KKProfilingTableSearchProvider } from "./K
 import KKProfilingStatusTabs from "./KKProfilingStatusTabs";
 import { normalizeAdminTablePageSize } from "@/lib/admin-pagination";
 import type { KKProfilingRegistration } from "./types";
+import { prisma } from "@/lib/prisma";
 
-function toKKProfilingRegistration(row: KkProfilingAdminViewRow): KKProfilingRegistration {
+function toKKProfilingRegistration(
+  row: KkProfilingAdminViewRow,
+  duplicateInfo?: {
+    duplicateFlag: string | null;
+    duplicateNote: string | null;
+  },
+): KKProfilingRegistration {
   return {
     ...row,
     reviewStatus: row.status,
+    duplicateFlag: duplicateInfo?.duplicateFlag ?? null,
+    duplicateNote: duplicateInfo?.duplicateNote ?? null,
     user: {
       fullName: row.fullName,
       email: row.email,
@@ -66,8 +75,30 @@ export default async function AdminKKProfilingPage({ searchParams }: { searchPar
       : Promise.resolve([]),
     getKkProfilingAdminViewCounts(),
   ]);
-  const registrations = rows.map(toKKProfilingRegistration);
-  const focusedRegistrations = focusedRows.map(toKKProfilingRegistration);
+  const userIds = [...new Set(
+    [...rows, ...focusedRows]
+      .map((row) => row.userId)
+      .filter((userId): userId is string => Boolean(userId)),
+  )];
+  const usersWithKkProfiles = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: {
+          id: true,
+          kkProfile: { select: { duplicateFlag: true, duplicateNote: true } },
+        },
+      })
+    : [];
+  const duplicateInfoByUserId = new Map(
+    usersWithKkProfiles.map((user) => [user.id, user.kkProfile]),
+  );
+  const withDuplicateInfo = (row: KkProfilingAdminViewRow) =>
+    toKKProfilingRegistration(
+      row,
+      row.userId ? duplicateInfoByUserId.get(row.userId) ?? undefined : undefined,
+    );
+  const registrations = rows.map(withDuplicateInfo);
+  const focusedRegistrations = focusedRows.map(withDuplicateInfo);
 
   const latestRegistrations = focusedRegistrations.length > 0
     ? [

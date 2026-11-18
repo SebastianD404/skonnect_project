@@ -110,6 +110,32 @@ export function getSkeapStatusBadge(status?: string | null) {
   }
 }
 
+function DuplicateFlagBadge({ registration }: { registration: KKProfilingRegistration }) {
+  if (registration.duplicateFlag === "NAMESAKE_MATCH") {
+    return (
+      <span
+        className="mt-1 inline-flex w-fit items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+        title={registration.duplicateNote ?? undefined}
+      >
+        Namesake — Verify ID
+      </span>
+    );
+  }
+
+  if (registration.duplicateFlag === "TWIN_HOUSEHOLD_MATCH") {
+    return (
+      <span
+        className="mt-1 inline-flex w-fit items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
+        title={registration.duplicateNote ?? undefined}
+      >
+        Possible Twin
+      </span>
+    );
+  }
+
+  return null;
+}
+
 export function KKProfilingRegistrationsTable({
   registrations,
   statusLabel,
@@ -375,6 +401,7 @@ export function KKProfilingRegistrationsTable({
                       <h3 className="truncate text-sm font-bold leading-tight text-slate-900" title={registration.fullName}>
                         {registration.fullName}
                       </h3>
+                      <DuplicateFlagBadge registration={registration} />
                       <p className="mt-0.5 truncate text-xs text-slate-500" title={registration.email}>
                         {registration.email}
                       </p>
@@ -561,6 +588,7 @@ export function KKProfilingRegistrationsTable({
                 >
                       <td className={cellPadding}>
                         <div className="truncate font-semibold text-slate-900" title={registration.fullName}>{registration.fullName}</div>
+                        <DuplicateFlagBadge registration={registration} />
                     <div className={`text-xs text-slate-500 ${fitContainer ? "block truncate" : ""}`} title={fitContainer ? registration.email : undefined}>
                       {registration.email}
                     </div>

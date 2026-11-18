@@ -52,6 +52,8 @@ export interface KKProfilingRegistration {
     inAppStatus: "SENT" | "FAILED" | "SKIPPED_NO_USER" | "SKIPPED_DECEASED";
   } | null;
   reviewNotes?: string | null;
+  duplicateFlag?: string | null;
+  duplicateNote?: string | null;
   requiresManualReview?: boolean;
   submittedAt: string | Date;
   kkProfile?: {

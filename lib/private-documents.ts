@@ -52,7 +52,7 @@ export async function uploadPrivateDocument(
     .storage.from(PRIVATE_DOCUMENT_BUCKET)
     .upload(path, await file.arrayBuffer(), {
       contentType: file.type || "application/octet-stream",
-      cacheControl: "0",
+      cacheControl: "31536000",
       upsert: true,
     });
 

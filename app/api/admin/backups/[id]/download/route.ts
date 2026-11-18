@@ -29,7 +29,7 @@ export async function GET(
     }
 
     const file = await downloadScheduledBackup(log.fileName, log.storagePath);
-    return new Response(file, {
+    return new Response(new Uint8Array(file), {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Disposition": `attachment; filename="${log.fileName}"`,

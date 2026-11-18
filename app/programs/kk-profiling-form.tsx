@@ -17,6 +17,7 @@ import {
 } from "@/app/components/DocumentOCRValidationExample";
 import FormFieldLabel from "@/app/components/FormFieldLabel";
 import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
+import { compressImageForUpload } from "@/lib/image-compression";
 import { ChevronDown, Eye, EyeOff, Info, MapPin } from "lucide-react";
 import KkProfilingSuccessInterstitial from "@/app/programs/kk-profiling/KkProfilingSuccessInterstitial";
 import {
@@ -116,56 +117,6 @@ const PROFILING_VALIDATION_ORDER: ProfilingField[] = [
   "noAssemblyReason",
   "consent",
 ];
-
-async function compressImageForUpload(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(file);
-  } catch {
-    throw new Error("A selected image could not be processed. Please choose another image and try again.");
-  }
-
-  const scale = Math.min(1, 1600 / bitmap.width, 1600 / bitmap.height);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-
-  try {
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) {
-      throw new Error("Unable to prepare a selected image for upload.");
-    }
-
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-
-    const compressedBlob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => blob
-          ? resolve(blob)
-          : reject(new Error("Unable to compress a selected image.")),
-        "image/jpeg",
-        0.82,
-      );
-    });
-    if (scale === 1 && compressedBlob.size >= file.size) return file;
-
-    const baseName = file.name.replace(/\.[^.]+$/, "") || "document";
-    return new File([compressedBlob], `${baseName}.jpg`, {
-      type: "image/jpeg",
-      lastModified: file.lastModified,
-    });
-  } finally {
-    bitmap.close();
-    canvas.width = 0;
-    canvas.height = 0;
-  }
-}
 
 function getFormDataPayloadSize(formData: FormData) {
   let payloadSize = 0;
@@ -306,6 +257,11 @@ export default function KKProfilingForm({
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [idFiles, setIdFiles] = useState<Partial<Record<ProfilingDocumentKey, File | null>>>({});
+  const [idHashCheckStatus, setIdHashCheckStatus] = useState<
+    "idle" | "checking" | "verified" | "duplicate" | "error"
+  >("idle");
+  const [idHashCheckError, setIdHashCheckError] = useState<string | null>(null);
+  const idHashCheckGenerationRef = useRef(0);
   const [successRedirectTo, setSuccessRedirectTo] = useState(
     isFromSkeap ? "/youth/skeap/apply" : "/youth/dashboard",
   );
@@ -672,6 +628,58 @@ export default function KKProfilingForm({
       ...current,
       [field]: file,
     }));
+
+    if (field !== "front") return;
+    const generation = ++idHashCheckGenerationRef.current;
+    setIdHashCheckError(null);
+    if (!file) {
+      setIdHashCheckStatus("idle");
+      return;
+    }
+
+    setIdHashCheckStatus("checking");
+    void (async () => {
+      try {
+        const digest = await window.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+        const hash = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        const response = await fetch("/api/kk-profiling/check-id-hash", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hash }),
+        });
+        const result: unknown = await response.json();
+        if (!response.ok || typeof result !== "object" || result === null) {
+          throw new Error("Unable to verify this ID document right now. Please try again.");
+        }
+        const payload = result as { isDuplicate?: unknown };
+        if (generation !== idHashCheckGenerationRef.current) return;
+        if (payload.isDuplicate === true) {
+          setIdHashCheckStatus("duplicate");
+          setIdHashCheckError(
+            "This ID document has already been submitted under another SKonnect account. Please upload your own valid ID.",
+          );
+          void saveProfilingFile("front", null).catch((error) =>
+            console.warn("Unable to remove duplicate KK profiling document", error),
+          );
+          setIdFiles((current) => ({ ...current, front: null }));
+          return;
+        }
+        if (payload.isDuplicate !== false) {
+          throw new Error("Unable to verify this ID document right now. Please try again.");
+        }
+        setIdHashCheckStatus("verified");
+      } catch (error) {
+        if (generation !== idHashCheckGenerationRef.current) return;
+        console.error("KK profiling ID uniqueness check failed", error);
+        setIdHashCheckStatus("error");
+        setIdHashCheckError(
+          "Unable to verify this ID document right now. Please try again.",
+        );
+      }
+    })();
   }
 
   function removeIdFile(field: keyof typeof idFiles) {
@@ -725,6 +733,19 @@ export default function KKProfilingForm({
   }
 
   function validate(manualReview = false): { label: string; message: string } | null {
+    if (idHashCheckStatus === "checking") {
+      return {
+        label: "Valid ID (Front and Back)",
+        message: "Please wait while we verify your ID document.",
+      };
+    }
+    if (idHashCheckStatus === "duplicate" || idHashCheckStatus === "error") {
+      return {
+        label: "Valid ID (Front and Back)",
+        message: idHashCheckError ?? "Please upload a different valid ID.",
+      };
+    }
+
     if (hasHardDocumentError) {
       return {
         label: "Documents",
@@ -870,7 +891,10 @@ export default function KKProfilingForm({
         compressedFiles = await Promise.all(
           fileEntries.map(async ({ field, file }) => {
             if (!file) throw new Error("A required document is missing.");
-            return { field, file: await compressImageForUpload(file) };
+            return {
+              field,
+              file: await compressImageForUpload(file),
+            };
           }),
         );
       } catch (compressionError) {
@@ -883,6 +907,13 @@ export default function KKProfilingForm({
 
       for (const { field, file } of compressedFiles) {
         formData.append(field, file, file.name);
+      }
+      if (idFiles.front) {
+        const digest = await window.crypto.subtle.digest("SHA-256", await idFiles.front.arrayBuffer());
+        const originalIdHash = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        formData.append("idDocumentHash", originalIdHash);
       }
 
       if (getFormDataPayloadSize(formData) > MAX_KK_PROFILING_PAYLOAD_BYTES) {
@@ -1440,6 +1471,19 @@ export default function KKProfilingForm({
                   onFailedOcrAttempt={() => recordFailedOcrAttempt("back")}
                 />
               </div>
+              {idHashCheckStatus === "checking" ? (
+                <p className="mt-2 text-xs text-slate-500" role="status">
+                  Verifying document uniqueness...
+                </p>
+              ) : null}
+              {idHashCheckError ? (
+                <p
+                  className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-800"
+                  role="alert"
+                >
+                  {idHashCheckError}
+                </p>
+              ) : null}
             </div>
             <DocumentUploadCard
               title="Certificate of Residency"
@@ -1561,7 +1605,14 @@ export default function KKProfilingForm({
           </div>
           <button
             type="submit"
-            disabled={submitting || Boolean(emailError) || (!areDocumentsReady && !manualReviewAvailable)}
+            disabled={
+              submitting ||
+              Boolean(emailError) ||
+              idHashCheckStatus === "checking" ||
+              idHashCheckStatus === "duplicate" ||
+              idHashCheckStatus === "error" ||
+              (!areDocumentsReady && !manualReviewAvailable)
+            }
             className="inline-flex h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-xl bg-slate-800 px-6 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "Submitting..." : manualReviewAvailable ? "Submit Anyway" : "Submit"}

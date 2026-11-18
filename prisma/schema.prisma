@@ -68,11 +68,15 @@ model KKProfile {
   sex           Sex      @default(NOT_SPECIFIED)
   email         String   @unique
   isVerified    Boolean  @default(true)
+  idDocumentHash String? @map("id_document_hash")
+  duplicateFlag String?  @map("duplicate_flag")
+  duplicateNote String?  @map("duplicate_note")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   user          User?
 
   @@index([lastName, firstName])
+  @@index([idDocumentHash])
   @@map("kk_profiles")
 }
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getAdmin: vi.fn(),
   findUnique: vi.fn(),
-  createSignedUrl: vi.fn(),
+  download: vi.fn(),
 }));
 
 vi.mock("@/lib/system-backup-auth", () => ({
@@ -13,7 +13,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: { backupLog: { findUnique: mocks.findUnique } },
 }));
 vi.mock("@/lib/data-backup-storage", () => ({
-  createSystemBackupSignedUrl: mocks.createSignedUrl,
+  downloadSystemBackup: mocks.download,
 }));
 
 import { GET } from "@/app/api/system-admin/backup/[id]/download/route";
@@ -25,23 +25,26 @@ describe("system backup signed download route", () => {
     mocks.findUnique.mockResolvedValue({
       fileName: "skonnect-backup-2026-11-18-200000.json",
       status: "COMPLETED",
-      storagePath: "scheduled/2026-11-18/skonnect-backup-2026-11-18-200000.json",
+      storagePath: "scheduled/2026-11-18/skonnect-backup-2026-11-18-200000.json.gz",
     });
-    mocks.createSignedUrl.mockResolvedValue("https://storage.example.test/signed-file");
+    mocks.download.mockResolvedValue(Buffer.from("{\"ok\":true}", "utf8"));
   });
 
-  it("redirects authorized admins to a signed stored backup download", async () => {
+  it("returns an uncompressed JSON attachment for authorized admins", async () => {
     const response = await GET(
       new Request("https://example.test/api/system-admin/backup/backup-1/download"),
       { params: Promise.resolve({ id: "backup-1" }) },
     );
     if (!response) throw new Error("Backup download route did not return a response.");
 
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://storage.example.test/signed-file");
-    expect(mocks.createSignedUrl).toHaveBeenCalledWith(
-      "scheduled/2026-11-18/skonnect-backup-2026-11-18-200000.json",
-      "skonnect-backup-2026-11-18-200000.json",
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="skonnect-backup-2026-11-18-200000.json"',
+    );
+    expect(await response.text()).toBe("{\"ok\":true}");
+    expect(mocks.download).toHaveBeenCalledWith(
+      "scheduled/2026-11-18/skonnect-backup-2026-11-18-200000.json.gz",
     );
   });
 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { Prisma, Sex } from "@prisma/client";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
@@ -10,6 +11,8 @@ import { syncKkProfileFromLatestRegistration } from "@/lib/kk-profile-sync";
 import { refreshKkProfilingApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import { sweepAgedOutKkProfiles } from "@/lib/archiveAgedOutMembers";
 import { validatePlaceOfBirth } from "@/lib/place-of-birth-schema";
+import { getOfficialKkSitio } from "@/lib/address";
+import { getKkProfileDuplicateAssessment } from "@/lib/kk-deduplication";
 
 const ALLOWED_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/jfif", "image/jpg", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -107,6 +110,70 @@ export async function PUT(request: NextRequest) {
     if (photoFile) files.push({ field: "photoFile", suffix: "photo", file: photoFile });
     if (birthCertificateFile) files.push({ field: "birthCertificateFile", suffix: "birth-certificate", file: birthCertificateFile });
 
+    const birthDateValue = String(
+      formData.get("birthDate") || registration.birthDate.toISOString().slice(0, 10),
+    );
+    const identity = {
+      firstName,
+      middleName,
+      lastName,
+      suffix: String(formData.get("suffix") || ""),
+      birthDate: new Date(`${birthDateValue.slice(0, 10)}T00:00:00Z`),
+      sitio:
+        getOfficialKkSitio(String(formData.get("address") || registration.address)) ?? "",
+    };
+    if (Number.isNaN(identity.birthDate.getTime())) {
+      return NextResponse.json({ error: "Invalid birth date." }, { status: 400 });
+    }
+    const duplicateAssessment = await prisma.$transaction((tx) =>
+      getKkProfileDuplicateAssessment(tx, identity, appUser.id),
+    );
+    if (duplicateAssessment.isExactDuplicate) {
+      return NextResponse.json(
+        {
+          error: "A Katipunan ng Kabataan profile with this exact full name and date of birth is already registered in Barangay Pico. If you already have an account, please sign in or contact the SK Council for assistance.",
+        },
+        { status: 409 },
+      );
+    }
+
+    const uploadedIdDocumentHash = frontFile
+      ? createHash("sha256")
+          .update(Buffer.from(await frontFile.arrayBuffer()))
+          .digest("hex")
+      : null;
+    const submittedIdDocumentHash = String(formData.get("idDocumentHash") || "").toLowerCase();
+    const idDocumentHash = frontFile
+      ? (/^[a-f0-9]{64}$/.test(submittedIdDocumentHash)
+        ? submittedIdDocumentHash
+        : uploadedIdDocumentHash)
+      : null;
+    const idDocumentHashes = idDocumentHash && uploadedIdDocumentHash
+      ? [...new Set([idDocumentHash, uploadedIdDocumentHash])]
+      : [];
+    if (idDocumentHashes.length > 0) {
+      const duplicateIdDocument = await prisma.kKProfile.findFirst({
+        where: {
+          idDocumentHash: { in: idDocumentHashes },
+          user: {
+            is: {
+              id: { not: appUser.id },
+              kkStatus: { in: ["PENDING", "APPROVED"] },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (duplicateIdDocument) {
+        return NextResponse.json(
+          {
+            error: "This ID document has already been submitted under another SKonnect account. Please upload your own valid ID.",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     for (const { field, file } of files) {
       const allowedTypes = field === "photoFile"
         ? new Set(["image/png", "image/jpeg", "image/jfif", "image/webp"])
@@ -165,12 +232,13 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Please upload your Birth Certificate." }, { status: 400 });
     }
 
+    const fullName = String(formData.get("fullName") || registration.fullName);
     const updateData: Prisma.ProfilingRegistrationUpdateInput = {
-      fullName: String(formData.get("fullName") || registration.fullName),
+      fullName,
       address: String(formData.get("address") || registration.address),
       sex: formatSexLabel(parsedSex),
       age: Number(formData.get("age") ?? registration.age),
-      birthDate: new Date(String(formData.get("birthDate") || registration.birthDate.toISOString().slice(0, 10))),
+      birthDate: identity.birthDate,
       email: String(formData.get("email") || registration.email),
       facebook: String(formData.get("facebook") || registration.facebook),
       contactNumber,
@@ -203,6 +271,32 @@ export async function PUT(request: NextRequest) {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      const currentDuplicateAssessment = await getKkProfileDuplicateAssessment(
+        tx,
+        identity,
+        appUser.id,
+      );
+      if (currentDuplicateAssessment.isExactDuplicate) {
+        throw new Error("KK_PROFILE_DUPLICATE_IDENTITY");
+      }
+      if (idDocumentHash) {
+        const duplicateIdDocument = await tx.kKProfile.findFirst({
+          where: {
+            idDocumentHash: { in: idDocumentHashes },
+            user: {
+              is: {
+                id: { not: appUser.id },
+                kkStatus: { in: ["PENDING", "APPROVED"] },
+              },
+            },
+          },
+          select: { id: true },
+        });
+        if (duplicateIdDocument) {
+          throw new Error("KK_PROFILE_DUPLICATE_ID_DOCUMENT");
+        }
+      }
+
       const saved = await tx.profilingRegistration.update({
         where: { id: registration.id },
         data: updateData,
@@ -219,7 +313,18 @@ export async function PUT(request: NextRequest) {
         }
         await tx.kKProfile.update({
           where: { id: linkedUser.kkProfileId },
-          data: { placeOfBirth },
+          data: {
+            firstName,
+            middleName,
+            lastName,
+            fullName,
+            birthDate: identity.birthDate,
+            ...(identity.sitio ? { purok: identity.sitio } : {}),
+            placeOfBirth,
+            duplicateFlag: currentDuplicateAssessment.duplicateFlag,
+            duplicateNote: currentDuplicateAssessment.duplicateNote,
+            ...(idDocumentHash ? { idDocumentHash } : {}),
+          },
         });
       }
 
@@ -244,6 +349,28 @@ export async function PUT(request: NextRequest) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
     console.error("Failed to resubmit KK Profiling registration:", stack ?? error);
+    if (
+      error instanceof Error &&
+      error.message === "KK_PROFILE_DUPLICATE_IDENTITY"
+    ) {
+      return NextResponse.json(
+        {
+          error: "A Katipunan ng Kabataan profile with this exact full name and date of birth is already registered in Barangay Pico. If you already have an account, please sign in or contact the SK Council for assistance.",
+        },
+        { status: 409 },
+      );
+    }
+    if (
+      error instanceof Error &&
+      error.message === "KK_PROFILE_DUPLICATE_ID_DOCUMENT"
+    ) {
+      return NextResponse.json(
+        {
+          error: "This ID document has already been submitted under another SKonnect account. Please upload your own valid ID.",
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
