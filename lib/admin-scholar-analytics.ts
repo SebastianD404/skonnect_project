@@ -4,7 +4,7 @@ import { getProfilingRegistrationCountByStatus, prisma } from "@/lib/prisma";
 import { getSkeapCapacitySnapshot } from "@/lib/skeap-capacity";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
 import { skeapPendingApplicationsWhere } from "@/lib/skeap-applications";
-import { getPlatformAccountMetrics } from "@/lib/platform-metrics";
+import { createVerifiedKkYouthCte } from "@/lib/kk-analytics";
 
 export type ScholarDistributionAnalytics = {
   totalRegisteredYouth: number;
@@ -128,11 +128,9 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
     granteeStatusRows,
     capacitySnapshot,
     pendingApplications,
-    platformAccountMetrics,
     scholarRows,
-    populationRows,
+    verifiedYouthRows,
     pendingProfilingApplications,
-    youthGenderRows,
     genderRows,
     yearLevelRows,
   ] =
@@ -145,7 +143,6 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
       prisma.inquiry.count({
         where: skeapPendingApplicationsWhere(currentAcademicYearRange),
       }),
-      getPlatformAccountMetrics(),
       prisma.$queryRaw<Array<{ sitio: string | null; scholars: number }>>`
         WITH skeap_users AS (
           SELECT grantee."userId" AS "userId"
@@ -162,74 +159,21 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
         LEFT JOIN public."kk_profiles" AS profile ON profile."id" = user_record."kkProfileId"
         GROUP BY profile."purok"
       `,
-      prisma.$queryRaw<Array<{ sitio: string | null; population: number }>>`
-        WITH ranked_profiles AS (
+      prisma.$queryRaw<Array<{ sitio: string | null; sex: string | null }>>`
+        ${createVerifiedKkYouthCte()}
+        , profiles_by_sitio AS (
           SELECT
-            registration."id",
-            registration."address",
-            profile."purok",
-            ROW_NUMBER() OVER (
-              PARTITION BY COALESCE(
-                NULLIF(LOWER(BTRIM(user_record."email")), ''),
-                NULLIF(LOWER(BTRIM(registration."email")), ''),
-                NULLIF(registration."userId", ''),
-                registration."id"
-              )
-              ORDER BY registration."submittedAt" DESC, registration."id" DESC
-            ) AS identity_rank
-          FROM public."kk_profiling_registrations" AS registration
-          LEFT JOIN public."users" AS user_record
-            ON user_record."id" = registration."userId"
-          LEFT JOIN public."kk_profiles" AS profile
-            ON profile."id" = user_record."kkProfileId"
-          WHERE registration."reviewStatus" = 'Approved'
-        ),
-        unique_profiles AS (
-          SELECT "address", "purok"
-          FROM ranked_profiles
-          WHERE identity_rank = 1
-        ),
-        profiles_by_sitio AS (
-          SELECT
-            CASE ${registrationSitioCases} ELSE NULL END AS sitio
+            CASE ${registrationSitioCases} ELSE 'Unspecified' END AS sitio,
+            COALESCE(
+              NULLIF(BTRIM(profile."registrationSex"), ''),
+              NULLIF(BTRIM(profile."profileSex"), ''),
+              'NOT_SPECIFIED'
+            ) AS sex
           FROM unique_profiles AS profile
         )
-        SELECT sitio, COUNT(*)::int AS population
-        FROM profiles_by_sitio
-        WHERE sitio IS NOT NULL
-        GROUP BY sitio
+        SELECT sitio, sex FROM profiles_by_sitio
       `,
       getProfilingRegistrationCountByStatus("Pending"),
-      prisma.$queryRaw<Array<{ sex: string | null; count: number }>>`
-        WITH ranked_profiles AS (
-          SELECT
-            registration."id",
-            COALESCE(
-              NULLIF(BTRIM(registration."sex"), ''),
-              NULLIF(BTRIM(profile."sex"::text), ''),
-              'NOT_SPECIFIED'
-            ) AS "sex",
-            ROW_NUMBER() OVER (
-              PARTITION BY COALESCE(
-                NULLIF(LOWER(BTRIM(user_record."email")), ''),
-                NULLIF(LOWER(BTRIM(registration."email")), ''),
-                NULLIF(registration."userId", ''),
-                registration."id"
-              )
-              ORDER BY registration."submittedAt" DESC, registration."id" DESC
-            ) AS identity_rank
-          FROM public."kk_profiling_registrations" AS registration
-          LEFT JOIN public."users" AS user_record
-            ON user_record."id" = registration."userId"
-          LEFT JOIN public."kk_profiles" AS profile
-            ON profile."id" = user_record."kkProfileId"
-          WHERE registration."reviewStatus" = 'Approved'
-        )
-        SELECT "sex", COUNT(*)::int AS "count"
-        FROM ranked_profiles
-        WHERE identity_rank = 1
-        GROUP BY "sex"
-      `,
       prisma.$queryRaw<Array<{ sex: string | null; count: number }>>`
         WITH latest_approved_registration AS (
           SELECT DISTINCT ON (registration."userId")
@@ -300,11 +244,24 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
   const scholarCountsBySitio = new Map(
     scholarRows.map((row) => [row.sitio?.trim().toLowerCase() ?? "", row.scholars]),
   );
-  const populationCountsBySitio = new Map(
-    populationRows.map((row) => [row.sitio?.trim().toLowerCase() ?? "", row.population]),
-  );
   const activeGranteeGenderDistribution = normalizeSexDistribution(genderRows);
-  const youthGenderDistribution = normalizeSexDistribution(youthGenderRows);
+  const youthGenderDistribution = normalizeSexDistribution(
+    verifiedYouthRows.map(({ sex }) => ({ sex, count: 1 })),
+  );
+  const populationCountsBySitio = new Map<string, number>();
+  let unspecifiedPopulation = 0;
+  for (const row of verifiedYouthRows) {
+    const sitio = row.sitio?.trim().toLowerCase() ?? "";
+    const matchedSitio = PICO_SITIOS.find((candidate) => candidate.toLowerCase() === sitio);
+    if (matchedSitio) {
+      populationCountsBySitio.set(
+        matchedSitio.toLowerCase(),
+        (populationCountsBySitio.get(matchedSitio.toLowerCase()) ?? 0) + 1,
+      );
+    } else {
+      unspecifiedPopulation += 1;
+    }
+  }
   const granteeCountsByStatus = new Map(
     granteeStatusRows.map((row) => [row.status, row._count._all]),
   );
@@ -321,7 +278,7 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
   };
 
   return {
-    totalRegisteredYouth: platformAccountMetrics.activeKkYouthAndGrantees,
+    totalRegisteredYouth: verifiedYouthRows.length,
     activeScholars: granteeCountsByStatus.get(GranteeStatus.ACTIVE) ?? 0,
     capacityUsed: capacitySnapshot.activeCount,
     maxSlots: capacitySnapshot.maxSlots,
@@ -337,9 +294,12 @@ export async function getScholarDistributionAnalytics(): Promise<ScholarDistribu
       sitio,
       scholars: scholarCountsBySitio.get(sitio.toLowerCase()) ?? 0,
     })),
-    populationDistribution: PICO_SITIOS.map((sitio) => ({
-      sitio,
-      population: populationCountsBySitio.get(sitio.toLowerCase()) ?? 0,
-    })),
+    populationDistribution: [
+      ...PICO_SITIOS.map((sitio) => ({
+        sitio,
+        population: populationCountsBySitio.get(sitio.toLowerCase()) ?? 0,
+      })),
+      { sitio: "Unspecified", population: unspecifiedPopulation },
+    ],
   };
 }

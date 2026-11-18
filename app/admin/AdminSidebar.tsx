@@ -81,9 +81,32 @@ const BADGE_SECTIONS = [
   { href: "/admin/skeap-applications", countKey: "skeapApplicationCount", cookie: "admin-skeap-applications-last-viewed" },
   { href: "/admin/grantee-submissions", countKey: "pendingDocumentCount", cookie: "admin-submissions-last-viewed" },
   { href: "/admin/kk-profiling", countKey: "profilingRegistrationCount", cookie: "admin-kk-profiling-last-viewed" },
-  { href: "/admin/skeap/active", countKey: "newGranteeCount", cookie: "admin-grantees-last-viewed" },
+  { href: "/admin/grantees", countKey: "newGranteeCount", cookie: "admin-grantees-last-viewed" },
   { href: "/admin/registry/masterlist", countKey: "approvedMemberCount", cookie: "admin-members-last-viewed" },
 ] as const;
+
+const ROOT_OVERVIEW_HREFS = new Set(["/admin", "/admin/dashboard", "/system-admin"]);
+
+function cleanPath(path: string) {
+  return path.split("?")[0].replace(/\/+$/, "") || "/";
+}
+
+function isSidebarItemActive(pathname: string, href: string) {
+  const cleanHref = cleanPath(href);
+  const cleanCurrentPath = cleanPath(pathname);
+  if (ROOT_OVERVIEW_HREFS.has(cleanHref)) {
+    return cleanCurrentPath === cleanHref;
+  }
+
+  const matchesSection =
+    cleanCurrentPath === cleanHref || cleanCurrentPath.startsWith(`${cleanHref}/`);
+  if (!matchesSection) return false;
+
+  return !(
+    (cleanHref === "/admin/grantees" && cleanCurrentPath.startsWith("/admin/grantees/records")) ||
+    (cleanHref === "/admin/members" && cleanCurrentPath.startsWith("/admin/members/records"))
+  );
+}
 
 export default function AdminSidebar({
   openInquiryCount,
@@ -136,7 +159,9 @@ export default function AdminSidebar({
     let mounted = true;
     let controller: AbortController | null = null;
 
-    const activeBadgeSection = BADGE_SECTIONS.find((section) => pathname.startsWith(section.href));
+    const activeBadgeSection = BADGE_SECTIONS.find((section) =>
+      isSidebarItemActive(pathname, section.href)
+    );
     if (activeBadgeSection) setSectionViewedTimestamp(activeBadgeSection.href);
 
     async function refreshCounts() {
@@ -267,7 +292,7 @@ export default function AdminSidebar({
     {
       title: "SKEAP Management",
       items: [
-        { label: "Active Grantees", href: "/admin/skeap/active", icon: GraduationCap, badge: liveCounts.newGranteeCount },
+        { label: "Active Grantees", href: "/admin/grantees", icon: GraduationCap, badge: liveCounts.newGranteeCount },
         { label: "SKEAP Applications", href: "/admin/skeap-applications", icon: FileText, badge: liveCounts.skeapApplicationCount },
         { label: "Waitlist", href: "/admin/skeap-waitlist", icon: Clock },
         { label: "Grantee Submissions", href: "/admin/grantee-submissions", icon: FileCheck, badge: liveCounts.pendingDocumentCount },
@@ -342,12 +367,7 @@ export default function AdminSidebar({
           <div className="flex items-center justify-between"><AdminSidebarBrand /><button type="button" onClick={() => setMobileOpen(false)} className="rounded-xl p-2 text-slate-500" aria-label="Close navigation menu" tabIndex={mobileOpen ? 0 : -1}><X className="h-5 w-5" /></button></div>
           <nav className="mt-6 flex flex-col gap-1">
             {mobileLinks.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/admin" &&
-                  pathname.startsWith(item.href) &&
-                  !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees/records")) &&
-                  !(item.href === "/admin/members" && pathname.startsWith("/admin/members/records")));
+              const isActive = isSidebarItemActive(pathname, item.href);
               const Icon = item.icon;
               const badgeCount = item.badge ?? 0;
               const targetHref =
@@ -405,12 +425,7 @@ export default function AdminSidebar({
               </span>
               <div className="flex flex-col gap-1">
                 {section.items.map((item) => {
-                  const isActive =
-                    pathname === item.href ||
-                    (item.href !== "/admin" &&
-                      pathname.startsWith(item.href) &&
-                      !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees/records")) &&
-                      !(item.href === "/admin/members" && pathname.startsWith("/admin/members/records")));
+                  const isActive = isSidebarItemActive(pathname, item.href);
 
                   const Icon = item.icon;
                   const badgeCount = item.badge ?? 0;
@@ -424,6 +439,7 @@ export default function AdminSidebar({
                       key={item.label}
                       href={targetHref}
                       onClick={() => markSectionViewed(item.href)}
+                      aria-current={isActive ? "page" : undefined}
                       className={`group flex items-center gap-2.5 rounded-2xl border-l-4 px-3 py-2 text-sm transition ${
                         isActive
                           ? "border-cyan-500 bg-cyan-50/80 font-semibold text-cyan-700"
@@ -435,7 +451,6 @@ export default function AdminSidebar({
                         {item.label}
                       </span>
                       {item.badge && item.badge > 0 &&
-                      !(item.href === "/admin/skeap/active" && pathname.startsWith("/admin/skeap/active")) &&
                       !(item.href === "/admin/grantees" && pathname.startsWith("/admin/grantees")) &&
                       !(item.href === "/admin/kk-profiling" && pathname.startsWith("/admin/kk-profiling")) ? (
                         <span

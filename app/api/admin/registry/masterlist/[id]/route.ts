@@ -357,6 +357,7 @@ export async function PUT(
     ]);
     revalidatePath("/admin/registry/masterlist");
     revalidatePath("/admin/members/records");
+    revalidatePath("/admin");
 
     return NextResponse.json({
       ...result.saved,

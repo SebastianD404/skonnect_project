@@ -104,6 +104,7 @@ export async function PATCH(
     await refreshKkProfilingApplicationsAdminView();
     revalidatePath("/admin/members/records");
     revalidatePath("/admin/registry/masterlist");
+    revalidatePath("/admin");
     return NextResponse.json({
       success: true,
       reviewStatus: result.registration.reviewStatus,

@@ -28,11 +28,13 @@ export async function dispatchSkeapRevocationNotification({
   recipient,
   reason,
   additionalNotes,
+  isPermanentlyDisqualified,
 }: {
   granteeId: string;
   recipient: RevocationNotificationRecipient;
   reason: string;
   additionalNotes: string | null;
+  isPermanentlyDisqualified: boolean;
 }): Promise<RevocationNotificationResult> {
   const staleLeaseBefore = new Date(Date.now() - STALE_NOTIFICATION_LEASE_MS);
   const claim = await prisma.grantee.updateMany({
@@ -69,6 +71,7 @@ export async function dispatchSkeapRevocationNotification({
       recipient,
       reason,
       additionalNotes,
+      isPermanentlyDisqualified,
     });
   } catch (error) {
     const errorCode = getEmailFailureCode(error);

@@ -33,6 +33,7 @@ export default function AdminGranteesPageClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, startTransition] = useTransition();
+  const [hasEditedSearch, setHasEditedSearch] = useState(false);
   const initializedRouteQuery = useRef(false);
   const lastRouteQuery = useRef(query);
 
@@ -47,12 +48,14 @@ export default function AdminGranteesPageClient({
     }
 
     const nextQuery = searchQuery.trim();
-    if ((searchParams.get("q") ?? "") === nextQuery) return;
+    const routeQuery = searchParams.get("q") ?? searchParams.get("search") ?? "";
+    if (routeQuery === nextQuery) return;
 
     const timeout = window.setTimeout(() => {
       const params = new URLSearchParams(searchParams.toString());
       if (nextQuery) params.set("q", nextQuery);
       else params.delete("q");
+      params.delete("search");
       params.set("page", "1");
       const queryString = params.toString();
       startTransition(() => {
@@ -62,7 +65,7 @@ export default function AdminGranteesPageClient({
 
     return () => window.clearTimeout(timeout);
   }, [pathname, query, router, searchParams, searchQuery, setSearchQuery, startTransition]);
-  const isSearchLoading = searchQuery.trim() !== query;
+  const isSearchLoading = hasEditedSearch && searchQuery.trim() !== query;
   const [scholarshipCandidate, setScholarshipCandidate] = useState<GranteeTableRow | null>(null);
   const [isRevokingGrantee, setIsRevokingGrantee] = useState(false);
   const [revocationError, setRevocationError] = useState<string | null>(null);
@@ -96,6 +99,8 @@ export default function AdminGranteesPageClient({
     reason: string,
     additionalNotes: string,
     isPermanentlyDisqualified: boolean,
+    proofType: string,
+    proofFile: File | null,
   ) => {
     if (!scholarshipCandidate || scholarshipCandidate.id !== granteeId) return;
     setIsRevokingGrantee(true);
@@ -103,10 +108,17 @@ export default function AdminGranteesPageClient({
     setRevocationNotice(null);
 
     try {
+      const body = new FormData();
+      body.set("status", "REVOKED");
+      body.set("reason", reason);
+      body.set("additionalNotes", additionalNotes);
+      body.set("isPermanentlyDisqualified", String(isPermanentlyDisqualified));
+      body.set("proofType", proofType);
+      if (proofFile) body.set("proofFile", proofFile, proofFile.name);
+
       const response = await fetch(`/api/admin/grantees/${granteeId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "REVOKED", reason, additionalNotes, isPermanentlyDisqualified }),
+        body,
       });
 
       const data = await response.json().catch(() => ({}));
@@ -161,8 +173,11 @@ export default function AdminGranteesPageClient({
           page={page}
           pageSize={pageSize}
           totalCount={totalCount}
-          query={searchQuery}
-          onQueryChange={setSearchQuery}
+          query={hasEditedSearch ? searchQuery : query}
+          onQueryChange={(value) => {
+            setHasEditedSearch(true);
+            setSearchQuery(value);
+          }}
           isLoading={isLoading || isSearchLoading}
           startNavigation={(callback) => startTransition(callback)}
           onRevokeGrantee={handleRevokeGranteeRequest}
@@ -180,8 +195,15 @@ export default function AdminGranteesPageClient({
           archiveRefreshFailed={archiveRefreshFailed}
           notice={revocationNotice}
           onClose={closeRevokeGranteeModal}
-          onConfirm={(granteeId, reason, additionalNotes, isPermanentlyDisqualified) => {
-            void confirmRevokeGrantee(granteeId, reason, additionalNotes, isPermanentlyDisqualified);
+          onConfirm={(granteeId, reason, additionalNotes, isPermanentlyDisqualified, proofType, proofFile) => {
+            void confirmRevokeGrantee(
+              granteeId,
+              reason,
+              additionalNotes,
+              isPermanentlyDisqualified,
+              proofType,
+              proofFile,
+            );
           }}
         />
       ) : null}

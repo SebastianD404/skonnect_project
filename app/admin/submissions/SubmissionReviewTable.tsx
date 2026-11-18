@@ -1029,6 +1029,8 @@ export default function SubmissionReviewTable() {
     reason: string,
     additionalNotes: string,
     isPermanentlyDisqualified: boolean,
+    proofType: string,
+    proofFile: File | null,
   ) {
     if (!selectedSubmission || selectedSubmission.grantee.id !== granteeId || isSaving || !reason) return;
 
@@ -1037,10 +1039,17 @@ export default function SubmissionReviewTable() {
     setValidationError(null);
     setActionSuccess(null);
     try {
+      const body = new FormData();
+      body.set("action", "REVOKE");
+      body.set("reason", reason);
+      body.set("additionalNotes", additionalNotes);
+      body.set("isPermanentlyDisqualified", String(isPermanentlyDisqualified));
+      body.set("proofType", proofType);
+      if (proofFile) body.set("proofFile", proofFile, proofFile.name);
+
       const response = await fetch(`/api/admin/submissions/${selectedSubmission.id}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "REVOKE", reason, additionalNotes, isPermanentlyDisqualified }),
+        body,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -1682,8 +1691,15 @@ export default function SubmissionReviewTable() {
         submitting={isSaving}
         error={actionError}
         onClose={() => setIsRevokeModalOpen(false)}
-        onConfirm={(granteeId, reason, additionalNotes, isPermanentlyDisqualified) => {
-          void revokeSelectedGrantee(granteeId, reason, additionalNotes, isPermanentlyDisqualified);
+        onConfirm={(granteeId, reason, additionalNotes, isPermanentlyDisqualified, proofType, proofFile) => {
+          void revokeSelectedGrantee(
+            granteeId,
+            reason,
+            additionalNotes,
+            isPermanentlyDisqualified,
+            proofType,
+            proofFile,
+          );
         }}
       />
     </section>

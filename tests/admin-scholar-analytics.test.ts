@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PICO_SITIOS } from "@/lib/barangay-sitios";
 
 const mocks = vi.hoisted(() => ({
   granteeGroupBy: vi.fn(),
@@ -6,8 +7,20 @@ const mocks = vi.hoisted(() => ({
   queryRaw: vi.fn(),
   profilingCount: vi.fn(),
   capacitySnapshot: vi.fn(),
-  platformMetrics: vi.fn(),
 }));
+
+function flattenSql(part: unknown): string {
+  if (typeof part === "string") return part;
+  if (Array.isArray(part)) return part.map(flattenSql).join("");
+  if (typeof part === "object" && part !== null && "strings" in part && "values" in part) {
+    const sql = part as { strings: string[]; values: unknown[] };
+    return sql.strings.reduce(
+      (result, chunk, index) => result + chunk + (index < sql.values.length ? flattenSql(sql.values[index]) : ""),
+      "",
+    );
+  }
+  return "";
+}
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -20,10 +33,6 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/skeap-capacity", () => ({
   getSkeapCapacitySnapshot: mocks.capacitySnapshot,
-}));
-
-vi.mock("@/lib/platform-metrics", () => ({
-  getPlatformAccountMetrics: mocks.platformMetrics,
 }));
 
 import {
@@ -50,24 +59,12 @@ describe("admin scholar demographics", () => {
     });
     mocks.inquiryCount.mockResolvedValue(1);
     mocks.profilingCount.mockResolvedValue(7);
-    mocks.platformMetrics.mockResolvedValue({
-      totalAccounts: 1000,
-      activeKkYouthAndGrantees: 943,
-      unprofiledOrPending: 20,
-      adminStaff: 10,
-      archivedOrInactive: 27,
-    });
     mocks.queryRaw
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        { sex: "MALE", count: 400 },
-        { sex: "m", count: 100 },
-        { sex: "FEMALE", count: 350 },
-        { sex: "F", count: 50 },
-        { sex: null, count: 20 },
-        { sex: "", count: 10 },
-        { sex: "OTHER", count: 13 },
+        { sitio: PICO_SITIOS[0] ?? "Purok 1", sex: "MALE" },
+        { sitio: "Unspecified", sex: "FEMALE" },
+        { sitio: null, sex: "OTHER" },
       ])
       .mockResolvedValueOnce([
         { sex: "MALE", count: 8 },
@@ -92,8 +89,7 @@ describe("admin scholar demographics", () => {
   it("counts youth and scholar demographics and groups active outcomes consistently", async () => {
     const analytics = await getScholarDistributionAnalytics();
 
-    expect(analytics.totalRegisteredYouth).toBe(943);
-    expect(mocks.platformMetrics).toHaveBeenCalledOnce();
+    expect(analytics.totalRegisteredYouth).toBe(3);
     expect(analytics.pendingApplications).toBe(1);
     expect(mocks.inquiryCount).toHaveBeenCalledWith({
       where: expect.objectContaining({
@@ -115,21 +111,32 @@ describe("admin scholar demographics", () => {
       notSpecified: 2,
     });
     expect(analytics.youthGenderDistribution).toEqual({
-      male: 500,
-      female: 400,
-      notSpecified: 43,
+      male: 1,
+      female: 1,
+      notSpecified: 1,
     });
     expect(
       analytics.youthGenderDistribution.male +
       analytics.youthGenderDistribution.female +
       analytics.youthGenderDistribution.notSpecified,
     ).toBe(analytics.totalRegisteredYouth);
-    const youthSexQuery = (mocks.queryRaw.mock.calls[2][0] as TemplateStringsArray).join("");
-    expect(youthSexQuery).toContain('registration."reviewStatus" = \'Approved\'');
-    expect(youthSexQuery).toContain("identity_rank = 1");
-    expect(youthSexQuery).toContain('public."kk_profiling_registrations"');
-    expect(youthSexQuery).not.toContain('public."grantees"');
-    const granteeSexQuery = (mocks.queryRaw.mock.calls[3][0] as TemplateStringsArray).join("");
+    expect(analytics.populationDistribution.reduce((total, row) => total + row.population, 0))
+      .toBe(analytics.totalRegisteredYouth);
+    expect(analytics.populationDistribution[analytics.populationDistribution.length - 1]).toEqual({
+      sitio: "Unspecified",
+      population: 2,
+    });
+    const youthCohortQuery = mocks.queryRaw.mock.calls[1]
+      .map((part: unknown) => flattenSql(part))
+      .join("");
+    expect(youthCohortQuery).toContain('registration."reviewStatus" =');
+    expect(youthCohortQuery).toContain('registration."archivedAt" IS NULL');
+    expect(youthCohortQuery).toContain('user_record."isActive" =');
+    expect(youthCohortQuery).toContain("identity_rank = 1");
+    expect(youthCohortQuery).toContain(", profiles_by_sitio AS");
+    expect(youthCohortQuery).toContain('public."kk_profiling_registrations"');
+    expect(youthCohortQuery).toContain('public."grantees"');
+    const granteeSexQuery = (mocks.queryRaw.mock.calls[2][0] as TemplateStringsArray).join("");
     expect(granteeSexQuery).toContain(`profile."sex"::text IN ('MALE', 'FEMALE')`);
     expect(granteeSexQuery).toContain('public."kk_profiling_registrations"');
     expect(granteeSexQuery).toContain('registration."userId" = grantee."userId"');
@@ -137,7 +144,7 @@ describe("admin scholar demographics", () => {
     expect(granteeSexQuery).toContain('application."userId" = grantee."userId"');
     expect(granteeSexQuery).toContain(`grantee."status" IN ('ACTIVE', 'PROBATIONARY')`);
     expect(granteeSexQuery).not.toContain("GRADUATED");
-    const yearLevelQuery = (mocks.queryRaw.mock.calls[4][0] as TemplateStringsArray).join("");
+    const yearLevelQuery = (mocks.queryRaw.mock.calls[3][0] as TemplateStringsArray).join("");
     expect(yearLevelQuery).toContain(`grantee."status" = 'ACTIVE'`);
     expect(yearLevelQuery).toContain(`application."status" = 'APPROVED'`);
     expect(analytics.yearLevelDistribution).toEqual([

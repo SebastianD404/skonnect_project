@@ -86,6 +86,11 @@ model Grantee {
   status             GranteeStatus     @default(ACTIVE)
   revocationReason   String?
   revocationNotes    String?
+  revocationProofPath     String? @map("revocation_proof_path")
+  revocationProofFileName String? @map("revocation_proof_file_name")
+  revocationProofType     String? @map("revocation_proof_type")
+  revocationProofHash     String? @map("revocation_proof_hash")
+  revocationProofMimeType String? @map("revocation_proof_mime_type")
   isPermanentlyDisqualified Boolean   @default(false)
   identityFingerprint String?
   revocationNotificationStatus   GranteeRevocationNotificationStatus @default(NOT_REQUIRED)

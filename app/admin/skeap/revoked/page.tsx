@@ -78,6 +78,10 @@ export default async function RevokedGranteesPage({
           yearLevel: true,
           revocationReason: true,
           revocationNotes: true,
+          revocationProofPath: true,
+          revocationProofType: true,
+          revocationProofFileName: true,
+          revocationProofHash: true,
           isPermanentlyDisqualified: true,
           remarks: true,
           user: {
@@ -192,6 +196,10 @@ export default async function RevokedGranteesPage({
       revokedAt: grantee.dateRemoved.toISOString(),
       reason: primaryReason.trim() || null,
       additionalNotes: grantee.revocationNotes?.trim() || legacyNotes.join("Additional Notes:").trim() || null,
+      revocationProofPath: grantee.revocationProofPath,
+      revocationProofType: grantee.revocationProofType,
+      revocationProofFileName: grantee.revocationProofFileName,
+      revocationProofHash: grantee.revocationProofHash,
       isPermanentlyBarred: isPermanentlyBarredFromSkeap({
         isPermanentlyDisqualified: grantee.isPermanentlyDisqualified,
         reason: rawReason,

@@ -24,16 +24,25 @@ function toTitleCaseName(value: string) {
     );
 }
 
+function getPolicyGuidance(isPermanentlyDisqualified: boolean) {
+  return isPermanentlyDisqualified
+    ? "Please note that due to the nature of this violation, your account has been permanently disqualified from future SKEAP scholarship cycles in accordance with Barangay Pico SKEAP guidelines."
+    : "This action applies to your current SKEAP scholarship grant in accordance with Barangay Pico SKEAP program guidelines.";
+}
+
 function buildRevocationEmailHtml({
   recipientName,
   reason,
   additionalNotes,
+  isPermanentlyDisqualified,
 }: {
   recipientName: string;
   reason: string;
   additionalNotes: string | null;
+  isPermanentlyDisqualified: boolean;
 }) {
   const notes = additionalNotes?.trim();
+  const policyGuidance = getPolicyGuidance(isPermanentlyDisqualified);
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -62,7 +71,7 @@ function buildRevocationEmailHtml({
               </td>
             </tr>
           </table>
-          <p style="margin:0 0 16px;">Your record has been transferred to Revoked Grantees in accordance with Barangay Ordinance No. 1.</p>
+          <p style="margin:0 0 16px;">${policyGuidance}</p>
           <p style="margin:0 0 20px;">If you believe this decision was made in error or wish to request a review, please visit the SK Office at the Barangay Pico Hall.</p>
           <p style="margin:0;">Respectfully,<br><strong>Sangguniang Kabataan</strong><br>Barangay Pico</p>
         </td>
@@ -82,14 +91,17 @@ export async function sendSkeapRevocationEmail({
   recipient,
   reason,
   additionalNotes,
+  isPermanentlyDisqualified,
 }: {
   granteeId: string;
   recipient: RevocationRecipient;
   reason: string;
   additionalNotes: string | null;
+  isPermanentlyDisqualified: boolean;
 }) {
   const recipientName = toTitleCaseName(recipient.fullName);
   const notes = additionalNotes?.trim() || null;
+  const policyGuidance = getPolicyGuidance(isPermanentlyDisqualified);
   const bodyText = [
     `Dear ${recipientName},`,
     "",
@@ -99,7 +111,7 @@ export async function sendSkeapRevocationEmail({
     reason,
     ...(notes ? ["", "Remarks:", notes] : []),
     "",
-    "Your record has been transferred to Revoked Grantees in accordance with Barangay Ordinance No. 1.",
+    policyGuidance,
     "",
     "If you believe this decision was made in error or wish to request a review, please visit the SK Office at the Barangay Pico Hall.",
     "",
@@ -119,6 +131,7 @@ export async function sendSkeapRevocationEmail({
       recipientName,
       reason,
       additionalNotes: notes,
+      isPermanentlyDisqualified,
     }),
   );
 }

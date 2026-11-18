@@ -428,7 +428,9 @@ export function KKProfilingRowActions({ registration, onArchive, onUpdate, onSta
                   Cancel
                 </button>
                 <Link
-                  href="/admin/grantees"
+                  href={registration.fullName?.trim()
+                    ? `/admin/grantees?search=${encodeURIComponent(registration.fullName.trim())}`
+                    : "/admin/grantees"}
                   className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                 >
                   Go to Active Grantees →

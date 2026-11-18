@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import {
   getSkeapRevocationReasonLabel,
   isSkeapRevocationReason,
+  isSkeapRevocationProofType,
 } from "@/lib/skeap-revocation";
 import { dispatchSkeapRevocationNotification } from "@/lib/skeap-revocation-notification";
 import { prisma } from "@/lib/prisma";
@@ -14,6 +15,11 @@ import { refreshInactiveGranteesView } from "@/lib/grantee-archive-view";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
 import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { reindexSkeapWaitlist } from "@/lib/skeap-waitlist";
+import {
+  InvalidSkeapRevocationProofError,
+  removeSkeapRevocationProof,
+  storeSkeapRevocationProof,
+} from "@/lib/skeap-revocation-proof";
 import {
   buildIdentityFingerprint,
   parseSkeapApplicantName,
@@ -58,10 +64,45 @@ export async function PATCH(
   const auth = await authorizeUser();
   if (auth.error) return auth.error;
 
-  const body = await req.json().catch(() => ({}));
+  let body: Record<string, unknown> = {};
+  let proofFile: File | null = null;
+  let proofType = "";
+  const contentType = req.headers.get("content-type") || "";
+  if (contentType.includes("multipart/form-data")) {
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      return NextResponse.json({ error: "Invalid revocation form submission." }, { status: 400 });
+    }
+    const formFile = formData.get("proofFile");
+    proofFile = formFile instanceof File ? formFile : null;
+    proofType = String(formData.get("proofType") ?? "");
+    body = {
+      status: formData.get("status"),
+      reason: formData.get("reason"),
+      additionalNotes: formData.get("additionalNotes"),
+      isPermanentlyDisqualified: formData.get("isPermanentlyDisqualified") === "true",
+    };
+  } else {
+    let parsedBody: unknown;
+    try {
+      parsedBody = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid revocation request." }, { status: 400 });
+    }
+    body = parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)
+      ? parsedBody as Record<string, unknown>
+      : {};
+    proofType = typeof body.proofType === "string" ? body.proofType : "";
+  }
   const nextStatus = typeof body?.status === "string" ? body.status.trim().toUpperCase() : undefined;
   const revocationReasonValue = typeof body?.reason === "string" ? body.reason.trim() : "";
   const revocationNotes = typeof body?.additionalNotes === "string" ? body.additionalNotes.trim() : "";
+  proofType = proofType.trim();
+  if (proofType.startsWith("Other:")) {
+    proofType = `Other: ${proofType.slice("Other:".length).trim()}`;
+  }
   if (
     nextStatus === "REVOKED" &&
     body?.isPermanentlyDisqualified !== undefined &&
@@ -90,6 +131,54 @@ export async function PATCH(
     : "";
   if (nextStatus === "REVOKED" && revocationNotes.length > 1000) {
     return NextResponse.json({ error: "Additional notes must be 1,000 characters or fewer." }, { status: 400 });
+  }
+  if (nextStatus === "REVOKED" && revocationReasonValue === "UNBECOMING_ACTS") {
+    if (!revocationNotes) {
+      return NextResponse.json({ error: "Incident summary and case details are required." }, { status: 400 });
+    }
+    if (!isSkeapRevocationProofType(proofType)) {
+      return NextResponse.json(
+        { error: "Select a valid supporting proof document type. Other document types must be specified with at least 3 characters." },
+        { status: 400 },
+      );
+    }
+    if (!proofFile) {
+      return NextResponse.json({ error: "A valid supporting proof document is required." }, { status: 400 });
+    }
+  }
+
+  let revocationProof: Awaited<ReturnType<typeof storeSkeapRevocationProof>> | null = null;
+  if (
+    nextStatus === "REVOKED" &&
+    revocationReasonValue === "UNBECOMING_ACTS" &&
+    proofFile
+  ) {
+    try {
+      const current = await prisma.grantee.findUnique({
+        where: { id },
+        select: { id: true, status: true },
+      });
+      if (!current) return NextResponse.json({ error: "Grantee not found" }, { status: 404 });
+      if (current.status === "GRADUATED") {
+        return NextResponse.json(
+          { error: "Graduated grantee records are locked for statutory retention." },
+          { status: 409 },
+        );
+      }
+      if (current.status === "REMOVED") {
+        return NextResponse.json({ error: "This grantee has already been removed." }, { status: 409 });
+      }
+      revocationProof = await storeSkeapRevocationProof(proofFile, id, proofType);
+    } catch (error) {
+      if (error instanceof InvalidSkeapRevocationProofError) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      console.error("[PATCH /api/admin/grantees/[id]] Error:", error);
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Failed to revoke grantee." },
+        { status: 500 },
+      );
+    }
   }
 
   const revocationRemarks = revocationNotes
@@ -265,6 +354,11 @@ export async function PATCH(
                 dateRemoved: new Date(),
                 revocationReason,
                 revocationNotes: revocationNotes || null,
+                revocationProofPath: revocationProof?.path ?? null,
+                revocationProofFileName: revocationProof?.fileName ?? null,
+                revocationProofType: revocationProof?.proofType ?? null,
+                revocationProofHash: revocationProof?.hash ?? null,
+                revocationProofMimeType: revocationProof?.mimeType ?? null,
                 isPermanentlyDisqualified,
                 identityFingerprint,
                 remarks: revocationRemarks,
@@ -287,6 +381,11 @@ export async function PATCH(
           dateRemoved: true,
           revocationReason: true,
           revocationNotes: true,
+          revocationProofPath: true,
+          revocationProofFileName: true,
+          revocationProofType: true,
+          revocationProofHash: true,
+          revocationProofMimeType: true,
           isPermanentlyDisqualified: true,
           revocationNotificationStatus: true,
         },
@@ -308,6 +407,11 @@ export async function PATCH(
           dateRemoved: saved.dateRemoved,
           revocationReason: saved.revocationReason,
           revocationNotes: saved.revocationNotes,
+          revocationProofPath: saved.revocationProofPath,
+          revocationProofFileName: saved.revocationProofFileName,
+          revocationProofType: saved.revocationProofType,
+          revocationProofHash: saved.revocationProofHash,
+          revocationProofMimeType: saved.revocationProofMimeType,
           isPermanentlyDisqualified: saved.isPermanentlyDisqualified,
         },
         metadata: {
@@ -315,7 +419,13 @@ export async function PATCH(
           targetId: id,
           status: saved.status,
           ...(nextStatus === "REVOKED"
-            ? { reason: revocationReason, additionalNotes: revocationNotes || null }
+            ? {
+                reason: revocationReason,
+                additionalNotes: revocationNotes || null,
+                revocationProofType: saved.revocationProofType,
+                revocationProofFileName: saved.revocationProofFileName,
+                revocationProofHash: saved.revocationProofHash,
+              }
             : {}),
         },
       });
@@ -327,17 +437,15 @@ export async function PATCH(
       };
     });
   } catch (error) {
+    console.error("[PATCH /api/admin/grantees/[id]] Error:", error);
+    if (revocationProof) {
+      try {
+        await removeSkeapRevocationProof(revocationProof.path);
+      } catch (cleanupError) {
+        console.error("[PATCH /api/admin/grantees/[id]] Proof cleanup failed:", cleanupError);
+      }
+    }
     const errorMessage = error instanceof Error ? error.message : "";
-    const errorName = error instanceof Error ? error.name : "UnknownError";
-    const errorCode =
-      typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-        ? error.code
-        : undefined;
-    console.error("SKEAP grantee status transaction failed", {
-      granteeId: id,
-      errorName,
-      ...(errorCode ? { errorCode } : {}),
-    });
     if (errorMessage === "GRANTEE_NOT_FOUND") {
       return NextResponse.json({ error: "Grantee not found" }, { status: 404 });
     }
@@ -353,24 +461,9 @@ export async function PATCH(
         { status: 409 }
       );
     }
-    if (
-      /column .* does not exist|invalid input value for enum "GranteeStatus"/i.test(errorMessage) ||
-      (typeof error === "object" && error !== null && "code" in error && error.code === "P2022")
-    ) {
-      return NextResponse.json(
-        {
-          code: "DATABASE_MIGRATION_REQUIRED",
-          error: "The SKEAP database schema is not up to date. Apply pending migrations, then try again.",
-        },
-        { status: 503 }
-      );
-    }
     return NextResponse.json(
-      {
-        code: "REVOCATION_DATABASE_FAILED",
-        error: "Could not save the grantee status. Refresh the page before retrying.",
-      },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : "Failed to revoke grantee." },
+      { status: 500 },
     );
   }
 
@@ -407,6 +500,7 @@ export async function PATCH(
         recipient: updated.recipient,
         reason: updated.grantee.revocationReason ?? revocationReason,
         additionalNotes: updated.grantee.revocationNotes,
+        isPermanentlyDisqualified: updated.grantee.isPermanentlyDisqualified,
       });
       notificationStatus = notification.status;
       notificationErrorCode = notification.errorCode;

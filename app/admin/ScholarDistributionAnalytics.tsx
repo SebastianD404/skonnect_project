@@ -114,7 +114,7 @@ export default function ScholarDistributionAnalytics({
     ? "Youth Population by Sitio"
     : "SKEAP Grantee Distribution by Sitio";
   const chartSubtitle = isPopulationView
-    ? "Approved KK-profiled youth across Barangay Pico."
+    ? "Active approved KK youth by sitio"
     : "Active and approved SKEAP grantees across Barangay Pico.";
   const chartLabel = isPopulationView ? "Approved KK youth" : "SKEAP grantees";
   const chartData = isPopulationView

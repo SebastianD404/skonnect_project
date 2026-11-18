@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
@@ -412,6 +413,7 @@ export async function PUT(
     }
 
     await refreshKkProfilingApplicationsAdminView();
+    revalidatePath("/admin");
     if (
       transactionResult.stageNotification &&
       registration.user?.emailNotifications !== false

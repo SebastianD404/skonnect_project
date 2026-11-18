@@ -31,7 +31,7 @@ type YearLevelView = "all" | "highSchool" | "college";
 const SEX_SERIES = [
   { key: "male", label: "Male", color: "#0ea5e9" },
   { key: "female", label: "Female", color: "#8b5cf6" },
-  { key: "notSpecified", label: "No value on file", color: "#cbd5e1" },
+  { key: "notSpecified", label: "Unspecified", color: "#cbd5e1" },
 ] as const;
 
 export default function DemographicsSection({ data }: { data: DemographicsData }) {
@@ -154,8 +154,8 @@ export default function DemographicsSection({ data }: { data: DemographicsData }
               </h3>
               <p className="mt-1 text-xs text-slate-500">
                 {sexPopulation === "youth"
-                  ? "Across the entire KK youth registry"
-                  : "Current active and probationary SKEAP grantees"}
+                  ? "Active approved KK youth by sex"
+                  : "Active SKEAP scholars by sex"}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-1">

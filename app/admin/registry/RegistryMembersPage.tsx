@@ -10,6 +10,7 @@ import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 import { RegistryMembersFilterBar } from "./RegistryMembersFilterBar";
 import { RegistryMembersSearchStatusProvider } from "./RegistryMembersSearchStatus";
 import { KK_MEMBER_AGE_OUT_SCHOLAR_REMARK } from "@/lib/kk-member-archive";
+import { createVerifiedKkYouthCte } from "@/lib/kk-analytics";
 
 const classificationFilters = [
   "In school Youth",
@@ -67,9 +68,6 @@ export default async function RegistryMembersPage({
     await Promise.all(requiredProfileColumns.map((column) => hasProfilingRegistrationColumn(column)))
   ).every(Boolean);
   const hasArchivedAtColumn = await hasProfilingRegistrationColumn("archivedAt");
-  const archivedProfileFilter = hasArchivedAtColumn
-    ? Prisma.sql`AND registration."archivedAt" IS NULL`
-    : Prisma.empty;
   const filterConditions: Prisma.Sql[] = [];
   if (profileSearch) {
     const escapedSearch = profileSearch.replace(/[\\%_]/g, "\\$&");
@@ -87,50 +85,10 @@ export default async function RegistryMembersPage({
     filterConditions.push(Prisma.sql`profile."registeredSKVoter" = ${skVoterFilter}`);
   }
   const createUniqueProfileCte = (regularOnly: boolean, applyFilters = false) => Prisma.sql`
-    WITH ranked_profiles AS (
-      SELECT
-        registration."id",
-        registration."youthClassification",
-        registration."submittedAt",
-        registration."fullName",
-        registration."email",
-        registration."address",
-        registration."registeredSKVoter",
-        ROW_NUMBER() OVER (
-          PARTITION BY COALESCE(
-            NULLIF(LOWER(BTRIM(user_record."email")), ''),
-            NULLIF(LOWER(BTRIM(registration."email")), ''),
-            NULLIF(registration."userId", ''),
-            registration."id"
-          )
-          ORDER BY registration."submittedAt" DESC, registration."id" DESC
-        ) AS identity_rank
-      FROM public."kk_profiling_registrations" AS registration
-      LEFT JOIN public."users" AS user_record
-        ON user_record."id" = registration."userId"
-      LEFT JOIN public."grantees" AS grantee_record
-        ON grantee_record."userId" = user_record."id"
-      WHERE registration."reviewStatus" = 'Approved'
-        ${archivedProfileFilter}
-        AND user_record."isActive" = TRUE
-        AND (
-          ${!regularOnly}::boolean
-          OR user_record."role"::text IS DISTINCT FROM 'GRANTEE'
-          OR grantee_record."status"::text IS DISTINCT FROM 'ACTIVE'
-        )
-    ),
-    unique_profiles AS (
-      SELECT
-        "id",
-        "youthClassification",
-        "submittedAt",
-        "fullName",
-        "email",
-        "address",
-        "registeredSKVoter"
-      FROM ranked_profiles
-      WHERE identity_rank = 1
-    ),
+    ${createVerifiedKkYouthCte({
+      regularOnly,
+      archivedAtColumnAvailable: hasArchivedAtColumn,
+    })},
     filtered_profiles AS (
       SELECT profile.*
       FROM unique_profiles AS profile

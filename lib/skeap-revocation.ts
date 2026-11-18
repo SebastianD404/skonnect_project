@@ -15,6 +15,40 @@ export const PERMANENTLY_BARRED_SKEAP_REVOCATION_REASONS = [
 ] as const;
 const permanentlyBarredReasonSet = new Set<string>(PERMANENTLY_BARRED_SKEAP_REVOCATION_REASONS);
 
+export const STANDARD_SKEAP_REVOCATION_PROOF_TYPES = [
+  "Barangay Incident Report",
+  "Police Report / Blotter",
+  "School Disciplinary Notice",
+] as const;
+
+export const SKEAP_REVOCATION_PROOF_TYPES = [
+  ...STANDARD_SKEAP_REVOCATION_PROOF_TYPES,
+  "Official SK Resolution",
+  "Others",
+] as const;
+
+export const MAX_SKEAP_REVOCATION_PROOF_SIZE = 10 * 1024 * 1024;
+export const SKEAP_REVOCATION_PROOF_BUCKET = "revocation-proofs";
+
+export type SkeapRevocationProofOption = (typeof SKEAP_REVOCATION_PROOF_TYPES)[number];
+export type SkeapRevocationProofType =
+  | (typeof STANDARD_SKEAP_REVOCATION_PROOF_TYPES)[number]
+  | "Official SK Resolution"
+  | `Other: ${string}`;
+
+export function isSkeapRevocationProofOption(value: string): value is SkeapRevocationProofOption {
+  return SKEAP_REVOCATION_PROOF_TYPES.some((proofType) => proofType === value);
+}
+
+export function isSkeapRevocationProofType(value: string): value is SkeapRevocationProofType {
+  if (value.startsWith("Other:")) {
+    const specification = value.slice("Other:".length).trim();
+    return specification.length >= 3 && specification.length <= 80;
+  }
+  return STANDARD_SKEAP_REVOCATION_PROOF_TYPES.some((proofType) => proofType === value) ||
+    value === "Official SK Resolution";
+}
+
 export type SkeapRevocationReason = (typeof SKEAP_REVOCATION_REASONS)[number]["value"];
 
 export function isSkeapRevocationReason(value: string): value is SkeapRevocationReason {

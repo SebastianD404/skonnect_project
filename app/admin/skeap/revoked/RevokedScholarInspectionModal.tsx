@@ -16,6 +16,10 @@ export type RevokedGranteeRecord = {
   reason: string | null;
   additionalNotes: string | null;
   isPermanentlyBarred: boolean;
+  revocationProofPath?: string | null;
+  revocationProofType?: string | null;
+  revocationProofFileName?: string | null;
+  revocationProofHash?: string | null;
   revokedBy: { fullName: string; email: string } | null;
   school: string;
   yearLevel: string;
@@ -78,9 +82,11 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 export default function RevokedScholarInspectionModal({
   record,
   onClose,
+  onViewProof,
 }: {
   record: RevokedGranteeRecord | null;
   onClose: () => void;
+  onViewProof: (granteeId: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"audit" | "documents" | "form">("audit");
   if (!record) return null;
@@ -176,6 +182,40 @@ export default function RevokedScholarInspectionModal({
                     </p>
                   </div>
                 </section>
+                {record.revocationProofPath ? (
+                  <section className="rounded-xl border border-teal-200 bg-white p-4 sm:p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          Supporting Proof Document
+                        </h3>
+                        <span className="mt-2 inline-flex max-w-full truncate rounded-full border border-teal-200 bg-teal-50/80 px-2.5 py-1 text-xs font-medium text-teal-700">
+                          {record.revocationProofType || "Supporting Proof"}
+                        </span>
+                        <p className="mt-1 truncate text-sm font-medium text-slate-800">
+                          {record.revocationProofFileName || "Supporting proof document"}
+                        </p>
+                      </div>
+                      {record.revocationProofHash ? (
+                        <span
+                          title={record.revocationProofHash}
+                          className="inline-flex w-fit shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-[11px] text-slate-600"
+                        >
+                          SHA-256 · {record.revocationProofHash.slice(0, 12)}…
+                        </span>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onViewProof(record.id)}
+                      className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100"
+                    >
+                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                      View Document
+                      <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </section>
+                ) : null}
                 <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
                   <h3 className="text-sm font-bold text-slate-900">Scholar & academic profile</h3>
                   <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

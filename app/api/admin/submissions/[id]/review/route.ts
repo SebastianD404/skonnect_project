@@ -10,6 +10,10 @@ import {
   getSkeapRevocationReasonLabel,
   isSkeapRevocationReason,
 } from "@/lib/skeap-revocation";
+import {
+  InvalidSkeapRevocationProofError,
+  storeSkeapRevocationProof,
+} from "@/lib/skeap-revocation-proof";
 import { sendSkeapRevocationEmail } from "@/lib/skeap-revocation-email";
 import {
   notifyGranteePhysicalCtcStatus,
@@ -22,22 +26,17 @@ import {
   parseSkeapApplicantName,
 } from "@/lib/skeap-application-guard";
 
-type ReviewAction =
-  | "APPROVE"
-  | "RETURN_FOR_UPDATE"
-  | "REVOKE"
-  | "VERIFY_DIGITAL"
-  | "CONFIRM_PHYSICAL_CTC";
 type DocumentType = "coe" | "grades";
 
 type ReviewBody = {
   documentType?: DocumentType;
-  action?: ReviewAction;
+  action?: string;
   reviewNotes?: string;
   flaggedFields?: string[];
   reason?: string;
   additionalNotes?: string;
   isPermanentlyDisqualified?: boolean;
+  proofType?: string;
 };
 
 
@@ -65,7 +64,30 @@ export async function POST(
       return NextResponse.json({ error: "Submission id is required" }, { status: 400 });
     }
 
-    const body = (await request.json().catch(() => ({}))) as ReviewBody;
+    let body: ReviewBody = {};
+    let proofFile: File | null = null;
+    if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+      let formData: FormData;
+      try {
+        formData = await request.formData();
+      } catch {
+        return NextResponse.json({ error: "Invalid revocation form submission." }, { status: 400 });
+      }
+      const formFile = formData.get("proofFile");
+      proofFile = formFile instanceof File ? formFile : null;
+      body = {
+        action: String(formData.get("action") ?? ""),
+        reason: String(formData.get("reason") ?? ""),
+        additionalNotes: String(formData.get("additionalNotes") ?? ""),
+        isPermanentlyDisqualified: formData.get("isPermanentlyDisqualified") === "true",
+        proofType: String(formData.get("proofType") ?? ""),
+      };
+    } else {
+      const parsedBody: unknown = await request.json().catch(() => null);
+      body = parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)
+        ? parsedBody as ReviewBody
+        : {};
+    }
     const documentType = body.documentType || "coe";
     const action = body.action;
     const trimmedNotes = body.reviewNotes?.trim() || "";
@@ -110,6 +132,14 @@ export async function POST(
     }
     if (action === "REVOKE" && additionalNotes.length > 1000) {
       return NextResponse.json({ error: "Additional notes must be 1,000 characters or fewer." }, { status: 400 });
+    }
+    if (action === "REVOKE" && revocationReasonValue === "UNBECOMING_ACTS") {
+      if (!additionalNotes) {
+        return NextResponse.json({ error: "Incident summary and case details are required." }, { status: 400 });
+      }
+      if (!proofFile) {
+        return NextResponse.json({ error: "A valid supporting proof document is required." }, { status: 400 });
+      }
     }
     if (
       action === "REVOKE" &&
@@ -395,6 +425,34 @@ export async function POST(
       });
     }
     if (action === "REVOKE") {
+      if (!existing.grantee) {
+        return NextResponse.json({ error: "Grantee not found" }, { status: 404 });
+      }
+      if (existing.grantee.status === "REMOVED" || existing.grantee.status === "REVOKED") {
+        return NextResponse.json({ error: "This grantee has already been revoked." }, { status: 409 });
+      }
+      let revocationProof: Awaited<ReturnType<typeof storeSkeapRevocationProof>> | null = null;
+      if (revocationReasonValue === "UNBECOMING_ACTS" && proofFile) {
+        try {
+          revocationProof = await storeSkeapRevocationProof(
+            proofFile,
+            existing.grantee.id,
+            body.proofType ?? "",
+          );
+        } catch (error) {
+          if (error instanceof InvalidSkeapRevocationProofError) {
+            return NextResponse.json({ error: error.message }, { status: 400 });
+          }
+          console.error("SKEAP submission-review revocation proof upload failed", {
+            granteeId: existing.grantee.id,
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          });
+          return NextResponse.json(
+            { error: "Unable to securely store the supporting proof document." },
+            { status: 500 },
+          );
+        }
+      }
       const revokedAt = new Date();
       const revoked = await prisma.$transaction(async (tx) => {
         const current = await tx.submission.findUnique({
@@ -466,6 +524,11 @@ export async function POST(
             remarks: revocationReason,
             revocationReason: revocationReasonOption,
             revocationNotes: additionalNotes || null,
+            revocationProofPath: revocationProof?.path ?? null,
+            revocationProofFileName: revocationProof?.fileName ?? null,
+            revocationProofType: revocationProof?.proofType ?? null,
+            revocationProofHash: revocationProof?.hash ?? null,
+            revocationProofMimeType: revocationProof?.mimeType ?? null,
             isPermanentlyDisqualified,
             identityFingerprint,
           },
@@ -509,12 +572,20 @@ export async function POST(
             dateRemoved: updatedGrantee.dateRemoved,
             revocationReason: updatedGrantee.revocationReason,
             revocationNotes: updatedGrantee.revocationNotes,
+            revocationProofPath: updatedGrantee.revocationProofPath,
+            revocationProofFileName: updatedGrantee.revocationProofFileName,
+            revocationProofType: updatedGrantee.revocationProofType,
+            revocationProofHash: updatedGrantee.revocationProofHash,
+            revocationProofMimeType: updatedGrantee.revocationProofMimeType,
             isPermanentlyDisqualified: updatedGrantee.isPermanentlyDisqualified,
             userRole: "YOUTH",
           },
           metadata: {
             reason: revocationReason,
             isPermanentlyDisqualified,
+            revocationProofType: updatedGrantee.revocationProofType,
+            revocationProofFileName: updatedGrantee.revocationProofFileName,
+            revocationProofHash: updatedGrantee.revocationProofHash,
             submissionId: id,
             targetEmail: current.grantee.user.email,
             previousUserRole: current.grantee.user.role,
@@ -539,6 +610,7 @@ export async function POST(
         recipient: revoked.recipient,
         reason: revocationReasonOption,
         additionalNotes: additionalNotes || null,
+        isPermanentlyDisqualified,
       });
 
       return NextResponse.json({ success: true, submission: revoked.submission });

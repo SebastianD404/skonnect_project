@@ -15,12 +15,21 @@ import type { Prisma } from "@prisma/client";
 export const dynamic = "force-dynamic";
 
 export default async function AdminGranteesPage({ searchParams }: {
-  searchParams: Promise<{ page?: string | string[]; pageSize?: string | string[]; q?: string | string[] }>;
+  searchParams: Promise<{
+    page?: string | string[];
+    pageSize?: string | string[];
+    q?: string | string[];
+    search?: string | string[];
+  }>;
 }) {
   const resolvedSearchParams = await searchParams;
   const rawPage = Array.isArray(resolvedSearchParams.page) ? resolvedSearchParams.page[0] : resolvedSearchParams.page;
   const rawPageSize = Array.isArray(resolvedSearchParams.pageSize) ? resolvedSearchParams.pageSize[0] : resolvedSearchParams.pageSize;
-  const rawQuery = Array.isArray(resolvedSearchParams.q) ? resolvedSearchParams.q[0] : resolvedSearchParams.q;
+  const rawQ = Array.isArray(resolvedSearchParams.q) ? resolvedSearchParams.q[0] : resolvedSearchParams.q;
+  const rawSearch = Array.isArray(resolvedSearchParams.search)
+    ? resolvedSearchParams.search[0]
+    : resolvedSearchParams.search;
+  const rawQuery = rawQ ?? rawSearch;
   const query = String(rawQuery || "").trim();
   const requestedPage = Number(rawPage || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
