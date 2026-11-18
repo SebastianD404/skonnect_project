@@ -43,6 +43,17 @@ export type GranteeTimelineProfile = {
   dateEnrolled?: Date | null;
   journeyStart?: string | null;
   journeyEnd?: string | null;
+  skeapApplications?: Array<{
+    status: string;
+    submittedAt: Date | string;
+    updatedAt?: Date | string;
+    gwa?: number | null;
+    enrollmentFileUrl?: string | null;
+    reportCardFileUrl?: string | null;
+    educationLevel?: string | null;
+    currentCourse?: string | null;
+    yearLevel?: string | null;
+  }>;
 };
 
 export type GranteeAcademicTimelineSettings = {
@@ -177,14 +188,40 @@ export function resolveGranteeAcademicTimeline(
     resolveStoredEntryTerm(grantee) ??
     resolveGranteeEntryTerm(activeSettings.schedules, now);
   const dateEnrolled = grantee.dateEnrolled ?? now;
+  const approvedApplication = grantee.skeapApplications?.find(
+    (application) => application.status === "APPROVED",
+  ) ?? null;
+  const educationLevel = approvedApplication?.educationLevel?.toLowerCase() ?? "";
+  const course = approvedApplication?.currentCourse?.toLowerCase() ?? "";
+  const applicationYearLevel = approvedApplication?.yearLevel?.toLowerCase() ?? "";
+  const inferredTotalYears = educationLevel.includes("senior high")
+    ? 2
+    : educationLevel.includes("junior high")
+      ? 4
+      : /6[- ]year|6th year|sixth year/.test(`${course} ${applicationYearLevel}`)
+        ? 6
+        : /2[- ]year|2nd year|second year/.test(`${course} ${applicationYearLevel}`)
+          ? 2
+          : 4;
+  const initialGrant = approvedApplication
+    ? {
+        semester: entryTerm.termLabel,
+        approvedAt: approvedApplication.updatedAt ?? approvedApplication.submittedAt,
+        gwa: approvedApplication.gwa ?? null,
+        gradeReportUrl: approvedApplication.reportCardFileUrl ?? null,
+        coeFileUrl: approvedApplication.enrollmentFileUrl ?? null,
+      }
+    : null;
   const journeyProgress = getGranteeGraduationProgress({
     submissions,
     dateEnrolled,
     yearLevel: grantee.yearLevel,
+    totalYears: inferredTotalYears,
     journeyStart: grantee.journeyStart,
     journeyEnd: grantee.journeyEnd,
     entryTerm: entryTerm.termLabel,
     now,
+    initialGrant,
   });
   const targetTerm = termFromLabel(journeyProgress.currentStepSemester);
   if (!targetTerm) {
@@ -262,6 +299,25 @@ export async function detectGranteeTargetTerm(
       dateEnrolled: true,
       journeyStart: true,
       journeyEnd: true,
+      user: {
+        select: {
+          skeapApplications: {
+            orderBy: { submittedAt: "desc" },
+            take: 5,
+            select: {
+              status: true,
+              submittedAt: true,
+              updatedAt: true,
+              gwa: true,
+              enrollmentFileUrl: true,
+              reportCardFileUrl: true,
+              educationLevel: true,
+              currentCourse: true,
+              yearLevel: true,
+            },
+          },
+        },
+      },
       submissions: {
         orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
         select: {
@@ -289,7 +345,10 @@ export async function detectGranteeTargetTerm(
       : { schedules: (await getAcademicTermScheduleState()).schedules }
   );
   return resolveGranteeAcademicTimeline(
-    grantee,
+    {
+      ...grantee,
+      skeapApplications: grantee.user.skeapApplications,
+    },
     grantee.submissions,
     settings,
   ).targetTerm;

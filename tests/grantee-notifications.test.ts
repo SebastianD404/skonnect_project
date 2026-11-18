@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   userFindMany: vi.fn(),
   notificationCreate: vi.fn(),
+  notificationCreateMany: vi.fn(),
   academicTermScheduleFindMany: vi.fn(),
   detectGranteeTargetTerm: vi.fn(),
   createGmailTransporter: vi.fn(),
@@ -13,7 +14,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../lib/prisma", () => ({
   prisma: {
     user: { findMany: mocks.userFindMany },
-    notification: { create: mocks.notificationCreate },
+    notification: {
+      create: mocks.notificationCreate,
+      createMany: mocks.notificationCreateMany,
+    },
     academicTermSchedule: { findMany: mocks.academicTermScheduleFindMany },
   },
 }));
@@ -29,7 +33,10 @@ vi.mock("../lib/broadcast-email", () => ({
   sendTransactionalEmail: mocks.sendTransactionalEmail,
 }));
 
-import { notifyGranteesToUploadRequirements } from "../lib/grantee-notifications";
+import {
+  createSkeapGranteeApprovalNotification,
+  notifyGranteesToUploadRequirements,
+} from "../lib/grantee-notifications";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -42,6 +49,7 @@ beforeEach(() => {
     { id: "user-1", email: "scholar@example.com", emailNotifications: true },
   ]);
   mocks.notificationCreate.mockResolvedValue({ id: "notification-1" });
+  mocks.notificationCreateMany.mockResolvedValue({ count: 1 });
   mocks.academicTermScheduleFindMany.mockResolvedValue([
     {
       semester: "2026-2027 Second Semester",
@@ -58,6 +66,26 @@ beforeEach(() => {
   });
   mocks.createGmailTransporter.mockReturnValue({});
   mocks.sendTransactionalEmail.mockResolvedValue({ messageId: "mail-1" });
+});
+
+describe("createSkeapGranteeApprovalNotification", () => {
+  it("creates an idempotent approval notification that links to the grantee workspace", async () => {
+    await createSkeapGranteeApprovalNotification({
+      applicationId: "application-1",
+      userId: "user-1",
+      academicYear: "2026-2027",
+      semester: "Second Semester",
+    });
+
+    expect(mocks.notificationCreateMany).toHaveBeenCalledWith({
+      data: [{
+        userId: "user-1",
+        sourceKey: "skeap-grantee-approval:application-1",
+        message: "Congratulations! Your SKEAP Application is Approved\n\nYou are now an official Barangay Pico SKEAP Grantee for 2026-2027 (Second Semester). Open your Grantee Workspace to view your schedule and responsibilities.",
+      }],
+      skipDuplicates: true,
+    });
+  });
 });
 
 describe("notifyGranteesToUploadRequirements", () => {

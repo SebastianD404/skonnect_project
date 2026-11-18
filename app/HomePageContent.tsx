@@ -11,8 +11,26 @@ import FloatingFeedback from "@/app/components/FloatingFeedback";
 import { SkLogo } from "@/app/components/SkLogo";
 import AccountRequiredModal from "@/app/components/AccountRequiredModal";
 import { createBrowserClient } from "@/lib/supabase/browser";
+import type { PastGranteeReapplicationState } from "@/lib/past-grantee-reapplication";
 
-export default function HomePageContent() {
+export default function HomePageContent({
+  initialHeroState: initialHeroStateProp,
+}: {
+  initialHeroState?: PastGranteeReapplicationState;
+}) {
+  const initialHeroState = initialHeroStateProp ?? {
+    userId: null,
+    kkProfileStatus: null,
+    isKkProfileVerified: false,
+    isPastGrantee: false,
+    outcome: null,
+    age: null,
+    hasActiveOrPendingApplication: false,
+    isEligiblePastGrantee: false,
+    isApplicationOpen: false,
+    openTerm: null,
+    nextScheduleHint: "No upcoming SKEAP application period is scheduled.",
+  };
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -199,6 +217,18 @@ export default function HomePageContent() {
     user?.role === "YOUTH" &&
     user.id === skeapApplicationState?.userId &&
     skeapApplicationState?.hasCurrentApplication === true;
+  const hasInitialHeroState = user?.id === initialHeroState.userId;
+  const isHeroCtaLoading =
+    authLoading ||
+    (user?.role === "YOUTH" &&
+      user.id !== skeapApplicationState?.userId &&
+      !hasInitialHeroState);
+  const helpdeskHref =
+    initialHeroState.isPastGrantee && hasInitialHeroState
+      ? "/youth-dashboard/inquiries"
+      : user?.role === "YOUTH"
+      ? "/youth-dashboard/inquiries"
+      : "/grantee-dashboard/inquiries";
 
   const handleStartKkProfiling = async () => {
     if (authLoading) return;
@@ -289,17 +319,42 @@ export default function HomePageContent() {
               </p>
               
               <div className="flex flex-wrap items-center gap-4 pt-4">
-                <HeroCtaButton hasCurrentApplication={hasCurrentSkeapApplication} />
-                <Link
-                  href={hasPendingKkProfilingApplication
-                    ? "/applications"
-                    : user?.role === "YOUTH"
-                    ? "/youth-dashboard/inquiries"
-                    : "/grantee-dashboard/inquiries"}
-                  className="inline-flex min-h-12 w-[232px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 bg-transparent px-6 py-3 font-semibold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
-                >
-                  {hasPendingKkProfilingApplication ? "Manage Applications" : "Contact Helpdesk"}
-                </Link>
+                <HeroCtaButton
+                  hasCurrentApplication={
+                    hasCurrentSkeapApplication ||
+                    (hasInitialHeroState && initialHeroState.hasActiveOrPendingApplication)
+                  }
+                  isLoading={isHeroCtaLoading}
+                  isPastGrantee={initialHeroState.isPastGrantee && hasInitialHeroState}
+                  isEligiblePastGrantee={initialHeroState.isEligiblePastGrantee && hasInitialHeroState}
+                  isApplicationOpen={initialHeroState.isApplicationOpen}
+                  outcome={initialHeroState.outcome}
+                  age={initialHeroState.age}
+                  helpdeskHref={helpdeskHref}
+                />
+                {!isHeroCtaLoading &&
+                initialHeroState.isEligiblePastGrantee &&
+                initialHeroState.isApplicationOpen &&
+                hasInitialHeroState ? (
+                  <Link
+                    href={helpdeskHref}
+                    className="basis-full text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    Have questions about your previous grant? Contact Helpdesk
+                  </Link>
+                ) : !isHeroCtaLoading &&
+                  (!initialHeroState.isPastGrantee || !hasInitialHeroState) ? (
+                  <Link
+                    href={hasPendingKkProfilingApplication
+                      ? "/applications"
+                      : user?.role === "YOUTH"
+                      ? "/youth-dashboard/inquiries"
+                      : "/grantee-dashboard/inquiries"}
+                    className="inline-flex min-h-12 w-[232px] items-center justify-center rounded-2xl border-2 border-[#0F3D5C]/30 bg-transparent px-6 py-3 font-semibold text-[#0F3D5C] transition-all duration-300 hover:border-[#0F3D5C] hover:bg-[#0F3D5C]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+                  >
+                    {hasPendingKkProfilingApplication ? "Manage Applications" : "Contact Helpdesk"}
+                  </Link>
+                ) : null}
               </div>
               {/* Stats row */}
               <div className="mt-8 grid grid-cols-3 gap-6 max-w-md text-sm">
@@ -514,17 +569,42 @@ export default function HomePageContent() {
                 </ul>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void handleStartKkProfiling()}
-              disabled={authLoading}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0b1d3a] px-6 py-3 text-sm font-medium text-white shadow-md transition-colors duration-200 hover:bg-[#132d56]"
-            >
-              {user?.kkStatus === "APPROVED" ? "View Youth Profile →" : "Start KK Profiling"}
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-              </svg>
-            </button>
+            {hasInitialHeroState &&
+            initialHeroState.isPastGrantee &&
+            initialHeroState.isEligiblePastGrantee ? (
+              initialHeroState.isApplicationOpen ? (
+                <Link
+                  href="/programs/skeap"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0b1d3a] px-6 py-3 text-sm font-medium text-white shadow-md transition-colors duration-200 hover:bg-[#132d56]"
+                >
+                  Reapply Now <span aria-hidden="true">→</span>
+                </Link>
+              ) : (
+                <div className="w-full">
+                  <span
+                    aria-disabled="true"
+                    className="inline-flex w-full items-center justify-center rounded-xl bg-slate-200 px-6 py-3 text-sm font-semibold text-slate-500"
+                  >
+                    Applications Closed
+                  </span>
+                  <p role="status" className="mt-2 text-center text-xs text-slate-500">
+                    {initialHeroState.nextScheduleHint}
+                  </p>
+                </div>
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleStartKkProfiling()}
+                disabled={authLoading}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0b1d3a] px-6 py-3 text-sm font-medium text-white shadow-md transition-colors duration-200 hover:bg-[#132d56]"
+              >
+                {user?.kkStatus === "APPROVED" ? "View Youth Profile →" : "Start KK Profiling"}
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       </section>

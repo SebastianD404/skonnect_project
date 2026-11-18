@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { ensureProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import {
+  getApprovedKkProfileIdentity,
+  hasCompleteKkIdentityDocuments,
+} from "@/lib/kk-identity-documents";
 
 export async function GET() {
   const supabase = await createClient();
@@ -26,33 +29,12 @@ export async function GET() {
     return NextResponse.json({ error: "Approved KK Profiling is required." }, { status: 403 });
   }
 
-  const registration = await prisma.profilingRegistration.findFirst({
-    where: {
-      userId: appUser.id,
-      reviewStatus: { equals: "Approved", mode: "insensitive" },
-    },
-    orderBy: { submittedAt: "desc" },
-    select: {
-      photoFileUrl: true,
-      birthCertificateFileUrl: true,
-      idFrontFileUrl: true,
-      idBackFileUrl: true,
-      idSingleFileUrl: true,
-    },
-  });
-
-  if (!registration) {
+  const identity = await getApprovedKkProfileIdentity(appUser.id);
+  if (!identity.registration) {
     return NextResponse.json({ error: "No approved KK Profiling documents were found." }, { status: 404 });
   }
 
-  const documents = {
-    photo: registration.photoFileUrl,
-    birthCertificate: registration.birthCertificateFileUrl,
-    validIdFront: registration.idFrontFileUrl,
-    validIdBack: registration.idBackFileUrl,
-    residency: registration.idSingleFileUrl,
-  };
-  if (Object.values(documents).some((url) => !url)) {
+  if (!hasCompleteKkIdentityDocuments(identity.documents)) {
     return NextResponse.json(
       { error: "Your approved KK Profile is missing one or more identity documents. Contact SK support." },
       { status: 409 },
@@ -60,7 +42,7 @@ export async function GET() {
   }
 
   return NextResponse.json(
-    { documents },
+    { documents: identity.documents },
     { headers: { "Cache-Control": "private, no-store, max-age=0" } },
   );
 }

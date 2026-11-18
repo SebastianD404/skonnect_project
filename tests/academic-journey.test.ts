@@ -140,7 +140,7 @@ describe("getApprovedSemesterCount", () => {
 });
 
 describe("getAcademicJourneyProgress", () => {
-  it("marks the first semester before a first-year second-semester admission as prior", () => {
+  it("starts a first-year second-semester admission at that intake term", () => {
     const progress = getAcademicJourneyProgress(
       [],
       new Date("2026-08-01T00:00:00.000Z"),
@@ -153,20 +153,21 @@ describe("getAcademicJourneyProgress", () => {
     );
 
     expect(progress).toMatchObject({
-      currentSemesterIndex: 1,
+      currentSemesterIndex: 0,
       currentStepSemester: "2026-2027 Second Semester",
       validatedSemesterIndexes: [],
       currentStepStatus: "open_for_submit",
       eligibleSemesterCount: 7,
     });
     expect(progress.nodes[0]).toMatchObject({
-      semester: "2026-2027 First Semester",
-      status: "PRE_GRANT",
+      semester: "2026-2027 Second Semester",
+      status: "CURRENT",
+      yearNumber: 1,
+      semesterNumber: 2,
     });
-    expect(progress.nodes[1].status).toBe("CURRENT");
   });
 
-  it("skips all terms before a second-year second-semester admission", () => {
+  it("starts a second-year second-semester admission at the actual intake term", () => {
     const progress = getAcademicJourneyProgress(
       [],
       new Date("2026-08-01T00:00:00.000Z"),
@@ -178,13 +179,35 @@ describe("getAcademicJourneyProgress", () => {
       "college-1",
     );
 
-    expect(progress.currentSemesterIndex).toBe(3);
-    expect(progress.nodes.slice(0, 3).every((node) => node.status === "PRE_GRANT")).toBe(true);
-    expect(progress.nodes[3]).toMatchObject({
+    expect(progress.currentSemesterIndex).toBe(0);
+    expect(progress.nodes).toHaveLength(5);
+    expect(progress.nodes[0]).toMatchObject({
       semester: "2026-2027 Second Semester",
       status: "CURRENT",
+      yearNumber: 2,
+      semesterNumber: 2,
     });
     expect(progress.eligibleSemesterCount).toBe(5);
+  });
+
+  it("creates exactly three milestones for a third-year second-semester 4-year admission", () => {
+    const progress = getAcademicJourneyProgress(
+      [],
+      new Date("2026-08-01T00:00:00.000Z"),
+      new Date("2026-11-17T05:00:00.000Z"),
+      4,
+      null,
+      "2026-2027 Second Semester",
+      "3rd Year",
+      "college-3",
+    );
+
+    expect(progress.nodes.map((node) => node.semester)).toEqual([
+      "2026-2027 Second Semester",
+      "2027-2028 First Semester",
+      "2027-2028 Second Semester",
+    ]);
+    expect(progress.eligibleSemesterCount).toBe(3);
   });
 
   it("advances the current step to the first unvalidated semester", () => {

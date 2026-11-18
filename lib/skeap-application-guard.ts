@@ -1,3 +1,4 @@
+import { SubmissionStatus } from "@prisma/client";
 import { SKEAP_UPLOAD_KEY } from "@/lib/skeap-upload";
 import {
   DEFAULT_ACTIVE_SKEAP_EDUCATION_LEVELS,
@@ -50,17 +51,20 @@ const VOTER_ELIGIBILITY_ERROR =
   "Ineligible under Section 3(6): Applicants who have reached voting age (18+) must be duly registered voters of Barangay Pico to qualify for SKEAP.";
 const PERMANENT_DISQUALIFICATION_MESSAGE =
   "You are permanently ineligible to reapply for SKEAP due to a prior conduct or disciplinary revocation.";
+export const SKEAP_APPLICATION_REAPPLICATION_BLOCKING_SUBMISSION_STATUSES = [
+  SubmissionStatus.PENDING,
+  SubmissionStatus.AWAITING_PHYSICAL_CTC,
+  SubmissionStatus.PRE_QUALIFIED,
+  SubmissionStatus.RETURNED_FOR_EDIT,
+  SubmissionStatus.WAITLISTED,
+] as const;
+
 const SKEAP_APPLICATION_REAPPLICATION_BLOCKING_STATUSES = new Set([
-  "PENDING",
+  ...SKEAP_APPLICATION_REAPPLICATION_BLOCKING_SUBMISSION_STATUSES,
+  "FOR_REVIEW",
   "UNDER_REVIEW",
-  "PRE_QUALIFIED",
   "RETURNED",
-  "RETURNED_FOR_EDIT",
   "RESUBMITTED",
-  "WAITLISTED",
-  "APPROVED",
-  "REVOKED",
-  "REMOVED",
 ]);
 export const SKEAP_EDUCATION_LEVEL_CLOSED_ERROR =
   "This education category is not open for the current SKEAP cycle. Please select an available category.";

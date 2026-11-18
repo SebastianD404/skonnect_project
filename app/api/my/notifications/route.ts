@@ -36,6 +36,10 @@ export async function GET() {
         href: notification.sourceKey.startsWith("requirements-upload:") ||
             notification.sourceKey.startsWith("submission:")
           ? "/grantee-dashboard/documents"
+          : notification.sourceKey.startsWith("skeap-grantee-approval:")
+            ? "/"
+          : notification.sourceKey.startsWith("skeap-physical-ctc:")
+            ? "/applications"
           : notification.sourceKey.startsWith("kk-age-out:")
             ? "/programs/kk-profiling/status"
           : notification.sourceKey.startsWith("graduation-candidate-ready:") ||

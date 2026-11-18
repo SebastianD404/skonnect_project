@@ -38,6 +38,26 @@ describe("SKEAP scholarship capacity", () => {
     });
   });
 
+  it("runs capacity queries sequentially on a transaction client", async () => {
+    let activeQueries = 0;
+    let maxConcurrentQueries = 0;
+    const trackQuery = async <T>(result: T) => {
+      activeQueries += 1;
+      maxConcurrentQueries = Math.max(maxConcurrentQueries, activeQueries);
+      await Promise.resolve();
+      activeQueries -= 1;
+      return result;
+    };
+    const client = {
+      grantee: { count: vi.fn(() => trackQuery(53)) },
+      systemSetting: { findUnique: vi.fn(() => trackQuery({ value: 55 })) },
+    } as unknown as Parameters<typeof getSkeapCapacitySnapshot>[0];
+
+    await getSkeapCapacitySnapshot(client);
+
+    expect(maxConcurrentQueries).toBe(1);
+  });
+
   it("caps configured capacity at 55 even when an older setting is higher", async () => {
     const client = {
       systemSetting: {

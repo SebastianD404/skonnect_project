@@ -220,13 +220,17 @@ describe("resolveGranteeAcademicTimeline", () => {
     const initialTimeline = resolveGranteeAcademicTimeline(grantee, [], activeSettings);
     expect(initialTimeline.targetTerm.termLabel).toBe("2026-2027 Second Semester");
     expect(initialTimeline.journeyProgress).toMatchObject({
-      currentSemesterIndex: 1,
+      currentSemesterIndex: 0,
       currentStepSemester: "2026-2027 Second Semester",
       validatedCount: 0,
       totalRequiredSemesters: 7,
     });
-    expect(initialTimeline.journeyProgress.nodes[0].status).toBe("PRE_GRANT");
-    expect(initialTimeline.journeyProgress.nodes[1].status).toBe("CURRENT");
+    expect(initialTimeline.journeyProgress.nodes[0]).toMatchObject({
+      status: "CURRENT",
+      semester: "2026-2027 Second Semester",
+      yearNumber: 1,
+      semesterNumber: 2,
+    });
 
     const approvedTimeline = resolveGranteeAcademicTimeline(grantee, [
       {

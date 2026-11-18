@@ -2,11 +2,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, Wallet, Search, SearchX, Inbox, Download, LoaderCircle, ChevronDown } from "lucide-react";
-import { getRecentSemesters } from "@/lib/semester";
+import type { AccountingTermOption } from "@/lib/accounting-term";
 import { formatDate } from "@/lib/utils";
 import {
+  type AccountingSubmissionState,
   getAccountingSubmissionState,
-  isAccountingSubmissionSubmitted,
 } from "@/lib/accounting-submission";
 import { matchesAccountingNameQuery } from "@/lib/accounting-name-search";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
@@ -24,15 +24,15 @@ import AdminPaginationControls from "../AdminPaginationControls";
   type Grantee = {
   id: string;
   name: string;
+  email: string | null;
   accountName: string | null;
   semester: string;
   status: "Pending Payout" | "Awaiting Confirmation" | "Confirmed";
-    submitted: boolean;
-    submissionStatus?: string | null;
-    submissionState: string;
-    claimedAt?: string | null;
-    disbursedAt?: string | null;
-    disbursementEmailSentAt?: string | null;
+  submissionStatus: AccountingSubmissionState;
+  submissionState: AccountingSubmissionState;
+  claimedAt?: string | null;
+  disbursedAt?: string | null;
+  disbursementEmailSentAt?: string | null;
 };
 
 const GRANT_AMOUNT = 5000; // PHP per student
@@ -41,20 +41,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function getAlternateAccountName(grantee: Pick<Grantee, "name" | "accountName">) {
-  if (!grantee.accountName?.trim()) return null;
-  const displayedName = grantee.name.trim().toLowerCase();
-  return grantee.accountName.trim().toLowerCase() !== displayedName
-    ? grantee.accountName.trim()
-    : null;
+function SubmissionStatusBadge({
+  state,
+  compact = false,
+}: {
+  state: AccountingSubmissionState;
+  compact?: boolean;
+}) {
+  const classes: Record<AccountingSubmissionState, string> = {
+    Approved: "bg-emerald-50 text-emerald-700",
+    "For Physical CTC": "bg-amber-50 text-amber-800",
+    "Pending Review": "bg-sky-50 text-sky-700",
+    Returned: "bg-rose-50 text-rose-700",
+    "Not submitted": "bg-slate-100 text-slate-700",
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full ${compact ? "px-2.5 py-1 text-[10px]" : "px-3 py-1 text-xs"} font-semibold ${classes[state]}`}>
+      {state}
+    </span>
+  );
 }
 
 export default function AdminAccountingPage() {
   const [grantees, setGrantees] = useState<Grantee[]>([]);
   const [totalBudget, setTotalBudget] = useState<number | null>(null);
   const [query, setQuery] = useState("");
-  const recentSemesters = getRecentSemesters();
-  const [selectedSemester, setSelectedSemester] = useState<string>(recentSemesters[0].name);
+  const [recentSemesters, setRecentSemesters] = useState<AccountingTermOption[]>([]);
+  const [selectedSemester, setSelectedSemester] = useState("");
 
   const claimedCount = useMemo(
     () => grantees.filter((g) => g.status !== "Pending Payout").length,
@@ -92,6 +105,53 @@ export default function AdminAccountingPage() {
 
   useEffect(() => () => {
     if (savedTimeoutRef.current !== null) window.clearTimeout(savedTimeoutRef.current);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadTermOptions() {
+      try {
+        const response = await fetch("/api/admin/accounting/terms", { cache: "no-store" });
+        const payload: unknown = await response.json().catch(() => null);
+        if (!response.ok || !isRecord(payload)) {
+          throw new Error(
+            isRecord(payload) && typeof payload.error === "string"
+              ? payload.error
+              : "Unable to load accounting terms.",
+          );
+        }
+
+        const terms = Array.isArray(payload.terms)
+          ? payload.terms.flatMap((value): AccountingTermOption[] => {
+              if (
+                !isRecord(value) ||
+                typeof value.name !== "string" ||
+                typeof value.label !== "string" ||
+                typeof value.isCurrent !== "boolean"
+              ) return [];
+              return [{ name: value.name, label: value.label, isCurrent: value.isCurrent }];
+            })
+          : [];
+        const defaultSemester =
+          typeof payload.defaultSemester === "string" ? payload.defaultSemester : "";
+        if (!terms.length || !terms.some((term) => term.name === defaultSemester)) {
+          throw new Error("No valid accounting term is available.");
+        }
+        if (!mounted) return;
+        setRecentSemesters(terms);
+        setSelectedSemester((current) => current || defaultSemester);
+      } catch (error) {
+        if (!mounted) return;
+        setLoadError(error instanceof Error ? error.message : "Unable to load accounting terms.");
+        setLoading(false);
+      }
+    }
+
+    void loadTermOptions();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -156,17 +216,34 @@ export default function AdminAccountingPage() {
 
   const filtered = useMemo(() => {
     return grantees.filter((grantee) =>
-      matchesAccountingNameQuery(query, [grantee.name, grantee.accountName ?? ""]),
+      matchesAccountingNameQuery(query, [
+        grantee.name,
+        grantee.email ?? "",
+        grantee.accountName ?? "",
+      ]),
     );
   }, [grantees, query]);
+
+  const submissionCounts = useMemo(() => {
+    const submitted = filtered.filter((grantee) => grantee.submissionStatus !== "Not submitted").length;
+    return {
+      all: filtered.length,
+      submitted,
+      notSubmitted: filtered.length - submitted,
+    };
+  }, [filtered]);
 
   const [submissionFilter, setSubmissionFilter] = useState<'all'|'submitted'|'not_submitted'>('all');
   const [claimedFilter, setClaimedFilter] = useState<'all'|'pending'|'received'>('all');
 
   const filteredWithSubmission = useMemo(() => {
     let list = filtered;
-    if (submissionFilter === 'submitted') list = list.filter((g) => Boolean(g.submitted));
-    if (submissionFilter === 'not_submitted') list = list.filter((g) => !g.submitted);
+    if (submissionFilter === 'submitted') {
+      list = list.filter((g) => g.submissionStatus !== "Not submitted");
+    }
+    if (submissionFilter === 'not_submitted') {
+      list = list.filter((g) => g.submissionStatus === "Not submitted");
+    }
     if (claimedFilter === 'received') list = list.filter((g) => g.status !== "Pending Payout");
     if (claimedFilter === 'pending') list = list.filter((g) => g.status === "Pending Payout");
     return list;
@@ -192,6 +269,7 @@ export default function AdminAccountingPage() {
 
   // fetch data on mount and whenever the selected semester or payout filter changes
   useEffect(() => {
+    if (!selectedSemester) return;
     let mounted = true;
 
     async function load() {
@@ -225,12 +303,15 @@ export default function AdminAccountingPage() {
             isConfirmed ||
             payoutStatus === "DISBURSED_UNCONFIRMED" ||
             value.claimed === true;
-          const submissionStatus =
-            typeof value.submissionStatus === "string" ? value.submissionStatus : null;
+          const submissionStatus = getAccountingSubmissionState(
+            typeof value.submissionStatus === "string" ? value.submissionStatus : null,
+          );
+          const submissionState = submissionStatus;
 
           return [{
             id: value.id,
             name: typeof value.student_name === "string" ? value.student_name : "Unknown",
+            email: typeof value.email === "string" ? value.email : null,
             accountName: typeof value.accountName === "string" ? value.accountName : null,
             semester: typeof value.semester === "string" ? value.semester : selectedSemester,
             status: isConfirmed
@@ -238,9 +319,8 @@ export default function AdminAccountingPage() {
               : isDisbursed
                 ? "Awaiting Confirmation"
                 : "Pending Payout",
-            submitted: isAccountingSubmissionSubmitted(submissionStatus),
             submissionStatus,
-            submissionState: getAccountingSubmissionState(submissionStatus),
+            submissionState,
             claimedAt: typeof value.claimedAt === "string" ? value.claimedAt : null,
             disbursedAt: typeof value.disbursedAt === "string" ? value.disbursedAt : null,
             disbursementEmailSentAt:
@@ -504,17 +584,19 @@ export default function AdminAccountingPage() {
             </div> : null}
           </div>
 
-          <div className="w-full shrink-0 sm:w-64 lg:w-72">
+          <div className="w-full shrink-0 sm:w-auto">
             <label className="sr-only">Semester</label>
             <select
               value={selectedSemester}
+              disabled={!recentSemesters.length}
               onChange={(e) => {
                 setSelectedSemester(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none shadow-sm focus:border-sky-400"
+              className="w-full min-w-[295px] rounded-2xl border border-slate-200 bg-white py-2 pl-3 pr-9 text-sm text-slate-700 outline-none shadow-sm focus:border-sky-400 sm:min-w-[320px]"
               aria-label="Filter by semester"
             >
+              {!recentSemesters.length ? <option value="">Loading terms…</option> : null}
               {recentSemesters.map((semester) => (
                 <option key={semester.name} value={semester.name}>
                   {semester.label}
@@ -654,9 +736,9 @@ export default function AdminAccountingPage() {
                   setQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                placeholder="Search profile or account name"
+                placeholder="Search name, email, or account name"
                 className="w-full rounded-2xl border border-transparent bg-white px-4 py-3 pl-11 text-sm text-slate-900 outline-none shadow-md focus:border-sky-300 focus:ring-2 focus:ring-sky-50"
-                aria-label="Search grantee by name"
+                aria-label="Search grantees by name, email, or account name"
               />
             </div>
           </div>
@@ -673,9 +755,9 @@ export default function AdminAccountingPage() {
                   }}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
                 >
-                  <option value="all">Submission status: All</option>
-                  <option value="submitted">Submitted</option>
-                  <option value="not_submitted">Not submitted</option>
+                  <option value="all">Submission status: All ({submissionCounts.all})</option>
+                  <option value="submitted">Submitted ({submissionCounts.submitted})</option>
+                  <option value="not_submitted">Not submitted ({submissionCounts.notSubmitted})</option>
                 </select>
               </label>
               <label>
@@ -697,17 +779,21 @@ export default function AdminAccountingPage() {
 
             <div className="hidden flex-wrap items-center gap-3 sm:flex">
             <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border border-slate-100 bg-white p-1 shadow-sm">
-              {['All','Submitted','Not submitted'].map((tab) => (
+              {[
+                { label: "All", value: "all", count: submissionCounts.all },
+                { label: "Submitted", value: "submitted", count: submissionCounts.submitted },
+                { label: "Not submitted", value: "not_submitted", count: submissionCounts.notSubmitted },
+              ].map(({ label, value, count }) => (
                 <button
-                  key={tab}
+                  key={value}
                   onClick={() => {
-                    setSubmissionFilter(tab === 'All' ? 'all' : tab === 'Submitted' ? 'submitted' : 'not_submitted');
+                    setSubmissionFilter(value as typeof submissionFilter);
                     setCurrentPage(1);
                   }}
-                  className={`px-3 py-2 text-xs rounded-2xl font-medium transition ${submissionFilter === (tab === 'All' ? 'all' : tab === 'Submitted' ? 'submitted' : 'not_submitted') ? 'bg-sky-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+                  className={`px-3 py-2 text-xs rounded-2xl font-medium transition ${submissionFilter === value ? 'bg-sky-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
                   style={{lineHeight: '1'}}
                 >
-                  {tab}
+                  {label} ({count})
                 </button>
               ))}
             </div>
@@ -763,10 +849,13 @@ export default function AdminAccountingPage() {
                             {g.name.split(" ").map((namePart) => namePart[0]).slice(0, 2).join("").toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <h3 className="truncate text-sm font-bold text-slate-900">{g.name}</h3>
-                            {getAlternateAccountName(g) ? (
-                              <p className="truncate text-[11px] text-slate-500">
-                                Account: {getAlternateAccountName(g)}
+                            <h3 className="truncate text-xs font-bold uppercase text-slate-900">{g.name}</h3>
+                            <p className={`truncate text-xs ${g.email ? "text-slate-600" : "text-slate-400"}`}>
+                              {g.email || "No email on file"}
+                            </p>
+                            {g.accountName ? (
+                              <p className="truncate text-[11px] text-slate-400">
+                                Account: {g.accountName}
                               </p>
                             ) : null}
                           </div>
@@ -788,13 +877,7 @@ export default function AdminAccountingPage() {
                           </div>
                           <div>
                             <span className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Submission</span>
-                            {g.submissionState === "Approved" ? (
-                              <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">Approved</span>
-                            ) : g.submissionState === "Pending review" ? (
-                              <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700">Pending review</span>
-                            ) : (
-                              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-700">Not submitted</span>
-                            )}
+                            <SubmissionStatusBadge state={g.submissionState} compact />
                           </div>
                           <div>
                             <span className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-slate-400">Payout</span>
@@ -880,10 +963,13 @@ export default function AdminAccountingPage() {
                                 {g.name.split(" ").map((namePart) => namePart[0]).slice(0, 2).join("").toUpperCase()}
                               </div>
                               <div className="min-w-0">
-                                <span className="block truncate font-bold text-slate-900">{g.name}</span>
-                                {getAlternateAccountName(g) ? (
-                                  <span className="block truncate text-[11px] text-slate-500">
-                                    Account: {getAlternateAccountName(g)}
+                                <span className="block truncate text-xs font-bold uppercase text-slate-900">{g.name}</span>
+                                <span className={`block truncate text-xs ${g.email ? "text-slate-600" : "text-slate-400"}`}>
+                                  {g.email || "No email on file"}
+                                </span>
+                                {g.accountName ? (
+                                  <span className="block truncate text-[11px] text-slate-400">
+                                    Account: {g.accountName}
                                   </span>
                                 ) : null}
                               </div>
@@ -891,13 +977,7 @@ export default function AdminAccountingPage() {
                           </td>
                           <td className="truncate px-6 py-4 pr-2 text-slate-600">{g.semester}</td>
                           <td className="px-6 py-4">
-                            {g.submissionState === "Approved" ? (
-                              <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Approved</span>
-                            ) : g.submissionState === "Pending review" ? (
-                              <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending review</span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Not submitted</span>
-                            )}
+                            <SubmissionStatusBadge state={g.submissionState} />
                           </td>
                           <td className="px-6 py-4">
                             {g.status === "Confirmed" ? (
@@ -1039,7 +1119,17 @@ export default function AdminAccountingPage() {
 
               <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl bg-slate-50 p-4 text-sm">
                 <dt className="text-slate-500">Grantee</dt>
-                <dd className="text-right font-semibold text-slate-900">{disbursementCandidate.name}</dd>
+                <dd className="text-right">
+                  <span className="block font-semibold text-slate-900">{disbursementCandidate.name}</span>
+                  <span className={`block text-xs ${disbursementCandidate.email ? "text-slate-600" : "text-slate-400"}`}>
+                    {disbursementCandidate.email || "No email on file"}
+                  </span>
+                  {disbursementCandidate.accountName ? (
+                    <span className="block text-[11px] text-slate-400">
+                      Account: {disbursementCandidate.accountName}
+                    </span>
+                  ) : null}
+                </dd>
                 <dt className="text-slate-500">Semester</dt>
                 <dd className="text-right font-medium text-slate-900">
                   {String(selectedSemester ?? "").replace(/\s*\(Current\)$/i, "").trim()}

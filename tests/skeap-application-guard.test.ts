@@ -143,17 +143,18 @@ describe("handleSkeapApply", () => {
   describe("isSkeapApplicationBlockingReapplication", () => {
     it.each([
       "PENDING",
+      "FOR_REVIEW",
       "UNDER_REVIEW",
+      "PRE_QUALIFIED",
+      "AWAITING_PHYSICAL_CTC",
       "RETURNED",
       "RESUBMITTED",
       "WAITLISTED",
-      "APPROVED",
-      "REVOKED",
     ])("blocks %s applications", (status) => {
       expect(isSkeapApplicationBlockingReapplication(status)).toBe(true);
     });
 
-    it.each(["WITHDRAWN", "DRAFT", "REJECTED", null, undefined])(
+    it.each(["APPROVED", "REVOKED", "REMOVED", "WITHDRAWN", "DRAFT", "REJECTED", null, undefined])(
       "does not block %s applications",
       (status) => {
         expect(isSkeapApplicationBlockingReapplication(status)).toBe(false);

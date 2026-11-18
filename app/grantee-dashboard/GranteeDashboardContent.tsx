@@ -81,6 +81,22 @@ export default async function GranteeDashboardContent() {
           },
         },
       },
+      skeapApplications: {
+        orderBy: { submittedAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          status: true,
+          submittedAt: true,
+          updatedAt: true,
+          gwa: true,
+          enrollmentFileUrl: true,
+          reportCardFileUrl: true,
+          educationLevel: true,
+          currentCourse: true,
+          yearLevel: true,
+        },
+      },
     },
   });
 
@@ -129,7 +145,10 @@ export default async function GranteeDashboardContent() {
   const now = new Date();
   const { schedules } = await getAcademicTermScheduleState(now);
   const academicTimeline = resolveGranteeAcademicTimeline(
-    appUser.grantee,
+    {
+      ...appUser.grantee,
+      skeapApplications: appUser.skeapApplications,
+    },
     submissions,
     { schedules, now },
   );
@@ -144,17 +163,39 @@ export default async function GranteeDashboardContent() {
       : null;
   const isReadyForGraduation =
     !isGraduatedScholar && (Boolean(graduationReadyAt) || journeyProgress.isComplete);
-  const journeyNodes = journeyProgress.nodes.map((node) => ({
-    ...node,
-    submittedAt: node.submittedAt instanceof Date ? node.submittedAt.toISOString() : node.submittedAt,
-    approvedAt: node.approvedAt instanceof Date ? node.approvedAt.toISOString() : node.approvedAt,
-    gradeReportUrl: node.submissionId && node.gradeReportUrl
-      ? `/api/submissions/${node.submissionId}/file?kind=grade`
-      : null,
-    coeFileUrl: node.submissionId && node.coeFileUrl
-      ? `/api/submissions/${node.submissionId}/file?kind=coe`
-      : null,
-  }));
+  const normalizeScheduleSemester = (value: string) =>
+    value.trim()
+      .replace(/\b1st\s+Semester\b/i, "First Semester")
+      .replace(/\b2nd\s+Semester\b/i, "Second Semester");
+  const journeyNodes = journeyProgress.nodes.map((node) => {
+    const matchingSchedule = schedules.find(
+      (schedule) => normalizeScheduleSemester(schedule.semester) === normalizeScheduleSemester(node.semester),
+    ) ?? null;
+    const scheduleStatus: "open" | "future" | "closed" | "none" | null =
+      node.status === "VALIDATED"
+      ? null
+      : matchingSchedule
+        ? matchingSchedule.opensAt <= now && matchingSchedule.closesAt >= now
+          ? "open"
+          : matchingSchedule.opensAt > now
+            ? "future"
+            : "closed"
+        : "none";
+
+    return {
+      ...node,
+      scheduleStatus,
+      scheduleOpensAt: matchingSchedule?.opensAt ?? null,
+      submittedAt: node.submittedAt instanceof Date ? node.submittedAt.toISOString() : node.submittedAt,
+      approvedAt: node.approvedAt instanceof Date ? node.approvedAt.toISOString() : node.approvedAt,
+      gradeReportUrl: node.submissionId && node.gradeReportUrl
+        ? `/api/submissions/${node.submissionId}/file?kind=grade`
+        : null,
+      coeFileUrl: node.submissionId && node.coeFileUrl
+        ? `/api/submissions/${node.submissionId}/file?kind=coe`
+        : null,
+    };
+  });
   const currentStepSchedule = schedules.find(
     (schedule) => schedule.semester === journeyProgress.currentStepSemester,
   ) ?? null;
@@ -426,7 +467,7 @@ export default async function GranteeDashboardContent() {
 
         <section id="academic-journey" className="grantee-dashboard-enter grantee-dashboard-enter-activity mt-8 scroll-mt-8">
           <AcademicJourneySetup
-            journeyConfigured={Boolean(appUser.grantee?.journeyStart && appUser.grantee?.journeyEnd)}
+            journeyConfigured={Boolean(appUser.grantee?.journeyStart && appUser.grantee?.journeyEnd) || journeyProgress.nodes.length > 0}
             journeyStart={appUser.grantee?.journeyStart ?? null}
             journeyEnd={appUser.grantee?.journeyEnd ?? null}
             mapProps={{

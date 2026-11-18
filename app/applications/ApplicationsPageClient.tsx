@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, CircleDashed, Clock3, ArrowRight } from "lucide-react";
+import { AlertCircle, CheckCircle2, CircleDashed, Clock3, ArrowRight, FileCheck2 } from "lucide-react";
 import { useAuth } from "@/app/components/AuthProvider";
 import {
   getKkProfilingApplicationCardStatus,
   type KkProfilingApplicationCardStatus,
 } from "@/lib/kk-profiling-application-status";
+import type { PastGranteeReapplicationState } from "@/lib/past-grantee-reapplication";
 
 type ApplicationRecord = {
   id: string;
@@ -18,7 +19,7 @@ type ApplicationRecord = {
 
 type ApplicationCardStatus = {
   label: string;
-  tone: "emerald" | "amber" | "cyan" | "rose" | "slate";
+  tone: "emerald" | "amber" | "cyan" | "rose" | "slate" | "physicalCtc";
   actionLabel?: string;
   actionHref?: string;
 };
@@ -34,6 +35,15 @@ function getStatusTone(label: string): ApplicationCardStatus["tone"] {
 }
 
 function StatusIndicator({ status }: { status: ApplicationCardStatus }) {
+  if (status.tone === "physicalCtc") {
+    return (
+      <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/90 bg-amber-50/90 px-3.5 py-1.5 text-xs font-semibold text-amber-800">
+        <FileCheck2 className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+        {status.label}
+      </span>
+    );
+  }
+
   const Icon = status.tone === "emerald"
     ? CheckCircle2
     : status.tone === "amber"
@@ -61,7 +71,11 @@ function StatusIndicator({ status }: { status: ApplicationCardStatus }) {
   );
 }
 
-export default function ApplicationsPage() {
+export default function ApplicationsPage({
+  initialReapplicationState,
+}: {
+  initialReapplicationState: PastGranteeReapplicationState | null;
+}) {
   const { user } = useAuth();
   const [kkStatus, setKkStatus] = useState<KkProfilingApplicationCardStatus | null>(null);
   const [skeapApplication, setSkeapApplication] = useState<ApplicationRecord | null>(null);
@@ -100,11 +114,17 @@ export default function ApplicationsPage() {
         const data = await skeapResult.value.json();
         const latest = (data.inquiries ?? [])[0] as ApplicationRecord | undefined;
         if (latest) {
-          const label = latest.reviewStatus?.trim().toUpperCase() === "PRE_QUALIFIED"
-            ? "For Physical CTC — physical verification required"
+          const normalizedStatus = latest.reviewStatus?.trim().toUpperCase().replace(/[\s-]+/g, "_");
+          const isForPhysicalCtc =
+            normalizedStatus === "FOR_PHYSICAL_CTC" || normalizedStatus === "PRE_QUALIFIED";
+          const label = isForPhysicalCtc
+            ? "For Physical CTC · Present Originals at Barangay Hall"
             : latest.reviewStatus || (latest.isResolved ? "Completed" : latest.response ? "Update available" : "Pending review");
           setSkeapApplication(latest);
-          setSkeapStatus({ label, tone: getStatusTone(label) });
+          setSkeapStatus({
+            label,
+            tone: isForPhysicalCtc ? "physicalCtc" : getStatusTone(label),
+          });
         } else {
           setSkeapStatus(notStartedStatus);
         }
@@ -138,6 +158,29 @@ export default function ApplicationsPage() {
             Review the applications you submitted and check their latest status.
           </p>
         </header>
+
+        {initialReapplicationState?.isEligiblePastGrantee &&
+        initialReapplicationState.isApplicationOpen ? (
+          <aside className="mb-8 flex flex-col gap-5 rounded-2xl border border-cyan-100 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-8">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-800">
+                SKEAP applications are open
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                You can apply again for {initialReapplicationState.openTerm ?? "the open term"}.
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                A new SKEAP application period is open — submit a fresh application to reapply.
+              </p>
+            </div>
+            <Link
+              href="/programs/skeap"
+              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#0F3D5C] px-5 py-3 font-semibold text-white transition-colors hover:bg-[#0D2E47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+            >
+              Reapply for SKEAP <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </aside>
+        ) : null}
 
         <section aria-label="Your applications" className="grid gap-5 md:grid-cols-2">
           <article className="group relative flex min-h-72 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 ease-in-out hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl sm:p-8">

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import FloatingFeedback from "@/app/components/FloatingFeedback";
-import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCircle2, Eye, FileText, Inbox, Info, LoaderCircle, MessageCircle, Trash2, Upload, UserRound, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Building2, CalendarDays, CheckCircle2, Eye, FileCheck2, FileText, Inbox, Info, LoaderCircle, MessageCircle, Trash2, Upload, UserRound, X } from "lucide-react";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import {
@@ -23,6 +23,7 @@ import {
   isSkeapApplicationReturned,
   isSkeapUploadMarkedForCorrection,
 } from "@/lib/skeap-application-status";
+import { formatReviewActivityMessage } from "@/lib/review-activity-message";
 import { formatActivityTimestamp } from "@/lib/utils";
 import { scanGradeReportFile } from "@/lib/ocr/client-grade-report";
 import type { GradeReportDiagnostics } from "@/lib/grade-report-parser";
@@ -319,7 +320,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const activityScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const previousActivityLengthRef = useRef<number | null>(null);
   const activityApplicationIdRef = useRef(application.id);
-  const [isActivityNearBottom, setIsActivityNearBottom] = useState(true);
+  const [isActivityNearTop, setIsActivityNearTop] = useState(true);
   const [stagedReplacements, setStagedReplacements] = useState<StagedReplacement[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -366,6 +367,9 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const applicationStatus = (application.application?.status || reviewStatusLabel).trim().toUpperCase();
   const isWithdrawn = hasWithdrawn || applicationStatus === "WITHDRAWN";
   const normalizedStatus = isWithdrawn ? "WITHDRAWN" : reviewStatusLabel.toUpperCase();
+  const isForPhysicalCtc =
+    ["FOR_PHYSICAL_CTC", "PRE_QUALIFIED", "AWAITING_PHYSICAL_CTC"].includes(applicationStatus) ||
+    ["FOR_PHYSICAL_CTC", "PRE_QUALIFIED", "AWAITING_PHYSICAL_CTC"].includes(normalizedStatus);
   const isAgedOutWaitlisted = application.application?.waitlistRemark === "AGED_OUT";
   const isWaitlistCycleClosed = application.application?.waitlistRemark === "CYCLE_CLOSED";
   const isWaitlistClosed = isAgedOutWaitlisted || isWaitlistCycleClosed;
@@ -689,7 +693,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const activityEvents = useMemo(
     () =>
       [...application.reviewThread]
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .filter(
           (message) =>
             !(
@@ -700,12 +704,13 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         )
         .map((message) => {
         const date = formatActivityTimestamp(message.createdAt);
+        const activityText = formatReviewActivityMessage(message.text || "");
         const isSystemNote =
           message.role === "applicant" &&
           !message.attachments?.length &&
-          /resubmitted|uploaded|submitted|replacement/i.test(message.text);
+          /resubmitted|uploaded|submitted|replacement/i.test(activityText);
 
-        const inlineUrls = extractUrls(message.text || "");
+        const inlineUrls = extractUrls(activityText);
         const attachmentPreviews: AttachmentPreview[] = (message.attachments ?? [])
           .map((attachment) => {
             const url = attachment.fileUrl || "";
@@ -725,12 +730,12 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
         });
 
         const content = inlineUrls.length
-          ? message.text
+          ? activityText
               .split("\n")
               .filter((line) => !extractUrls(line).length)
               .join(" ")
-              .trim() || message.text.trim()
-          : message.text.trim();
+              .trim() || activityText
+          : activityText;
 
         return {
           id: message.id,
@@ -746,7 +751,7 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
   const [lastReadActivityLength, setLastReadActivityLength] = useState(activityEvents.length);
   const submissionSummary = useMemo(() => parseSubmissionSummary(application.message || undefined), [application.message]);
   const showReviewActivity = activityEvents.length > 0 || normalizedStatus === "RETURNED";
-  const hasNewActivity = !isActivityNearBottom && activityEvents.length > lastReadActivityLength;
+  const hasNewActivity = !isActivityNearTop && activityEvents.length > lastReadActivityLength;
 
   useEffect(() => {
     if (!showReviewActivity) return;
@@ -754,42 +759,42 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
     const container = activityScrollContainerRef.current;
     const isInitialOrNewApplication = previousActivityLengthRef.current === null || activityApplicationIdRef.current !== application.id;
     if (isInitialOrNewApplication) {
-      if (container && activityEvents.length > 0) container.scrollTop = container.scrollHeight;
+      if (container && activityEvents.length > 0) container.scrollTop = 0;
       previousActivityLengthRef.current = activityEvents.length;
       activityApplicationIdRef.current = application.id;
       return;
     }
 
     if (activityEvents.length > (previousActivityLengthRef.current ?? 0)) {
-      if (isActivityNearBottom) {
-        container?.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      if (isActivityNearTop) {
+        container?.scrollTo({ top: 0, behavior: "smooth" });
       }
     }
 
     previousActivityLengthRef.current = activityEvents.length;
-  }, [activityEvents.length, application.id, isActivityNearBottom, showReviewActivity]);
+  }, [activityEvents.length, application.id, isActivityNearTop, showReviewActivity]);
 
   const handleActivityScroll = () => {
     const container = activityScrollContainerRef.current;
     if (!container) return;
 
-    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-    setIsActivityNearBottom(nearBottom);
-    if (nearBottom) setLastReadActivityLength(activityEvents.length);
+    const nearTop = container.scrollTop < 100;
+    setIsActivityNearTop(nearTop);
+    if (nearTop) setLastReadActivityLength(activityEvents.length);
   };
 
   const scrollToLatestActivity = () => {
     const container = activityScrollContainerRef.current;
     if (!container) return;
 
-    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-    setIsActivityNearBottom(true);
+    container.scrollTo({ top: 0, behavior: "smooth" });
+    setIsActivityNearTop(true);
     setLastReadActivityLength(activityEvents.length);
   };
 
   return (
     <div className="space-y-6 pb-32">
-      <header className="mb-8 w-full rounded-2xl border border-cyan-950/20 bg-[linear-gradient(120deg,#0f3d5c_0%,#145b72_58%,#e7f4f1_160%)] p-6 shadow-sm md:p-8">
+      <header className="mb-8 w-full overflow-hidden rounded-2xl bg-gradient-to-r from-[#082438] via-[#0e445c] to-[#2c6e7f] p-6 shadow-sm md:p-8">
         <Link href="/applications" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-white/75 transition-colors hover:text-white">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           Return to applications
@@ -815,6 +820,33 @@ export default function ApplicationReviewClient({ application }: ApplicationRevi
           </div>
         </div>
       </header>
+
+      {isForPhysicalCtc ? (
+        <section className="mt-5 rounded-2xl border border-amber-200/85 bg-gradient-to-r from-amber-50/80 via-white to-white p-5 shadow-[0_4px_20px_-6px_rgba(15,23,42,0.06)]">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3.5">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-200/80 bg-amber-100/70 text-amber-700">
+                <FileCheck2 className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700/80">
+                  NEXT STEP · IN-PERSON VERIFICATION
+                </p>
+                <h2 className="mt-0.5 text-sm font-semibold text-slate-900 sm:text-base">
+                  Present Physical Documents at Barangay Pico Hall
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 sm:text-sm">
+                  Your online documents have been digitally screened. Please present the originals or Certified True Copies of all uploaded documents at Barangay Pico Hall for physical verification.
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1.5 self-start whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 sm:self-center">
+              <Building2 className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+              For Physical CTC
+            </span>
+          </div>
+        </section>
+      ) : null}
 
       {isApproved ? (
         <div className="mb-6 p-6 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-start gap-4 shadow-xs">

@@ -17,4 +17,11 @@ describe("matchesAccountingNameQuery", () => {
     expect(matchesAccountingNameQuery("Unrelated Person", names)).toBe(false);
     expect(matchesAccountingNameQuery("  ", names)).toBe(true);
   });
+
+  it("matches email addresses case-insensitively", () => {
+    expect(matchesAccountingNameQuery("ALDRINJHAY55@GMAIL.COM", [
+      ...names,
+      "aldrinjhay55@gmail.com",
+    ])).toBe(true);
+  });
 });

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ArrowUpRight, CheckCircle, CheckCircle2, Clock, CornerUpLeft, Download, Eye, FileText, Loader2, RefreshCcw, RefreshCw, Search, Send, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCircle, CheckCircle2, Clock, CornerUpLeft, Download, Eye, FileCheck2, FileText, Loader2, RefreshCcw, RefreshCw, Search, Send, X, type LucideIcon } from "lucide-react";
 import RejectApplicationModal from "./RejectApplicationModal";
 import SkeapApplicationFormModal from "@/components/SkeapApplicationFormModal";
 import AdminPaginationControls from "../AdminPaginationControls";
@@ -678,6 +678,8 @@ export default function SkeapApplicationsClient({
   const isWithdrawn = selectedStatus === "Withdrawn";
   const isWaitlisted = selectedStatus === "Waitlisted";
   const isPreQualified = selectedStatus === "Pre-qualified";
+  const isPhysicalVerificationChecked =
+    physicalVerificationApplicationId === selectedApplication?.id;
   const canPrequalify = selectedStatus === "Pending Review" || selectedStatus === "Resubmitted";
   const applicantStatusBadgeClass = isPreQualified
     ? "inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20"
@@ -2239,35 +2241,77 @@ export default function SkeapApplicationsClient({
                     ) : null}
 
                     {isPreQualified ? (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 shrink-0">
-                            <Clock className="h-5 w-5 text-amber-700" />
+                      <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_2px_12px_-4px_rgba(15,23,42,0.04)]">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-colors ${
+                                isPhysicalVerificationChecked
+                                  ? "border-teal-200 bg-teal-50 text-[#0d5c75]"
+                                  : "border-amber-200/70 bg-amber-50/80 text-amber-600"
+                              }`}
+                            >
+                              <FileCheck2 className="h-5 w-5" aria-hidden="true" />
+                            </span>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                IN-PERSON VERIFICATION · ORDINANCE SEC. 5
+                              </p>
+                              <h4 className="text-sm font-semibold text-slate-900">
+                                Physical CTC Verification
+                              </h4>
+                            </div>
                           </div>
-                          <div className="flex flex-col gap-1.5">
-                            <h4 className="text-sm font-bold text-slate-900">Physical CTC Verification</h4>
-                            <p className="text-sm leading-relaxed text-slate-600">
-                              Final approval requires the applicant to present the original or Certified True Copies of all uploaded documents at Barangay Pico Hall.
-                            </p>
-                            <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-lg border border-amber-200 bg-white p-3 text-sm leading-6 text-slate-700">
-                              <input
-                                type="checkbox"
-                                checked={physicalVerificationApplicationId === selectedApplication.id}
-                                onChange={(event) =>
-                                  setPhysicalVerificationApplicationId(
-                                    event.currentTarget.checked ? selectedApplication.id : null
-                                  )
-                                }
-                                disabled={isApproving}
-                                className="mt-1 h-4 w-4 shrink-0 accent-amber-700"
-                              />
-                              <span>
-                                I confirm I have inspected and verified the applicant&apos;s physical Certified True Copies (CTCs) at the Barangay Hall.
-                              </span>
-                            </label>
-                          </div>
+                          <span
+                            role="status"
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${
+                              isPhysicalVerificationChecked
+                                ? "border-teal-200 bg-teal-50 font-semibold text-[#0d5c75]"
+                                : "border-amber-200/80 bg-amber-50/80 font-medium text-amber-700"
+                            }`}
+                          >
+                            {isPhysicalVerificationChecked ? (
+                              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                            ) : (
+                              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                            {isPhysicalVerificationChecked
+                              ? "Verified at Hall"
+                              : "Awaiting Inspection"}
+                          </span>
                         </div>
-                      </div>
+                        <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                          Final approval requires the applicant to present original or Certified True Copies (CTCs) of all uploaded requirements at Barangay Pico Hall.
+                        </p>
+                        <label
+                          className={`mt-4 flex cursor-pointer select-none items-start gap-3.5 rounded-xl border p-3.5 transition-all ${
+                            isPhysicalVerificationChecked
+                              ? "border-[#0d5c75]/35 bg-teal-50/45"
+                              : "border-slate-200/90 bg-slate-50/70 hover:border-[#0d5c75]/40 hover:bg-teal-50/20"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isPhysicalVerificationChecked}
+                            onChange={(event) =>
+                              setPhysicalVerificationApplicationId(
+                                event.currentTarget.checked ? selectedApplication.id : null
+                              )
+                            }
+                            disabled={isApproving}
+                            className="peer sr-only"
+                          />
+                          <span
+                            aria-hidden="true"
+                            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-transparent transition-all peer-checked:border-[#0d5c75] peer-checked:bg-[#0d5c75] peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-[#0d5c75] peer-focus-visible:ring-offset-2"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </span>
+                          <span className="text-xs leading-snug text-slate-700 peer-checked:font-medium peer-checked:text-slate-900 sm:text-sm">
+                            I confirm I have inspected and verified the applicant&apos;s physical Certified True Copies (CTCs) at Barangay Pico Hall.
+                          </span>
+                        </label>
+                      </section>
                     ) : isApproved ? (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
                         <div className="flex items-start gap-3">

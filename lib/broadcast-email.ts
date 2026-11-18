@@ -37,6 +37,23 @@ export function createGmailTransporter() {
   });
 }
 
+export function getSkeapDashboardUrl() {
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  const configuredUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    (vercelUrl ? `https://${vercelUrl}` : null);
+  if (!configuredUrl) {
+    throw new Error("Set NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_SITE_URL to create the grantee dashboard link.");
+  }
+
+  const baseUrl = new URL(configuredUrl);
+  if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
+    throw new Error("The grantee dashboard URL must use HTTP or HTTPS.");
+  }
+  return new URL("/", baseUrl).toString();
+}
+
 export function buildBroadcastHtml(subject: string, body: string) {
   const safeSubject = escapeHtml(subject);
   const safeBody = escapeHtml(body)
@@ -178,6 +195,97 @@ export function buildSubmissionReviewEmail({
   return { subject: title, text, html };
 }
 
+export interface GranteeApprovalEmailInput {
+  to: string;
+  applicantName: string;
+  academicYear: string;
+  semester: string;
+  dashboardUrl: string;
+}
+
+export function buildGranteeApprovalEmail({
+  applicantName,
+  academicYear,
+  semester,
+  dashboardUrl,
+}: GranteeApprovalEmailInput) {
+  const dashboardLink = new URL(dashboardUrl);
+  if (dashboardLink.protocol !== "https:" && dashboardLink.protocol !== "http:") {
+    throw new Error("The grantee dashboard URL must use HTTP or HTTPS.");
+  }
+
+  const safeName = escapeHtml(applicantName.trim() || "Scholar");
+  const safeAcademicYear = escapeHtml(academicYear);
+  const safeSemester = escapeHtml(semester);
+  const safeDashboardUrl = escapeHtml(dashboardLink.toString());
+  const subject = `Congratulations! SKEAP Scholarship Approved (${academicYear} ${semester}) - SKonnect`;
+  const text = [
+    `Hello ${applicantName.trim() || "Scholar"},`,
+    "",
+    "Congratulations! You have been officially approved as a SKEAP Scholar.",
+    "",
+    `Academic Year: ${academicYear}`,
+    `Semester: ${semester}`,
+    "Status: Active Grantee",
+    "",
+    "Key Scholar Responsibilities:",
+    "- Semestral Submissions: Upload your updated Certificate of Enrollment (COE) and Official Grades each semester.",
+    "- Grade Retention Policy: Maintain 80% or above (or passing mark) across all subjects with no failing grade in any single subject.",
+    "- Mandatory KK Assemblies & Payouts: Attend official Katipunan ng Kabataan (KK) assemblies, where stipend payouts are distributed.",
+    "",
+    `Open Grantee Workspace: ${dashboardLink.toString()}`,
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(subject)}</title>
+  </head>
+  <body style="margin:0;background:#f1f5f9;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;border:1px solid #dbe4ea;border-radius:16px;background:#ffffff;overflow:hidden;">
+            <tr>
+              <td style="padding:30px 32px;background:#082438;color:#ffffff;">
+                <p style="margin:0;color:#a8d7dc;font-size:11px;font-weight:700;letter-spacing:1.6px;">SANGGUNIANG KABATAAN · BARANGAY PICO</p>
+                <h1 style="margin:12px 0 0;color:#ffffff;font-size:25px;line-height:1.25;">Official SKEAP Grantee Approval</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px 32px;">
+                <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hello ${safeName},</p>
+                <p style="margin:0;color:#475569;font-size:14px;line-height:1.7;">Congratulations! You have been officially approved as a SKEAP Scholar.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:22px;border:1px solid #dce8ec;border-radius:12px;background:#f8fbfc;">
+                  <tr><td style="padding:16px 18px 8px;color:#64748b;font-size:12px;">Academic Year</td><td align="right" style="padding:16px 18px 8px;color:#0f172a;font-size:13px;font-weight:700;">${safeAcademicYear}</td></tr>
+                  <tr><td style="padding:8px 18px;color:#64748b;font-size:12px;">Semester</td><td align="right" style="padding:8px 18px;color:#0f172a;font-size:13px;font-weight:700;">${safeSemester}</td></tr>
+                  <tr><td style="padding:8px 18px 16px;color:#64748b;font-size:12px;">Status</td><td align="right" style="padding:8px 18px 16px;color:#0d5c75;font-size:13px;font-weight:700;">Active Grantee</td></tr>
+                </table>
+                <h2 style="margin:24px 0 10px;color:#0f172a;font-size:15px;">Key Scholar Responsibilities</h2>
+                <ul style="margin:0;padding-left:20px;color:#475569;font-size:13px;line-height:1.7;">
+                  <li style="margin-bottom:8px;"><strong style="color:#0f172a;">Semestral Submissions:</strong> Upload your updated Certificate of Enrollment (COE) and Official Grades each semester.</li>
+                  <li style="margin-bottom:8px;"><strong style="color:#0f172a;">Grade Retention Policy:</strong> Maintain <strong style="color:#0f172a;">80% or above (or passing mark) across all subjects</strong> with <strong style="color:#0f172a;">no failing grade in any single subject</strong>.</li>
+                  <li><strong style="color:#0f172a;">Mandatory KK Assemblies &amp; Payouts:</strong> Attend official Katipunan ng Kabataan (KK) assemblies, where stipend payouts are distributed.</li>
+                </ul>
+                <p style="margin:26px 0 0;">
+                  <a href="${safeDashboardUrl}" style="display:block;border-radius:9px;background:#0d5c75;padding:14px 20px;color:#ffffff;text-align:center;text-decoration:none;font-size:14px;font-weight:700;">Open Grantee Workspace →</a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="border-top:1px solid #e2e8f0;padding:16px 32px;color:#64748b;font-size:12px;line-height:1.5;">Sangguniang Kabataan of Barangay Pico · La Trinidad, Benguet</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  return { subject, text, html };
+}
+
 export async function sendBroadcastEmail(
   transporter: nodemailer.Transporter,
   userId: string,
@@ -231,6 +339,19 @@ export async function sendTransactionalEmail(
       "X-Auto-Response-Suppress": "All",
     },
   });
+}
+
+export async function sendGranteeApprovalEmail(input: GranteeApprovalEmailInput) {
+  const email = buildGranteeApprovalEmail(input);
+  const referenceId = `skeap-grantee-approval-${Date.now()}`;
+  return sendTransactionalEmail(
+    createGmailTransporter(),
+    input.to,
+    email.subject,
+    email.text,
+    referenceId,
+    email.html,
+  );
 }
 
 export type PayoutDisbursementEmail = {

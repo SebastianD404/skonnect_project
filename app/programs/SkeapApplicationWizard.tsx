@@ -2042,7 +2042,7 @@ export default function SkeapApplicationWizard({
             <div className="mt-2 md:col-span-2">
               <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
                 <p className="text-sm font-semibold text-slate-900">2x2 ID Picture</p>
-                <p className="mt-1 text-xs text-emerald-800">Attached securely from your approved KK Profile.</p>
+                <p className="mt-1 text-xs text-emerald-800">Attached securely from your verified records.</p>
                 {identityDocuments?.photo ? (
                   <a
                     href={identityDocuments.photo}
@@ -2720,7 +2720,7 @@ export default function SkeapApplicationWizard({
               ))}
             </ul>
             {loadingIdentityDocuments ? (
-              <p role="status" className="mt-4 text-sm text-slate-600">Loading your approved KK Profile documents…</p>
+              <p role="status" className="mt-4 text-sm text-slate-600">Loading your verified identity documents…</p>
             ) : identityDocumentsError ? (
               <p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                 {identityDocumentsError}

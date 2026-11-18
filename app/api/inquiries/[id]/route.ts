@@ -11,9 +11,19 @@ import { getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacit
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-refresh";
-import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
+import {
+  createSkeapGranteeApprovalNotification,
+  notifyGranteesToUploadRequirements,
+} from "@/lib/grantee-notifications";
 import { resolveGranteeEntryTerm } from "@/lib/grantee-semester";
 import { getSkeapGrantAmount } from "@/lib/skeap-payout";
+import {
+  createGmailTransporter,
+  getSkeapDashboardUrl,
+  sendGranteeApprovalEmail,
+  sendTransactionalEmail,
+} from "@/lib/broadcast-email";
+import { getCurrentAcademicSemester } from "@/lib/semester-progress";
 
 interface AttachedFileNote {
   fileId: string;
@@ -32,6 +42,38 @@ interface ReviewMessage {
   action?: "return";
   eventType?: "RESUBMISSION";
   attachments?: AttachedFileNote[];
+}
+
+const PHYSICAL_CTC_NOTIFICATION_TITLE =
+  "Action Required: Present Physical CTCs at Barangay Pico Hall";
+const PHYSICAL_CTC_NOTIFICATION_MESSAGE =
+  "Your SKEAP online documents have been digitally screened. Please present the originals or Certified True Copies (CTCs) of all uploaded documents at Barangay Pico Hall for physical verification.";
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function getApplicationPageUrl(applicationId: string) {
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  const configuredUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    (vercelUrl ? `https://${vercelUrl}` : null);
+  if (!configuredUrl) {
+    throw new Error("Set NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_SITE_URL to create application email links.");
+  }
+
+  const baseUrl = new URL(configuredUrl);
+  if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
+    throw new Error("The application email URL must use HTTP or HTTPS.");
+  }
+
+  return new URL(`/applications/${encodeURIComponent(applicationId)}`, baseUrl).toString();
 }
 
 async function authorizeReviewUser() {
@@ -129,7 +171,17 @@ export async function PATCH(
         message: true,
         createdAt: true,
         userId: true,
-        application: { select: { school: true, yearLevel: true, applicantName: true } },
+        user: { select: { email: true } },
+        application: {
+          select: {
+            id: true,
+            school: true,
+            yearLevel: true,
+            applicantName: true,
+            emailAddress: true,
+            submittedAt: true,
+          },
+        },
       },
     });
 
@@ -206,8 +258,9 @@ export async function PATCH(
       updateData.lastUpdatedBy = "admin";
     }
 
-    const updatedInquiry = await prisma.$transaction(async (tx) => {
+    const { updatedInquiry, approvalTerm } = await prisma.$transaction(async (tx) => {
       let capacitySnapshot: Awaited<ReturnType<typeof getSkeapCapacitySnapshot>> | null = null;
+      let approvalTerm: { academicYear: string; semester: string } | null = null;
       if (action === "approve") {
         await lockSkeapCapacity(tx);
         capacitySnapshot = await getSkeapCapacitySnapshot(tx);
@@ -361,6 +414,15 @@ export async function PATCH(
             physicalDocumentsConfirmed: false,
           },
         });
+        if (currentInquiry.userId) {
+          await tx.notification.create({
+            data: {
+              userId: currentInquiry.userId,
+              sourceKey: `skeap-physical-ctc:${message.id}`,
+              message: `${PHYSICAL_CTC_NOTIFICATION_TITLE}\n\n${PHYSICAL_CTC_NOTIFICATION_MESSAGE}`,
+            },
+          });
+        }
       }
 
       if (action === "return" && currentInquiry?.application?.id) {
@@ -468,7 +530,13 @@ export async function PATCH(
             },
             select: { id: true, entryAcademicYear: true, entrySemester: true },
           });
-          const persistedEntryTerm = `${grantee.entryAcademicYear ?? entryTerm.schoolYear} ${grantee.entrySemester ?? entryTerm.semester}`;
+          const persistedAcademicYear = grantee.entryAcademicYear ?? entryTerm.schoolYear;
+          const persistedSemester = grantee.entrySemester ?? entryTerm.semester;
+          approvalTerm = {
+            academicYear: persistedAcademicYear,
+            semester: persistedSemester,
+          };
+          const persistedEntryTerm = `${persistedAcademicYear} ${persistedSemester}`;
           const existingPayout = await tx.accountingPayout.findUnique({
             where: { granteeId: grantee.id },
             select: { status: true, disbursedAt: true },
@@ -497,18 +565,89 @@ export async function PATCH(
         }
       }
 
-      return updated;
+      return { updatedInquiry: updated, approvalTerm };
     }, {
       isolationLevel: action === "approve"
         ? Prisma.TransactionIsolationLevel.ReadCommitted
         : Prisma.TransactionIsolationLevel.Serializable,
+      timeout: action === "approve" ? 30_000 : 5_000,
     });
+
+    if (action === "prequalify" && inquiry.userId) {
+      try {
+        const applicantEmail =
+          inquiry.application?.emailAddress?.trim() || inquiry.user.email?.trim();
+        if (!applicantEmail) {
+          throw new Error("The SKEAP applicant does not have an email address.");
+        }
+
+        const applicationTerm = getCurrentAcademicSemester(
+          inquiry.application?.submittedAt ?? inquiry.createdAt,
+        );
+        const applicationUrl = getApplicationPageUrl(id);
+        const emailBody =
+          `${PHYSICAL_CTC_NOTIFICATION_MESSAGE}\n\nApplication term: ${applicationTerm}`;
+        const htmlBody = `
+          <p>${escapeHtml(PHYSICAL_CTC_NOTIFICATION_MESSAGE)}</p>
+          <p><strong>Application term:</strong> ${escapeHtml(applicationTerm)}</p>
+          <p style="margin-top:24px;">
+            <a href="${escapeHtml(applicationUrl)}" style="display:inline-block;padding:12px 20px;border-radius:8px;background:#0d5c75;color:#ffffff;text-decoration:none;font-weight:bold;">
+              View your SKonnect application
+            </a>
+          </p>`;
+
+        const transporter = createGmailTransporter();
+        await sendTransactionalEmail(
+          transporter,
+          applicantEmail,
+          PHYSICAL_CTC_NOTIFICATION_TITLE,
+          emailBody,
+          `skeap-physical-ctc-${id}-${message.id}`,
+          htmlBody,
+        );
+      } catch (error) {
+        console.error(
+          "SKEAP application moved to FOR_PHYSICAL_CTC, but the applicant email could not be sent:",
+          error,
+        );
+      }
+    }
 
     if (
       action === "approve" &&
       updatedInquiry.reviewStatus === "Approved" &&
-      inquiry.userId
+      inquiry.userId &&
+      inquiry.application?.id &&
+      approvalTerm
     ) {
+      try {
+        await createSkeapGranteeApprovalNotification({
+          applicationId: inquiry.application.id,
+          userId: inquiry.userId,
+          academicYear: approvalTerm.academicYear,
+          semester: approvalTerm.semester,
+        });
+      } catch (error) {
+        console.error("SKEAP approval completed, but the approval notification could not be created:", error);
+      }
+
+      try {
+        const applicantEmail =
+          inquiry.application.emailAddress?.trim() || inquiry.user.email?.trim();
+        if (!applicantEmail) {
+          throw new Error("The SKEAP applicant does not have an email address.");
+        }
+        await sendGranteeApprovalEmail({
+          to: applicantEmail,
+          applicantName: inquiry.application.applicantName?.trim() || "Scholar",
+          academicYear: approvalTerm.academicYear,
+          semester: approvalTerm.semester,
+          dashboardUrl: getSkeapDashboardUrl(),
+        });
+      } catch (error) {
+        console.error("SKEAP approval completed, but the approval email could not be sent:", error);
+      }
+
       try {
         const notificationResult = await notifyGranteesToUploadRequirements({
           targetUserIds: [inquiry.userId],

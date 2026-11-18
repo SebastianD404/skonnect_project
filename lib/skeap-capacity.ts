@@ -57,10 +57,18 @@ export async function getSkeapCapacitySnapshot(
   client: typeof prisma | Prisma.TransactionClient = prisma,
   excludeUserId?: string,
 ) {
-  const [activeCount, maxSlots] = await Promise.all([
-    getSkeapCapacityCount(client, excludeUserId),
-    getSkeapMaxSlots(client),
-  ]);
+  let activeCount: number;
+  let maxSlots: number;
+  if (client === prisma) {
+    [activeCount, maxSlots] = await Promise.all([
+      getSkeapCapacityCount(client, excludeUserId),
+      getSkeapMaxSlots(client),
+    ]);
+  } else {
+    activeCount = await getSkeapCapacityCount(client, excludeUserId);
+    maxSlots = await getSkeapMaxSlots(client);
+  }
+
   const availableSlots = Math.max(0, maxSlots - activeCount);
   return {
     activeCount,

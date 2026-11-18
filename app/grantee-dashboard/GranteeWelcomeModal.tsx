@@ -66,11 +66,15 @@ export default function GranteeWelcomeModal({ isOpen, isSaving, onAcknowledge }:
                     <div className="min-w-0 flex-col space-y-1">
                       <h3 className="text-sm font-semibold tracking-tight text-slate-950">Grade Retention Policy</h3>
                       <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                        Maintain a General Weighted Average (GWA) of{" "}
-                        <span className="mx-0.5 inline-flex items-center font-mono text-[11px] font-bold text-amber-700">
-                          80% or above
+                        Maintain a grade of{" "}
+                        <span className="font-semibold text-amber-600">
+                          80% or above across all subjects
                         </span>
-                        . Falling below this semestral baseline results in immediate removal from the grant roster.
+                        {" "}with{" "}
+                        <span className="font-semibold text-slate-900">
+                          no failing grade in any single subject
+                        </span>
+                        . Failing even one subject or dropping below this semestral baseline results in disqualification from the grant roster.
                       </p>
                     </div>
                   </article>

@@ -29,6 +29,30 @@ export type GranteeUploadNotificationResult = {
   errors: string[];
 };
 
+export async function createSkeapGranteeApprovalNotification({
+  applicationId,
+  userId,
+  academicYear,
+  semester,
+}: {
+  applicationId: string;
+  userId: string;
+  academicYear: string;
+  semester: string;
+}) {
+  const title = "Congratulations! Your SKEAP Application is Approved";
+  const message = `You are now an official Barangay Pico SKEAP Grantee for ${academicYear} (${semester}). Open your Grantee Workspace to view your schedule and responsibilities.`;
+
+  return prisma.notification.createMany({
+    data: [{
+      userId,
+      sourceKey: `skeap-grantee-approval:${applicationId}`,
+      message: `${title}\n\n${message}`,
+    }],
+    skipDuplicates: true,
+  });
+}
+
 function formatDeadline(value: Date | string) {
   return new Intl.DateTimeFormat("en-PH", {
     dateStyle: "long",

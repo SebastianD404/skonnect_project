@@ -207,10 +207,21 @@ export default function AcademicJourneyMap({
   const dragStart = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null);
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const terms = useMemo(
-    () => journeyStart && journeyEnd
-      ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd)
-      : getAcademicJourneyTerms(years),
-    [journeyEnd, journeyStart, years],
+    () => journeyNodes?.length
+      ? journeyNodes.map((node, index) => {
+          const yearNumber = node.yearNumber ?? Math.floor(index / 2) + 1;
+          const semesterNumber = node.semesterNumber ?? ((index % 2) + 1);
+          return {
+            label: `Y${yearNumber} S${semesterNumber}`,
+            year: `${yearNumber}${yearNumber === 1 ? "st" : yearNumber === 2 ? "nd" : yearNumber === 3 ? "rd" : "th"} Year`,
+            semester: `${semesterNumber}${semesterNumber === 1 ? "st" : "nd"} Sem`,
+            academicTermCaption: node.academicTermCaption ?? null,
+          };
+        })
+      : journeyStart && journeyEnd
+        ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd)
+        : getAcademicJourneyTerms(years),
+    [journeyEnd, journeyStart, journeyNodes, years],
   );
   const journeyYears = terms.length / 2;
   const termCount = terms.length;
@@ -705,6 +716,18 @@ export default function AcademicJourneyMap({
                     : Flag
                 : null;
               const MilestoneIcon = milestoneIcon;
+              const journeyNodeScheduleLabel =
+                journeyNode.scheduleStatus === "future" && journeyNode.scheduleOpensAt
+                  ? `OPENS ${new Intl.DateTimeFormat("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      timeZone: "Asia/Manila",
+                    }).format(new Date(journeyNode.scheduleOpensAt)).toUpperCase()}`
+                  : journeyNode.scheduleStatus === "open"
+                    ? "OPEN NOW"
+                    : journeyNode.scheduleStatus === "none"
+                      ? "UPCOMING TERM"
+                      : null;
 
               return (
                 <div
@@ -862,6 +885,11 @@ export default function AcademicJourneyMap({
                   }`}>
                     {term.label}
                   </span>
+                  {!compact && journeyNode.academicTermCaption ? (
+                    <span className="mt-0.5 whitespace-nowrap text-[10px] text-slate-400">
+                      {journeyNode.academicTermCaption.replace(/^(\d{4})-(\d{4})/, "$1–$2")}
+                    </span>
+                  ) : null}
 
                   {!compact && isCompleted ? (
                     <span className="mt-1 whitespace-nowrap rounded-full border border-emerald-200/60 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
@@ -872,7 +900,7 @@ export default function AcademicJourneyMap({
                     return (
                       <span className={`mt-1 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${badgeClassName}`}>
                         <Icon className={`h-3 w-3 ${badgeIconClassName}`} aria-hidden="true" />
-                        {stepStatusLabel}
+                        {journeyNodeScheduleLabel ?? stepStatusLabel}
                       </span>
                     );
                   })() : !compact && journeyNode.status === "PENDING" ? (
@@ -890,6 +918,10 @@ export default function AcademicJourneyMap({
                   ) : !compact && isPriorTerm ? (
                     <span className="mt-1 whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500">
                       Prior Term
+                    </span>
+                  ) : !compact && index === termCount - 1 ? (
+                    <span className="mt-1 whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500">
+                      Final semester
                     </span>
                   ) : null}
 

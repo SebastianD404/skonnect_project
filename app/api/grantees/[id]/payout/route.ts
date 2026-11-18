@@ -3,7 +3,8 @@ import { Role } from "@prisma/client";
 import { ensureProfile } from "@/lib/auth";
 import { dispatchPayout } from "@/lib/payout-disbursement";
 import { createClient } from "@/lib/supabase/server";
-import { getRecentSemesters } from "@/lib/semester";
+import { getAccountingTermOptions } from "@/lib/accounting-term";
+import { prisma } from "@/lib/prisma";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -36,9 +37,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return NextResponse.json({ ok: false, error: "Semester name is too long." }, { status: 400 });
     }
 
+    const defaultTerms = requestedSemester
+      ? []
+      : getAccountingTermOptions(await prisma.academicTermSchedule.findMany({
+          select: { semester: true, opensAt: true, closesAt: true },
+        }));
+    const defaultSemester = defaultTerms.find((term) => term.isCurrent)?.name ?? defaultTerms[0]?.name ?? "";
+    const semester = requestedSemester || defaultSemester;
+    if (!semester) {
+      return NextResponse.json({ ok: false, error: "No accounting term schedule is configured." }, { status: 400 });
+    }
     const result = await dispatchPayout({
       granteeId: id,
-      semester: requestedSemester || getRecentSemesters()[0].name,
+      semester,
       actorId: actor.id,
     });
 

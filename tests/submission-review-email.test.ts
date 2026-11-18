@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSubmissionReviewEmail } from "@/lib/broadcast-email";
+import {
+  buildGranteeApprovalEmail,
+  buildSubmissionReviewEmail,
+} from "@/lib/broadcast-email";
 import { writeGranteeSubmissionNotification } from "@/lib/grantee-submission-notifications";
 
 const commonInput = {
@@ -9,6 +12,30 @@ const commonInput = {
 };
 
 describe("submission review emails", () => {
+  it("builds the official branded SKEAP grantee approval email", () => {
+    const email = buildGranteeApprovalEmail({
+      to: "scholar@example.com",
+      applicantName: "Kai Santos",
+      academicYear: "2026-2027",
+      semester: "Second Semester",
+      dashboardUrl: "https://skonnect.example/",
+    });
+
+    expect(email.subject).toBe(
+      "Congratulations! SKEAP Scholarship Approved (2026-2027 Second Semester) - SKonnect",
+    );
+    expect(email.html).toContain("SANGGUNIANG KABATAAN · BARANGAY PICO");
+    expect(email.html).toContain("Official SKEAP Grantee Approval");
+    expect(email.html).toContain("Hello Kai Santos,");
+    expect(email.html).toContain("Academic Year");
+    expect(email.html).toContain("Status");
+    expect(email.html).toContain("Active Grantee");
+    expect(email.html).toContain("80% or above (or passing mark) across all subjects");
+    expect(email.html).toContain("no failing grade in any single subject");
+    expect(email.html).toContain('href="https://skonnect.example/"');
+    expect(email.html).toContain("Open Grantee Workspace →");
+  });
+
   it("renders the physical CTC instructions and a clean submission link", () => {
     const email = buildSubmissionReviewEmail({
       ...commonInput,

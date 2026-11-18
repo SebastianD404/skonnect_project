@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   capacitySnapshot: vi.fn(),
   reindexWaitlist: vi.fn(),
   getWaitlistSnapshot: vi.fn(),
-  sendEmail: vi.fn(),
+  sendApprovalEmail: vi.fn(),
+  createApprovalNotification: vi.fn(),
   notifyRequirements: vi.fn(),
   logAuditEvent: vi.fn(),
   revalidatePath: vi.fn(),
@@ -52,11 +53,12 @@ vi.mock("@/lib/audit/logger", () => ({
 }));
 
 vi.mock("@/lib/broadcast-email", () => ({
-  createGmailTransporter: vi.fn(() => ({})),
-  sendBroadcastEmail: mocks.sendEmail,
+  getSkeapDashboardUrl: vi.fn(() => "https://skonnect.example/"),
+  sendGranteeApprovalEmail: mocks.sendApprovalEmail,
 }));
 
 vi.mock("@/lib/grantee-notifications", () => ({
+  createSkeapGranteeApprovalNotification: mocks.createApprovalNotification,
   notifyGranteesToUploadRequirements: mocks.notifyRequirements,
 }));
 
@@ -204,7 +206,8 @@ describe("SKEAP waitlist promotion", () => {
       offeredCount: 1,
       openSlotCount: 0,
     });
-    mocks.sendEmail.mockResolvedValue(true);
+    mocks.sendApprovalEmail.mockResolvedValue(true);
+    mocks.createApprovalNotification.mockResolvedValue({ count: 1 });
     mocks.notifyRequirements.mockResolvedValue({ notified: 1, emailSent: 1, skipped: 0, errors: [] });
     mocks.findPriorAgeOut.mockResolvedValue(null);
     mocks.findOtherOffers.mockResolvedValue([]);
@@ -303,13 +306,19 @@ describe("SKEAP waitlist promotion", () => {
       },
       update: {},
     });
-    expect(mocks.sendEmail).toHaveBeenCalledWith(
-      expect.anything(),
-      "user-1",
-      "applicant@example.com",
-      "Your SKEAP scholarship application was approved",
-      expect.stringContaining("2026-2027 Second Semester"),
-    );
+    expect(mocks.createApprovalNotification).toHaveBeenCalledWith({
+      applicationId: "application-1",
+      userId: "user-1",
+      academicYear: "2026-2027",
+      semester: "Second Semester",
+    });
+    expect(mocks.sendApprovalEmail).toHaveBeenCalledWith({
+      to: "applicant@example.com",
+      applicantName: "Sample Applicant",
+      academicYear: "2026-2027",
+      semester: "Second Semester",
+      dashboardUrl: "https://skonnect.example/",
+    });
     expect(mocks.notifyRequirements).toHaveBeenCalledWith({
       targetUserIds: ["user-1"],
       schoolYear: "2026-2027",

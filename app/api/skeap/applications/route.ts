@@ -19,9 +19,15 @@ import {
   getSkeapReapplicationEligibility,
   getSkeapSubmissionGuardError,
   isSkeapApplicationBlockingReapplication,
+  SKEAP_APPLICATION_REAPPLICATION_BLOCKING_SUBMISSION_STATUSES,
 } from "@/lib/skeap-application-guard";
 import { getPermanentlyDisqualifiedSkeapRecords } from "@/lib/skeap-permanent-disqualification-records";
+import {
+  getApprovedKkProfileIdentity,
+  hasCompleteKkIdentityDocuments,
+} from "@/lib/kk-identity-documents";
 import { getAcademicYearDateRange, getCurrentAcademicYear } from "@/lib/semester";
+import { getExactAge } from "@/lib/skeap-age";
 import {
   getSkeapWaitlistCycleState,
 } from "@/lib/skeap-waitlist-cycle";
@@ -111,7 +117,14 @@ export async function GET() {
     const currentCycle = getAcademicYearDateRange(getCurrentAcademicYear());
     if (!currentCycle) throw new Error("Unable to determine the active SKEAP cycle.");
 
-    const [applicationInquiry, identityCandidate, permanentRecords, currentCycleApplications, priorRevocation] = await Promise.all([
+    const [
+      applicationInquiry,
+      identityCandidate,
+      permanentRecords,
+      currentCycleApplications,
+      currentBlockingApplication,
+      grantee,
+    ] = await Promise.all([
       prisma.inquiry.findFirst({
         where: {
           userId: appUser.id,
@@ -136,16 +149,46 @@ export async function GET() {
         ORDER BY application."submittedAt" DESC, application."id" DESC
         LIMIT 1
       `),
-      prisma.grantee.findFirst({
-        where: { userId: appUser.id, status: GranteeStatus.REVOKED },
-        select: { id: true },
+      prisma.skeapApplication.findFirst({
+        where: {
+          userId: appUser.id,
+          submittedAt: { gte: currentCycle.start, lt: currentCycle.end },
+          status: { in: [...SKEAP_APPLICATION_REAPPLICATION_BLOCKING_SUBMISSION_STATUSES] },
+        },
+        orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+        select: { status: true },
+      }),
+      prisma.grantee.findUnique({
+        where: { userId: appUser.id },
+        select: { status: true },
       }),
     ]);
-    const eligibility = getSkeapReapplicationEligibility(permanentRecords, identityCandidate);
-    const currentCycleApplication = currentCycleApplications[0];
-    const hasCurrentApplication = isSkeapApplicationBlockingReapplication(
-      currentCycleApplication?.status,
+    const permanentEligibility = getSkeapReapplicationEligibility(
+      permanentRecords,
+      identityCandidate,
     );
+    const age = getExactAge(identityCandidate.dateOfBirth);
+    const granteeEligibilityError =
+      grantee?.status === GranteeStatus.ACTIVE ||
+      grantee?.status === GranteeStatus.PROBATIONARY
+        ? "Active SKEAP grantees cannot reapply."
+        : grantee?.status === GranteeStatus.GRADUATED
+          ? "Graduated SKEAP grantees are not eligible to reapply."
+          : age !== null && (age < 15 || age > 30)
+            ? "Applicants must be between 15 and 30 years old."
+            : null;
+    const eligibility =
+      permanentEligibility.eligible && granteeEligibilityError
+        ? {
+            eligible: false as const,
+            reason: "INELIGIBLE_GRANTEE_STATUS" as const,
+            message: granteeEligibilityError,
+          }
+        : permanentEligibility;
+    const currentCycleApplication = currentCycleApplications[0];
+    const hasCurrentApplication =
+      currentBlockingApplication !== null ||
+      isSkeapApplicationBlockingReapplication(currentCycleApplication?.status);
     const initialUploadedFiles = eligibility.eligible
       ? getSkeapApplicationResumeFiles(currentCycleApplication?.status, currentCycleApplication?.uploadedFiles)
       : {};
@@ -157,8 +200,8 @@ export async function GET() {
         reviewStatus: applicationInquiry?.reviewStatus ?? null,
         applicationStatus: applicationInquiry?.application?.status ?? null,
         eligibility,
-        isPermanentlyBarred: !eligibility.eligible,
-        hasPriorRevocation: Boolean(priorRevocation),
+        isPermanentlyBarred: !permanentEligibility.eligible,
+        hasPriorRevocation: grantee?.status === GranteeStatus.REVOKED,
         initialUploadedFiles,
       },
       { headers: { "Cache-Control": "no-store, max-age=0" } }
@@ -249,7 +292,6 @@ function buildSkeapInquiryMessage(data: {
   uploadedFiles?: Array<{ url?: string; name?: string }> | Record<string, { url?: string; name?: string }>;
 }) {
   const lines = [
-    "Applicant submitted a SKEAP application.",
     `Applicant Name: ${data.applicantName || "Unknown"}`,
     `School / Institution: ${data.schoolName || "Unknown"}`,
     ...(data.educationLevel ? [`Education Level: ${data.educationLevel}`] : []),
@@ -276,10 +318,7 @@ function buildSkeapInquiryMessage(data: {
     Object.values(data.uploadedFiles).forEach((file) => addUploadedUrl((file as { url?: string })?.url));
   }
 
-  if (uploadedUrls.size) {
-    lines.push("", "Uploaded files:");
-    uploadedUrls.forEach((url) => lines.push(url));
-  }
+  lines.push("", `Supporting documents: ${uploadedUrls.size} files attached.`);
 
   return lines.join("\n");
 }
@@ -487,49 +526,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Applicants must be between 15 and 30 years old." }, { status: 400 });
     }
 
-    const [latestKkRegistration, kkProfile] = await Promise.all([
-      prisma.profilingRegistration.findFirst({
-        where: { userId: appUser.id },
-        orderBy: { submittedAt: "desc" },
-        select: {
-          reviewStatus: true,
-          birthDate: true,
-          photoFileUrl: true,
-          birthCertificateFileUrl: true,
-          idFrontFileUrl: true,
-          idBackFileUrl: true,
-          idSingleFileUrl: true,
-        },
-      }),
+    const [approvedKkIdentity, kkProfile] = await Promise.all([
+      getApprovedKkProfileIdentity(appUser.id),
       prisma.user.findUnique({
         where: { id: appUser.id },
         select: { kkProfile: { select: { isVerified: true } } },
       }),
     ]);
+    const approvedKkRegistration = approvedKkIdentity.registration;
     const hasVerifiedKkProfile =
-      latestKkRegistration?.reviewStatus?.trim().toLowerCase() === "approved" &&
+      approvedKkRegistration?.reviewStatus.trim().toLowerCase() === "approved" &&
       kkProfile?.kkProfile?.isVerified === true;
-    if (!hasVerifiedKkProfile) {
+    if (!approvedKkRegistration || !hasVerifiedKkProfile) {
       return NextResponse.json(
         { error: "Your KK Profiling must be approved before you can apply for SKEAP." },
         { status: 403 },
       );
     }
 
-    const approvedKkRegistration = latestKkRegistration;
-    if (
-      !approvedKkRegistration?.photoFileUrl ||
-      !approvedKkRegistration.birthCertificateFileUrl ||
-      !approvedKkRegistration.idFrontFileUrl ||
-      !approvedKkRegistration.idBackFileUrl ||
-      !approvedKkRegistration.idSingleFileUrl
-    ) {
+    const identityDocuments = approvedKkIdentity.documents;
+    if (!hasCompleteKkIdentityDocuments(identityDocuments)) {
       return NextResponse.json(
         { error: "Your approved KK Profile is missing identity documents. Contact SK support before applying." },
         { status: 409 },
       );
     }
-    const photoFileUrl = approvedKkRegistration.photoFileUrl;
+    const photoFileUrl = identityDocuments.photo;
     const verifiedAge = getAgeFromBirthDate(approvedKkRegistration.birthDate);
     if (verifiedAge < 15 || verifiedAge > 30) {
       return NextResponse.json({ error: "Applicants must be between 15 and 30 years old." }, { status: 400 });
@@ -556,16 +578,16 @@ export async function POST(request: NextRequest) {
       url: photoFileUrl,
     };
     uploadedFiles[SKEAP_UPLOAD_KEY.BIRTH_CERTIFICATE] = {
-      url: approvedKkRegistration.birthCertificateFileUrl,
+      url: identityDocuments.birthCertificate,
     };
     uploadedFiles[SKEAP_UPLOAD_KEY.BARANGAY_RESIDENCY] = {
-      url: approvedKkRegistration.idSingleFileUrl,
+      url: identityDocuments.residency,
     };
     uploadedFiles[SKEAP_UPLOAD_KEY.KK_ID_FRONT] = {
-      url: approvedKkRegistration.idFrontFileUrl,
+      url: identityDocuments.validIdFront,
     };
     uploadedFiles[SKEAP_UPLOAD_KEY.KK_ID_BACK] = {
-      url: approvedKkRegistration.idBackFileUrl,
+      url: identityDocuments.validIdBack,
     };
 
     const submissionGuardError = getSkeapSubmissionGuardError({
@@ -647,15 +669,26 @@ export async function POST(request: NextRequest) {
         throw new Error("SKEAP_PERMANENTLY_BARRED");
       }
 
+      const currentGrantee = await tx.grantee.findUnique({
+        where: { userId: appUser.id },
+        select: { status: true },
+      });
+      if (
+        currentGrantee?.status === GranteeStatus.ACTIVE ||
+        currentGrantee?.status === GranteeStatus.PROBATIONARY
+      ) {
+        throw new Error("SKEAP_ACTIVE_GRANTEE");
+      }
+      if (currentGrantee?.status === GranteeStatus.GRADUATED) {
+        throw new Error("SKEAP_GRADUATED");
+      }
+
       const activeApplication = await tx.skeapApplication.findFirst({
         where: {
           userId: appUser.id,
+          submittedAt: { gte: currentCycle.start, lt: currentCycle.end },
           status: {
-            notIn: [
-              SubmissionStatus.DRAFT,
-              SubmissionStatus.REJECTED,
-              SubmissionStatus.WITHDRAWN,
-            ],
+            in: [...SKEAP_APPLICATION_REAPPLICATION_BLOCKING_SUBMISSION_STATUSES],
           },
         },
         select: { id: true },
@@ -746,6 +779,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "You already have a SKEAP application in progress." },
         { status: 409 },
+      );
+    }
+    if (message === "SKEAP_ACTIVE_GRANTEE") {
+      return NextResponse.json(
+        { error: "Active SKEAP grantees cannot submit another application." },
+        { status: 409 },
+      );
+    }
+    if (message === "SKEAP_GRADUATED") {
+      return NextResponse.json(
+        { error: "Graduated SKEAP grantees are not eligible to reapply." },
+        { status: 403 },
       );
     }
     if (message === "SKEAP_CYCLE_CLOSED") {

@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/audit/logger";
-import { createGmailTransporter, sendBroadcastEmail } from "@/lib/broadcast-email";
+import { getSkeapDashboardUrl, sendGranteeApprovalEmail } from "@/lib/broadcast-email";
 import { GRANTEE_PLACEHOLDER_SCHOOL, GRANTEE_PLACEHOLDER_YEAR_LEVEL } from "@/lib/grantee-profile";
 import { DEFAULT_SKEAP_MAX_SLOTS, getSkeapCapacitySnapshot, lockSkeapCapacity } from "@/lib/skeap-capacity";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
@@ -23,7 +23,10 @@ import { getExactAge } from "@/lib/skeap-age";
 import { getSkeapMaxEligibleAge } from "@/lib/skeap-program-config";
 import { getAcademicYearDateRange } from "@/lib/semester";
 import { getSkeapWaitlistCycle, getSkeapWaitlistCycleState } from "@/lib/skeap-waitlist-cycle";
-import { notifyGranteesToUploadRequirements } from "@/lib/grantee-notifications";
+import {
+  createSkeapGranteeApprovalNotification,
+  notifyGranteesToUploadRequirements,
+} from "@/lib/grantee-notifications";
 import { resolveGranteeEntryTerm } from "@/lib/grantee-semester";
 import { getSkeapGrantAmount } from "@/lib/skeap-payout";
 
@@ -100,6 +103,7 @@ export async function POST(
           physicalDocumentsConfirmed: true,
           userId: true,
           applicantName: true,
+          emailAddress: true,
           user: {
             select: {
               email: true,
@@ -293,7 +297,7 @@ export async function POST(
         id: application.id,
         applicantId: application.userId,
         applicantName: application.applicantName,
-        applicantEmail: application.user.email,
+        applicantEmail: application.emailAddress?.trim() || application.user.email,
         entryTerm: persistedEntryTerm,
         granteeStatusChanged:
           existingGrantee?.status === "REMOVED" || existingGrantee?.status === "REVOKED",
@@ -329,15 +333,25 @@ export async function POST(
 
     let emailSent = false;
     try {
-      const transporter = createGmailTransporter();
-      const emailResult = await sendBroadcastEmail(
-        transporter,
-        promotedApplication.applicantId,
-        applicantEmail,
-        "Your SKEAP scholarship application was approved",
-        `Hello ${promotedApplication.applicantName || "Scholar"},\n\nYour SKEAP scholarship application has been promoted from the waitlist and approved. Your account is now active as a Grantee.\n\nYour active entry semester is ${entryTerm.termLabel}.\n\nPlease sign in to SKonnect to view your scholarship information.\n\nSKEAP Administration`,
-      );
-      emailSent = emailResult !== null;
+      await createSkeapGranteeApprovalNotification({
+        applicationId: promotedApplication.id,
+        userId: promotedApplication.applicantId,
+        academicYear: entryTerm.schoolYear,
+        semester: entryTerm.semester,
+      });
+    } catch (error) {
+      console.error("SKEAP promotion completed, but the approval notification could not be created:", error);
+    }
+
+    try {
+      await sendGranteeApprovalEmail({
+        to: applicantEmail,
+        applicantName: promotedApplication.applicantName || "Scholar",
+        academicYear: entryTerm.schoolYear,
+        semester: entryTerm.semester,
+        dashboardUrl: getSkeapDashboardUrl(),
+      });
+      emailSent = true;
     } catch (error) {
       console.error("SKEAP promotion completed, but the approval email could not be sent:", error);
     }

@@ -9,6 +9,7 @@ type GraduationJourneyInput = {
   submissions: AcademicJourneySubmission[];
   dateEnrolled: Date;
   yearLevel?: string | null;
+  totalYears?: number;
   journeyStart?: string | null;
   journeyEnd?: string | null;
   entryTerm?: string;
@@ -20,15 +21,19 @@ export function getGranteeGraduationProgress({
   submissions,
   dateEnrolled,
   yearLevel,
+  totalYears: configuredTotalYears,
   journeyStart,
   journeyEnd,
   entryTerm,
   now = new Date(),
   initialGrant,
 }: GraduationJourneyInput) {
-  const totalYears = journeyStart && journeyEnd
+  const rangeTotalYears = journeyStart && journeyEnd
     ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd).length / 2
-    : 4;
+    : null;
+  const totalYears = configuredTotalYears && configuredTotalYears > 0
+    ? configuredTotalYears
+    : rangeTotalYears ?? 4;
   const progress = getAcademicJourneyProgress(
     submissions,
     dateEnrolled,

@@ -157,6 +157,12 @@ export default async function ApplicationPage({ params }: Props) {
     );
   }
 
+  const reviewThread = Array.isArray(application.reviewThread)
+    ? (application.reviewThread as ReviewMessage[]).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+    : [];
+
   let waitlistStatus: {
     isWaitlisted: boolean;
     queuePosition: number | null;
@@ -192,7 +198,7 @@ export default async function ApplicationPage({ params }: Props) {
             response: application.response,
             isResolved: application.isResolved,
             createdAt: application.createdAt.toISOString(),
-            reviewThread: Array.isArray(application.reviewThread) ? (application.reviewThread as ReviewMessage[]) : [],
+            reviewThread,
             reviewStatus: application.reviewStatus ?? "Pending review",
             resubmittedAt: application.resubmittedAt?.toISOString() ?? null,
             lastUpdatedBy: application.lastUpdatedBy,

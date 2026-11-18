@@ -113,6 +113,11 @@ export type AcademicJourneyInitialGrant = {
 export type AcademicJourneyNode = {
   index: number;
   semester: string;
+  yearNumber?: number | null;
+  semesterNumber?: 1 | 2 | null;
+  academicTermCaption?: string | null;
+  scheduleStatus?: "open" | "future" | "closed" | "none" | null;
+  scheduleOpensAt?: Date | string | null;
   status: AcademicJourneyNodeStatus;
   submissionId: string | null;
   submittedAt: Date | string | null;
@@ -200,10 +205,38 @@ export function resolveScheduledJourneyStepStatus(
 }
 
 function getSemesterOrder(semester: string) {
-  const match = semester.match(/^(\d{4})-(\d{4})\s+(First|Second) Semester$/i);
+  const match = semester.match(/^(\d{4})-(\d{4})\s+(First|1st|Second|2nd)\s+Semester$/i);
   if (!match || Number(match[2]) !== Number(match[1]) + 1) return null;
 
-  return Number(match[1]) * 2 + (match[3].toLowerCase() === "second" ? 1 : 0);
+  const second = /^second|^2nd/i.test(match[3]);
+  return Number(match[1]) * 2 + (second ? 1 : 0);
+}
+
+function normalizeJourneySemester(semester: string) {
+  const order = getSemesterOrder(semester);
+  return order === null ? null : getSemesterLabel(order);
+}
+
+export function normalizeAcademicJourneyTerm(semester: string) {
+  return normalizeJourneySemester(semester);
+}
+
+function parseStartYear(yearLevel: string | null | undefined) {
+  if (!yearLevel) return null;
+  const match = /\b(Incoming Freshman|[1-6](?:st|nd|rd|th)?\s+Year|Grade\s*(?:11|12)|(?:First|Second|Third|Fourth|Fifth|Sixth)\s+Year)\b/i.exec(yearLevel);
+  if (!match) return null;
+  const value = match[1];
+  if (/incoming freshman|first year/i.test(value)) return 1;
+  if (/second year/i.test(value)) return 2;
+  if (/third year/i.test(value)) return 3;
+  if (/fourth year/i.test(value)) return 4;
+  if (/fifth year/i.test(value)) return 5;
+  if (/sixth year/i.test(value)) return 6;
+  const numeric = /^(\d)/.exec(value);
+  if (numeric) return Number(numeric[1]);
+  const grade = /Grade\s*(11|12)/i.exec(value);
+  if (grade) return Number(grade[1]) - 10;
+  return null;
 }
 
 export function getAcademicJourneyProgress(
@@ -217,6 +250,117 @@ export function getAcademicJourneyProgress(
   journeyStart?: string | null,
 ) {
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
+  const intakeTerm = normalizeJourneySemester(entrySemester?.trim() ?? "");
+  const intakeOrder = intakeTerm ? getSemesterOrder(intakeTerm) : null;
+  const startYear = parseStartYear(yearLevel);
+
+  if (intakeOrder !== null && startYear !== null) {
+    const entryStartYear = Math.floor(intakeOrder / 2);
+    const terminalStartYear = entryStartYear + Math.max(0, years - startYear);
+    const terminalOrder = terminalStartYear * 2 + 1;
+    const nodes: AcademicJourneyNode[] = [];
+    const submissionsByOrder = new Map<number, AcademicJourneySubmission>();
+
+    for (const submission of submissions) {
+      const normalizedSemester = normalizeJourneySemester(submission.semester);
+      if (!normalizedSemester) continue;
+      const order = getSemesterOrder(normalizedSemester);
+      if (order === null || order < intakeOrder || order > terminalOrder) continue;
+      const previous = submissionsByOrder.get(order);
+      const submittedAt = submission.submittedAt ? new Date(submission.submittedAt).getTime() : 0;
+      const previousSubmittedAt = previous?.submittedAt ? new Date(previous.submittedAt).getTime() : 0;
+      if (!previous || submittedAt >= previousSubmittedAt) submissionsByOrder.set(order, submission);
+    }
+
+    for (let order = intakeOrder; order <= terminalOrder; order += 1) {
+      const index = nodes.length;
+      const normalizedSemester = getSemesterLabel(order);
+      const submission = submissionsByOrder.get(order) ?? null;
+      const isInitialGrant =
+        !submission &&
+        Boolean(initialGrant?.semester && normalizeJourneySemester(initialGrant.semester) === normalizedSemester);
+      let status: AcademicJourneyNodeStatus;
+
+      if (submission?.status === "APPROVED" || isInitialGrant) {
+        status = "VALIDATED";
+      } else if (submission?.status === "PENDING") {
+        status = "PENDING";
+      } else if (submission?.status === "PRE_QUALIFIED" || submission?.status === "AWAITING_PHYSICAL_CTC") {
+        status = "UNDER_REVIEW";
+      } else if (submission?.status === "RETURNED_FOR_EDIT" || submission?.status === "REJECTED") {
+        status = "RETURNED";
+      } else {
+        const previousValidated = index === 0
+          ? false
+          : nodes[index - 1].status === "VALIDATED";
+        status = index === 0 || previousValidated ? "CURRENT" : "LOCKED";
+      }
+
+      const yearNumber = Math.floor(order / 2) - entryStartYear + startYear;
+      const semesterNumber = (order % 2 === 0 ? 1 : 2) as 1 | 2;
+      const academicYearStart = Math.floor(order / 2);
+      nodes.push({
+        index,
+        semester: normalizedSemester,
+        yearNumber,
+        semesterNumber,
+        academicTermCaption: `${academicYearStart}-${academicYearStart + 1} · ${semesterNumber === 1 ? "1st" : "2nd"} Sem`,
+        scheduleStatus: null,
+        scheduleOpensAt: null,
+        status,
+        submissionId: submission?.id ?? null,
+        submittedAt: submission?.submittedAt ?? null,
+        approvedAt: submission?.status === "APPROVED"
+          ? submission.reviewedAt ?? null
+          : isInitialGrant
+            ? initialGrant?.approvedAt ?? null
+            : null,
+        gwa: submission?.generalAverage ??
+          submission?.ocrGwa ??
+          (isInitialGrant ? initialGrant?.gwa : null) ??
+          null,
+        remarks: submission?.reviewNotes ?? null,
+        gradeReportUrl:
+          submission?.gradeFileUrl ??
+          (isInitialGrant ? initialGrant?.gradeReportUrl : null) ??
+          null,
+        coeFileUrl:
+          submission?.coeFileUrl ??
+          (isInitialGrant ? initialGrant?.coeFileUrl : null) ??
+          null,
+        isInitialGrant,
+      });
+    }
+
+    const currentIndex = nodes.findIndex((node) =>
+      node.status === "CURRENT" ||
+      node.status === "PENDING" ||
+      node.status === "UNDER_REVIEW" ||
+      node.status === "RETURNED"
+    );
+    const activeIndex = currentIndex < 0 ? nodes.length : currentIndex;
+    const currentNode = nodes[activeIndex];
+    const validatedSemesterIndexes = nodes
+      .filter((node) => node.status === "VALIDATED")
+      .map((node) => node.index);
+
+    return {
+      currentSemesterIndex: activeIndex,
+      currentStepSemester: currentNode?.semester ?? nodes[nodes.length - 1]?.semester ?? intakeTerm,
+      validatedSemesterIndexes,
+      currentStepStatus: !currentNode || currentNode.status === "VALIDATED"
+        ? "validated" as const
+        : currentNode.status === "PENDING" || currentNode.status === "UNDER_REVIEW"
+          ? "under_review" as const
+          : currentNode.status === "RETURNED"
+            ? "action_required" as const
+            : "open_for_submit" as const,
+      nodes,
+      eligibleSemesterCount: nodes.length,
+      calendarSemesterIndex: 0,
+    };
+  }
+
   const startStage = getJourneyStage(journeyStart);
   const journeyStartStage = startStage ?? 13;
   const termCount = years * 2;

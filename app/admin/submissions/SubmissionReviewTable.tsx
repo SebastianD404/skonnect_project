@@ -568,6 +568,9 @@ export default function SubmissionReviewTable() {
   const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const [isConfirmingAction, setIsConfirmingAction] = useState(false);
+  const [isScreenConfirmOpen, setIsScreenConfirmOpen] = useState(false);
+  const [screenRemarks, setScreenRemarks] = useState("");
+  const [isSubmittingScreen, setIsSubmittingScreen] = useState(false);
 
   const refreshSubmissionState = useCallback(async (
     tab: TabType,
@@ -602,6 +605,19 @@ export default function SubmissionReviewTable() {
     const timeout = window.setTimeout(() => setActionSuccess(null), 5000);
     return () => window.clearTimeout(timeout);
   }, [actionSuccess]);
+
+  useEffect(() => {
+    if (!isScreenConfirmOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isSubmittingScreen) {
+        setIsScreenConfirmOpen(false);
+        setScreenRemarks("");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isScreenConfirmOpen, isSubmittingScreen]);
 
   useEffect(() => {
     const refreshSubmissions = () => {
@@ -653,6 +669,8 @@ export default function SubmissionReviewTable() {
     selectedSubmission?.gradesStatus === "APPROVED" || selectedSubmission?.status === "APPROVED";
   const canVerifyDigital =
     selectedSubmission?.status === "PENDING" &&
+    Boolean(selectedSubmission.coeFileUrl) &&
+    Boolean(selectedSubmission.gradeFileUrl) &&
     selectedSubmission.coeStatus === "APPROVED" &&
     selectedSubmission.gradesStatus === "APPROVED" &&
     (selectedSubmission.flaggedFields?.length ?? 0) === 0;
@@ -902,11 +920,15 @@ export default function SubmissionReviewTable() {
   async function postSubmissionAction(
     submission: SubmissionRow,
     action: "VERIFY_DIGITAL" | "CONFIRM_PHYSICAL_CTC",
+    reviewNotes?: string,
   ) {
     const response = await fetch(`/api/admin/submissions/${submission.id}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({
+        action,
+        ...(reviewNotes?.trim() ? { reviewNotes: reviewNotes.trim() } : {}),
+      }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -914,11 +936,11 @@ export default function SubmissionReviewTable() {
     }
   }
 
-  async function verifyDigitalAndRequestPhysicalCtc() {
-    if (!selectedSubmission || isSaving) return;
+  async function verifyDigitalAndRequestPhysicalCtc(reviewNotes: string): Promise<boolean> {
+    if (!selectedSubmission || isSaving) return false;
     if (!canVerifyDigital) {
       setValidationError("Approve both digital documents and clear all correction flags before requesting physical verification.");
-      return;
+      return false;
     }
 
     setSavingSubmissionId(selectedSubmission.id);
@@ -926,17 +948,37 @@ export default function SubmissionReviewTable() {
     setValidationError(null);
     setActionSuccess(null);
     try {
-      await postSubmissionAction(selectedSubmission, "VERIFY_DIGITAL");
+      await postSubmissionAction(selectedSubmission, "VERIFY_DIGITAL", reviewNotes);
       setActionSuccess("Digital pre-check complete. The grantee has been asked to submit the Original / CTC.");
       changeTab("physical", selectedSubmission.id);
+      return true;
     } catch (error) {
       handleActionError(error, "Unable to process submission review.", selectedSubmission.grantee.id);
       if (!(error instanceof Error && error.message === "This grantee has already been revoked.")) {
         setIsLoading(true);
         setRefreshToken((current) => current + 1);
       }
+      return false;
     } finally {
       setSavingSubmissionId(null);
+    }
+  }
+
+  async function confirmDigitalScreening() {
+    if (!selectedSubmission || isSubmittingScreen || isSaving || !canVerifyDigital) return;
+
+    const submission = selectedSubmission;
+    setIsSubmittingScreen(true);
+    try {
+      const succeeded = await verifyDigitalAndRequestPhysicalCtc(screenRemarks.trim());
+      if (succeeded) {
+        setIsScreenConfirmOpen(false);
+        setScreenRemarks("");
+      }
+    } catch (error) {
+      handleActionError(error, "Unable to process submission review.", submission.grantee.id);
+    } finally {
+      setIsSubmittingScreen(false);
     }
   }
 
@@ -1245,21 +1287,10 @@ export default function SubmissionReviewTable() {
                             <button
                               type="button"
                               onClick={() => {
-                                if (activeTab === "resubmitted") {
-                                  setActionConfirmation({
-                                    title: "Verify digital documents and request physical CTC?",
-                                    description: "This will complete the digital pre-check and move the submission to the Physical CTC queue.",
-                                    confirmLabel: "Verify & Request CTC",
-                                    intent: "primary",
-                                    notes: null,
-                                    notesRequired: false,
-                                    onConfirm: verifyDigitalAndRequestPhysicalCtc,
-                                  });
-                                } else {
-                                  void verifyDigitalAndRequestPhysicalCtc();
-                                }
+                                setScreenRemarks("");
+                                setIsScreenConfirmOpen(true);
                               }}
-                              disabled={isSaving || !canVerifyDigital}
+                              disabled={isSaving || isSubmittingScreen || !canVerifyDigital}
                               title={!canVerifyDigital ? "Approve both digital documents and clear all correction flags first." : undefined}
                               className="inline-flex items-center gap-2 rounded-xl bg-[#0a1f33] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#122e48] disabled:cursor-not-allowed disabled:opacity-50"
                             >
@@ -1419,6 +1450,98 @@ export default function SubmissionReviewTable() {
         </div>
         )}
       </div>
+      {isScreenConfirmOpen && selectedSubmission ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-xs"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !isSubmittingScreen) {
+              setIsScreenConfirmOpen(false);
+              setScreenRemarks("");
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="digital-screen-confirmation-title"
+            aria-describedby="digital-screen-confirmation-description"
+            className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white p-6 shadow-2xl"
+          >
+            <header className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-900">
+                <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Digital Screening Confirmation
+                </p>
+                <h2 id="digital-screen-confirmation-title" className="text-base font-semibold text-slate-900">
+                  Move Submission to For Physical CTC?
+                </h2>
+              </div>
+            </header>
+
+            <div className="mt-4 space-y-1.5 rounded-xl border border-slate-200/80 bg-slate-50/75 p-3.5">
+              <p className="text-sm font-semibold text-slate-900">
+                {selectedSubmission.grantee.user.fullName}
+              </p>
+              <p className="text-xs text-slate-600">
+                {selectedSubmission.grantee.user.email || "No email address on file"}
+              </p>
+              <p className="text-xs text-slate-500">
+                {selectedSubmission.semester} ·{" "}
+                {[selectedSubmission.coeFileUrl, selectedSubmission.gradeFileUrl].filter(Boolean).length} documents
+              </p>
+            </div>
+
+            <p
+              id="digital-screen-confirmation-description"
+              className="mt-3.5 rounded-xl border border-amber-200/75 bg-amber-50/60 px-3.5 py-2.5 text-xs leading-relaxed text-amber-900"
+            >
+              Confirming will mark these digital files as screened and automatically notify the grantee via email
+              and in-app alert to present physical Certified True Copies (CTCs) at Barangay Pico Hall.
+            </p>
+
+            <label className="mt-4 block">
+              <span className="mb-1.5 block text-xs font-medium text-slate-700">
+                Reviewer Note (Optional)
+              </span>
+              <textarea
+                autoFocus
+                rows={2}
+                value={screenRemarks}
+                onChange={(event) => setScreenRemarks(event.currentTarget.value)}
+                disabled={isSubmittingScreen}
+                placeholder="Add any specific instructions for physical CTC verification..."
+                className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#0d5c75] focus:ring-2 focus:ring-[#0d5c75]/15 disabled:cursor-not-allowed disabled:bg-slate-50"
+              />
+            </label>
+
+            <footer className="mt-6 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsScreenConfirmOpen(false);
+                  setScreenRemarks("");
+                }}
+                disabled={isSubmittingScreen}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 sm:text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDigitalScreening()}
+                disabled={isSubmittingScreen || isSaving || !canVerifyDigital}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50 sm:text-sm"
+              >
+                {isSubmittingScreen ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                {isSubmittingScreen ? "Confirming..." : "Confirm & Notify Grantee"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
       {actionConfirmation ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
