@@ -18,8 +18,8 @@ function NonCompliantTableSkeleton() {
     <div role="status" aria-label="Loading non-compliant scholars" aria-live="polite">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[820px] border-collapse text-left text-sm">
-          <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-            <tr>
+          <thead className="relative z-10 bg-gradient-to-r from-slate-900 to-cyan-900">
+            <tr className="border-b border-slate-800 text-[11px] font-bold uppercase tracking-widest text-cyan-50">
               {columns.map((column) => (
                 <th key={column} scope="col" className="px-5 py-3">{column}</th>
               ))}

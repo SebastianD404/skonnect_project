@@ -18,10 +18,10 @@ export default function DocumentViewerClient({
   const [previewType, setPreviewType] = useState<PreviewType | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
 
   useEffect(() => {
     const controller = new AbortController();
-    let objectUrl: string | null = null;
 
     async function loadPreview() {
       try {
@@ -48,23 +48,16 @@ export default function DocumentViewerClient({
           type = "image";
         }
 
+        if (!metadata.signedUrl) {
+          throw new Error("A secure preview link could not be created for this document.");
+        }
         if (type === "unsupported") {
           setPreviewType(type);
           return;
         }
 
-        const fileResponse = await fetch(fileUrl, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!fileResponse.ok) {
-          const body = await fileResponse.json().catch(() => ({}));
-          throw new Error(body.error || "Could not load this document.");
-        }
-        const fileBlob = await fileResponse.blob();
         if (controller.signal.aborted) return;
-        objectUrl = URL.createObjectURL(fileBlob);
-        setPreviewUrl(objectUrl);
+        setPreviewUrl(metadata.signedUrl);
         setPreviewType(type);
       } catch (caught: unknown) {
         if (controller.signal.aborted) return;
@@ -76,7 +69,6 @@ export default function DocumentViewerClient({
 
     return () => {
       controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [fileUrl]);
 
@@ -94,15 +86,27 @@ export default function DocumentViewerClient({
             <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base">{title}</h1>
           </div>
         </div>
-        {!error ? (
-          <a
-            href={`${fileUrl}&download=true`}
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#0a1f33] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#122e48] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-            Download
-          </a>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {previewUrl && !error ? (
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Open in New Tab
+            </a>
+          ) : null}
+          {!error ? (
+            <a
+              href={`${fileUrl}&download=true`}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#0a1f33] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#122e48] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Download
+            </a>
+          ) : null}
+        </div>
       </header>
 
       <section className="flex flex-1 items-center justify-center p-4 sm:p-8">
@@ -113,16 +117,51 @@ export default function DocumentViewerClient({
             <iframe
               src={`${previewUrl}#toolbar=1&view=FitH`}
               title={title}
-              className="h-full w-full border-0"
+              onError={() => setError("The PDF preview could not be loaded. Try Open in New Tab or Download.")}
+              className="h-[75vh] w-full rounded-lg border border-slate-200"
             />
           ) : previewType === "image" ? (
             previewUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={previewUrl}
-                alt={title}
-                className="h-full w-full bg-slate-50 object-contain"
-              />
+              <div className="flex h-full w-full flex-col items-center gap-3 p-4">
+                <div className="flex items-center gap-2" aria-label="Image zoom controls">
+                  <button
+                    type="button"
+                    onClick={() => setImageZoom((zoom) => Math.max(0.5, zoom - 0.25))}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                    aria-label="Zoom out"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageZoom(1)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                  >
+                    Fit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageZoom((zoom) => Math.min(3, zoom + 0.25))}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                    aria-label="Zoom in"
+                  >
+                    +
+                  </button>
+                  <span className="min-w-12 text-center text-xs text-slate-500">
+                    {Math.round(imageZoom * 100)}%
+                  </span>
+                </div>
+                <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-auto">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewUrl}
+                    alt={title}
+                    onError={() => setError("The image preview could not be loaded. Try Open in New Tab or Download.")}
+                    className="max-h-full max-w-full bg-slate-50 object-contain transition-transform"
+                    style={{ transform: `scale(${imageZoom})` }}
+                  />
+                </div>
+              </div>
             ) : (
               <div className="flex items-center gap-2 text-sm text-slate-500" role="status">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

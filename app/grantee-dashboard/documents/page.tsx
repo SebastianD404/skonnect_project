@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import GranteeDocumentsClient from "./GranteeDocumentsClient";
+import GranteeDocumentsPageClient from "./GranteeDocumentsPageClient";
 import { isGranteeProfileComplete } from "@/lib/grantee-profile";
 import { getAcademicTermScheduleState } from "@/lib/academic-term-schedule";
 import { detectGranteeTargetTerm } from "@/lib/grantee-semester";
@@ -140,8 +140,8 @@ export default async function GranteeDocumentsPage() {
       <GranteeDataRefresh />
       <main className="px-4 pb-20 pt-12 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
-          <GranteeDocumentsClient
-            key={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}:${detectedTerm?.termLabel ?? "none"}:${detectedTerm?.hasPendingSubmission ?? false}:${detectedTerm?.canReplacePendingSubmission ?? false}:${serializedAcademicTermSchedules.map((schedule) => `${schedule.semester}:${schedule.opensAt}:${schedule.closesAt}`).join("|")}`}
+          <GranteeDocumentsPageClient
+            resetKey={`${academicTermWindow.status}:${academicTermWindow.semester ?? "none"}:${detectedTerm?.termLabel ?? "none"}:${detectedTerm?.hasPendingSubmission ?? false}:${detectedTerm?.canReplacePendingSubmission ?? false}:${serializedAcademicTermSchedules.map((schedule) => `${schedule.semester}:${schedule.opensAt}:${schedule.closesAt}`).join("|")}`}
             submissions={serialized}
             canSubmit={canSubmit}
             academicTermWindow={academicTermWindow}

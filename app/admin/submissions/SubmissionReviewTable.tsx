@@ -205,17 +205,38 @@ function DocumentCard({
   const isApproving = pendingAction === `${docKey}:APPROVE`;
   const viewerUrl = `/api/submissions/${submissionId}/file?kind=${documentKind}`;
   const [previewType, setPreviewType] = useState<"pdf" | "image" | "unsupported" | "missing" | null>(null);
-  const [rawStorageUrl, setRawStorageUrl] = useState<string | null>(null);
+  const [activeStorageUrl, setActiveStorageUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [thumbnailError, setThumbnailError] = useState(false);
+  const [imageZoom, setImageZoom] = useState(1);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  const fileExtension = storedFilePath?.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() ?? "";
+  const inlinePreviewType = fileExtension === "pdf"
+    ? "pdf"
+    : ["jpg", "jpeg", "jfif", "png", "webp"].includes(fileExtension)
+      ? "image"
+      : "unsupported";
+  const fileName = (() => {
+    const lastSegment = storedFilePath?.split(/[?#]/, 1)[0].split("/").pop() ?? "";
+    try {
+      return decodeURIComponent(lastSegment);
+    } catch {
+      return lastSegment;
+    }
+  })();
 
   function openDocumentPreview() {
     setPreviewType(null);
-    setRawStorageUrl(null);
+    setActiveStorageUrl(null);
+    setPreviewError(null);
+    setThumbnailError(false);
+    setImageZoom(1);
     setIsPreviewOpen(true);
   }
 
   useEffect(() => {
-    if (!storedFilePath || !isPreviewOpen) return;
+    if (!storedFilePath) return;
 
     const controller = new AbortController();
     fetch(`${viewerUrl}&metadata=true`, {
@@ -226,6 +247,7 @@ function DocumentCard({
         const payload = await response.json();
         if (response.status === 404 && payload?.code === "FILE_NOT_FOUND") {
           setPreviewType("missing");
+          setThumbnailError(true);
           return null;
         }
         if (!response.ok) throw new Error(payload?.error || "Could not inspect document type.");
@@ -233,7 +255,11 @@ function DocumentCard({
       })
       .then((metadata) => {
         if (!metadata) return;
-        setRawStorageUrl(metadata.signedUrl ?? null);
+        if (!metadata.signedUrl) {
+          throw new Error("A secure preview link could not be created for this document.");
+        }
+        setActiveStorageUrl(metadata.signedUrl);
+        setThumbnailError(false);
         const { contentType, extension } = metadata;
         if (contentType === "application/pdf" || (!contentType && extension === "pdf")) {
           setPreviewType("pdf");
@@ -249,7 +275,10 @@ function DocumentCard({
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         console.error("Could not determine submission document preview type:", error);
-        setPreviewType("unsupported");
+        setThumbnailError(true);
+        if (isPreviewOpen) {
+          setPreviewError(error instanceof Error ? error.message : "Could not load this document.");
+        }
       });
 
     return () => controller.abort();
@@ -282,18 +311,59 @@ function DocumentCard({
         ) : null}
       </div>
 
-      <div className="review-card__preview flex h-44 w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+      <div className="review-card__preview relative flex h-44 w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 p-3">
         {storedFilePath ? (
-          <>
-            <FileText className="h-8 w-8 text-slate-400" aria-hidden="true" />
+          inlinePreviewType === "image" && activeStorageUrl && !thumbnailError ? (
             <button
               type="button"
               onClick={openDocumentPreview}
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500"
+              aria-label={`View ${title}`}
+              className="group relative flex h-full w-full items-center justify-center"
             >
-              View document
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={activeStorageUrl}
+                alt={`${title} preview`}
+                className="h-44 w-full object-contain rounded-lg"
+                onError={() => setThumbnailError(true)}
+              />
+              <span className="absolute bottom-2 right-2 rounded-full bg-slate-950/85 px-3 py-1.5 text-[11px] font-bold text-white opacity-0 shadow transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                View document
+              </span>
             </button>
-          </>
+          ) : inlinePreviewType === "pdf" ? (
+            <div className="flex w-full flex-col items-center gap-2 text-center">
+              <FileText className="h-8 w-8 text-slate-400" aria-hidden="true" />
+              <p className="max-w-full truncate text-xs font-medium text-slate-600" title={fileName}>
+                {fileName || "PDF document"}
+              </p>
+              <button
+                type="button"
+                onClick={openDocumentPreview}
+                className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500"
+              >
+                View document
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-center">
+              <FileText className="h-8 w-8 text-slate-400" aria-hidden="true" />
+              <p className="text-xs text-slate-500">
+                {thumbnailError
+                  ? "Thumbnail unavailable."
+                  : activeStorageUrl
+                    ? "Preview is not available for this file type."
+                    : "Preparing document preview..."}
+              </p>
+              <button
+                type="button"
+                onClick={openDocumentPreview}
+                className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500"
+              >
+                View document
+              </button>
+            </div>
+          )
         ) : (
           <div className="space-y-2 text-center">
             <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/60 bg-white text-slate-700 shadow-2xs">
@@ -470,14 +540,14 @@ function DocumentCard({
             <header className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-3">
               <h3 className="truncate text-sm font-semibold text-slate-900">{title}</h3>
               <div className="flex items-center gap-2">
-                {rawStorageUrl ? (
+                {activeStorageUrl ? (
                   <a
-                    href={rawStorageUrl}
+                    href={activeStorageUrl}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="text-xs font-semibold text-sky-700 underline"
                   >
-                    Open in new tab
+                    Open in New Tab
                   </a>
                 ) : null}
                 <button
@@ -491,21 +561,58 @@ function DocumentCard({
               </div>
             </header>
             <div className="min-h-[40vh] overflow-auto bg-slate-100 p-4">
-              {previewType === "pdf" ? (
+              {previewError ? (
+                <p role="alert" className="py-16 text-center text-sm text-rose-700">
+                  {previewError} Use Open in New Tab to try the document outside this preview.
+                </p>
+              ) : previewType === "pdf" && activeStorageUrl ? (
                 <iframe
-                  src={viewerUrl}
+                  src={activeStorageUrl}
                   title={`${title} preview`}
-                  loading="lazy"
-                  className="h-[75vh] w-full border-0 bg-white"
+                  onError={() => setPreviewError("The PDF preview could not be loaded.")}
+                  className="h-[75vh] w-full rounded-lg border border-slate-200 bg-white"
                 />
-              ) : previewType === "image" ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={viewerUrl}
-                  alt={title}
-                  loading="lazy"
-                  className="mx-auto max-h-[75vh] max-w-full object-contain"
-                />
+              ) : previewType === "image" && activeStorageUrl ? (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex items-center gap-2" aria-label="Image zoom controls">
+                    <button
+                      type="button"
+                      onClick={() => setImageZoom((zoom) => Math.max(0.5, zoom - 0.25))}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      aria-label="Zoom out"
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageZoom(1)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                    >
+                      Fit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageZoom((zoom) => Math.min(3, zoom + 0.25))}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      aria-label="Zoom in"
+                    >
+                      +
+                    </button>
+                    <span className="min-w-12 text-center text-xs text-slate-500">
+                      {Math.round(imageZoom * 100)}%
+                    </span>
+                  </div>
+                  <div className="flex min-h-[30vh] w-full items-center justify-center overflow-auto">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={activeStorageUrl}
+                      alt={title}
+                      onError={() => setPreviewError("The image preview could not be loaded.")}
+                      className="max-h-[75vh] max-w-full object-contain transition-transform"
+                      style={{ transform: `scale(${imageZoom})` }}
+                    />
+                  </div>
+                </div>
               ) : previewType === null ? (
                 <div className="flex h-[40vh] items-center justify-center gap-2 text-sm text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

@@ -10,7 +10,6 @@ import {
   isKKMemberArchiveReason,
   isKKMemberAgeOutReason,
 } from "@/lib/kk-member-archive";
-import AdminExportButton from "../../AdminExportButton";
 import type { KKProfilingRegistration } from "../../kk-profiling/types";
 import { ArchivedMemberRowActions } from "./ArchivedMemberRowActions";
 
@@ -142,12 +141,6 @@ export function ArchivedMembersTable({
             className="w-full rounded-full border border-slate-200 bg-white py-2 pl-10 pr-4 text-xs text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
           />
         </label>
-        <AdminExportButton
-          href="/api/admin/members/records/export"
-          label="Export Records"
-          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-[#0F3D5C] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0D2E47] sm:w-auto"
-          iconClassName="h-3.5 w-3.5"
-        />
       </div>
       <div className="flex flex-col gap-3 p-3 xl:hidden">
         {records.map((record) => {

@@ -6,7 +6,6 @@ import {
   AlertCircle,
   ArrowUpRight,
   Calendar,
-  Check,
   CheckCircle2,
   ChevronDown,
   Clock,
@@ -69,7 +68,9 @@ type SubmissionItem = {
   coeFileUrl: string;
 };
 
-type Props = {
+export type SubmissionSuccessType = "submitted" | "resubmitted" | null;
+
+export type GranteeDocumentsClientProps = {
   submissions: SubmissionItem[];
   canSubmit: boolean;
   academicTermWindow: AcademicTermWindow;
@@ -79,6 +80,10 @@ type Props = {
     closesAt: string;
   }>;
   detectedTerm: DetectedGranteeTargetTerm | null;
+  submissionSuccessType: SubmissionSuccessType;
+  onSubmissionSuccess: (type: Exclude<SubmissionSuccessType, null>) => void;
+  onDismissConfirmation: () => void;
+  onUploadStarted: () => void;
 };
 
 type UploadState = {
@@ -306,7 +311,11 @@ export default function GranteeDocumentsClient({
   academicTermWindow,
   academicTermSchedules,
   detectedTerm,
-}: Props) {
+  submissionSuccessType,
+  onSubmissionSuccess,
+  onDismissConfirmation,
+  onUploadStarted,
+}: GranteeDocumentsClientProps) {
   const router = useRouter();
   const [optimisticSubmission, setOptimisticSubmission] = useState<SubmissionItem | null>(null);
   const submissions = useMemo(() => {
@@ -350,7 +359,6 @@ export default function GranteeDocumentsClient({
   const [gradeOcrOverride, setGradeOcrOverride] = useState(false);
   const [coeOcrOverride, setCoeOcrOverride] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [uploadingGrade, setUploadingGrade] = useState(false);
   const [uploadingCoe, setUploadingCoe] = useState(false);
   const [gradeFileError, setGradeFileError] = useState<string | null>(null);
@@ -658,6 +666,7 @@ export default function GranteeDocumentsClient({
 
   async function handleFileChange(file: File | null, kind: "grade" | "coe") {
     if (!file) return;
+    onUploadStarted();
     setSubmitError(null);
     setSubmitNotice(null);
     const runId = ++ocrRunIds.current[kind];
@@ -882,7 +891,11 @@ export default function GranteeDocumentsClient({
         gradeFileUrl: "",
         coeFileUrl: "",
       }));
-      setShowSuccessModal(true);
+      onSubmissionSuccess(
+        referenceSubmission?.status === "RETURNED_FOR_EDIT" || detectedTerm?.isResubmission
+          ? "resubmitted"
+          : "submitted"
+      );
       router.refresh();
     } catch (error) {
       const text = error instanceof TypeError
@@ -957,6 +970,35 @@ export default function GranteeDocumentsClient({
                 : "Upload your documents for a quick check before SK review."}
             </p>
           </div>
+          {submissionSuccessType ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-emerald-950"
+            >
+              <div className="flex items-start gap-2.5">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                <div>
+                  <p className="text-sm font-semibold">
+                    {submissionSuccessType === "submitted" ? "Requirements submitted" : "Updated file submitted"}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-emerald-900/80">
+                    {submissionSuccessType === "submitted"
+                      ? "Your Certificate of Enrollment and Grade Report are now under review by the Barangay Pico SK Council."
+                      : "Your replacement document has been received and queued for SK admin review."}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onDismissConfirmation}
+                aria-label="Dismiss confirmation"
+                className="shrink-0 rounded-md px-1 text-lg leading-none text-emerald-700/70 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
           <div className="space-y-0">
             {!canSubmit ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
@@ -1339,45 +1381,6 @@ export default function GranteeDocumentsClient({
           </section>
         </aside>
       </div>
-      {showSuccessModal ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-in fade-in duration-200"
-          role="presentation"
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="submission-success-title"
-            aria-describedby="submission-success-description"
-            className="w-full max-w-[22rem] overflow-hidden rounded-3xl bg-white px-7 pb-5 shadow-xl animate-in zoom-in-95 duration-200"
-          >
-            <div className="flex justify-center pt-8">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600">
-                  <Check className="h-5 w-5 stroke-[3] text-white" aria-hidden="true" />
-                </div>
-              </div>
-            </div>
-            <div className="pt-5 text-center">
-              <h3 id="submission-success-title" className="mb-1.5 text-lg font-semibold tracking-tight text-slate-900">
-                Requirements Submitted!
-              </h3>
-              <p id="submission-success-description" className="mb-4 text-[13px] leading-[1.5] text-slate-500">
-                Your documents have been submitted for SK admin review. You can track your review status and view
-                your submitted files in the{" "}
-                <strong className="text-slate-700">Recent Submissions</strong> card on the right.
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowSuccessModal(false)}
-                className="h-10 w-full cursor-pointer rounded-full bg-slate-900 text-sm font-semibold text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-900/15"
-              >
-                Got it
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1659,37 +1662,25 @@ function FileDrop({
                   ) : (
                     <span className="text-[11px] font-medium text-slate-500">Previously uploaded</span>
                   )}
-                  <span className="text-[10px] text-slate-300" aria-hidden="true">•</span>
                   {file && ocrStatus !== "SUCCESS" ? (
-                    <button
-                      type="button"
-                      onClick={() => void viewFile(file)}
-                      disabled={isOpeningFile}
-                      className={`inline-flex cursor-pointer items-center gap-0.5 text-[10px] font-bold transition-transform active:scale-[0.98] hover:underline disabled:cursor-wait ${
-                        isError ? "text-rose-600" : isWarning ? "text-amber-600" : "text-blue-600"
-                      }`}
-                    >
-                      {isOpeningFile ? (
-                        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                      ) : (
-                        <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
-                      )}
-                      {isOpeningFile ? "Opening..." : "View File"}
-                    </button>
-                  ) : !file && existingFileUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => void viewExistingFile(existingFileUrl)}
-                      disabled={isOpeningFile}
-                      className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-600 transition-transform active:scale-[0.98] hover:underline disabled:cursor-wait"
-                    >
-                      {isOpeningFile ? (
-                        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                      ) : (
-                        <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
-                      )}
-                      {isOpeningFile ? "Opening..." : "View File"}
-                    </button>
+                    <>
+                      <span className="text-[10px] text-slate-300" aria-hidden="true">•</span>
+                      <button
+                        type="button"
+                        onClick={() => void viewFile(file)}
+                        disabled={isOpeningFile}
+                        className={`inline-flex cursor-pointer items-center gap-0.5 text-[10px] font-bold transition-transform active:scale-[0.98] hover:underline disabled:cursor-wait ${
+                          isError ? "text-rose-600" : isWarning ? "text-amber-600" : "text-blue-600"
+                        }`}
+                      >
+                        {isOpeningFile ? (
+                          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                        )}
+                        {isOpeningFile ? "Opening..." : "View File"}
+                      </button>
+                    </>
                   ) : null}
                 </div>
               </div>
