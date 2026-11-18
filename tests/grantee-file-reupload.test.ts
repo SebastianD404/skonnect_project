@@ -16,10 +16,12 @@ const mocks = vi.hoisted(() => ({
   detectGranteeTargetTerm: vi.fn(),
   getAcademicTermScheduleState: vi.fn(),
   processSubmissionGradeReportOcr: vi.fn(),
+  hasGranteeColumn: vi.fn(() => true),
   after: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
+  hasGranteeColumn: mocks.hasGranteeColumn,
   prisma: {
     user: { findFirst: mocks.userFindFirst },
     submission: {
@@ -109,6 +111,7 @@ function createFileRequest(url: string, fields: Record<string, string>, fileName
 describe("grantee file re-uploads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.hasGranteeColumn.mockReturnValue(true);
     mocks.userFindFirst.mockResolvedValue({
       id: "user-1",
       role: "GRANTEE",
@@ -240,6 +243,24 @@ describe("grantee file re-uploads", () => {
         graduationRemarks: "Updated scan",
       }),
     }));
+  });
+
+  it("uploads exit clearance when optional metadata columns are not deployed", async () => {
+    mocks.hasGranteeColumn.mockReturnValue(false);
+    const formData = new FormData();
+    formData.set("file", new File(["%PDF-1.7 clearance"], "clearance.pdf", { type: "application/pdf" }));
+
+    const response = await submitExitClearance(
+      new NextRequest("http://localhost/api/grantee/exit-clearance", {
+        method: "POST",
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const [options] = mocks.transactionGranteeUpdateMany.mock.calls[0];
+    expect(options.data).not.toHaveProperty("exitClearanceFileName");
+    expect(options.data).not.toHaveProperty("exitClearanceSubmittedAt");
   });
 
   it("allows replacing a pending submission until an admin starts its review", async () => {

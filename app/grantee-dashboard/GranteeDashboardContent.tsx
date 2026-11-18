@@ -40,7 +40,15 @@ export default async function GranteeDashboardContent() {
     redirect("/login");
   }
 
-  const hasGraduationReadyAtColumn = await hasGranteeColumn("graduationReadyAt");
+  const [
+    hasGraduationReadyAtColumn,
+    hasExitClearanceFileNameColumn,
+    hasExitClearanceSubmittedAtColumn,
+  ] = await Promise.all([
+    hasGranteeColumn("graduationReadyAt"),
+    hasGranteeColumn("exitClearanceFileName"),
+    hasGranteeColumn("exitClearanceSubmittedAt"),
+  ]);
   const appUser = await db.user.findFirst({
     where: {
       authId: user.id,
@@ -66,6 +74,8 @@ export default async function GranteeDashboardContent() {
           graduatedAt: true,
           exitClearanceStatus: true,
           exitClearanceUrl: true,
+          ...(hasExitClearanceFileNameColumn ? { exitClearanceFileName: true } : {}),
+          ...(hasExitClearanceSubmittedAtColumn ? { exitClearanceSubmittedAt: true } : {}),
           ...(hasGraduationReadyAtColumn ? { graduationReadyAt: true } : {}),
           submissions: {
             orderBy: { submittedAt: "desc" },
@@ -111,6 +121,14 @@ export default async function GranteeDashboardContent() {
   ) {
     redirect("/");
   }
+  const exitClearanceFileName =
+    "exitClearanceFileName" in appUser.grantee
+      ? appUser.grantee.exitClearanceFileName
+      : null;
+  const exitClearanceSubmittedAt =
+    "exitClearanceSubmittedAt" in appUser.grantee
+      ? appUser.grantee.exitClearanceSubmittedAt
+      : null;
 
   let journeyPhotoUrl: string | undefined;
   if (appUser.avatarUrl) {
@@ -163,6 +181,15 @@ export default async function GranteeDashboardContent() {
       : null;
   const isReadyForGraduation =
     !isGraduatedScholar && (Boolean(graduationReadyAt) || journeyProgress.isComplete);
+  const isInFinalGraduatingSemester =
+    journeyProgress.nodes.length > 0 &&
+    journeyProgress.currentSemesterIndex >= journeyProgress.nodes.length - 1;
+  const shouldShowGraduationCard =
+    isReadyForGraduation ||
+    isInFinalGraduatingSemester ||
+    Boolean(appUser.grantee.exitClearanceUrl) ||
+    appUser.grantee.exitClearanceStatus !== "NONE" ||
+    isGraduatedScholar;
   const normalizeScheduleSemester = (value: string) =>
     value.trim()
       .replace(/\b1st\s+Semester\b/i, "First Semester")
@@ -302,7 +329,7 @@ export default async function GranteeDashboardContent() {
               </p>
 
               <div className="mt-7 flex flex-wrap items-center gap-4">
-                {isReadyForGraduation ? (
+                {shouldShowGraduationCard && !isGraduatedScholar ? (
                   <a
                     href="#exit-clearance-upload"
                     className="group inline-flex items-center gap-2 rounded-full bg-emerald-800 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-900"
@@ -312,7 +339,7 @@ export default async function GranteeDashboardContent() {
                       ? "Clearance Under Review"
                       : appUser.grantee.exitClearanceStatus === "CLEARED"
                         ? "Clearance Verified"
-                        : "Submit Exit Clearance"}
+                        : "Submit Proof of Graduation"}
                     <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                   </a>
                 ) : !isGraduatedScholar ? (
@@ -415,11 +442,14 @@ export default async function GranteeDashboardContent() {
           </section>
         ) : null}
 
-        {isReadyForGraduation ? (
+        {shouldShowGraduationCard ? (
           <div id="exit-clearance-upload" className="mt-8 scroll-mt-8">
             <ExitClearanceSubmission
               initialStatus={appUser.grantee.exitClearanceStatus}
               initialUrl={appUser.grantee.exitClearanceUrl}
+              initialFileName={exitClearanceFileName}
+              initialUploadedAt={exitClearanceSubmittedAt?.toISOString() ?? null}
+              isGraduated={isGraduatedScholar}
               isFinalStep
             />
           </div>

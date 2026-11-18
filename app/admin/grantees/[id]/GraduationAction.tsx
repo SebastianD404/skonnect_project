@@ -14,10 +14,14 @@ export default function GraduationAction({
   granteeId,
   granteeName,
   exitClearanceUrl,
+  exitClearanceFileName,
+  exitClearanceSubmittedAt,
 }: {
   granteeId: string;
   granteeName: string;
   exitClearanceUrl: string | null;
+  exitClearanceFileName: string | null;
+  exitClearanceSubmittedAt: string | null;
 }) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
@@ -120,9 +124,22 @@ export default function GraduationAction({
             <div className="mt-5">
               {exitClearanceUrl ? (
                 <div className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
-                    <FileCheck2 className="h-5 w-5 shrink-0" aria-hidden="true" />
-                    Exit Clearance Uploaded
+                  <div className="flex min-w-0 items-start gap-2 text-sm text-emerald-900">
+                    <FileCheck2 className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">
+                        {exitClearanceFileName || "Exit Clearance Uploaded"}
+                      </p>
+                      <p className="mt-1 text-xs text-emerald-800">
+                        {exitClearanceSubmittedAt
+                          ? `Uploaded ${new Intl.DateTimeFormat("en-PH", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                              timeZone: "Asia/Manila",
+                            }).format(new Date(exitClearanceSubmittedAt))}`
+                          : "Upload timestamp unavailable"}
+                      </p>
+                    </div>
                   </div>
                   <a
                     href={exitClearanceUrl}

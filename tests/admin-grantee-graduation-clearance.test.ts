@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   ensureProfile: vi.fn(),
   transaction: vi.fn(),
   hasRetentionColumn: vi.fn(),
+  hasGranteeColumn: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -13,6 +14,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ ensureProfile: mocks.ensureProfile }));
 vi.mock("@/lib/prisma", () => ({
+  hasGranteeColumn: mocks.hasGranteeColumn,
   hasGranteeRetentionColumn: mocks.hasRetentionColumn,
   prisma: { $transaction: mocks.transaction },
 }));

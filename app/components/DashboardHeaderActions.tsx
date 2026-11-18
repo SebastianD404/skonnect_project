@@ -20,6 +20,7 @@ type NotificationItem = {
   title: string;
   message: string;
   createdAt?: string;
+  readAt?: string;
   link?: string;
   isRead?: boolean;
 };
@@ -94,6 +95,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     unreadCount: liveUnreadCount,
     refreshNotifications,
     markNotificationAsRead,
+    markAllNotificationsAsRead,
   } = useNotificationState();
   const [openPanel, setOpenPanel] = useState<"none" | "notifications" | "settings">("none");
   const [serverRole, setServerRole] = useState<string | undefined>(authUser?.role);
@@ -116,8 +118,11 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [visibleCount, setVisibleCount] = useState(INITIAL_NOTIFICATION_COUNT);
   const [relativeTimeNow, setRelativeTimeNow] = useState<number | null>(null);
+  const [notificationActionError, setNotificationActionError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const notificationRefreshInFlight = useRef(false);
+  const notificationFetchController = useRef<AbortController | null>(null);
+  const pendingReadsRef = useRef(new Set<string>());
   const isSupportInboxActive =
     pathname === supportInboxPath || pathname.startsWith(`${supportInboxPath}/`);
 
@@ -146,14 +151,67 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
       minute: "2-digit",
     }).format(new Date(createdAt));
 
+  const updateLocalReadState = (notificationId: string, isRead: boolean, readAt?: string) => {
+    const update = (items: NotificationItem[]) => items.map((item) =>
+      item.id === notificationId
+        ? { ...item, isRead, readAt: isRead ? readAt : undefined }
+        : item
+    );
+    setInAppNotifications(update);
+    setBroadcastNotifications(update);
+  };
+
+  const markNotificationItemRead = (notification: NotificationItem) => {
+    if (
+      !notification.isRead &&
+      !readNotificationIds.has(notification.id) &&
+      !pendingReadsRef.current.has(notification.id)
+    ) {
+      const readAt = new Date().toISOString();
+      pendingReadsRef.current.add(notification.id);
+      notificationFetchController.current?.abort();
+      updateLocalReadState(notification.id, true, readAt);
+      setNotificationActionError(null);
+      void markNotificationAsRead(notification.id).then((success) => {
+        if (!success) {
+          updateLocalReadState(notification.id, false);
+          setNotificationActionError("Could not mark this notification as read. Please try again.");
+        }
+      }).finally(() => {
+        pendingReadsRef.current.delete(notification.id);
+      });
+    }
+  };
+
   const handleNotificationClick = (notification: NotificationItem) => {
     setExpandedId((current) => current === notification.id ? null : notification.id);
-    if (!notification.isRead && !readNotificationIds.has(notification.id)) {
-      void markNotificationAsRead(notification.id);
-    }
-    if (filter === "unread") {
-      setFilter("all");
-    }
+    markNotificationItemRead(notification);
+  };
+
+  const handleMarkAllNotificationsAsRead = () => {
+    const readAt = new Date().toISOString();
+    const unreadNotifications = displayedNotifications
+      .filter((notification) => !notification.isRead && !readNotificationIds.has(notification.id));
+    const unreadIds = new Set(unreadNotifications.map((notification) => notification.id));
+    pendingReadsRef.current.add("*");
+    notificationFetchController.current?.abort();
+    const optimisticallyMarkRead = (current: NotificationItem[]) => current.map((notification) =>
+      unreadIds.has(notification.id) ? { ...notification, isRead: true, readAt } : notification
+    );
+    setInAppNotifications(optimisticallyMarkRead);
+    setBroadcastNotifications(optimisticallyMarkRead);
+    setNotificationActionError(null);
+    void markAllNotificationsAsRead().then((success) => {
+      if (success) return;
+      const revert = (items: NotificationItem[]) => items.map((item) =>
+        unreadIds.has(item.id) ? { ...item, isRead: false, readAt: undefined } : item
+      );
+      setInAppNotifications(revert);
+      setBroadcastNotifications(revert);
+      setNotificationActionError("Could not mark notifications as read. Please try again.");
+    }).finally(() => {
+      pendingReadsRef.current.delete("*");
+    });
   };
 
   useEffect(() => {
@@ -280,7 +338,9 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
   const filteredNotifications = filter === 'unread'
-    ? displayedNotifications.filter((notification) => !readNotificationIds.has(notification.id))
+    ? displayedNotifications.filter((notification) =>
+        !notification.isRead && !readNotificationIds.has(notification.id)
+      )
     : displayedNotifications;
   const visibleNotifications = filteredNotifications.slice(0, visibleCount);
   const inquiryReplyCount = supportThreads.filter((inquiry) =>
@@ -422,12 +482,23 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
     let realtimeChannel: ReturnType<ReturnType<typeof createBrowserClient>["channel"]> | null = null;
 
     async function refreshGranteeNotifications() {
-      if (!active || document.visibilityState !== "visible" || notificationRefreshInFlight.current) return;
+      if (
+        !active ||
+        document.visibilityState !== "visible" ||
+        notificationRefreshInFlight.current ||
+        pendingReadsRef.current.size > 0
+      ) return;
       notificationRefreshInFlight.current = true;
+      const controller = new AbortController();
+      notificationFetchController.current = controller;
       try {
-        const response = await fetch("/api/my/notifications", { cache: "no-store" });
-        if (!active || !response.ok) return;
+        const response = await fetch("/api/my/notifications", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!active || controller.signal.aborted || pendingReadsRef.current.size > 0 || !response.ok) return;
         const payload = asRecord(await response.json());
+        if (!active || controller.signal.aborted || pendingReadsRef.current.size > 0) return;
         const rows: unknown[] = payload && Array.isArray(payload.notifications)
           ? payload.notifications
           : [];
@@ -440,6 +511,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
             title: getString(item.title, parsedText.title),
             message: getString(item.message, parsedText.message),
             createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
+            readAt: typeof item.readAt === "string" ? item.readAt : undefined,
             link: typeof item.href === "string"
               ? item.href
               : item.id.startsWith("submission:")
@@ -460,6 +532,9 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
         // Keep the last successful notification state when the background request is unavailable.
       } finally {
         notificationRefreshInFlight.current = false;
+        if (notificationFetchController.current === controller) {
+          notificationFetchController.current = null;
+        }
       }
     }
 
@@ -517,8 +592,11 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
         <button
           type="button"
           onClick={() => {
-            const next = openPanel === "notifications" ? "none" : "notifications";
-            setOpenPanel(next);
+            const isOpening = openPanel !== "notifications";
+            setOpenPanel(isOpening ? "notifications" : "none");
+            if (isOpening && liveUnreadCount > 0) {
+              handleMarkAllNotificationsAsRead();
+            }
           }}
           className="relative rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-600 shadow-sm transition hover:border-[#0F3D5C]/40 hover:bg-[#0F3D5C]/5 hover:text-[#0F3D5C]"
           aria-expanded={openPanel === "notifications"}
@@ -551,23 +629,37 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
             <div className="shrink-0 bg-white/95 px-4 py-3 backdrop-blur-sm">
               <span className="text-sm font-semibold text-gray-900">Notifications</span>
             </div>
-            <div className="flex shrink-0 items-center gap-1 border-b border-gray-100 px-3 py-2">
-              {(['all', 'unread'] as const).map((option) => (
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-3 py-2">
+              <div className="flex items-center gap-1">
+                {(['all', 'unread'] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => {
+                      setFilter(option);
+                      setVisibleCount(INITIAL_NOTIFICATION_COUNT);
+                    }}
+                    className={filter === option
+                      ? 'rounded-full bg-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600'
+                      : 'rounded-full px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100'}
+                  >
+                    {option === 'all' ? 'All' : 'Unread'}
+                  </button>
+                ))}
+              </div>
+              {liveUnreadCount > 0 ? (
                 <button
-                  key={option}
                   type="button"
-                  onClick={() => {
-                    setFilter(option);
-                    setVisibleCount(INITIAL_NOTIFICATION_COUNT);
-                  }}
-                  className={filter === option
-                    ? 'rounded-full bg-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600'
-                    : 'rounded-full px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-100'}
+                  onClick={handleMarkAllNotificationsAsRead}
+                  className="shrink-0 text-xs font-medium text-[#0d5c75] hover:underline"
                 >
-                  {option === 'all' ? 'All' : 'Unread'}
+                  Mark all as read
                 </button>
-              ))}
+              ) : null}
             </div>
+            {notificationActionError ? (
+              <p className="px-4 pt-2 text-xs text-rose-700" role="status">{notificationActionError}</p>
+            ) : null}
             <div className="max-h-[420px] min-h-0 flex-1 overflow-y-auto p-2 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300">
               {visibleNotifications.length > 0 ? (
                 <div className="space-y-2">
@@ -576,12 +668,13 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
                   const isExpanded = expandedId === notification.id;
                   const isLongMessage = notification.message.length > 100;
                   const cardClassName = `flex min-w-0 items-start gap-3 rounded-xl p-3 text-left text-sm ${
-                    isRead ? "bg-white text-slate-600" : "bg-blue-50 text-slate-700"
+                    isRead ? "bg-white text-slate-600" : "bg-sky-50/40 text-slate-700"
                   }`;
                   return (
                     <div
                       key={`${notification.id}-${idx}`}
-                      className={`${cardClassName} transition-colors ${isRead ? "hover:bg-gray-50" : "hover:bg-blue-100/50"}`}
+                      onClick={() => handleNotificationClick(notification)}
+                      className={`${cardClassName} cursor-pointer transition-colors ${isRead ? "hover:bg-gray-50" : "hover:bg-sky-100/60"}`}
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500" aria-hidden="true">
                         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
@@ -591,11 +684,15 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
                       <div className="min-w-0 flex-1">
                         <button
                           type="button"
-                          onClick={() => handleNotificationClick(notification)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleNotificationClick(notification);
+                          }}
                           aria-expanded={isExpanded}
                           className="block w-full text-left focus-visible:rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C]"
                         >
-                          <p className="break-words text-sm font-semibold text-slate-900">
+                          <p className="flex items-center gap-1.5 break-words text-sm font-semibold text-slate-900">
+                            {!isRead ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-600" aria-label="Unread" /> : null}
                             {notification.title}
                           </p>
                           <p className={`mt-1 break-words text-xs leading-relaxed text-slate-600 ${
@@ -624,11 +721,14 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
                             {isLongMessage ? (
                               <button
                                 type="button"
-                                onClick={() => handleNotificationClick(notification)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleNotificationClick(notification);
+                                }}
                                 aria-expanded={isExpanded}
                                 className="inline-flex items-center gap-1 font-medium text-slate-500 transition hover:text-slate-800"
                               >
-                                {isExpanded ? "Show less" : "Read full message"}
+                                {isExpanded ? "Show less" : "Show more"}
                                 <ChevronDown
                                   className={`h-3.5 w-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                                   aria-hidden="true"
@@ -640,7 +740,7 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
                                 href={notification.link}
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  if (!isRead) void markNotificationAsRead(notification.id);
+                                  if (!isRead) handleNotificationClick(notification);
                                   setExpandedId(null);
                                   setOpenPanel("none");
                                 }}
@@ -652,7 +752,6 @@ export function DashboardHeaderActions({ notifications = [], supportInboxPath = 
                           </span>
                         </div>
                       </div>
-                      {!isRead ? <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" aria-label="Unread" /> : null}
                     </div>
                   );
                 })}

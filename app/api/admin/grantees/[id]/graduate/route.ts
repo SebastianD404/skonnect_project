@@ -10,7 +10,7 @@ import { refreshSkeapApplicationsAdminView } from "@/lib/application-admin-view-
 import { GRADE_REPORT_MIME_TYPES, hasGradeReportSignature } from "@/lib/ocr/grade-report-file";
 import { uploadPrivateDocument, removePrivateDocument } from "@/lib/private-documents";
 import { createClient } from "@/lib/supabase/server";
-import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
+import { hasGranteeColumn, hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import {
   MAX_SKEAP_UPLOAD_SIZE_BYTES,
   SKEAP_UPLOAD_TOO_LARGE_MESSAGE,
@@ -113,7 +113,15 @@ export async function POST(
       : null;
     uploadedPath = uploaded?.path ?? null;
 
-    const hasRetentionColumn = await hasGranteeRetentionColumn();
+    const [
+      hasRetentionColumn,
+      hasExitClearanceFileNameColumn,
+      hasExitClearanceSubmittedAtColumn,
+    ] = await Promise.all([
+      hasGranteeRetentionColumn(),
+      hasGranteeColumn("exitClearanceFileName"),
+      hasGranteeColumn("exitClearanceSubmittedAt"),
+    ]);
     const graduation = await prisma.$transaction(async (tx) => {
       const grantee = await tx.grantee.findUnique({
         where: { id },
@@ -125,6 +133,8 @@ export async function POST(
           graduatedAt: true,
           exitClearanceStatus: true,
           exitClearanceUrl: true,
+          ...(hasExitClearanceFileNameColumn ? { exitClearanceFileName: true } : {}),
+          ...(hasExitClearanceSubmittedAtColumn ? { exitClearanceSubmittedAt: true } : {}),
           graduationRemarks: true,
           user: {
             select: { fullName: true, role: true, email: true },
@@ -181,6 +191,22 @@ export async function POST(
           graduatedBy: admin.id,
           exitClearanceStatus: "CLEARED",
           exitClearanceUrl: uploaded?.url ?? grantee.exitClearanceUrl,
+          ...(hasExitClearanceFileNameColumn
+            ? {
+                exitClearanceFileName:
+                  clearanceFile?.name ??
+                  ("exitClearanceFileName" in grantee ? grantee.exitClearanceFileName : null),
+              }
+            : {}),
+          ...(hasExitClearanceSubmittedAtColumn
+            ? {
+                exitClearanceSubmittedAt: uploaded
+                  ? graduatedAt
+                  : "exitClearanceSubmittedAt" in grantee
+                    ? grantee.exitClearanceSubmittedAt
+                    : null,
+              }
+            : {}),
           schoolClearanceVerified: true,
           skClearanceVerified: true,
           graduationRemarks: [
@@ -191,6 +217,14 @@ export async function POST(
         },
       });
       if (updateResult.count !== 1) throw new Error("GRANTEE_NOT_ACTIVE");
+
+      await tx.notification.updateMany({
+        where: {
+          userId: grantee.userId,
+          sourceKey: `graduation-candidate-ready:${grantee.id}`,
+        },
+        data: { isRead: true, readAt: graduatedAt },
+      });
 
       await downgradeInactiveGranteeRole(tx, grantee.userId);
 
@@ -240,11 +274,25 @@ export async function POST(
           status: grantee.status,
           exitClearanceStatus: grantee.exitClearanceStatus,
           exitClearanceUrl: grantee.exitClearanceUrl,
+          exitClearanceFileName:
+            "exitClearanceFileName" in grantee ? grantee.exitClearanceFileName : null,
+          exitClearanceSubmittedAt:
+            "exitClearanceSubmittedAt" in grantee
+              ? grantee.exitClearanceSubmittedAt?.toISOString() ?? null
+              : null,
         },
         afterData: {
           status: GranteeStatus.GRADUATED,
           exitClearanceStatus: "CLEARED",
           exitClearanceUrl: uploaded?.url ?? grantee.exitClearanceUrl,
+          exitClearanceFileName:
+            clearanceFile?.name ??
+            ("exitClearanceFileName" in grantee ? grantee.exitClearanceFileName : null),
+          exitClearanceSubmittedAt: uploaded
+            ? graduatedAt.toISOString()
+            : "exitClearanceSubmittedAt" in grantee
+              ? grantee.exitClearanceSubmittedAt?.toISOString() ?? null
+              : null,
           graduatedAt: graduatedAt.toISOString(),
           graduatedBy: admin.id,
           schoolClearanceVerified: true,

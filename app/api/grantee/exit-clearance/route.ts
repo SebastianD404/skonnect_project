@@ -1,6 +1,6 @@
 import { GranteeStatus, Role } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { hasGranteeColumn, prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { uploadPrivateDocument, removePrivateDocument } from "@/lib/private-documents";
 import {
@@ -88,6 +88,11 @@ export async function POST(request: NextRequest) {
     try {
       const uploaded = await uploadPrivateDocument(user.id, uploadFile, "grantee-clearances", "exit-clearance");
       uploadedPath = uploaded.path;
+      const submittedAt = new Date();
+      const [hasFileNameColumn, hasSubmittedAtColumn] = await Promise.all([
+        hasGranteeColumn("exitClearanceFileName"),
+        hasGranteeColumn("exitClearanceSubmittedAt"),
+      ]);
 
       await prisma.$transaction(async (tx) => {
         const updated = await tx.grantee.updateMany({
@@ -100,6 +105,8 @@ export async function POST(request: NextRequest) {
           data: {
             exitClearanceStatus: "SUBMITTED",
             exitClearanceUrl: uploaded.url,
+            ...(hasFileNameColumn ? { exitClearanceFileName: file.name } : {}),
+            ...(hasSubmittedAtColumn ? { exitClearanceSubmittedAt: submittedAt } : {}),
             schoolClearanceVerified: false,
             skClearanceVerified: false,
             graduationRemarks: note || null,
@@ -128,6 +135,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         exitClearanceStatus: "SUBMITTED",
+        exitClearanceUrl: uploaded.url,
+        exitClearanceFileName: file.name,
+        exitClearanceSubmittedAt: submittedAt.toISOString(),
       });
     } catch (error) {
       if (uploadedPath) {

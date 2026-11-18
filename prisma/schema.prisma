@@ -105,6 +105,8 @@ model Grantee {
   graduationReadyAt  DateTime?
   exitClearanceStatus ExitClearanceStatus @default(NONE)
   exitClearanceUrl   String?
+  exitClearanceFileName String?
+  exitClearanceSubmittedAt DateTime?
   schoolClearanceVerified Boolean       @default(false)
   skClearanceVerified Boolean           @default(false)
   graduationRemarks  String?

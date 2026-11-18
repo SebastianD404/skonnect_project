@@ -6,8 +6,8 @@ type NotificationContextValue = {
   readNotificationIds: Set<string>;
   unreadCount: number;
   refreshNotifications: () => Promise<void>;
-  markNotificationAsRead: (notificationId: string) => Promise<void>;
-  markAllNotificationsAsRead: (notificationIds: string[]) => Promise<void>;
+  markNotificationAsRead: (notificationId: string) => Promise<boolean>;
+  markAllNotificationsAsRead: () => Promise<boolean>;
 };
 
 const NotificationContext = createContext<NotificationContextValue | null>(null);
@@ -16,23 +16,26 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
   const [serverUnreadCount, setServerUnreadCount] = useState<number | null>(null);
   const mutationVersion = useRef(0);
+  const pendingReadIds = useRef(new Set<string>());
 
   const refreshNotifications = useCallback(async () => {
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    if (
+      (typeof document !== "undefined" && document.visibilityState !== "visible") ||
+      pendingReadIds.current.size > 0
+    ) return;
     const requestVersion = mutationVersion.current;
     try {
-      const [readResponse, countResponse] = await Promise.all([
-        fetch("/api/my/notifications/read", { cache: "no-store" }),
-        fetch("/api/my/notifications/unread-count", { cache: "no-store" }),
-      ]);
-      const readData = readResponse.ok ? await readResponse.json() : null;
-      const countData = countResponse.ok ? await countResponse.json() : null;
-      if (requestVersion !== mutationVersion.current) return;
-      if (Array.isArray(readData?.notificationIds)) {
-        setReadNotificationIds(new Set(readData.notificationIds));
+      const response = await fetch("/api/my/notifications", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (requestVersion !== mutationVersion.current || pendingReadIds.current.size > 0) return;
+      if (Array.isArray(data.readIds)) {
+        setReadNotificationIds(new Set(
+          data.readIds.filter((value: unknown): value is string => typeof value === "string"),
+        ));
       }
-      if (typeof countData?.count === "number") {
-        setServerUnreadCount(countData.count);
+      if (typeof data.unreadCount === "number") {
+        setServerUnreadCount(data.unreadCount);
       }
     } catch {
       // Keep the last known notification state when polling is unavailable.
@@ -75,36 +78,91 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [refreshNotifications]);
 
   const markNotificationAsRead = useCallback(async (notificationId: string) => {
-    mutationVersion.current += 1;
+    if (pendingReadIds.current.has(notificationId)) return true;
+    pendingReadIds.current.add(notificationId);
+    const mutationId = ++mutationVersion.current;
+    let confirmedUnreadCount: number | null = null;
     setReadNotificationIds((current) => new Set(current).add(notificationId));
     if (!notificationId.startsWith("inquiry-reply:")) {
-      setServerUnreadCount((current) => current === null ? 0 : Math.max(0, current - 1));
+      setServerUnreadCount((current) => current === null ? null : Math.max(0, current - 1));
     }
     try {
-      await fetch("/api/my/notifications/read", {
-        method: "POST",
+      const response = await fetch("/api/my/notifications", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationId }),
+        body: JSON.stringify({ id: notificationId }),
       });
+      if (!response.ok) throw new Error("Unable to mark notification as read.");
+      const payload: unknown = await response.json();
+      if (typeof payload === "object" && payload !== null) {
+        if ("unreadCount" in payload && typeof payload.unreadCount === "number") {
+          confirmedUnreadCount = payload.unreadCount;
+        }
+        if ("readIds" in payload && Array.isArray(payload.readIds)) {
+          const readIds = payload.readIds.filter(
+            (value): value is string => typeof value === "string",
+          );
+          setReadNotificationIds((current) => new Set([...current, ...readIds]));
+        }
+      }
+      return true;
     } catch {
-      // Keep the optimistic state when the background update is unavailable.
+      setReadNotificationIds((current) => {
+        const next = new Set(current);
+        next.delete(notificationId);
+        return next;
+      });
+      if (!notificationId.startsWith("inquiry-reply:")) {
+        setServerUnreadCount((current) => current === null ? null : current + 1);
+      }
+      return false;
+    } finally {
+      pendingReadIds.current.delete(notificationId);
+      if (
+        pendingReadIds.current.size === 0 &&
+        mutationId === mutationVersion.current &&
+        confirmedUnreadCount !== null
+      ) {
+        setServerUnreadCount(confirmedUnreadCount);
+      }
+      if (pendingReadIds.current.size === 0) void refreshNotifications();
     }
-  }, []);
+  }, [refreshNotifications]);
 
-  const markAllNotificationsAsRead = useCallback(async (notificationIds: string[]) => {
-    mutationVersion.current += 1;
-    setReadNotificationIds((current) => new Set([...current, ...notificationIds]));
+  const markAllNotificationsAsRead = useCallback(async () => {
+    if (pendingReadIds.current.has("*")) return true;
+    const previousUnreadCount = serverUnreadCount;
+    const mutationId = ++mutationVersion.current;
+    pendingReadIds.current.add("*");
     setServerUnreadCount(0);
     try {
-      await fetch("/api/my/notifications/read-all", {
-        method: "POST",
+      const response = await fetch("/api/my/notifications", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationIds }),
+        body: JSON.stringify({ markAllRead: true }),
       });
+      if (!response.ok) throw new Error("Unable to mark notifications as read.");
+      const payload: unknown = await response.json();
+      if (
+        mutationId === mutationVersion.current &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "unreadCount" in payload &&
+        typeof payload.unreadCount === "number"
+      ) {
+        setServerUnreadCount(payload.unreadCount);
+      }
+      return true;
     } catch {
-      // Keep the optimistic state when the background update is unavailable.
+      if (mutationId === mutationVersion.current) {
+        setServerUnreadCount(previousUnreadCount);
+      }
+      return false;
+    } finally {
+      pendingReadIds.current.delete("*");
+      if (mutationId === mutationVersion.current) void refreshNotifications();
     }
-  }, []);
+  }, [serverUnreadCount, refreshNotifications]);
 
   const value = useMemo<NotificationContextValue>(() => ({
     readNotificationIds,

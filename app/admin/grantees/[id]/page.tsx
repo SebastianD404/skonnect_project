@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, unstable_rethrow } from "next/navigation";
 import type { Prisma } from "@prisma/client";
-import { hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
+import { hasGranteeColumn, hasGranteeRetentionColumn, prisma } from "@/lib/prisma";
 import { getRetentionExpiryDate } from "@/lib/grantee-retention";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import { OFFICIAL_SITIOS } from "@/lib/kk";
@@ -29,7 +29,15 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
 
   let granteeData;
   try {
-    const hasRetentionColumn = await hasGranteeRetentionColumn();
+    const [
+      hasRetentionColumn,
+      hasExitClearanceFileNameColumn,
+      hasExitClearanceSubmittedAtColumn,
+    ] = await Promise.all([
+      hasGranteeRetentionColumn(),
+      hasGranteeColumn("exitClearanceFileName"),
+      hasGranteeColumn("exitClearanceSubmittedAt"),
+    ]);
     const grantee = await prisma.grantee.findUnique({
       where: { id: granteeId },
       select: {
@@ -42,6 +50,8 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
         dateRemoved: true,
         graduatedAt: true,
         exitClearanceUrl: true,
+        ...(hasExitClearanceFileNameColumn ? { exitClearanceFileName: true } : {}),
+        ...(hasExitClearanceSubmittedAtColumn ? { exitClearanceSubmittedAt: true } : {}),
         updatedAt: true,
         ...(hasRetentionColumn ? { retentionExpiresAt: true } : {}),
         user: {
@@ -262,6 +272,12 @@ export default async function AdminGranteeDetailPage({ params }: Props) {
           dateRemoved: grantee.dateRemoved?.toISOString() ?? null,
           graduatedAt: grantee.graduatedAt?.toISOString() ?? null,
           exitClearanceUrl: grantee.exitClearanceUrl,
+          exitClearanceFileName:
+            "exitClearanceFileName" in grantee ? grantee.exitClearanceFileName : null,
+          exitClearanceSubmittedAt:
+            "exitClearanceSubmittedAt" in grantee
+              ? grantee.exitClearanceSubmittedAt?.toISOString() ?? null
+              : null,
           submissions: grantee.submissions.map((submission) => ({
             id: submission.id,
             semester: submission.semester,
