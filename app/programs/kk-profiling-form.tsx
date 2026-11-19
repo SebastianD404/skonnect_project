@@ -62,34 +62,6 @@ const FORM_DATA_PART_OVERHEAD_BYTES = 512;
 type ProfilingDocumentKey = "photo" | "birthCertificate" | "front" | "back" | "residency";
 type ProfilingField = keyof typeof initialForm;
 
-const PROFILING_FIELD_LABELS: Record<string, string> = {
-  lastName: "Last Name",
-  firstName: "First Name",
-  middleInitial: "Middle Name",
-  sitio: "Sitio",
-  barangay: "Barangay",
-  municipality: "Municipality",
-  province: "Province",
-  sex: "Sex",
-  birthDate: "Birth Date",
-  placeOfBirth: "Place of Birth",
-  email: "Email Address",
-  facebook: "Facebook account name",
-  contactNumber: "Contact Number",
-  civilStatus: "Civil Status",
-  youthClassification: "Youth Classification",
-  youthAgeGroup: "Youth Age Group",
-  workStatus: "Work Status",
-  educationalBackground: "Educational Background",
-  registeredSKVoter: "Registered SK Voter",
-  votedLastSK: "SK Election Participation",
-  registeredNationalVoter: "Registered National Voter",
-  attendedKKAssembly: "KK Assembly Attendance",
-  assemblyTimes: "Assembly Attendance",
-  noAssemblyReason: "KK Assembly Reason",
-  consent: "Informed Consent",
-};
-
 const PROFILING_VALIDATION_ORDER: ProfilingField[] = [
   "lastName",
   "firstName",
@@ -254,6 +226,7 @@ export default function KKProfilingForm({
   const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [validationErrorField, setValidationErrorField] = useState<string | null>(null);
+  const [validationRedirectRequest, setValidationRedirectRequest] = useState(0);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [idFiles, setIdFiles] = useState<Partial<Record<ProfilingDocumentKey, File | null>>>({});
@@ -287,10 +260,6 @@ export default function KKProfilingForm({
     !hasHardDocumentError &&
     (Object.values(failedOcrAttempts).some((attempts) => attempts >= 3) ||
       Object.values(ocrValidationState).some((state) => state.manualReviewRequired));
-  const lastNameError = fieldErrors.lastName ?? null;
-  const firstNameError = fieldErrors.firstName ?? null;
-  const middleNameError = fieldErrors.middleInitial ?? null;
-
   useEffect(() => {
     if (validationErrorField) {
       const target = document.getElementById(`kk-profile-${validationErrorField}`);
@@ -313,7 +282,7 @@ export default function KKProfilingForm({
 
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     target.focus({ preventScroll: true });
-  }, [emailError, actionError, message, accountExistsFallback, validationErrorField]);
+  }, [emailError, actionError, message, accountExistsFallback, validationErrorField, validationRedirectRequest]);
 
   useEffect(() => {
     let active = true;
@@ -427,30 +396,29 @@ export default function KKProfilingForm({
     values: typeof initialForm = form,
   ) {
     const value = values[fieldName];
-    const label = PROFILING_FIELD_LABELS[fieldName];
 
     if (fieldName === "lastName" || fieldName === "firstName" || fieldName === "middleInitial") {
-      if (typeof value !== "string" || !value.trim()) return `${label} is required.`;
-      if (!isValidNameInput(value.trim())) return `${label} must contain at least two letters.`;
+      if (typeof value !== "string" || !value.trim()) return "This field is required.";
+      if (!isValidNameInput(value.trim())) return "Use at least two letters.";
       return null;
     }
     if (fieldName === "placeOfBirth") return validatePlaceOfBirth(String(value ?? ""));
     if (fieldName === "contactNumber") {
-      if (!String(value ?? "").trim()) return `${label} is required.`;
+      if (!String(value ?? "").trim()) return "This field is required.";
       return isValidContactNumber(String(value)) ? null : "Contact number can contain numbers only.";
     }
     if (fieldName === "email") {
       const email = String(value ?? "").trim();
-      if (!email) return `${label} is required.`;
+      if (!email) return "This field is required.";
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? null : "Enter a valid email address.";
     }
     if (fieldName === "birthDate") {
-      return values.birthDate && values.age ? null : "Birth Date is required.";
+      return values.birthDate && values.age ? null : "This field is required.";
     }
     if (fieldName === "assemblyTimes" && values.attendedKKAssembly !== "Yes") return null;
     if (fieldName === "noAssemblyReason" && values.attendedKKAssembly !== "No") return null;
-    if (fieldName === "consent") return value ? null : "You must agree to the informed consent.";
-    return typeof value === "string" && value.trim() ? null : `${label} is required.`;
+    if (fieldName === "consent") return value ? null : "Please agree to the informed consent.";
+    return typeof value === "string" && value.trim() ? null : "This field is required.";
   }
 
   function getFieldValidationErrors(values: typeof initialForm = form) {
@@ -477,7 +445,30 @@ export default function KKProfilingForm({
     updateFieldError(fieldName, form);
   }
 
+  function getFieldErrorAttributes(fieldName: ProfilingField) {
+    const hasError = Boolean(fieldErrors[fieldName]);
+    return {
+      "aria-invalid": hasError,
+      "aria-describedby": hasError ? `kk-profile-${fieldName}-error` : undefined,
+      "data-error": hasError ? "true" : undefined,
+    };
+  }
+
+  function getFieldControlClass(fieldName: ProfilingField, className: string) {
+    return `${className} ${fieldErrors[fieldName] ? "border-red-500 focus-visible:ring-red-500" : ""}`;
+  }
+
+  function renderFieldError(fieldName: ProfilingField) {
+    const error = fieldErrors[fieldName];
+    return error ? (
+      <p id={`kk-profile-${fieldName}-error`} className="text-xs font-medium text-red-600 mt-1.5">
+        {error}
+      </p>
+    ) : null;
+  }
+
   function setField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
+    setValidationErrorField(null);
     if (key === "email") {
       setEmailError(null);
     }
@@ -497,6 +488,13 @@ export default function KKProfilingForm({
     const fieldName = String(key);
     if (touchedFields[fieldName] || fieldErrors[fieldName]) {
       updateFieldError(fieldName as ProfilingField, nextForm);
+    }
+    if (key === "attendedKKAssembly") {
+      for (const dependentField of ["assemblyTimes", "noAssemblyReason"] as const) {
+        if (touchedFields[dependentField] || fieldErrors[dependentField]) {
+          updateFieldError(dependentField, nextForm);
+        }
+      }
     }
   }
 
@@ -802,10 +800,11 @@ export default function KKProfilingForm({
     const firstInvalidField = PROFILING_VALIDATION_ORDER.find((field) => errors[field]);
     if (firstInvalidField) {
       setValidationErrorField(firstInvalidField);
-      setMessage(`${PROFILING_FIELD_LABELS[firstInvalidField]}: ${errors[firstInvalidField]}`);
+      setValidationRedirectRequest((current) => current + 1);
       return;
     }
 
+    setValidationErrorField(null);
     const err = validate(manualReview);
     if (err) {
       setMessage(`${err.label}: ${err.message}`);
@@ -1025,6 +1024,21 @@ export default function KKProfilingForm({
               Complete your one-time KK Profile here to verify your Barangay residency and unlock SK programs and SKEAP applications.
             </p>
           ) : null}
+          {actionError || message ? (
+            <div
+              ref={submissionFeedbackRef}
+              tabIndex={-1}
+              aria-live={actionError ? "assertive" : "polite"}
+              className={`max-w-2xl rounded-xl border px-4 py-3 text-sm leading-relaxed focus:outline-none focus-visible:ring-2 ${
+                magicLinkSent
+                  ? "border-teal-200 bg-teal-50 text-teal-800 focus-visible:ring-teal-500"
+                  : "border-rose-200 bg-rose-50 text-rose-800 focus-visible:ring-rose-500"
+              }`}
+            >
+              {actionError ? <p role="alert">{actionError}</p> : null}
+              {message ? <p role="status">{message}</p> : null}
+            </div>
+          ) : null}
 
       <div className="flex flex-col gap-6">
         <div className="relative rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
@@ -1050,112 +1064,114 @@ export default function KKProfilingForm({
           <FormFieldLabel required className="text-sm font-semibold">Last Name</FormFieldLabel>
           <input
             id="kk-profile-lastName"
+            name="lastName"
             value={form.lastName}
             onChange={(e) => setField("lastName", removeNameNumbers(e.target.value))}
             onBlur={() => handleFieldBlur("lastName")}
             minLength={2}
             required
-            aria-invalid={Boolean(lastNameError)}
-            aria-describedby={lastNameError ? "last-name-error" : undefined}
-            className={`w-full rounded-lg border px-3 py-2 ${lastNameError ? "border-red-500" : ""}`}
+            {...getFieldErrorAttributes("lastName")}
+            className={getFieldControlClass("lastName", "w-full rounded-lg border px-3 py-2")}
           />
-          {lastNameError ? <span id="last-name-error" className="text-sm text-red-600" role="alert">{lastNameError}</span> : null}
+          {renderFieldError("lastName")}
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">First Name</FormFieldLabel>
           <input
             id="kk-profile-firstName"
+            name="firstName"
             value={form.firstName}
             onChange={(e) => setField("firstName", removeNameNumbers(e.target.value))}
             onBlur={() => handleFieldBlur("firstName")}
             minLength={2}
             required
-            aria-invalid={Boolean(firstNameError)}
-            aria-describedby={firstNameError ? "first-name-error" : undefined}
-            className={`w-full rounded-lg border px-3 py-2 ${firstNameError ? "border-red-500" : ""}`}
+            {...getFieldErrorAttributes("firstName")}
+            className={getFieldControlClass("firstName", "w-full rounded-lg border px-3 py-2")}
           />
-          {firstNameError ? <span id="first-name-error" className="text-sm text-red-600" role="alert">{firstNameError}</span> : null}
+          {renderFieldError("firstName")}
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Middle Name</FormFieldLabel>
           <input
             id="kk-profile-middleInitial"
+            name="middleInitial"
             value={form.middleInitial}
             onChange={(e) => setField("middleInitial", normalizedMiddleInitial(e.target.value))}
             onBlur={() => handleFieldBlur("middleInitial")}
             maxLength={80}
             minLength={2}
             required
-            aria-invalid={Boolean(middleNameError)}
-            aria-describedby={middleNameError ? "middle-name-error" : undefined}
-            className={`w-full rounded-lg border px-3 py-2 ${middleNameError ? "border-red-500" : ""}`}
+            {...getFieldErrorAttributes("middleInitial")}
+            className={getFieldControlClass("middleInitial", "w-full rounded-lg border px-3 py-2")}
           />
-          {middleNameError ? <span id="middle-name-error" className="text-sm text-red-600" role="alert">{middleNameError}</span> : null}
+          {renderFieldError("middleInitial")}
         </label>
       </div>
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Sitio</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-sitio" value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} onBlur={() => handleFieldBlur("sitio")} required className="w-full rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-sitio" name="sitio" value={form.sitio} onChange={(e) => setField("sitio", e.target.value)} onBlur={() => handleFieldBlur("sitio")} required {...getFieldErrorAttributes("sitio")} className={getFieldControlClass("sitio", "w-full rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select sitio</option>
             {OFFICIAL_SITIOS.map((sitio) => (
               <option key={sitio} value={sitio}>{sitio}</option>
             ))}
           </SelectWithChevron>
+          {renderFieldError("sitio")}
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Barangay</FormFieldLabel>
-          <input id="kk-profile-barangay" value={form.barangay} readOnly required aria-required="true" className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
+          <input id="kk-profile-barangay" name="barangay" value={form.barangay} readOnly required aria-required="true" {...getFieldErrorAttributes("barangay")} className={getFieldControlClass("barangay", "w-full rounded-lg border bg-slate-100 px-3 py-2")} />
+          {renderFieldError("barangay")}
         </label>
       </div>
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2">
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Municipality</FormFieldLabel>
-          <input id="kk-profile-municipality" value={form.municipality} readOnly required aria-required="true" className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
+          <input id="kk-profile-municipality" name="municipality" value={form.municipality} readOnly required aria-required="true" {...getFieldErrorAttributes("municipality")} className={getFieldControlClass("municipality", "w-full rounded-lg border bg-slate-100 px-3 py-2")} />
+          {renderFieldError("municipality")}
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Province</FormFieldLabel>
-          <input id="kk-profile-province" value={form.province} readOnly required aria-required="true" className="w-full rounded-lg border bg-slate-100 px-3 py-2" />
+          <input id="kk-profile-province" name="province" value={form.province} readOnly required aria-required="true" {...getFieldErrorAttributes("province")} className={getFieldControlClass("province", "w-full rounded-lg border bg-slate-100 px-3 py-2")} />
+          {renderFieldError("province")}
         </label>
       </div>
 
       <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-3">
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Sex</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-sex" value={form.sex} onChange={(e) => setField("sex", e.target.value)} onBlur={() => handleFieldBlur("sex")} required className="w-full rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-sex" name="sex" value={form.sex} onChange={(e) => setField("sex", e.target.value)} onBlur={() => handleFieldBlur("sex")} required {...getFieldErrorAttributes("sex")} className={getFieldControlClass("sex", "w-full rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select</option>
             <option>Male</option>
             <option>Female</option>
           </SelectWithChevron>
+          {renderFieldError("sex")}
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Birth Date</FormFieldLabel>
           <input
             id="kk-profile-birthDate"
+            name="birthDate"
             type="date"
             min="1995-01-01"
             max={`${new Date().getFullYear()}-12-31`}
             value={form.birthDate}
             onChange={(event) => {
-              const value = event.target.value;
-              if (value) setField("birthDate", value);
+              setField("birthDate", event.target.value);
             }}
-            onBlur={(event) => {
-              if (!event.target.value && form.birthDate) {
-                setField("birthDate", "");
-              }
-              handleFieldBlur("birthDate");
-            }}
+            onBlur={() => handleFieldBlur("birthDate")}
             required
-            className="w-full rounded-lg border px-3 py-2"
+            {...getFieldErrorAttributes("birthDate")}
+            className={getFieldControlClass("birthDate", "w-full rounded-lg border px-3 py-2")}
           />
+          {renderFieldError("birthDate")}
         </label>
 
         <label className="flex w-full flex-col gap-1.5">
@@ -1178,23 +1194,19 @@ export default function KKProfilingForm({
           <FormFieldLabel required className="text-sm font-semibold">Place of Birth</FormFieldLabel>
           <input
             id="kk-profile-placeOfBirth"
+            name="placeOfBirth"
             value={form.placeOfBirth}
             onChange={(event) => setField("placeOfBirth", event.target.value)}
             onBlur={() => handleFieldBlur("placeOfBirth")}
             placeholder="e.g., Baguio City or La Trinidad, Benguet"
             required
             aria-required="true"
-            aria-invalid={Boolean(fieldErrors.placeOfBirth)}
-            aria-describedby={fieldErrors.placeOfBirth ? "kk-profile-placeOfBirth-error" : undefined}
-            className={`w-full rounded-lg border px-3 py-2 ${
-              fieldErrors.placeOfBirth
-                ? "border-rose-500 bg-rose-50/30 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
-                : ""
-            }`}
+            {...getFieldErrorAttributes("placeOfBirth")}
+            className={getFieldControlClass("placeOfBirth", "w-full rounded-lg border px-3 py-2")}
           />
           {fieldErrors.placeOfBirth ? (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <p id="kk-profile-placeOfBirth-error" className="mt-1.5 text-xs font-medium text-rose-600">
+              <p id="kk-profile-placeOfBirth-error" className="text-xs font-medium text-red-600 mt-1.5">
                 {fieldErrors.placeOfBirth}
               </p>
               {getPlaceOfBirthSuggestion(form.placeOfBirth) ? (
@@ -1223,13 +1235,16 @@ export default function KKProfilingForm({
           <FormFieldLabel required className="text-sm font-semibold">Contact Number</FormFieldLabel>
           <input
             id="kk-profile-contactNumber"
+            name="contactNumber"
             value={form.contactNumber}
             onChange={(e) => setField("contactNumber", keepContactNumberDigits(e.target.value))}
             onBlur={() => handleFieldBlur("contactNumber")}
             inputMode="numeric"
             required
-            className="w-full rounded-lg border px-3 py-2"
+            {...getFieldErrorAttributes("contactNumber")}
+            className={getFieldControlClass("contactNumber", "w-full rounded-lg border px-3 py-2")}
           />
+          {renderFieldError("contactNumber")}
         </label>
       </div>
 
@@ -1238,6 +1253,7 @@ export default function KKProfilingForm({
           <FormFieldLabel required className="text-sm font-semibold">Email Address</FormFieldLabel>
           <input
             id="kk-profile-email"
+            name="email"
             ref={emailInputRef}
             type="email"
             value={form.email}
@@ -1245,12 +1261,17 @@ export default function KKProfilingForm({
             onBlur={() => handleFieldBlur("email")}
             required
             aria-readonly="true"
-            aria-invalid={Boolean(emailError)}
-            aria-describedby={emailError ? "kk-profiling-email-error" : undefined}
-            className={`w-full rounded-lg border bg-slate-100 px-3 py-2 ${emailError ? "border-rose-400 focus-visible:outline-rose-500" : ""}`}
+            aria-invalid={Boolean(emailError || fieldErrors.email)}
+            aria-describedby={[
+              fieldErrors.email ? "kk-profile-email-error" : null,
+              emailError ? "kk-profiling-email-error" : null,
+            ].filter(Boolean).join(" ") || undefined}
+            data-error={emailError || fieldErrors.email ? "true" : undefined}
+            className={getFieldControlClass("email", `w-full rounded-lg border bg-slate-100 px-3 py-2 ${emailError ? "border-red-500 focus-visible:ring-red-500" : ""}`)}
           />
+          {renderFieldError("email")}
           {emailError ? (
-            <p id="kk-profiling-email-error" className="text-sm text-rose-700" role="alert">
+            <p id="kk-profiling-email-error" className="text-xs font-medium text-red-600 mt-1.5" role="alert">
               {emailError}
             </p>
           ) : null}
@@ -1258,7 +1279,8 @@ export default function KKProfilingForm({
 
         <label className="flex w-full flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Facebook Account (Name)</FormFieldLabel>
-          <input id="kk-profile-facebook" value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} onBlur={() => handleFieldBlur("facebook")} required className="w-full rounded-lg border px-3 py-2" />
+          <input id="kk-profile-facebook" name="facebook" value={form.facebook} onChange={(e) => setField("facebook", e.target.value)} onBlur={() => handleFieldBlur("facebook")} required {...getFieldErrorAttributes("facebook")} className={getFieldControlClass("facebook", "w-full rounded-lg border px-3 py-2")} />
+          {renderFieldError("facebook")}
         </label>
       </div>
 
@@ -1271,7 +1293,7 @@ export default function KKProfilingForm({
 
       <label className="flex flex-col gap-1.5">
         <FormFieldLabel required className="text-sm font-semibold">Civil Status</FormFieldLabel>
-        <SelectWithChevron id="kk-profile-civilStatus" value={form.civilStatus} onChange={(e) => setField("civilStatus", e.target.value)} onBlur={() => handleFieldBlur("civilStatus")} required className="rounded-lg border pl-3 pr-10 py-2">
+        <SelectWithChevron id="kk-profile-civilStatus" name="civilStatus" value={form.civilStatus} onChange={(e) => setField("civilStatus", e.target.value)} onBlur={() => handleFieldBlur("civilStatus")} required {...getFieldErrorAttributes("civilStatus")} className={getFieldControlClass("civilStatus", "rounded-lg border pl-3 pr-10 py-2")}>
           <option value="">Select</option>
           <option>Single</option>
           <option>Married</option>
@@ -1279,11 +1301,12 @@ export default function KKProfilingForm({
           <option>Annulled</option>
           <option>Divorced</option>
         </SelectWithChevron>
+        {renderFieldError("civilStatus")}
       </label>
 
       <label className="flex flex-col gap-1.5">
         <FormFieldLabel required className="text-sm font-semibold">Youth Classification</FormFieldLabel>
-        <SelectWithChevron id="kk-profile-youthClassification" value={form.youthClassification} onChange={(e) => setField("youthClassification", e.target.value)} onBlur={() => handleFieldBlur("youthClassification")} required className="rounded-lg border pl-3 pr-10 py-2">
+        <SelectWithChevron id="kk-profile-youthClassification" name="youthClassification" value={form.youthClassification} onChange={(e) => setField("youthClassification", e.target.value)} onBlur={() => handleFieldBlur("youthClassification")} required {...getFieldErrorAttributes("youthClassification")} className={getFieldControlClass("youthClassification", "rounded-lg border pl-3 pr-10 py-2")}>
           <option value="">Select</option>
           <option>In school Youth</option>
           <option>Out of School Youth</option>
@@ -1291,22 +1314,24 @@ export default function KKProfilingForm({
           <option>Person w/ Disability</option>
           <option>Indigenous People</option>
         </SelectWithChevron>
+        {renderFieldError("youthClassification")}
       </label>
 
       <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Youth age Group</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-youthAgeGroup" value={form.youthAgeGroup} onChange={(e) => setField("youthAgeGroup", e.target.value)} onBlur={() => handleFieldBlur("youthAgeGroup")} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-youthAgeGroup" name="youthAgeGroup" value={form.youthAgeGroup} onChange={(e) => setField("youthAgeGroup", e.target.value)} onBlur={() => handleFieldBlur("youthAgeGroup")} required {...getFieldErrorAttributes("youthAgeGroup")} className={getFieldControlClass("youthAgeGroup", "rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select</option>
             <option>Child Youth (15-17 yrs old)</option>
             <option>Core Youth (18-24 yrs old)</option>
             <option>Young Adult (15-30 yrs old)</option>
           </SelectWithChevron>
+          {renderFieldError("youthAgeGroup")}
         </label>
 
         <label className="flex flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Work Status</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-workStatus" value={form.workStatus} onChange={(e) => setField("workStatus", e.target.value)} onBlur={() => handleFieldBlur("workStatus")} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-workStatus" name="workStatus" value={form.workStatus} onChange={(e) => setField("workStatus", e.target.value)} onBlur={() => handleFieldBlur("workStatus")} required {...getFieldErrorAttributes("workStatus")} className={getFieldControlClass("workStatus", "rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select</option>
             <option>Employed</option>
             <option>Unemployed</option>
@@ -1314,77 +1339,85 @@ export default function KKProfilingForm({
             <option>Currently looking for a Job</option>
             <option>Not Interested Looking for a Job</option>
           </SelectWithChevron>
+          {renderFieldError("workStatus")}
         </label>
       </div>
 
       <label className="flex flex-col gap-1.5">
         <FormFieldLabel required className="text-sm font-semibold">Educational Background</FormFieldLabel>
-        <SelectWithChevron id="kk-profile-educationalBackground" value={form.educationalBackground} onChange={(e) => setField("educationalBackground", e.target.value)} onBlur={() => handleFieldBlur("educationalBackground")} required className="rounded-lg border pl-3 pr-10 py-2">
+        <SelectWithChevron id="kk-profile-educationalBackground" name="educationalBackground" value={form.educationalBackground} onChange={(e) => setField("educationalBackground", e.target.value)} onBlur={() => handleFieldBlur("educationalBackground")} required {...getFieldErrorAttributes("educationalBackground")} className={getFieldControlClass("educationalBackground", "rounded-lg border pl-3 pr-10 py-2")}>
           <option value="">Select</option>
           <option>High school Level</option>
           <option>High school Graduate</option>
           <option>College Level</option>
         </SelectWithChevron>
+        {renderFieldError("educationalBackground")}
       </label>
 
       <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-3">
         <label className="flex flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Registered SK Voter?</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-registeredSKVoter" value={form.registeredSKVoter} onChange={(e) => setField("registeredSKVoter", e.target.value)} onBlur={() => handleFieldBlur("registeredSKVoter")} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-registeredSKVoter" name="registeredSKVoter" value={form.registeredSKVoter} onChange={(e) => setField("registeredSKVoter", e.target.value)} onBlur={() => handleFieldBlur("registeredSKVoter")} required {...getFieldErrorAttributes("registeredSKVoter")} className={getFieldControlClass("registeredSKVoter", "rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select</option>
             <option>Yes</option>
             <option>No</option>
           </SelectWithChevron>
+          {renderFieldError("registeredSKVoter")}
         </label>
 
         <label className="flex flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Did you vote last SK election?</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-votedLastSK" value={form.votedLastSK} onChange={(e) => setField("votedLastSK", e.target.value)} onBlur={() => handleFieldBlur("votedLastSK")} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-votedLastSK" name="votedLastSK" value={form.votedLastSK} onChange={(e) => setField("votedLastSK", e.target.value)} onBlur={() => handleFieldBlur("votedLastSK")} required {...getFieldErrorAttributes("votedLastSK")} className={getFieldControlClass("votedLastSK", "rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select</option>
             <option>Yes</option>
             <option>No</option>
           </SelectWithChevron>
+          {renderFieldError("votedLastSK")}
         </label>
 
         <label className="flex flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">Registered National Voter?</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-registeredNationalVoter" value={form.registeredNationalVoter} onChange={(e) => setField("registeredNationalVoter", e.target.value)} onBlur={() => handleFieldBlur("registeredNationalVoter")} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-registeredNationalVoter" name="registeredNationalVoter" value={form.registeredNationalVoter} onChange={(e) => setField("registeredNationalVoter", e.target.value)} onBlur={() => handleFieldBlur("registeredNationalVoter")} required {...getFieldErrorAttributes("registeredNationalVoter")} className={getFieldControlClass("registeredNationalVoter", "rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select</option>
             <option>Yes</option>
             <option>No</option>
           </SelectWithChevron>
+          {renderFieldError("registeredNationalVoter")}
         </label>
       </div>
 
       <label className="flex flex-col gap-1.5">
         <FormFieldLabel required className="text-sm font-semibold">Have you already attended a KK Assembly?</FormFieldLabel>
-        <SelectWithChevron id="kk-profile-attendedKKAssembly" value={form.attendedKKAssembly} onChange={(e) => setField("attendedKKAssembly", e.target.value)} onBlur={() => handleFieldBlur("attendedKKAssembly")} required className="rounded-lg border pl-3 pr-10 py-2">
+        <SelectWithChevron id="kk-profile-attendedKKAssembly" name="attendedKKAssembly" value={form.attendedKKAssembly} onChange={(e) => setField("attendedKKAssembly", e.target.value)} onBlur={() => handleFieldBlur("attendedKKAssembly")} required {...getFieldErrorAttributes("attendedKKAssembly")} className={getFieldControlClass("attendedKKAssembly", "rounded-lg border pl-3 pr-10 py-2")}>
           <option value="">Select</option>
           <option>Yes</option>
           <option>No</option>
         </SelectWithChevron>
+        {renderFieldError("attendedKKAssembly")}
       </label>
 
       {form.attendedKKAssembly === "Yes" && (
         <label className="flex flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">If Yes, How many times</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-assemblyTimes" value={form.assemblyTimes} onChange={(e) => setField("assemblyTimes", e.target.value)} onBlur={() => handleFieldBlur("assemblyTimes")} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-assemblyTimes" name="assemblyTimes" value={form.assemblyTimes} onChange={(e) => setField("assemblyTimes", e.target.value)} onBlur={() => handleFieldBlur("assemblyTimes")} required {...getFieldErrorAttributes("assemblyTimes")} className={getFieldControlClass("assemblyTimes", "rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select</option>
             <option>1-2 Times</option>
             <option>3-4 Times</option>
             <option>5 and above</option>
           </SelectWithChevron>
+          {renderFieldError("assemblyTimes")}
         </label>
       )}
 
       {form.attendedKKAssembly === "No" && (
         <label className="flex flex-col gap-1.5">
           <FormFieldLabel required className="text-sm font-semibold">If No, Why?</FormFieldLabel>
-          <SelectWithChevron id="kk-profile-noAssemblyReason" value={form.noAssemblyReason} onChange={(e) => setField("noAssemblyReason", e.target.value)} onBlur={() => handleFieldBlur("noAssemblyReason")} required className="rounded-lg border pl-3 pr-10 py-2">
+          <SelectWithChevron id="kk-profile-noAssemblyReason" name="noAssemblyReason" value={form.noAssemblyReason} onChange={(e) => setField("noAssemblyReason", e.target.value)} onBlur={() => handleFieldBlur("noAssemblyReason")} required {...getFieldErrorAttributes("noAssemblyReason")} className={getFieldControlClass("noAssemblyReason", "rounded-lg border pl-3 pr-10 py-2")}>
             <option value="">Select</option>
             <option>There were no KK Assembly Meetings</option>
             <option>Not interested to attend</option>
           </SelectWithChevron>
+          {renderFieldError("noAssemblyReason")}
         </label>
       )}
 
@@ -1579,29 +1612,34 @@ export default function KKProfilingForm({
           </div>
         ) : null}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-          <div className="flex flex-1 items-start gap-3">
-            <input
-              id="kk-profiling-consent"
-              type="checkbox"
-              required
-              aria-required="true"
-              checked={form.consent}
-              onChange={(e) => setField("consent", e.target.checked)}
-              onBlur={() => handleFieldBlur("consent")}
-              className="mt-1 shrink-0"
-            />
-            <div className="text-sm">
-              <FormFieldLabel htmlFor="kk-profiling-consent" required className="cursor-pointer">
-                I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling.
-              </FormFieldLabel>
-              <button
-                type="button"
-                onClick={() => setShowConsentModal(true)}
-                className="ml-2 inline-flex cursor-pointer items-center rounded-sm text-sm font-medium text-slate-700 underline decoration-slate-400 underline-offset-2 transition-colors hover:text-[#0F3D5C] hover:decoration-[#0F3D5C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
-              >
-                (Read consent)
-              </button>
+          <div className="flex flex-1 flex-col gap-1.5">
+            <div className="flex items-start gap-3">
+              <input
+                id="kk-profile-consent"
+                name="consent"
+                type="checkbox"
+                required
+                aria-required="true"
+                checked={form.consent}
+                onChange={(e) => setField("consent", e.target.checked)}
+                onBlur={() => handleFieldBlur("consent")}
+                {...getFieldErrorAttributes("consent")}
+                className={`mt-1 shrink-0 ${fieldErrors.consent ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+              />
+              <div className="text-sm">
+                <FormFieldLabel htmlFor="kk-profile-consent" required className="cursor-pointer">
+                  I have read and understood the informed consent and agree to participate in Barangay Pico&apos;s KK Profiling.
+                </FormFieldLabel>
+                <button
+                  type="button"
+                  onClick={() => setShowConsentModal(true)}
+                  className="ml-2 inline-flex cursor-pointer items-center rounded-sm text-sm font-medium text-slate-700 underline decoration-slate-400 underline-offset-2 transition-colors hover:text-[#0F3D5C] hover:decoration-[#0F3D5C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3D5C] focus-visible:ring-offset-2"
+                >
+                  (Read consent)
+                </button>
+              </div>
             </div>
+            {renderFieldError("consent")}
           </div>
           <button
             type="submit"
@@ -1619,21 +1657,6 @@ export default function KKProfilingForm({
           </button>
         </div>
       </div>
-      {actionError || message ? (
-        <div
-          ref={submissionFeedbackRef}
-          tabIndex={-1}
-          aria-live={actionError ? "assertive" : "polite"}
-          className={`mt-4 max-w-2xl rounded-xl border px-4 py-3 text-sm leading-relaxed focus:outline-none focus-visible:ring-2 ${
-            magicLinkSent
-              ? "border-teal-200 bg-teal-50 text-teal-800 focus-visible:ring-teal-500"
-              : "border-rose-200 bg-rose-50 text-rose-800 focus-visible:ring-rose-500"
-          }`}
-        >
-          {actionError ? <p role="alert">{actionError}</p> : null}
-          {message ? <p role="status">{message}</p> : null}
-        </div>
-      ) : null}
           </fieldset>
       </form>
 
