@@ -34,6 +34,8 @@ export type GranteeTimelineSubmission = {
   reviewNotes?: string | null;
   gradeFileUrl?: string | null;
   coeFileUrl?: string | null;
+  gradesStatus?: string | null;
+  coeStatus?: string | null;
 };
 
 export type GranteeTimelineProfile = {
@@ -43,6 +45,9 @@ export type GranteeTimelineProfile = {
   dateEnrolled?: Date | null;
   journeyStart?: string | null;
   journeyEnd?: string | null;
+  journeyStartAcademicYear?: string | null;
+  journeyStartSemester?: 1 | 2 | null;
+  journeyEndSemester?: 1 | 2 | null;
   skeapApplications?: Array<{
     status: string;
     submittedAt: Date | string;
@@ -218,6 +223,9 @@ export function resolveGranteeAcademicTimeline(
     totalYears: inferredTotalYears,
     journeyStart: grantee.journeyStart,
     journeyEnd: grantee.journeyEnd,
+    startAcademicYear: grantee.journeyStartAcademicYear,
+    startSemester: grantee.journeyStartSemester,
+    endSemester: grantee.journeyEndSemester,
     entryTerm: entryTerm.termLabel,
     now,
     initialGrant,
@@ -298,6 +306,9 @@ export async function detectGranteeTargetTerm(
       dateEnrolled: true,
       journeyStart: true,
       journeyEnd: true,
+      journeyStartAcademicYear: true,
+      journeyStartSemester: true,
+      journeyEndSemester: true,
       user: {
         select: {
           skeapApplications: {
@@ -346,6 +357,14 @@ export async function detectGranteeTargetTerm(
   return resolveGranteeAcademicTimeline(
     {
       ...grantee,
+      journeyStartSemester:
+        grantee.journeyStartSemester === 1 || grantee.journeyStartSemester === 2
+          ? grantee.journeyStartSemester
+          : null,
+      journeyEndSemester:
+        grantee.journeyEndSemester === 1 || grantee.journeyEndSemester === 2
+          ? grantee.journeyEndSemester
+          : null,
       skeapApplications: grantee.user.skeapApplications,
     },
     grantee.submissions,

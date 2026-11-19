@@ -92,6 +92,9 @@ export default async function GranteeDashboardContent() {
       entrySemester: true,
       journeyStart: true,
       journeyEnd: true,
+      journeyStartAcademicYear: true,
+      journeyStartSemester: true,
+      journeyEndSemester: true,
       dateEnrolled: true,
       exitClearanceStatus: true,
       exitClearanceUrl: true,
@@ -151,9 +154,29 @@ export default async function GranteeDashboardContent() {
   const tracker = buildSemesterTracker(submissions);
   const now = new Date();
   const { schedules } = await getAcademicTermScheduleState(now);
+  const activeSchedule = schedules.find(
+    (schedule) => schedule.opensAt <= now && schedule.closesAt >= now,
+  );
+  const activeTermMatch = activeSchedule?.semester.match(
+    /^(\d{4}-\d{4})\s+(First|Second) Semester$/i,
+  );
+  const activeTerm = activeTermMatch
+    ? {
+        academicYear: activeTermMatch[1],
+        semester: /^Second$/i.test(activeTermMatch[2]) ? 2 as const : 1 as const,
+      }
+    : null;
   const academicTimeline = resolveGranteeAcademicTimeline(
     {
       ...grantee,
+      journeyStartSemester:
+        grantee.journeyStartSemester === 1 || grantee.journeyStartSemester === 2
+          ? grantee.journeyStartSemester
+          : null,
+      journeyEndSemester:
+        grantee.journeyEndSemester === 1 || grantee.journeyEndSemester === 2
+          ? grantee.journeyEndSemester
+          : null,
       skeapApplications: appUser.skeapApplications,
     },
     submissions,
@@ -417,6 +440,14 @@ export default async function GranteeDashboardContent() {
             journeyConfigured={isJourneyConfigured}
             journeyStart={grantee.journeyStart ?? null}
             journeyEnd={grantee.journeyEnd ?? null}
+            startAcademicYear={grantee.journeyStartAcademicYear ?? null}
+            startSemester={grantee.journeyStartSemester === 1 || grantee.journeyStartSemester === 2
+              ? grantee.journeyStartSemester
+              : null}
+            endSemester={grantee.journeyEndSemester === 1 || grantee.journeyEndSemester === 2
+              ? grantee.journeyEndSemester
+              : null}
+            activeTerm={activeTerm}
             startingPointYearLevel={startingPointYearLevel}
             mapProps={{
               studentName: appUser.fullName,

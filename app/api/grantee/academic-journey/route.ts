@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { isValidAcademicJourneyRange } from "@/lib/academic-journey";
+import {
+  getAcademicJourneyTermsForBounds,
+  isValidAcademicJourneyRange,
+} from "@/lib/academic-journey";
 
 export async function PATCH(request: NextRequest) {
   const supabase = await createClient();
@@ -33,12 +36,33 @@ export async function PATCH(request: NextRequest) {
     body === null ||
     !("journeyStart" in body) ||
     !("journeyEnd" in body) ||
+    !("startAcademicYear" in body) ||
+    !("startSemester" in body) ||
+    !("endSemester" in body) ||
     typeof body.journeyStart !== "string" ||
     typeof body.journeyEnd !== "string" ||
+    typeof body.startAcademicYear !== "string" ||
+    !/^\d{4}-\d{4}$/.test(body.startAcademicYear) ||
+    Number(body.startAcademicYear.slice(5)) !== Number(body.startAcademicYear.slice(0, 4)) + 1 ||
+    (body.startSemester !== 1 && body.startSemester !== 2) ||
+    (body.endSemester !== 1 && body.endSemester !== 2) ||
     !isValidAcademicJourneyRange(body.journeyStart, body.journeyEnd)
   ) {
     return NextResponse.json(
       { error: "Choose a graduation target that follows your starting point." },
+      { status: 400 },
+    );
+  }
+  if (
+    getAcademicJourneyTermsForBounds(
+      body.journeyStart,
+      body.journeyEnd,
+      body.startSemester,
+      body.endSemester,
+    ).length === 0
+  ) {
+    return NextResponse.json(
+      { error: "Choose a graduation term that follows your starting term." },
       { status: 400 },
     );
   }
@@ -48,9 +72,24 @@ export async function PATCH(request: NextRequest) {
     data: {
       journeyStart: body.journeyStart,
       journeyEnd: body.journeyEnd,
+      journeyStartAcademicYear: body.startAcademicYear,
+      journeyStartSemester: body.startSemester,
+      journeyEndSemester: body.endSemester,
     },
-    select: { journeyStart: true, journeyEnd: true },
+    select: {
+      journeyStart: true,
+      journeyEnd: true,
+      journeyStartAcademicYear: true,
+      journeyStartSemester: true,
+      journeyEndSemester: true,
+    },
   });
 
-  return NextResponse.json(journey);
+  return NextResponse.json({
+    journeyStart: journey.journeyStart,
+    journeyEnd: journey.journeyEnd,
+    startAcademicYear: journey.journeyStartAcademicYear,
+    startSemester: journey.journeyStartSemester,
+    endSemester: journey.journeyEndSemester,
+  });
 }

@@ -52,6 +52,8 @@ type JourneyPoint = {
   year: number;
 };
 
+export type AcademicJourneySemesterNumber = 1 | 2;
+
 function parseJourneyPoint(value: string): JourneyPoint | null {
   const match = /^(grade|college)-(\d+)$/.exec(value);
   if (!match) return null;
@@ -115,6 +117,16 @@ export function getAcademicJourneyTermsForRange(start: string, end: string) {
   });
 }
 
+export function getAcademicJourneyTermsForBounds(
+  start: string,
+  end: string,
+  startSemester: AcademicJourneySemesterNumber = 1,
+  endSemester: AcademicJourneySemesterNumber = 2,
+) {
+  const terms = getAcademicJourneyTermsForRange(start, end);
+  return terms.slice(startSemester - 1, terms.length - (2 - endSemester));
+}
+
 export type AcademicJourneySubmission = {
   id?: string;
   semester: string;
@@ -126,6 +138,8 @@ export type AcademicJourneySubmission = {
   reviewNotes?: string | null;
   gradeFileUrl?: string | null;
   coeFileUrl?: string | null;
+  gradesStatus?: string | null;
+  coeStatus?: string | null;
 };
 
 export type AcademicJourneyNodeStatus =
@@ -160,6 +174,8 @@ export type AcademicJourneyNode = {
   remarks: string | null;
   gradeReportUrl: string | null;
   coeFileUrl: string | null;
+  gradesStatus?: string | null;
+  coeStatus?: string | null;
   isInitialGrant: boolean;
 };
 
@@ -283,6 +299,9 @@ export function getAcademicJourneyProgress(
   yearLevel?: string | null,
   journeyStart?: string | null,
   journeyEnd?: string | null,
+  journeyStartAcademicYear?: string | null,
+  journeyStartSemester?: AcademicJourneySemesterNumber | null,
+  journeyEndSemester?: AcademicJourneySemesterNumber | null,
 ) {
   const years = Number.isFinite(totalYears) ? Math.max(1, Math.floor(totalYears)) : 4;
   const intakeTerm = normalizeJourneySemester(entrySemester?.trim() ?? "");
@@ -303,11 +322,29 @@ export function getAcademicJourneyProgress(
   const configuredTerms = journeyStart && journeyEnd && isValidAcademicJourneyRange(journeyStart, journeyEnd)
     ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd)
     : null;
+  const configuredStartOrder = journeyStartAcademicYear && journeyStartSemester
+    ? getSemesterOrder(
+        `${journeyStartAcademicYear} ${journeyStartSemester === 1 ? "First" : "Second"} Semester`,
+      )
+    : null;
+  const journeyStartOrder = configuredStartOrder ?? intakeOrder;
+  const startingSemester = configuredStartOrder !== null
+    ? journeyStartSemester!
+    : journeyStartOrder !== null && journeyStartOrder % 2 === 1 ? 2 : 1;
+  const endingSemester = journeyEndSemester ?? 2;
+  const boundedTerms = configuredTerms && journeyStart
+    ? getAcademicJourneyTermsForBounds(
+        journeyStart,
+        journeyEnd!,
+        startingSemester,
+        endingSemester,
+      )
+    : null;
 
-  if (intakeOrder !== null && (configuredTerms || startYear !== null)) {
-    const entryStartYear = Math.floor(intakeOrder / 2);
-    const terminalOrder = configuredTerms
-      ? intakeOrder + configuredTerms.length - 1
+  if (journeyStartOrder !== null && (configuredTerms || startYear !== null)) {
+    const entryStartYear = Math.floor(journeyStartOrder / 2);
+    const terminalOrder = boundedTerms
+      ? journeyStartOrder + boundedTerms.length - 1
       : (entryStartYear + Math.max(0, years - startYear!)) * 2 + 1;
     const nodes: AcademicJourneyNode[] = [];
     const submissionsByOrder = new Map<number, AcademicJourneySubmission>();
@@ -316,14 +353,14 @@ export function getAcademicJourneyProgress(
       const normalizedSemester = normalizeJourneySemester(submission.semester);
       if (!normalizedSemester) continue;
       const order = getSemesterOrder(normalizedSemester);
-      if (order === null || order < intakeOrder || order > terminalOrder) continue;
+      if (order === null || order < journeyStartOrder || order > terminalOrder) continue;
       const previous = submissionsByOrder.get(order);
       const submittedAt = submission.submittedAt ? new Date(submission.submittedAt).getTime() : 0;
       const previousSubmittedAt = previous?.submittedAt ? new Date(previous.submittedAt).getTime() : 0;
       if (!previous || submittedAt >= previousSubmittedAt) submissionsByOrder.set(order, submission);
     }
 
-    for (let order = intakeOrder; order <= terminalOrder; order += 1) {
+    for (let order = journeyStartOrder; order <= terminalOrder; order += 1) {
       const index = nodes.length;
       const normalizedSemester = getSemesterLabel(order);
       const submission = submissionsByOrder.get(order) ?? null;
@@ -348,7 +385,7 @@ export function getAcademicJourneyProgress(
       }
 
       const yearNumber = configuredTerms
-        ? (startYear ?? 1) + Math.floor(index / 2)
+        ? (startYear ?? 1) + Math.floor((index + startingSemester - 1) / 2)
         : Math.floor(order / 2) - entryStartYear + startYear!;
       const semesterNumber = (order % 2 === 0 ? 1 : 2) as 1 | 2;
       const academicYearStart = Math.floor(order / 2);
@@ -377,6 +414,8 @@ export function getAcademicJourneyProgress(
           submission?.coeFileUrl ??
           (isInitialGrant ? initialGrant?.coeFileUrl : null) ??
           null,
+        gradesStatus: submission?.gradesStatus ?? null,
+        coeStatus: submission?.coeStatus ?? null,
         isInitialGrant,
       });
     }
@@ -426,16 +465,16 @@ export function getAcademicJourneyProgress(
       (currentEducationStage - journeyStartStage) * 2 + entrySemesterOffset,
     ),
   );
-  const journeyStartOrder = startOrder === null ? null : startOrder - preGrantCount;
+  const generatedJourneyStartOrder = startOrder === null ? null : startOrder - preGrantCount;
 
-  if (startOrder === null || calendarOrder === null || journeyStartOrder === null) {
+  if (startOrder === null || calendarOrder === null || generatedJourneyStartOrder === null) {
     throw new Error("Unable to determine academic journey semester order.");
   }
 
   const submissionsByOrder = new Map<number, AcademicJourneySubmission>();
   for (const submission of submissions) {
     const order = getSemesterOrder(submission.semester.trim());
-    if (order === null || order < startOrder || order >= journeyStartOrder + termCount) continue;
+    if (order === null || order < startOrder || order >= generatedJourneyStartOrder + termCount) continue;
 
     const previous = submissionsByOrder.get(order);
     const submittedAt = submission.submittedAt
@@ -449,7 +488,7 @@ export function getAcademicJourneyProgress(
 
   const nodes: AcademicJourneyNode[] = [];
   for (let index = 0; index < termCount; index += 1) {
-    const nodeOrder = journeyStartOrder + index;
+    const nodeOrder = generatedJourneyStartOrder + index;
     const semester = getSemesterLabel(nodeOrder);
     const isPreGrant = index < preGrantCount;
     const submission = isPreGrant ? null : submissionsByOrder.get(nodeOrder) ?? null;
@@ -504,6 +543,8 @@ export function getAcademicJourneyProgress(
         submission?.coeFileUrl ??
         (isInitialGrant ? initialGrant?.coeFileUrl : null) ??
         null,
+      gradesStatus: submission?.gradesStatus ?? null,
+      coeStatus: submission?.coeStatus ?? null,
       isInitialGrant,
     });
   }
@@ -533,7 +574,7 @@ export function getAcademicJourneyProgress(
           : "open_for_submit" as const,
     nodes,
     eligibleSemesterCount: termCount - preGrantCount,
-    calendarSemesterIndex: Math.max(0, Math.min(calendarOrder - journeyStartOrder, termCount)),
+    calendarSemesterIndex: Math.max(0, Math.min(calendarOrder - generatedJourneyStartOrder, termCount)),
   };
 }
 

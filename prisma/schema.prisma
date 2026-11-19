@@ -102,6 +102,9 @@ model Grantee {
   entrySemester      String?
   journeyStart       String?
   journeyEnd         String?
+  journeyStartAcademicYear String?
+  journeyStartSemester     Int?
+  journeyEndSemester       Int?
   school             String
   generalAverage     Float?
   dateEnrolled       DateTime          @default(now())

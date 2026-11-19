@@ -23,11 +23,12 @@ import {
 } from "lucide-react";
 import {
   ACADEMIC_JOURNEY_START_OPTIONS,
-  getAcademicJourneyTermsForRange,
+  getAcademicJourneyTermsForBounds,
   isValidAcademicJourneyRange,
   mapSkeapYearLevelToStartingPoint,
   normalizeAcademicJourneyStepStatus,
   type AcademicJourneyNode,
+  type AcademicJourneySemesterNumber,
   type AcademicJourneyStepStatus,
 } from "@/lib/academic-journey";
 import type { LucideIcon } from "lucide-react";
@@ -44,6 +45,9 @@ export type AcademicJourneyMapProps = {
   isGraduated?: boolean;
   journeyStart?: string | null;
   journeyEnd?: string | null;
+  journeyStartAcademicYear?: string | null;
+  journeyStartSemester?: AcademicJourneySemesterNumber | null;
+  journeyEndSemester?: AcademicJourneySemesterNumber | null;
   startingPointYearLevel?: string | null;
   onConfigureJourney?: () => void;
   compact?: boolean;
@@ -95,6 +99,30 @@ function getDownloadHref(url: string, filename: string) {
   parsed.searchParams.set("download", "true");
   parsed.searchParams.set("filename", filename);
   return url.startsWith("/") ? `${parsed.pathname}${parsed.search}` : parsed.toString();
+}
+
+function getAcademicYearStart(value?: string | null) {
+  const match = value?.match(/^(\d{4})-(\d{4})$/);
+  if (!match || Number(match[2]) !== Number(match[1]) + 1) return null;
+  return Number(match[1]);
+}
+
+function getAcademicTermCaption(academicYearStart: number, semester: AcademicJourneySemesterNumber) {
+  return `${academicYearStart}-${academicYearStart + 1} · ${semester === 1 ? "1st" : "2nd"} Sem`;
+}
+
+function getDocumentValidationStatus(status: string | null | undefined, nodeStatus: AcademicJourneyNode["status"]) {
+  const normalizedStatus = status?.toUpperCase();
+  if (normalizedStatus === "APPROVED" || (!normalizedStatus && nodeStatus === "VALIDATED")) {
+    return { label: "Validated", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+  }
+  if (normalizedStatus === "REJECTED" || normalizedStatus === "RETURNED_FOR_EDIT") {
+    return { label: "Action required", className: "border-amber-200 bg-amber-50 text-amber-800" };
+  }
+  if (normalizedStatus === "PENDING" || normalizedStatus === "PRE_QUALIFIED" || normalizedStatus === "AWAITING_PHYSICAL_CTC") {
+    return { label: "Under review", className: "border-indigo-200 bg-indigo-50 text-indigo-700" };
+  }
+  return { label: "Submitted", className: "border-slate-200 bg-slate-50 text-slate-600" };
 }
 
 const STEP_STATUS_CONFIG: Record<
@@ -219,6 +247,9 @@ export default function AcademicJourneyMap({
   isGraduated = false,
   journeyStart,
   journeyEnd,
+  journeyStartAcademicYear,
+  journeyStartSemester,
+  journeyEndSemester,
   startingPointYearLevel,
   onConfigureJourney,
   compact = false,
@@ -243,14 +274,37 @@ export default function AcademicJourneyMap({
     journeyEnd &&
     isValidAcademicJourneyRange(effectiveJourneyStart, journeyEnd),
   );
-  const terms = useMemo(
-    () => hasJourneyRange
-      ? getAcademicJourneyTermsForRange(effectiveJourneyStart!, journeyEnd!).map((term, index) => ({
-          ...term,
-          academicTermCaption: journeyNodes?.[index]?.academicTermCaption ?? null,
-        }))
-      : journeyNodes?.length
-        ? journeyNodes.map((node, index) => {
+  const terms = useMemo(() => {
+    if (hasJourneyRange) {
+      const firstNode = journeyNodes?.[0];
+      const startSemester = firstNode?.semesterNumber ??
+        journeyStartSemester ??
+        (/\b(?:Second|2nd)\s+(?:Semester|Sem)\b/i.test(firstNode?.semester ?? "") ? 2 : 1);
+      const configuredTerms = getAcademicJourneyTermsForBounds(
+        effectiveJourneyStart!,
+        journeyEnd!,
+        startSemester,
+        journeyEndSemester ?? 2,
+      );
+      const startYear = getAcademicYearStart(journeyStartAcademicYear) ??
+        Number(
+          firstNode?.academicTermCaption?.match(/^(\d{4})-/)?.[1] ??
+          firstNode?.semester.match(/^(\d{4})-/)?.[1],
+        );
+      return configuredTerms.map((term, index) => ({
+        ...term,
+        academicTermCaption: journeyNodes?.[index]?.academicTermCaption ??
+          (Number.isFinite(startYear)
+            ? getAcademicTermCaption(
+                startYear + Math.floor((startSemester - 1 + index) / 2),
+                ((startSemester - 1 + index) % 2 + 1) as AcademicJourneySemesterNumber,
+              )
+            : null),
+      }));
+    }
+
+    return journeyNodes?.length
+      ? journeyNodes.map((node, index) => {
           const yearNumber = node.yearNumber ?? Math.floor(index / 2) + 1;
           const semesterNumber = node.semesterNumber ?? ((index % 2) + 1);
           return {
@@ -260,9 +314,16 @@ export default function AcademicJourneyMap({
             academicTermCaption: node.academicTermCaption ?? null,
           };
         })
-        : [],
-    [effectiveJourneyStart, hasJourneyRange, journeyEnd, journeyNodes],
-  );
+      : [];
+  }, [
+    effectiveJourneyStart,
+    hasJourneyRange,
+    journeyEnd,
+    journeyEndSemester,
+    journeyNodes,
+    journeyStartAcademicYear,
+    journeyStartSemester,
+  ]);
   const journeyYears = terms.length / 2;
   const termCount = terms.length;
   const stepStatusConfig =
@@ -345,6 +406,9 @@ export default function AcademicJourneyMap({
     ? ""
     : buildSmoothWavePath(nodePoints.slice(0, progressEndIndex + 1));
   const totalTrackYears = `${journeyYears} year${journeyYears === 1 ? "" : "s"}`;
+  const finalYearNumber = Number(terms.at(-1)?.label.match(/^Y(\d+)/)?.[1]) ||
+    journeyNodes?.at(-1)?.yearNumber ||
+    journeyYears;
   const selectedNodeIndex = selectedNode?.index ?? -1;
   const selectedJourneyPosition = selectedNodeIndex >= 0 ? terms[selectedNodeIndex] : null;
   const selectedNodeHistoricalTerm = selectedNode?.semester ?? null;
@@ -354,7 +418,9 @@ export default function AcademicJourneyMap({
     : selectedNodeYearNumber
       ? `Year ${selectedNodeYearNumber}`
       : `Year ${Math.floor(selectedNodeIndex / 2) + 1}`;
-  const selectedNodeSemesterNumber = (selectedNodeIndex % 2) + 1;
+  const selectedNodeSemesterNumber = Number(
+    selectedJourneyPosition?.semester.match(/^(\d+)/)?.[1] ?? (selectedNodeIndex % 2) + 1,
+  );
   const selectedNodeTitle = selectedNode && selectedNodeHistoricalTerm
     ? `${selectedNodeYearLabel} · Semester ${selectedNodeSemesterNumber} — ${selectedNodeHistoricalTerm}`
     : "";
@@ -369,13 +435,20 @@ export default function AcademicJourneyMap({
         : "Returned";
   const selectedDocuments = selectedNode
     ? [
-        { label: "Grade Report", url: selectedNode.gradeReportUrl },
-        { label: "Certificate of Enrollment", url: selectedNode.coeFileUrl },
-      ]
+        {
+          label: "Grade Report",
+          url: selectedNode.gradeReportUrl,
+          status: getDocumentValidationStatus(selectedNode.gradesStatus, selectedNode.status),
+        },
+        {
+          label: "Certificate of Enrollment",
+          url: selectedNode.coeFileUrl,
+          status: getDocumentValidationStatus(selectedNode.coeStatus, selectedNode.status),
+        },
+      ].filter((file) => Boolean(file.url))
     : [];
-  const selectedNodeDate = selectedNode
-    ? formatJourneyDate(selectedNode.status === "VALIDATED" ? selectedNode.approvedAt : selectedNode.submittedAt)
-    : null;
+  const selectedSubmittedDate = formatJourneyDate(selectedNode?.submittedAt ?? null);
+  const selectedApprovedDate = formatJourneyDate(selectedNode?.approvedAt ?? null);
   const selectedNodeStatusClass = selectedNode?.status === "VALIDATED"
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : selectedNode?.status === "PRE_GRANT"
@@ -501,7 +574,7 @@ export default function AcademicJourneyMap({
             Academic Journey
           </span>
           <span className="shrink-0 rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-            {validatedCount}/{eligibleCount} Validated
+            {validatedCount} of {semesterNodes.length} semesters validated
           </span>
         </div>
 
@@ -602,12 +675,14 @@ export default function AcademicJourneyMap({
               ) : null}
             </div>
             <p className="mt-0.5 text-xs text-slate-500">
-              Track validated semesters across your {totalTrackYears} toward graduation.
+              {termCount < 6
+                ? "Track validated semesters toward graduation."
+                : `Track validated semesters across your ${totalTrackYears} toward graduation.`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex self-start rounded-full border border-emerald-200/60 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 shadow-2xs md:self-auto">
-              {validatedCount} of {eligibleCount} semesters validated
+              {validatedCount} of {semesterNodes.length} semesters validated
             </span>
             {hasHorizontalOverflow ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-400">
@@ -699,39 +774,57 @@ export default function AcademicJourneyMap({
               const isCompleted = journeyNode.status === "VALIDATED";
               const isPriorTerm = journeyNode.status === "PRE_GRANT";
               const isCurrent = index === currentIndex;
+              const hasSubmittedDocuments = Boolean(journeyNode.gradeReportUrl || journeyNode.coeFileUrl);
               const isMissed = !journeyNodes && index < currentIndex && !isCompleted;
-              const canOpenNode = Boolean(journeyNodes) && !compact && [
-                "VALIDATED",
-                "PENDING",
-                "UNDER_REVIEW",
-                "RETURNED",
-                "CURRENT",
-              ].includes(journeyNode.status);
-              const stateLabel = isCompleted
-                ? "validated"
-                : isPriorTerm
-                  ? "prior term"
-                : journeyNode.status === "PENDING" || journeyNode.status === "UNDER_REVIEW"
-                  ? "under review"
-                  : journeyNode.status === "RETURNED"
-                    ? "returned"
-                    : isCurrent
-                  ? "current step"
-                  : isMissed
-                    ? "missed"
-                    : "locked";
-              const yearNumber = Math.floor(index / 2) + 1;
-              const isYearMilestone = index % 2 === 0;
+              const isPastTermWithoutSubmission =
+                !isCurrent &&
+                !isPriorTerm &&
+                !hasSubmittedDocuments &&
+                (isCompleted || (index < currentIndex && journeyNode.status === "LOCKED"));
+              const canOpenNode = !compact && (
+                isCurrent ||
+                Boolean(journeyNodes && [
+                  "VALIDATED",
+                  "PENDING",
+                  "UNDER_REVIEW",
+                  "RETURNED",
+                  "CURRENT",
+                ].includes(journeyNode.status))
+              );
+              const accessibleTermCaption = (
+                term.academicTermCaption ??
+                journeyNode.academicTermCaption ??
+                `${term.year} · ${term.semester}`
+              )
+                .replace(/^(\d{4})-(\d{4})/, "$1–$2")
+                .replace(" · ", " ");
+              const unlockLabel = `Unlocks in ${accessibleTermCaption}`;
+              const nodeAriaLabel = isCurrent
+                ? `${term.label}, ${accessibleTermCaption} — Open requirements`
+                : isCompleted && hasSubmittedDocuments
+                  ? `View submitted files for ${term.label}`
+                  : isPastTermWithoutSubmission
+                  ? `${term.label}, ${accessibleTermCaption} — No documents submitted for this semester`
+                  : canOpenNode
+                    ? `View submission details for ${term.label}, ${accessibleTermCaption}`
+                    : `${term.label}, ${accessibleTermCaption} — Locked. ${unlockLabel}`;
+              const yearNumber = Number(term.label.match(/^Y(\d+)/)?.[1]) ||
+                journeyNode.yearNumber ||
+                Math.floor(index / 2) + 1;
+              const semesterNumber = Number(term.label.match(/S([12])$/)?.[1]) ||
+                journeyNode.semesterNumber ||
+                ((index % 2) + 1);
+              const isYearMilestone = semesterNumber === 1;
               const isFinalSemester = index === termCount - 1;
-              const isMidpoint = yearNumber === Math.ceil(journeyYears / 2) && isYearMilestone && journeyYears > 2;
-              const isFinalYear = yearNumber === journeyYears && isYearMilestone;
-              const milestoneIcon = isYearMilestone
-                ? isMidpoint
-                  ? Star
-                  : isFinalYear
-                    ? BookOpen
-                    : Flag
-                : null;
+              const isMidpoint = index === Math.floor(semesterNodes.length / 2);
+              const isFinalYear = yearNumber === finalYearNumber && isYearMilestone;
+              const milestoneIcon = isMidpoint
+                ? Star
+                : isFinalYear
+                  ? BookOpen
+                  : isYearMilestone
+                    ? Flag
+                    : null;
               const MilestoneIcon = milestoneIcon;
               const journeyNodeScheduleLabel =
                 journeyNode.scheduleStatus === "future" && journeyNode.scheduleOpensAt
@@ -777,7 +870,7 @@ export default function AcademicJourneyMap({
                     />
                   ) : null}
 
-                  {!compact && hoveredIndex === index && !isCurrent ? (
+                  {!compact && hoveredIndex === index ? (
                     <div className={`pointer-events-none absolute z-30 px-3 py-2 bg-slate-900/95 backdrop-blur-sm border border-slate-700/50 text-white rounded-xl shadow-xl whitespace-nowrap animate-in fade-in zoom-in-95 duration-150 ${
                       isCurrent ? "top-16" : "-top-14"
                     } ${
@@ -789,19 +882,21 @@ export default function AcademicJourneyMap({
                     }`}>
                       <p className="text-[11px] font-bold">{`${term.year}, ${term.semester}`}</p>
                       <p className={`mt-0.5 text-[10px] ${isMissed || journeyNode.status === "RETURNED" ? "text-rose-300" : "text-emerald-300"}`}>
-                        {canOpenNode
-                          ? journeyNode.status === "CURRENT"
-                            ? "Click to upload requirements"
-                            : "Click to view"
-                          : isCompleted
-                            ? "Semester validated"
+                      {isCurrent
+                            ? "Open requirements"
+                            : isCompleted
+                              ? hasSubmittedDocuments
+                                ? "View submitted files"
+                                : "No documents submitted for this semester"
+                            : isPastTermWithoutSubmission
+                              ? "No documents submitted for this semester"
+                            : canOpenNode
+                              ? "View submission details"
                           : isPriorTerm
                             ? "Before SKEAP admission"
-                          : isCurrent
-                            ? stepStatusLabel
                             : isMissed
                               ? "Semester missed"
-                              : `Unlocks after ${terms[index - 1]?.label ?? "the previous semester"}`}
+                              : unlockLabel}
                       </p>
                     </div>
                   ) : null}
@@ -833,17 +928,22 @@ export default function AcademicJourneyMap({
                     type="button"
                     tabIndex={canOpenNode ? 0 : -1}
                     disabled={!canOpenNode}
-                    aria-label={`${term.year}, ${term.semester}: ${stateLabel}${canOpenNode ? journeyNode.status === "CURRENT" ? ", open requirements" : ", click to view" : ""}`}
+                    aria-disabled={!canOpenNode}
+                    aria-label={nodeAriaLabel}
                     title={journeyNode.status === "LOCKED"
-                      ? `Unlocks after ${terms[index - 1]?.label ?? "the previous semester"} is validated`
-                      : canOpenNode
-                        ? journeyNode.status === "CURRENT" ? "Open Submit Requirements" : "Click to view"
-                        : undefined}
+                      ? unlockLabel
+                      : isCurrent
+                        ? "Open requirements"
+                        : canOpenNode && !hasSubmittedDocuments
+                          ? "No documents submitted for this semester"
+                          : canOpenNode
+                            ? isCompleted ? "View submitted files" : "View submission details"
+                            : undefined}
                     onClick={() => {
                       if (!canOpenNode) return;
-                      if (journeyNode.status === "CURRENT") {
+                      if (isCurrent || journeyNode.status === "CURRENT") {
                         openCurrentRequirements();
-                      } else {
+                      } else if (hasSubmittedDocuments) {
                         setSelectedNode(journeyNode);
                       }
                     }}
@@ -880,7 +980,7 @@ export default function AcademicJourneyMap({
                               : "border-2 border-dashed border-slate-300 bg-white text-slate-400"
                     } ${
                       canOpenNode
-                        ? "cursor-pointer hover:ring-4 hover:ring-sky-500/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-500/30"
+                        ? "cursor-pointer transition-transform hover:scale-105 hover:ring-4 hover:ring-sky-500/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-500/30"
                         : journeyNode.status === "LOCKED"
                           ? "cursor-not-allowed"
                           : ""
@@ -1020,10 +1120,13 @@ export default function AcademicJourneyMap({
                     </p>
                   </div>
                 ) : null}
-                <div
-                  tabIndex={0}
-                  aria-label={`Graduation: ${isGraduated ? "completed and verified" : validatedCount === termCount ? "current milestone" : "locked"}`}
-                  className={`absolute left-1/2 top-0 flex h-[52px] w-[52px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-2xl shadow-lg transition-all duration-300 ${
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  aria-label={`Graduation milestone: ${isGraduated ? "completed and verified" : validatedCount === termCount ? "complete" : "locked"}`}
+                  title={isGraduated ? "Graduation completed" : "Complete all semesters to unlock"}
+                  className={`absolute left-1/2 top-0 flex h-[52px] w-[52px] -translate-x-1/2 -translate-y-1/2 cursor-not-allowed items-center justify-center rounded-2xl shadow-lg transition-all duration-300 ${
                     isGraduated
                       ? "border border-amber-200/80 bg-gradient-to-tr from-emerald-500 via-teal-400 to-amber-300 text-slate-950 shadow-xl shadow-emerald-500/30 ring-4 ring-amber-300/20"
                       : validatedCount === eligibleCount
@@ -1032,7 +1135,7 @@ export default function AcademicJourneyMap({
                   }`}
                 >
                   <GraduationCap className="h-7 w-7" aria-hidden="true" />
-                </div>
+                </button>
                 <span className={`absolute left-1/2 top-[34px] -translate-x-1/2 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider ${
                   isGraduated ? "text-amber-700" : currentIndex === termCount ? "text-emerald-700" : "text-slate-400"
                 }`}>
@@ -1055,7 +1158,7 @@ export default function AcademicJourneyMap({
 
       {compact ? (
         <p className="mt-2 text-[10px] text-slate-400">
-          {validatedCount} of {eligibleCount} semesters validated
+          {validatedCount} of {semesterNodes.length} semesters validated
         </p>
       ) : null}
 
@@ -1084,9 +1187,14 @@ export default function AcademicJourneyMap({
                   <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${selectedNodeStatusClass}`}>
                     {selectedNodeStatusLabel}
                   </span>
-                  {selectedNodeDate ? (
+                  {selectedSubmittedDate ? (
                     <span className="text-xs text-slate-500">
-                      {selectedNode.status === "VALIDATED" ? "Approved" : "Submitted"} {selectedNodeDate}
+                      Submitted {selectedSubmittedDate}
+                    </span>
+                  ) : null}
+                  {selectedApprovedDate ? (
+                    <span className="text-xs text-slate-500">
+                      Approved {selectedApprovedDate}
                     </span>
                   ) : null}
                 </div>
@@ -1128,7 +1236,12 @@ export default function AcademicJourneyMap({
                       className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="min-w-0">
-                        <p className="font-semibold text-slate-800">{file.label}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-slate-800">{file.label}</p>
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${file.status.className}`}>
+                            {file.status.label}
+                          </span>
+                        </div>
                         {selectedNode.isInitialGrant ? (
                           <p className="mt-0.5 text-xs text-slate-500">From your approved SKEAP application</p>
                         ) : null}
@@ -1139,6 +1252,7 @@ export default function AcademicJourneyMap({
                             href={file.url}
                             target="_blank"
                             rel="noopener noreferrer"
+                            aria-label={`Preview ${file.label}`}
                             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                           >
                             <Eye className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1159,9 +1273,10 @@ export default function AcademicJourneyMap({
                           <a
                             href={getDownloadHref(
                               file.url,
-                              `${file.label === "Grade Report" ? "Grade-Report" : "Certificate-of-Enrollment"}-Y${Math.floor(selectedNodeIndex / 2) + 1}-S${(selectedNodeIndex % 2) + 1}`,
+                              `${file.label === "Grade Report" ? "Grade-Report" : "Certificate-of-Enrollment"}-${selectedJourneyPosition?.label.replace(" ", "-") ?? `Y${selectedNodeYearNumber ?? 1}-S${selectedNodeSemesterNumber}`}`,
                             )}
-                            download={`${file.label === "Grade Report" ? "Grade-Report" : "Certificate-of-Enrollment"}-Y${Math.floor(selectedNodeIndex / 2) + 1}-S${(selectedNodeIndex % 2) + 1}`}
+                            download={`${file.label === "Grade Report" ? "Grade-Report" : "Certificate-of-Enrollment"}-${selectedJourneyPosition?.label.replace(" ", "-") ?? `Y${selectedNodeYearNumber ?? 1}-S${selectedNodeSemesterNumber}`}`}
+                            aria-label={`Download ${file.label}`}
                             className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700"
                           >
                             <Download className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1184,7 +1299,7 @@ export default function AcademicJourneyMap({
                 </div>
               ) : (
                 <p className="mt-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                  No document links are available for this semester.
+                  No documents submitted for this semester.
                 </p>
               )}
             </div>

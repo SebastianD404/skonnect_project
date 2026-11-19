@@ -195,6 +195,38 @@ describe("getApprovedSemesterCount", () => {
 });
 
 describe("getAcademicJourneyProgress", () => {
+  it("uses configured second-semester bounds for a five-node Y2 S2 through Y4 S2 journey", () => {
+    const progress = getAcademicJourneyProgress(
+      [],
+      new Date("2026-08-01T00:00:00.000Z"),
+      new Date("2026-11-17T05:00:00.000Z"),
+      4,
+      null,
+      "2026-2027 Second Semester",
+      "2nd Year",
+      "college-2",
+      "college-4",
+      "2026-2027",
+      2,
+      2,
+    );
+
+    expect(progress.nodes.map(({ yearNumber, semesterNumber, semester, academicTermCaption }) => ({
+      yearNumber,
+      semesterNumber,
+      semester,
+      academicTermCaption,
+    }))).toEqual([
+      { yearNumber: 2, semesterNumber: 2, semester: "2026-2027 Second Semester", academicTermCaption: "2026-2027 · 2nd Sem" },
+      { yearNumber: 3, semesterNumber: 1, semester: "2027-2028 First Semester", academicTermCaption: "2027-2028 · 1st Sem" },
+      { yearNumber: 3, semesterNumber: 2, semester: "2027-2028 Second Semester", academicTermCaption: "2027-2028 · 2nd Sem" },
+      { yearNumber: 4, semesterNumber: 1, semester: "2028-2029 First Semester", academicTermCaption: "2028-2029 · 1st Sem" },
+      { yearNumber: 4, semesterNumber: 2, semester: "2028-2029 Second Semester", academicTermCaption: "2028-2029 · 2nd Sem" },
+    ]);
+    expect(progress.nodes).toHaveLength(5);
+    expect(progress.eligibleSemesterCount).toBe(5);
+  });
+
   it("starts a first-year second-semester admission at that intake term", () => {
     const progress = getAcademicJourneyProgress(
       [],

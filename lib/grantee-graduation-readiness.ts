@@ -1,7 +1,8 @@
 import {
   getAcademicJourneyGraduationYear,
   getAcademicJourneyProgress,
-  getAcademicJourneyTermsForRange,
+  getAcademicJourneyTermsForBounds,
+  type AcademicJourneySemesterNumber,
   type AcademicJourneyInitialGrant,
   type AcademicJourneySubmission,
 } from "@/lib/academic-journey";
@@ -13,6 +14,9 @@ type GraduationJourneyInput = {
   totalYears?: number;
   journeyStart?: string | null;
   journeyEnd?: string | null;
+  startAcademicYear?: string | null;
+  startSemester?: AcademicJourneySemesterNumber | null;
+  endSemester?: AcademicJourneySemesterNumber | null;
   entryTerm?: string;
   now?: Date;
   initialGrant?: AcademicJourneyInitialGrant | null;
@@ -25,12 +29,20 @@ export function getGranteeGraduationProgress({
   totalYears: configuredTotalYears,
   journeyStart,
   journeyEnd,
+  startAcademicYear,
+  startSemester,
+  endSemester,
   entryTerm,
   now = new Date(),
   initialGrant,
 }: GraduationJourneyInput) {
   const rangeTotalYears = journeyStart && journeyEnd
-    ? getAcademicJourneyTermsForRange(journeyStart, journeyEnd).length / 2
+    ? getAcademicJourneyTermsForBounds(
+        journeyStart,
+        journeyEnd,
+        startSemester ?? 1,
+        endSemester ?? 2,
+      ).length / 2
     : null;
   const graduationYear = journeyEnd ? getAcademicJourneyGraduationYear(journeyEnd) : null;
   const totalYears = rangeTotalYears ??
@@ -46,6 +58,9 @@ export function getGranteeGraduationProgress({
     yearLevel,
     journeyStart,
     journeyEnd,
+    startAcademicYear,
+    startSemester,
+    endSemester,
   );
   const totalRequiredSemesters = progress.eligibleSemesterCount;
   const validatedCount = progress.validatedSemesterIndexes.length;
