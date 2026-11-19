@@ -284,7 +284,7 @@ export default function SystemAdminSidebar({ roleUpdateCount, databaseStatus }: 
         <SkLogo className="h-11 w-11" />
         <div className="min-w-0">
           <p className="truncate text-base font-bold text-white">SKonnect</p>
-          <p className="truncate text-xs text-[#9AB0C2]">Admin Workspace · Barangay Pico</p>
+          <p className="truncate text-xs text-[#9AB0C2]">Admin Workspace</p>
         </div>
       </div>
 

@@ -12,6 +12,7 @@ import {
   Archive,
   BadgeCheck,
   Check,
+  ChevronDown,
   GraduationCap,
   LoaderCircle,
   MoreHorizontal,
@@ -30,6 +31,7 @@ import type {
   PlatformAccountMetricKey,
   PlatformAccountMetrics,
 } from "@/lib/platform-metrics";
+import { getExportButtonLabel } from "@/lib/platform-account-export";
 
 type UserItem = {
   id: string;
@@ -79,6 +81,17 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "SK_OFFICIAL", label: "SK Admin" },
   { value: "SUPER_ADMIN", label: "System Admin" },
 ];
+
+const ROLE_FILTER_LABELS: Record<Role, string> = {
+  YOUTH: "Youth",
+  GRANTEE: "Grantee",
+  SK_OFFICIAL: "SK Official",
+  SUPER_ADMIN: "Super Admin",
+};
+
+function getRoleFilterLabel(role: RoleFilter) {
+  return role === "ALL" ? "All Roles" : ROLE_FILTER_LABELS[role];
+}
 
 const SCHOLAR_STATUS_BADGES = {
   WAITLISTED: {
@@ -353,6 +366,12 @@ export default function UserRoleManager({
   ];
   const expectedSegmentCount =
     accountMetricCards.find(({ key }) => key === optimisticSegment)?.value ?? totalCount;
+  const exportButtonLabel = getExportButtonLabel({
+    count: totalCount,
+    metric: optimisticSegment,
+    role: roleFilter === "ALL" ? null : roleFilter,
+    searchQuery: query,
+  });
   const skeletonRowCount = Math.min(expectedSegmentCount || 8, 8);
   const shouldShowSkeleton = isPending && showDelayedSkeleton;
   const areRowsStale = isPending && !showDelayedSkeleton;
@@ -388,6 +407,14 @@ export default function UserRoleManager({
     searchTimeoutRef.current = setTimeout(() => {
       navigateToList(optimisticSegment ?? "all", roleFilter, value);
     }, 250);
+  }
+
+  function resetSearchAndRoleFilters() {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    setQuery("");
+    setRoleFilter("ALL");
+    setShowRoleFilterMenu(false);
+    navigateToList(optimisticSegment, "ALL", "");
   }
 
   function updateRole(userId: string, role: Role) {
@@ -727,30 +754,58 @@ export default function UserRoleManager({
       </section>
 
       <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative w-full min-w-0 max-w-md flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={query}
-              onChange={(event) => handleSearchChange(event.target.value)}
-              placeholder="Search by name or email..."
-              className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className="flex flex-col gap-3 border-b border-slate-200/80 bg-white px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-1 flex-wrap items-center gap-2.5">
+            <div className="relative min-w-[240px] max-w-sm flex-1">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                aria-hidden="true"
+              />
+              <input
+                value={query}
+                onChange={(event) => handleSearchChange(event.target.value)}
+                placeholder="Search by name or email..."
+                aria-label="Search users by name or email"
+                className="h-10 w-full rounded-xl border border-slate-200/90 bg-slate-50/60 pl-9 pr-8 text-[13px] text-slate-800 placeholder:text-slate-400 transition focus:border-sky-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/15"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => {
+                    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+                    setQuery("");
+                    navigateToList(optimisticSegment, roleFilter, "");
+                  }}
+                  className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-slate-400 transition hover:bg-slate-200/70 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+
             <div className="relative">
               <button
                 type="button"
-                className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
+                aria-haspopup="menu"
+                aria-expanded={showRoleFilterMenu}
+                className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3.5 text-[13px] font-medium shadow-2xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/20 ${
+                  roleFilter === "ALL"
+                    ? "border-slate-200/90 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                    : "border-sky-200 bg-sky-50/80 text-sky-900 hover:bg-sky-50"
+                }`}
                 onClick={() => setShowRoleFilterMenu((prev) => !prev)}
               >
-                <Filter className="h-4 w-4" />
-                {roleFilter === "ALL"
-                  ? "All roles"
-                  : ROLE_OPTIONS.find((option) => option.value === roleFilter)?.label ?? roleFilter}
+                <Filter className="h-4 w-4" aria-hidden="true" />
+                {getRoleFilterLabel(roleFilter)}
+                <ChevronDown className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
               </button>
               {showRoleFilterMenu ? (
-                <div className="absolute right-0 top-11 z-20 w-56 overflow-hidden rounded-xl border border-[#D8E3EC] bg-white py-1 shadow-lg">
+                <div
+                  role="menu"
+                  aria-label="Filter users by role"
+                  className="absolute left-0 top-11 z-20 w-56 overflow-hidden rounded-xl border border-[#D8E3EC] bg-white py-1 shadow-lg"
+                >
                   <button
                     type="button"
                     aria-pressed={roleFilter === "ALL"}
@@ -760,7 +815,7 @@ export default function UserRoleManager({
                       setShowRoleFilterMenu(false);
                     }}
                   >
-                    All roles
+                    All Roles
                     {roleFilter === "ALL" ? <Check className="h-4 w-4 text-blue-700" aria-hidden="true" /> : null}
                   </button>
                   <div className="mx-3 my-1 border-t border-slate-100 pt-2">
@@ -778,7 +833,7 @@ export default function UserRoleManager({
                           setShowRoleFilterMenu(false);
                         }}
                       >
-                        {option.label}
+                          {getRoleFilterLabel(option.value)}
                         {roleFilter === option.value ? <Check className="h-4 w-4 text-blue-700" aria-hidden="true" /> : null}
                       </button>
                     ))}
@@ -798,7 +853,7 @@ export default function UserRoleManager({
                           setShowRoleFilterMenu(false);
                         }}
                       >
-                        {option.label}
+                          {getRoleFilterLabel(option.value)}
                         {roleFilter === option.value ? <Check className="h-4 w-4 text-blue-700" aria-hidden="true" /> : null}
                       </button>
                     ))}
@@ -807,42 +862,46 @@ export default function UserRoleManager({
               ) : null}
             </div>
 
+            {query.trim() || roleFilter !== "ALL" ? (
+              <button
+                type="button"
+                onClick={resetSearchAndRoleFilters}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/20"
+              >
+                Reset
+              </button>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 lg:justify-end">
+            <div className="whitespace-nowrap text-xs text-slate-500 tabular-nums" aria-live="polite">
+              Showing{" "}
+              <span className="font-semibold text-slate-800">
+                {users.length.toLocaleString()}
+              </span>{" "}
+              of{" "}
+              <span className="font-semibold text-slate-800">
+                {totalCount.toLocaleString()}
+              </span>
+            </div>
+            <span className="hidden h-5 w-px bg-slate-200 sm:inline-block" aria-hidden="true" />
             <button
               type="button"
               disabled={isExporting || isPending}
               aria-busy={isExporting}
-              aria-label={`Export ${roleFilter === "ALL" ? "all roles" : ROLE_OPTIONS.find((option) => option.value === roleFilter)?.label ?? roleFilter} (${totalCount.toLocaleString()} matching accounts)`}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+              aria-label={exportButtonLabel}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#0F2942] px-4 text-[13px] font-semibold text-white shadow-2xs transition hover:bg-[#163859] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
               onClick={handleExportUsersExcel}
             >
               {isExporting ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" />
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
               ) : (
-                <Download className="h-4 w-4" />
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
               )}
-              {isExporting
-                ? "Exporting..."
-                : `Export ${roleFilter === "ALL"
-                  ? "All"
-                  : roleFilter === "YOUTH"
-                    ? "Youth"
-                    : roleFilter === "GRANTEE"
-                      ? "Grantees"
-                      : roleFilter === "SK_OFFICIAL"
-                        ? "SK Admins"
-                        : "System Admins"} (${totalCount.toLocaleString()})`}
+              <span className="whitespace-nowrap tabular-nums">
+                {isExporting ? "Exporting..." : exportButtonLabel}
+              </span>
             </button>
-            <div className="hidden whitespace-nowrap text-xs text-slate-500 sm:block">
-              {isPending ? (
-                "Updating users..."
-              ) : (
-                <>
-                  <span className="font-semibold text-slate-900 tabular-nums">{users.length}</span> shown
-                  <span className="px-1.5">·</span>
-                  <span className="tabular-nums">{totalCount}</span> matching
-                </>
-              )}
-            </div>
           </div>
         </div>
         <div className="min-h-[540px]">

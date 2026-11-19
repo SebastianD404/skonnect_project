@@ -8,6 +8,7 @@ import {
   isPlatformAccountMetricKey,
   type PlatformAccountMetricKey,
 } from "@/lib/platform-metrics";
+import { getPlatformAccountExportCohort } from "@/lib/platform-account-export";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -98,15 +99,7 @@ export async function GET(request: NextRequest) {
     worksheet.views = [{ state: "frozen", ySplit: 1 }];
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const filenameSegment = role === null
-      ? "all-accounts"
-      : role === Role.YOUTH
-        ? "youth-accounts"
-        : role === Role.GRANTEE
-          ? "grantees"
-          : role === Role.SK_OFFICIAL
-            ? "sk-admins"
-            : "system-admins";
+    const filenameSegment = getPlatformAccountExportCohort(metric, role).slug;
     const filename = `skonnect-${filenameSegment}-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     await writeAuditLog(prisma, {

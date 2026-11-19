@@ -140,7 +140,7 @@ export default function KnowledgeBaseAudit({
 
   return (
     <section>
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="mb-6">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">AI Assistant</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
@@ -150,7 +150,6 @@ export default function KnowledgeBaseAudit({
             Review and manage knowledge articles used by the AI assistant to answer youth inquiries.
           </p>
         </div>
-        <AddKnowledgeChunkModal onCreated={addDocument} />
       </div>
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -163,9 +162,9 @@ export default function KnowledgeBaseAudit({
           placeholder="Search text, category, language, or ID prefix (e.g. 319f23dd)..."
           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 sm:max-w-xl"
         />
-        <p className="text-sm text-slate-500" aria-live="polite">
-          Showing {filteredDocuments.length} of {knowledgeBaseDocuments.length} articles
-        </p>
+        <div className="flex justify-end">
+          <AddKnowledgeChunkModal onCreated={addDocument} />
+        </div>
       </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-8 border-b border-slate-100 pb-4">
@@ -218,6 +217,9 @@ export default function KnowledgeBaseAudit({
             );
           })}
         </div>
+        <p className="ml-auto whitespace-nowrap text-right text-sm text-slate-500" aria-live="polite">
+          Showing {filteredDocuments.length} of {knowledgeBaseDocuments.length} articles
+        </p>
       </div>
 
       {filteredDocuments.length === 0 ? (

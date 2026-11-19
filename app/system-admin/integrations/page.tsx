@@ -38,11 +38,13 @@ function IntegrationCard({
   description,
   status,
   icon: Icon,
+  brand,
 }: {
   title: string;
   description: string;
   status: ConnectionState;
   icon: typeof Bot;
+  brand?: "gemini" | "supabase";
 }) {
   const ready = status === "Connected" || status === "Configured";
 
@@ -50,8 +52,25 @@ function IntegrationCard({
     <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#E8F4F7] text-[#0F3D5C]">
-            <Icon className="h-4 w-4" />
+          <div
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
+              brand === "gemini"
+                ? "bg-gradient-to-br from-blue-50 via-violet-50 to-amber-50"
+                : brand === "supabase"
+                  ? "bg-slate-900"
+                  : "bg-[#E8F4F7] text-[#0F3D5C]"
+            }`}
+          >
+            {brand === "gemini" ? (
+              <GeminiMark />
+            ) : (
+              <Icon
+                className={`h-4 w-4 ${
+                  brand === "supabase" ? "text-[#3ECF8E]" : ""
+                }`}
+                aria-hidden="true"
+              />
+            )}
           </div>
           <div className="min-w-0">
             <h2 className="text-sm font-bold text-slate-900">{title}</h2>
@@ -64,6 +83,26 @@ function IntegrationCard({
         </span>
       </div>
     </section>
+  );
+}
+
+function GeminiMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <defs>
+        <linearGradient id="gemini-integration-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#4285F4" />
+          <stop offset="32%" stopColor="#9B72CB" />
+          <stop offset="58%" stopColor="#D96570" />
+          <stop offset="78%" stopColor="#F4AF37" />
+          <stop offset="100%" stopColor="#34A853" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M12 2C13.2 7.7 16.3 10.8 22 12C16.3 13.2 13.2 16.3 12 22C10.8 16.3 7.7 13.2 2 12C7.7 10.8 10.8 7.7 12 2Z"
+        fill="url(#gemini-integration-gradient)"
+      />
+    </svg>
   );
 }
 
@@ -88,18 +127,20 @@ export default async function SystemAdminIntegrationsPage() {
         </p>
       </header>
 
-      <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="grid w-full grid-cols-1 gap-3 md:auto-rows-fr md:grid-cols-2">
         <IntegrationCard
           title="Google Gemini LLM"
           description="API key configuration used for chatbot responses and text embeddings."
           status={geminiStatus}
           icon={Bot}
+          brand="gemini"
         />
         <IntegrationCard
           title="Supabase Auth Admin"
           description="Service credentials are checked with a server-side Auth Admin API request."
           status={supabaseStatus}
           icon={ShieldCheck}
+          brand="supabase"
         />
         <IntegrationCard
           title="PostgreSQL + pgvector"

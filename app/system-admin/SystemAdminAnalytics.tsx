@@ -3,11 +3,10 @@
 import Link from "next/link";
 import {
   Activity,
-  ArrowUpRight,
-  BookOpenText,
-  Cable,
-  Database,
-  Users,
+  BookOpen,
+  DatabaseBackup,
+  Lock,
+  MailCheck,
 } from "lucide-react";
 import {
   Bar,
@@ -38,12 +37,43 @@ export type SystemRoleCount = {
   color: string;
 };
 
-const QUICK_ACTIONS = [
-  { label: "Manage Users", href: "/system-admin/users", icon: Users },
-  { label: "Data Backup", href: "/system-admin/backups", icon: Database },
-  { label: "API Integrations", href: "/system-admin/integrations", icon: Cable },
-  { label: "AI Knowledge Base", href: "/system-admin/knowledge-base", icon: BookOpenText },
-];
+type SystemReadiness = {
+  latestBackupLabel: string;
+  isBackupFresh: boolean;
+  knowledgeCount: number;
+  isKnowledgeActive: boolean;
+  isEmailConfigured: boolean;
+  isStorageConfigured: boolean;
+  isStorageReachable: boolean;
+  totalAudit7d: number;
+  securityAlerts7d: number;
+};
+
+function ReadinessStatus({
+  healthyLabel,
+  actionLabel,
+  ready,
+  href,
+}: {
+  healthyLabel: string;
+  actionLabel: string;
+  ready: boolean;
+  href: string;
+}) {
+  return ready ? (
+    <span className="inline-flex shrink-0 items-center justify-end gap-2 text-xs font-medium text-slate-600">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+      {healthyLabel}
+    </span>
+  ) : (
+    <Link
+      href={href}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+    >
+      {actionLabel}
+    </Link>
+  );
+}
 
 export default function SystemAdminAnalytics({
   activityByDay,
@@ -51,18 +81,48 @@ export default function SystemAdminAnalytics({
   roleCounts,
   totalUsers,
   totalEvents,
+  readiness,
 }: {
   activityByDay: SystemActivityDay[];
   activityByModule: SystemActivityModule[];
   roleCounts: SystemRoleCount[];
   totalUsers: number;
   totalEvents: number;
+  readiness: SystemReadiness;
 }) {
   const maxModuleCount = Math.max(1, ...activityByModule.map((module) => module.count));
+  const peakDay = activityByDay.reduce<SystemActivityDay | null>(
+    (peak, day) => (peak === null || day.count > peak.count ? day : peak),
+    null,
+  );
+  const topModule = activityByModule.reduce<SystemActivityModule | null>(
+    (top, module) => (top === null || module.count > top.count ? module : top),
+    null,
+  );
+  const topModulePercentage =
+    topModule && totalEvents > 0
+      ? Math.round((topModule.count / totalEvents) * 100)
+      : null;
+  const systemOperational =
+    readiness.isBackupFresh &&
+    readiness.isKnowledgeActive &&
+    readiness.isEmailConfigured &&
+    readiness.isStorageReachable &&
+    readiness.securityAlerts7d === 0;
+  const servicesConfigured = readiness.isEmailConfigured && readiness.isStorageReachable;
+  const servicesDiagnostic = servicesConfigured
+    ? "Email delivery & file storage active"
+    : !readiness.isEmailConfigured && !readiness.isStorageConfigured
+      ? "Email & storage config missing"
+      : !readiness.isEmailConfigured
+        ? "Email configuration missing"
+        : !readiness.isStorageConfigured
+          ? "Supabase Storage keys missing"
+          : "Supabase Storage unreachable";
 
   return (
     <section className="grid w-full grid-cols-1 gap-5 lg:grid-cols-12">
-      <article className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5 lg:col-span-7">
+      <article className="flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-4 pb-3 shadow-sm sm:p-5 sm:pb-3.5 lg:col-span-7">
         <header className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
@@ -79,7 +139,7 @@ export default function SystemAdminAnalytics({
         <div
           role="img"
           aria-label="Platform activity during the last seven days"
-          className="mt-3 h-[150px] w-full"
+          className="mt-3 h-48 w-full"
         >
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={activityByDay} margin={{ top: 8, right: 6, bottom: 0, left: 4 }}>
@@ -145,6 +205,31 @@ export default function SystemAdminAnalytics({
             })}
           </div>
         </div>
+
+        <div className="mt-2.5 grid grid-cols-3 gap-3 border-t border-slate-100 pt-3.5">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-slate-400">Daily Average</p>
+            <p className="mt-0.5 truncate text-xs font-semibold text-slate-800">
+              {Math.round(totalEvents / 7).toLocaleString("en-PH")} / day
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-slate-400">Peak Activity</p>
+            <p className="mt-0.5 truncate text-xs font-semibold text-slate-800">
+              {peakDay && peakDay.count > 0
+                ? `${peakDay.label} · ${peakDay.count.toLocaleString("en-PH")}`
+                : "—"}
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-slate-400">Top Module</p>
+            <p className="mt-0.5 truncate text-xs font-semibold text-slate-800">
+              {topModule && topModulePercentage !== null
+                ? `${topModule.label} (${topModulePercentage}%)`
+                : "—"}
+            </p>
+          </div>
+        </div>
       </article>
 
       <div className="flex flex-col gap-5 lg:col-span-5">
@@ -168,22 +253,91 @@ export default function SystemAdminAnalytics({
           </div>
         </article>
 
-        <article className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
-          <h2 className="text-sm font-bold text-slate-900">Quick Actions</h2>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {QUICK_ACTIONS.map(({ label, href, icon: Icon }) => (
-              <Link
-                key={label}
-                href={href}
-                className="group flex min-h-14 items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:border-cyan-200 hover:bg-cyan-50/70 hover:text-cyan-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <Icon className="h-4 w-4 shrink-0 text-cyan-700" aria-hidden="true" />
-                  <span className="truncate">{label}</span>
-                </span>
-                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-400 transition group-hover:text-cyan-700" aria-hidden="true" />
-              </Link>
-            ))}
+        <article className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xs">
+          <header className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-slate-900">System Readiness</h2>
+            <span
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${
+                systemOperational
+                  ? "border-emerald-200 bg-emerald-50/80 text-emerald-700"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  systemOperational ? "bg-emerald-500" : "bg-amber-500"
+                }`}
+                aria-hidden="true"
+              />
+              {systemOperational ? "All Systems Operational" : "Attention Needed"}
+            </span>
+          </header>
+
+          <div className="mt-2 divide-y divide-slate-100">
+            <div className="flex items-center gap-3 py-3">
+              <DatabaseBackup className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-slate-800">Automated Backups</p>
+                <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                  {readiness.latestBackupLabel}
+                </p>
+              </div>
+              <ReadinessStatus
+                healthyLabel="Verified"
+                actionLabel="Backup Needed"
+                ready={readiness.isBackupFresh}
+                href="/system-admin/backups"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 py-3">
+              <BookOpen className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-slate-800">AI Knowledge Base</p>
+                <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                  {readiness.knowledgeCount.toLocaleString("en-PH")} indexed documents
+                </p>
+              </div>
+              <ReadinessStatus
+                healthyLabel="Active"
+                actionLabel="Add Documents"
+                ready={readiness.isKnowledgeActive}
+                href="/system-admin/knowledge-base"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 py-3">
+              <MailCheck className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-slate-800">Email &amp; Storage Services</p>
+                <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                  {servicesDiagnostic}
+                </p>
+              </div>
+              <ReadinessStatus
+                healthyLabel="Connected"
+                actionLabel="Needs Setup"
+                ready={servicesConfigured}
+                href="/system-admin/integrations"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 py-3">
+              <Lock className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-slate-800">Audit &amp; Access Governance</p>
+                <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                  {readiness.totalAudit7d.toLocaleString("en-PH")} audit events ·{" "}
+                  {readiness.securityAlerts7d.toLocaleString("en-PH")} alerts (7d)
+                </p>
+              </div>
+              <ReadinessStatus
+                healthyLabel="Enforced"
+                actionLabel="Review Alerts"
+                ready={readiness.securityAlerts7d === 0}
+                href="/system-admin/audit"
+              />
+            </div>
           </div>
         </article>
       </div>

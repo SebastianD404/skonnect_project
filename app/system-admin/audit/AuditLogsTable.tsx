@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, LoaderCircle, ScrollText, Search, X } from "lucide-react";
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, Download, LoaderCircle, ScrollText, Search, X } from "lucide-react";
 import {
   getAuditActionSummary,
   getAuditRoleChangeContext,
@@ -61,35 +61,47 @@ function isAuditItem(value: unknown): value is AuditItem {
   );
 }
 
-const actionTone: Record<string, string> = {
-  ROLE_UPDATED: "bg-[#0F3D5C]/10 text-[#0F3D5C]",
-  UPDATE_USER_ROLE: "bg-[#0F3D5C]/10 text-[#0F3D5C]",
-  USER_DEACTIVATED: "bg-rose-100 text-rose-700",
-  GRANT_APPROVED: "bg-emerald-100 text-emerald-700",
-  POLICY_UPDATED: "bg-amber-100 text-amber-700",
-  APPROVE_SKEAP_APPLICATION: "bg-emerald-100 text-emerald-700",
-  APPLICATION_APPROVED: "bg-emerald-100 text-emerald-700",
-  APPLICATION_PROMOTED: "bg-emerald-100 text-emerald-700",
-  REJECT_SKEAP_APPLICATION: "bg-rose-100 text-rose-700",
-  APPLICATION_REJECTED: "bg-rose-100 text-rose-700",
-  MUTATE_GRANTEE_STATUS: "bg-sky-100 text-sky-700",
-  GRANTEE_STATUS_CHANGED: "bg-sky-100 text-sky-700",
-  OVERRIDE_DEADLINE: "bg-amber-100 text-amber-700",
-  APPROVE_ACADEMIC_SUBMISSION: "bg-emerald-100 text-emerald-700",
-  DOCUMENT_REVIEWED: "bg-emerald-100 text-emerald-700",
-  DOCUMENT_OVERRIDDEN: "bg-amber-100 text-amber-700",
-  ADMIN_OCR_OVERRIDE: "bg-amber-100 text-amber-700",
-  FLAG_SUBMISSION_FOR_CORRECTION: "bg-amber-100 text-amber-700",
-  EXPORT_KK_PROFILING_DATA: "bg-violet-100 text-violet-700",
-  RECORDS_EXPORTED: "bg-violet-100 text-violet-700",
-  INQUIRY_RESOLVED: "bg-emerald-100 text-emerald-700",
-  INQUIRY_REOPENED: "bg-amber-100 text-amber-700",
-  MANUAL_PROFILE_UPDATE: "bg-indigo-100 text-indigo-700",
-  CREATE_ANNOUNCEMENT: "bg-cyan-100 text-cyan-700",
-  DELETE_ANNOUNCEMENT: "bg-rose-100 text-rose-700",
-  CREATE_EVENT: "bg-emerald-100 text-emerald-700",
-  CANCEL_EVENT: "bg-rose-100 text-rose-700",
-};
+const actionBadgeBaseClass =
+  "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-semibold tracking-wide uppercase";
+
+function getActionBadgeTone(action: string): string {
+  const normalizedAction = action.toUpperCase();
+  if (/FAILED|REVOK|DELETE|DEACTIVAT|REJECT|CANCEL|UNAUTHORIZED|FORBIDDEN|DENIED|SECURITY/.test(normalizedAction)) {
+    return "border-rose-200/80 bg-rose-50/80 text-rose-700";
+  }
+  if (/RESTORE|UPDATE|RETURN|CHANGED|MUTAT|OVERRIDE|REOPEN|FLAG/.test(normalizedAction)) {
+    return "border-amber-200/80 bg-amber-50/80 text-amber-800";
+  }
+  if (/EXPORT|BACKUP/.test(normalizedAction)) {
+    return "border-sky-200/80 bg-sky-50/80 text-sky-700";
+  }
+  if (/APPROV|GRADUAT|CREATE|PROMOT|REVIEWED|RESOLVED/.test(normalizedAction)) {
+    return "border-emerald-200/80 bg-emerald-50/80 text-emerald-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function formatAuditTargetTable(targetTable: string): string {
+  const acronyms: Record<string, string> = { api: "API", id: "ID", kk: "KK" };
+  return targetTable
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => acronyms[part.toLowerCase()] ?? `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function formatAuditRecordedAt(value: string): string {
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+
+  return `${formatted.replace(" at ", " · ")} PHT`;
+}
 
 export default function AuditLogsTable({ audits, page, pageSize, totalCount }: Props) {
   const router = useRouter();
@@ -298,6 +310,8 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
   const displayedPage = Math.min(page, totalPages);
   const startIndex = (displayedPage - 1) * pageSize;
   const currentLogs = filtered;
+  const shownCount = currentLogs.length;
+  const totalMatching = availableCount;
 
   const selectedAuditMetadata = useMemo(() => {
     if (!selectedAudit) return null;
@@ -355,81 +369,122 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 sm:flex sm:items-center sm:justify-between">
-        <div className="relative min-w-0 max-w-md flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search action, actor, or table..."
-            className="h-10 w-full rounded-xl border border-[#CFDBE7] bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#4B96C6] focus:ring-2 focus:ring-[#4B96C6]/20"
-          />
-        </div>
+    <>
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-2xs">
+        <div className="flex flex-col gap-3 border-b border-slate-200/80 bg-white px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-1 flex-wrap items-center gap-2.5">
+            <div className="relative min-w-[240px] max-w-sm flex-1">
+              <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search action, actor, or table..."
+                aria-label="Search audit logs"
+                className="h-10 w-full rounded-xl border border-slate-200/90 bg-slate-50/60 pl-9 pr-8 text-[13px] text-slate-800 transition placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/15"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setQuery("")}
+                  className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-200/70 hover:text-slate-700"
+                >
+                  <X aria-hidden="true" className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative" ref={rangeMenuRef}>
-            <button
-              type="button"
-              onClick={() => setIsRangeMenuOpen((open) => !open)}
-              aria-haspopup="menu"
-              aria-expanded={isRangeMenuOpen}
-              disabled={isLoadingRange}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
-            >
-              <Filter className="h-4 w-4" />
-              {isLoadingRange ? "Loading..." : activeRangeLabel}
-              <ChevronDown className={`h-4 w-4 transition-transform ${isRangeMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-            {isRangeMenuOpen ? (
-              <div
-                role="menu"
-                className="absolute right-0 z-30 mt-2 w-48 rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl"
+            <div className="relative" ref={rangeMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsRangeMenuOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={isRangeMenuOpen}
+                disabled={isLoadingRange}
+                className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3.5 text-[13px] font-medium shadow-2xs transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 ${
+                  selectedRange === "30d"
+                    ? "border-slate-200/90 bg-white text-slate-700"
+                    : "border-sky-200 bg-sky-50/80 text-sky-900"
+                }`}
               >
-                {TIME_RANGES.map((range) => (
-                  <button
-                    key={range.value}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={selectedRange === range.value}
-                    onClick={() => void changeTimeRange(range.value)}
-                    className={`w-full px-4 py-2 text-left text-xs font-medium transition-colors ${
-                      selectedRange === range.value
-                        ? "bg-teal-50 font-bold text-teal-700"
-                        : "text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    {range.label}
-                  </button>
-                ))}
-              </div>
+                <Calendar aria-hidden="true" className="h-4 w-4 text-slate-400" />
+                {isLoadingRange ? "Loading..." : activeRangeLabel}
+                <ChevronDown
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 text-slate-400 transition-transform ${isRangeMenuOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {isRangeMenuOpen ? (
+                <div role="menu" className="absolute left-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
+                  {TIME_RANGES.map((range) => (
+                    <button
+                      key={range.value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selectedRange === range.value}
+                      onClick={() => void changeTimeRange(range.value)}
+                      className={`w-full px-4 py-2 text-left text-xs font-medium transition-colors ${
+                        selectedRange === range.value
+                          ? "bg-sky-50/80 font-semibold text-sky-900"
+                          : "text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {range.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            {query || selectedRange !== "30d" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  if (selectedRange !== "30d") changeTimeRange("30d");
+                }}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+              >
+                Reset
+              </button>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => void handleExport()}
-            disabled={isExporting}
-            aria-busy={isExporting}
-            aria-label="Export audit logs"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#CFDBE7] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
-          >
-            {isExporting ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            {isExporting ? "Exporting..." : "Export Logs"}
-          </button>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 lg:justify-end">
+            <p aria-live="polite" className="text-xs text-slate-500 tabular-nums">
+              Showing{" "}
+              <span className="font-semibold text-slate-800">{shownCount.toLocaleString()}</span>
+              {" "}of{" "}
+              <span className="font-semibold text-slate-800">{totalMatching.toLocaleString()}</span>
+            </p>
+            <span aria-hidden="true" className="hidden h-5 w-px bg-slate-200 sm:inline-block" />
+            <button
+              type="button"
+              onClick={() => void handleExport()}
+              disabled={isExporting}
+              aria-busy={isExporting}
+              aria-label="Export audit logs"
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#0F2942] px-4 text-[13px] font-semibold text-white shadow-2xs transition hover:bg-[#163859] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isExporting ? (
+                <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download aria-hidden="true" className="h-3.5 w-3.5" />
+              )}
+              <span className="whitespace-nowrap tabular-nums">
+                {isExporting ? "Exporting..." : `Export Logs (${totalMatching.toLocaleString()})`}
+              </span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      {rangeError ? (
-        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {rangeError}
-        </p>
-      ) : null}
+        {rangeError ? (
+          <p role="alert" className="mx-5 mt-4 mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {rangeError}
+          </p>
+        ) : null}
 
-      <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+        <div>
         {filtered.length === 0 ? (
           <EmptyState />
         ) : (
@@ -447,7 +502,6 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
                 <tbody className="divide-y divide-slate-100">
                   {currentLogs.map((audit) => {
                     const metadata = getAuditRoleChangeContext(audit);
-                    const targetContext = getAuditTargetContext(audit);
                     const summaryText = getAuditActionSummary(audit);
                     const hasRoleDelta =
                       audit.action === "UPDATE_USER_ROLE" &&
@@ -456,15 +510,13 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
                     return (
                     <tr
                       key={audit.id}
-                      className="cursor-pointer transition hover:bg-slate-50/50"
+                      className="cursor-pointer transition-colors hover:bg-slate-50/80"
                       onClick={() => setSelectedAudit(audit)}
                     >
                       <td className="max-w-[28rem] px-6 py-4">
                         <div className="flex max-w-md min-w-0 flex-col gap-1.5">
                           <span
-                            className={`inline-flex w-fit max-w-full whitespace-normal break-words rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider ${
-                              actionTone[audit.action] ?? "bg-slate-100 text-slate-600"
-                            }`}
+                            className={`${actionBadgeBaseClass} w-fit max-w-full whitespace-normal break-words ${getActionBadgeTone(audit.action)}`}
                           >
                             {audit.action.replace(/_/g, " ")}
                           </span>
@@ -494,16 +546,20 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
                         <p className="text-xs text-slate-500">{audit.actorEmail}</p>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-semibold text-slate-900">{targetContext.label}</span>
-                          {targetContext.secondary ? (
-                            <span className="text-[11px] text-slate-500">{targetContext.secondary}</span>
-                          ) : null}
-                          <span className="mt-1 text-[10px] font-mono text-slate-400">{shortAuditId(targetContext.id)}</span>
+                        <div className="min-w-0">
+                          <span className="block text-[13px] font-semibold text-slate-800">
+                            {formatAuditTargetTable(audit.targetTable)}
+                          </span>
+                          <span
+                            title={audit.targetId}
+                            className="mt-1 inline-block max-w-[180px] truncate rounded bg-slate-100/90 px-1.5 py-0.5 font-mono text-[11px] text-slate-600"
+                          >
+                            {audit.targetId}
+                          </span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-slate-500 tabular-nums">
-                        {formatPhilippineTime(audit.createdAt)}
+                      <td className="whitespace-nowrap px-6 py-4 text-xs text-slate-500 tabular-nums">
+                        {formatAuditRecordedAt(audit.createdAt)}
                       </td>
                     </tr>
                     );
@@ -515,7 +571,6 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
             <ul className="divide-y divide-slate-100 lg:hidden">
               {currentLogs.map((audit) => {
                 const metadata = getAuditRoleChangeContext(audit);
-                const targetContext = getAuditTargetContext(audit);
                 const summaryText = getAuditActionSummary(audit);
                 const hasRoleDelta =
                   audit.action === "UPDATE_USER_ROLE" &&
@@ -524,18 +579,16 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
                 return (
                 <li
                   key={audit.id}
-                  className="space-y-2 px-6 py-4 transition hover:bg-slate-50/50"
+                  className="space-y-2 px-6 py-4 transition-colors hover:bg-slate-50/80"
                   onClick={() => setSelectedAudit(audit)}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <span
-                      className={`inline-flex rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider ${
-                        actionTone[audit.action] ?? "bg-slate-100 text-slate-600"
-                      }`}
+                      className={`${actionBadgeBaseClass} max-w-full whitespace-normal break-words ${getActionBadgeTone(audit.action)}`}
                     >
                       {audit.action.replace(/_/g, " ")}
                     </span>
-                    <span className="text-xs text-slate-500 tabular-nums">{formatPhilippineTime(audit.createdAt)}</span>
+                    <span className="whitespace-nowrap text-xs text-slate-500 tabular-nums">{formatAuditRecordedAt(audit.createdAt)}</span>
                   </div>
 
                   <div className="text-sm">
@@ -556,9 +609,16 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
                   ) : null}
 
                   <div className="min-w-0 space-y-1 text-xs text-slate-500">
-                    <div>
-                      <span className="font-semibold text-slate-900">{targetContext.label}</span>
-                      {targetContext.secondary ? <span> · {targetContext.secondary}</span> : null}
+                    <div className="min-w-0">
+                      <span className="block text-[13px] font-semibold text-slate-800">
+                        {formatAuditTargetTable(audit.targetTable)}
+                      </span>
+                      <span
+                        title={audit.targetId}
+                        className="mt-1 inline-block max-w-[180px] truncate rounded bg-slate-100/90 px-1.5 py-0.5 font-mono text-[11px] text-slate-600"
+                      >
+                        {audit.targetId}
+                      </span>
                     </div>
                     {summaryText ? (
                       <p
@@ -568,7 +628,6 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
                         {summaryText}
                       </p>
                     ) : null}
-                    <p className="font-mono text-[10px] text-slate-400">{shortAuditId(targetContext.id)}</p>
                   </div>
                 </li>
                 );
@@ -578,13 +637,17 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
         )}
         <div className="mt-auto flex flex-col items-center justify-between gap-4 border-t border-slate-200/80 bg-slate-50/50 px-4 py-4 sm:flex-row sm:px-6">
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-            <p className="text-xs font-medium text-slate-500">
+            <p className="text-xs font-medium text-slate-500 tabular-nums">
               Showing{" "}
-              <span className="font-bold text-slate-900">{availableCount > 0 ? startIndex + 1 : 0}</span>
+              <span className="font-bold text-slate-900">
+                {(shownCount > 0 ? startIndex + 1 : 0).toLocaleString()}
+              </span>
               {" "}to{" "}
-              <span className="font-bold text-slate-900">{Math.min(startIndex + currentLogs.length, availableCount)}</span>
+              <span className="font-bold text-slate-900">
+                {Math.min(startIndex + shownCount, availableCount).toLocaleString()}
+              </span>
               {" "}of{" "}
-              <span className="font-bold text-slate-900">{availableCount}</span> entries
+              <span className="font-bold text-slate-900">{availableCount.toLocaleString()}</span> entries
             </p>
             <label className="flex items-center gap-1.5 border-l border-slate-200 pl-4 text-[11px] font-medium text-slate-400">
               <span>Show</span>
@@ -625,6 +688,7 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
             </button>
           </nav>
         </div>
+      </div>
       </div>
 
       {selectedAudit ? (
@@ -759,7 +823,7 @@ export default function AuditLogsTable({ audits, page, pageSize, totalCount }: P
           </aside>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
 

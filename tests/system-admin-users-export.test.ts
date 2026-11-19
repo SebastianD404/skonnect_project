@@ -60,7 +60,7 @@ describe("system admin user export route", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Disposition")).toContain(
-      `skonnect-system-admins-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      `skonnect-super-admins-${new Date().toISOString().slice(0, 10)}.xlsx`,
     );
     expect(mocks.getUsers).toHaveBeenCalledWith({
       metric: "verified",
@@ -83,6 +83,28 @@ describe("system admin user export route", () => {
           exportedRowCount: 1,
         }),
       }),
+    );
+  });
+
+  it.each([
+    ["ALL", "all", "all-users"],
+    ["ALL", "verified", "verified-kk-youth-and-grantees"],
+    ["YOUTH", "all", "youth"],
+    ["GRANTEE", "all", "grantees"],
+    ["SK_OFFICIAL", "all", "sk-officials"],
+    ["SUPER_ADMIN", "all", "super-admins"],
+    ["ALL", "pending", "pending"],
+    ["ALL", "adminStaff", "privileged"],
+    ["ALL", "archived", "archived"],
+  ] as const)("uses the active cohort in the export filename (%s / %s)", async (role, metric, slug) => {
+    const request = new NextRequest(
+      `http://localhost/api/system-admin/users/export?role=${role}&metric=${metric}`,
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Disposition")).toContain(
+      `skonnect-${slug}-${new Date().toISOString().slice(0, 10)}.xlsx`,
     );
   });
 

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -41,7 +42,7 @@ function getPhtActivityWindow(now: Date) {
   const todayUtc = Date.UTC(value("year"), value("month") - 1, value("day"));
 
   return {
-    startAt: new Date(todayUtc - 6 * DAY_MS - PHT_OFFSET_MS),
+    sevenDayStartPht: new Date(todayUtc - 6 * DAY_MS - PHT_OFFSET_MS),
     endAt: now,
     dates: Array.from({ length: 7 }, (_, index) => {
       const date = new Date(todayUtc + (index - 6) * DAY_MS);
@@ -94,6 +95,53 @@ function formatPhtTimestamp(date: Date) {
     timeZone: "Asia/Manila",
   }).format(date);
   return `${formatted.replace(" at ", ", ")} PHT`;
+}
+
+function isEmailConfigured() {
+  return Boolean(
+    process.env.GMAIL_USER?.trim() &&
+    process.env.GMAIL_APP_PASSWORD?.trim(),
+  );
+}
+
+function isStorageConfigured() {
+  return Boolean(
+    (process.env.SUPABASE_URL?.trim() ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) &&
+    (process.env.SUPABASE_SECRET_KEY?.trim() ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
+  );
+}
+
+async function checkStorageReachable() {
+  if (!isStorageConfigured()) return false;
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      listSupabaseStorageBuckets(),
+      new Promise<boolean>((resolve) => {
+        timeoutId = setTimeout(() => {
+          console.warn("Supabase Storage readiness check timed out.");
+          resolve(false);
+        }, 2000);
+      }),
+    ]);
+  } catch (error) {
+    console.error("Supabase Storage readiness check failed.", error);
+    return false;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function listSupabaseStorageBuckets() {
+  const { data, error } = await createAdminClient().storage.listBuckets();
+  if (error) {
+    console.error("Supabase Storage readiness check failed.", error);
+    return false;
+  }
+  return data !== null;
 }
 
 function MetricCard({
@@ -155,6 +203,8 @@ function MetricCard({
 export default async function SystemAdminDashboardPage() {
   const now = new Date();
   const activityWindow = getPhtActivityWindow(now);
+  const isEmailConfiguredValue = isEmailConfigured();
+  const isStorageConfiguredValue = isStorageConfigured();
   const [
     activeUsersCount,
     auditEntriesRows,
@@ -162,6 +212,11 @@ export default async function SystemAdminDashboardPage() {
     recentAudits,
     roleCounts,
     activityRows,
+    latestBackup,
+    knowledgeDocumentRows,
+    totalAudit7d,
+    securityAlerts7d,
+    storageReachable,
   ] = await Promise.all([
     prisma.user.count({
       where: { isActive: true },
@@ -201,13 +256,77 @@ export default async function SystemAdminDashboardPage() {
         action AS action,
         COUNT(*)::bigint AS "eventCount"
       FROM audit_logs
-      WHERE "createdAt" >= ${activityWindow.startAt}
+      WHERE "createdAt" >= ${activityWindow.sevenDayStartPht}
         AND "createdAt" <= ${activityWindow.endAt}
       GROUP BY 1, 2, 3
       ORDER BY 1 ASC
     `,
+    prisma.auditLog.findFirst({
+      where: {
+        action: { in: ["SYSTEM_BACKUP_CREATED", "BACKUP_CREATED"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+    prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS count
+      FROM chat_embeddings
+      WHERE embedding IS NOT NULL
+        AND LOWER("sourceType") NOT IN (
+          'events',
+          'governance',
+          'technical',
+          'system_overview'
+        )
+    `,
+    prisma.auditLog.count({
+      where: {
+        createdAt: {
+          gte: activityWindow.sevenDayStartPht,
+          lte: activityWindow.endAt,
+        },
+      },
+    }),
+    prisma.auditLog.count({
+      where: {
+        createdAt: {
+          gte: activityWindow.sevenDayStartPht,
+          lte: activityWindow.endAt,
+        },
+        OR: [
+          { action: { contains: "UNAUTHORIZED", mode: "insensitive" } },
+          { action: { contains: "ACCESS_DENIED", mode: "insensitive" } },
+          { action: { contains: "FORBIDDEN", mode: "insensitive" } },
+          {
+            AND: [
+              { action: { contains: "LOGIN", mode: "insensitive" } },
+              {
+                OR: [
+                  { action: { contains: "FAIL", mode: "insensitive" } },
+                  { action: { contains: "INVALID", mode: "insensitive" } },
+                ],
+              },
+            ],
+          },
+          {
+            AND: [
+              { action: { contains: "AUTH", mode: "insensitive" } },
+              { action: { contains: "FAIL", mode: "insensitive" } },
+            ],
+          },
+          { action: { contains: "INVALID_CREDENTIALS", mode: "insensitive" } },
+        ],
+      },
+    }),
+    checkStorageReachable(),
   ]);
 
+  const backupAgeMs = latestBackup
+    ? now.getTime() - latestBackup.createdAt.getTime()
+    : null;
+  const isBackupFresh =
+    backupAgeMs !== null && backupAgeMs >= 0 && backupAgeMs <= 48 * 60 * 60 * 1000;
+  const knowledgeCount = Number(knowledgeDocumentRows[0]?.count ?? 0);
   const auditEntriesCount = Number(auditEntriesRows[0]?.count ?? 0);
   const roleMap = new Map(roleCounts.map((item) => [item.role, item._count.role]));
   const totalUsers = roleCounts.reduce((total, item) => total + item._count.role, 0);
@@ -287,6 +406,19 @@ export default async function SystemAdminDashboardPage() {
         roleCounts={roleDistribution}
         totalUsers={totalUsers}
         totalEvents={totalEvents}
+        readiness={{
+          latestBackupLabel: latestBackup
+            ? formatPhtTimestamp(latestBackup.createdAt)
+            : "No backup recorded",
+          isBackupFresh,
+          knowledgeCount,
+          isKnowledgeActive: knowledgeCount > 0,
+          isEmailConfigured: isEmailConfiguredValue,
+          isStorageConfigured: isStorageConfiguredValue,
+          isStorageReachable: storageReachable,
+          totalAudit7d,
+          securityAlerts7d,
+        }}
       />
 
       <section
