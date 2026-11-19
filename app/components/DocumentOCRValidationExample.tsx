@@ -3,11 +3,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
 import {
-  AlertTriangle,
-  CheckCircle2,
   Clock3,
   FileText,
-  LoaderCircle,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -24,10 +21,6 @@ export type OcrStrategy =
   | "validIdFront"
   | "validIdBack";
 type ScannerDocumentType = "front_id" | "validIdFront" | "validIdBack" | "certificate";
-type VerificationBadge = {
-  label: string;
-  tone: "green" | "amber" | "blue";
-};
 
 export type DocumentOCRState = {
   status: "idle" | "scanning" | "success" | "needs_review" | "error";
@@ -57,7 +50,6 @@ type DocumentUploadCardProps = {
   lastName?: string;
   onOcrStateChange?: (state: DocumentOCRState) => void;
   onFailedOcrAttempt?: () => void;
-  verificationBadge?: VerificationBadge;
 };
 
 export function evaluateDocumentOcr(
@@ -96,7 +88,7 @@ export function getCompactIdErrorMessage(
   errorCode?: string,
 ) {
   if (errorCode === "SCANNER_UNAVAILABLE") {
-    return "This ID could not be checked. It will be reviewed manually.";
+    return "We couldn't check this ID automatically. Please try uploading a clear image again; it may still need manual verification.";
   }
   if (errorCode === "FILE_TOO_LARGE") {
     return "ID images must be no larger than 10 MB.";
@@ -107,7 +99,16 @@ export function getCompactIdErrorMessage(
   if (errorCode === "INVALID_IMAGE") {
     return "This image is blank or damaged. Please upload a clear photo of the ID.";
   }
-  return "This ID could not be checked automatically. It will be reviewed manually.";
+  if (errorCode === "LOW_CONFIDENCE") {
+    return "We couldn't clearly read this ID. Please re-upload a clear, well-lit image.";
+  }
+  if (errorCode === "NAME_MISMATCH") {
+    return "The name on this ID does not match your profile. Please upload your own valid ID.";
+  }
+  if (errorCode === "UNRECOGNIZED_DOCUMENT" || errorCode === "WRONG_DOCUMENT_SIDE") {
+    return "We couldn't confirm this is the correct side of a valid ID. Please upload a clear image of the correct ID side.";
+  }
+  return "This ID could not be checked automatically. Please upload a clearer image, or it may need manual verification.";
 }
 
 function getScannerDocumentType(strategy: OcrStrategy): ScannerDocumentType | null {
@@ -206,7 +207,6 @@ export function DocumentUploadCard({
   lastName,
   onOcrStateChange,
   onFailedOcrAttempt,
-  verificationBadge,
 }: DocumentUploadCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
@@ -345,7 +345,7 @@ export function DocumentUploadCard({
       const isValid = needsManualReview || (evaluation?.isValid ?? (result.status === "success" && result.isValid));
       const state: DocumentOCRState = {
         status: needsManualReview ? "needs_review" : isValid ? "success" : "error",
-        badgeText: needsManualReview ? "For Verification" : result.badgeText,
+        badgeText: isIdStrategy ? "For Verification" : result.badgeText,
         message: evaluation?.error ?? result.message,
         errorCode: evaluation?.error ? "DOCUMENT_STRATEGY_FAILED" : result.errorCode,
         manualReviewRequired: needsManualReview,
@@ -421,7 +421,7 @@ export function DocumentUploadCard({
         ocrStrategy === "validIdBack" ||
         ocrStrategy === "front-id" ||
         ocrStrategy === "back-id") &&
-      ocrFailed
+      (ocrStatus.status === "error" || ocrStatus.status === "needs_review")
       ? getCompactIdErrorMessage(ocrStrategy, ocrStatus.errorCode)
       : null;
   const ocrErrorMessage = compactIdErrorMessage ?? detailedOcrErrorMessage;
@@ -429,18 +429,9 @@ export function DocumentUploadCard({
     compactIdErrorMessage && detailedOcrErrorMessage
       ? detailedOcrErrorMessage
       : ocrErrorMessage;
-  const badge = verificationBadge ?? {
-    label: ocrStatus.status === "scanning" ? "Checking file..." : "For Verification",
-    tone: "blue" as const,
-  };
-  const badgeToneClass = {
-    green: "border-emerald-200 bg-emerald-100/95 text-emerald-800",
-    amber: "border-amber-200 bg-amber-100/95 text-amber-800",
-    blue: "border-sky-200/90 bg-sky-100/95 text-[#0F3D5C]",
-  }[badge.tone];
   const cardHeightClass = compact ? "min-h-32" : "min-h-52";
   const dropzoneStateClasses = selectedFile
-    ? `border-2 border-dashed border-amber-400 ${hasImageBackground ? "bg-cover bg-center bg-no-repeat" : "bg-slate-700"}`
+    ? `border border-slate-200 ${hasImageBackground ? "bg-cover bg-center bg-no-repeat" : "bg-slate-700"}`
     : isDragging
       ? "border-2 border-dashed border-[var(--primary)] bg-slate-50 hover:border-[var(--primary)]"
       : "border-2 border-dashed border-slate-300 bg-white hover:border-slate-400 hover:bg-slate-50";
@@ -514,23 +505,15 @@ export function DocumentUploadCard({
                   {displayFileName} · {formatFileSize(selectedFile.size)}
                 </p>
               )}
-              {ocrStatus.status !== "error" ? (
-                <span
-                  role={ocrStatus.status === "scanning" ? "status" : undefined}
-                  aria-live="polite"
-                  title="This file still requires in-person verification at the barangay."
-                  className={`inline-flex items-center gap-1 rounded-full border font-semibold shadow-sm ${badgeToneClass} ${compact ? "mt-1 px-2 py-0.5 text-[9px]" : "mt-1 px-2 py-0.5 text-[10px]"}`}
-                >
-                  {ocrStatus.status === "scanning"
-                    ? <LoaderCircle className="h-3 w-3 animate-spin text-cyan-800" aria-hidden="true" />
-                    : badge.tone === "green"
-                      ? <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
-                      : badge.tone === "amber"
-                        ? <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                        : <Clock3 className="h-3 w-3 text-cyan-800" aria-hidden="true" />}
-                  {badge.label}
-                </span>
-              ) : null}
+              <span
+                role={ocrStatus.status === "scanning" ? "status" : undefined}
+                aria-live="polite"
+                title="This file still requires in-person verification at the barangay."
+                className={`inline-flex items-center gap-1 rounded-full border border-sky-200/90 bg-sky-100/95 font-semibold text-[#0F3D5C] shadow-sm ${compact ? "mt-1 px-2 py-0.5 text-[9px]" : "mt-1 px-2 py-0.5 text-[10px]"}`}
+              >
+                <Clock3 className="h-3 w-3 text-cyan-800" aria-hidden="true" />
+                For Verification
+              </span>
               {ocrErrorMessage ? (
                 <p
                   role="alert"

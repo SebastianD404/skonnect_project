@@ -1470,15 +1470,6 @@ export default function KKProfilingForm({
                   firstName={form.firstName}
                   middleInitial={form.middleInitial}
                   lastName={form.lastName}
-                  verificationBadge={
-                    frontNameVerificationStatus === "scanning"
-                      ? { label: "Checking file...", tone: "blue" }
-                      : frontNameVerificationStatus === "verified"
-                        ? { label: "Verified", tone: "green" }
-                        : frontNameVerificationStatus === "name_mismatch"
-                          ? { label: "Name Mismatch", tone: "amber" }
-                          : { label: "For Verification", tone: "blue" }
-                  }
                   onUpload={(file) => handleIdFileChange("front", file)}
                   onOcrStateChange={(state) => updateOcrDocumentState("front", state)}
                   onFailedOcrAttempt={() => recordFailedOcrAttempt("front")}
@@ -1501,8 +1492,8 @@ export default function KKProfilingForm({
                 />
               </div>
               {frontNameVerificationStatus === "name_mismatch" ? (
-                <p className="mt-2 text-xs leading-relaxed text-amber-800" role="status">
-                  Name on Front ID doesn&apos;t match {form.firstName.trim()} {form.lastName.trim()}. Upload your own valid ID, or submit as-is for SKAdmin review.
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900" role="alert">
+                  Name on Front ID doesn&apos;t match {form.firstName.trim()} {form.lastName.trim()}. Please re-upload your own valid ID with a matching name.
                 </p>
               ) : null}
               {idHashCheckStatus === "checking" ? (

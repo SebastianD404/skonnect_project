@@ -30,13 +30,16 @@ describe("document OCR strategies", () => {
 
   it("uses the requested feedback for rejected compact ID uploads", () => {
     expect(getCompactIdErrorMessage("front-id", "UNRECOGNIZED_DOCUMENT")).toBe(
-      "Please Upload a Correct Valid ID.",
+      "We couldn't confirm this is the correct side of a valid ID. Please upload a clear image of the correct ID side.",
     );
     expect(getCompactIdErrorMessage("back-id", "WRONG_DOCUMENT_SIDE")).toBe(
-      "Please Upload a Correct Valid ID.",
+      "We couldn't confirm this is the correct side of a valid ID. Please upload a clear image of the correct ID side.",
     );
     expect(getCompactIdErrorMessage("front-id", "SCANNER_UNAVAILABLE")).toBe(
-      "This ID could not be checked. It will be reviewed manually.",
+      "We couldn't check this ID automatically. Please try uploading a clear image again; it may still need manual verification.",
+    );
+    expect(getCompactIdErrorMessage("validIdFront", "LOW_CONFIDENCE")).toBe(
+      "We couldn't clearly read this ID. Please re-upload a clear, well-lit image.",
     );
   });
 });
