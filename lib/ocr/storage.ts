@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const PRIVATE_SUBMISSION_BUCKET = "grantee-submissions";
+export const PRIVATE_SUBMISSION_DEMO_BUCKET = "private-documents";
 const LEGACY_SUBMISSION_BUCKET = "public image";
 const STORAGE_URL_PREFIX = "/storage/v1/object/";
 
@@ -57,11 +58,15 @@ function parseSupabaseStorageUrl(filePathOrUrl: string) {
   return { bucket, path: pathParts.join("/") };
 }
 
-function isOwnedSubmissionPath(path: string, authId: string) {
-  return (
-    path.startsWith(`${PRIVATE_SUBMISSION_BUCKET}/${authId}/`) ||
-    path.startsWith(`${authId}/`)
-  ) && !path.includes("..") && !path.includes("\\");
+function isOwnedSubmissionPath(path: string, authId: string, bucket: string) {
+  const isOwnerScoped =
+    bucket === PRIVATE_SUBMISSION_DEMO_BUCKET
+      ? path.startsWith(`${PRIVATE_SUBMISSION_BUCKET}/${authId}/`)
+      : path.startsWith(`${PRIVATE_SUBMISSION_BUCKET}/${authId}/`) ||
+        path.startsWith(`${authId}/`);
+  return isOwnerScoped &&
+    path.split("/").every((part) => part && part !== "." && part !== "..") &&
+    !path.includes("\\");
 }
 
 function parseLegacyPublicSubmissionObject(filePathOrUrl: string, authId: string) {
@@ -110,11 +115,19 @@ export function getLegacySubmissionStorageObject(filePathOrUrl: string, authId: 
 
 export function getSubmissionStorageObject(filePathOrUrl: string, authId: string): SubmissionStorageObject {
   const parsedUrlObject = parseSupabaseStorageUrl(filePathOrUrl);
-  const bucket = parsedUrlObject?.bucket ?? PRIVATE_SUBMISSION_BUCKET;
-  const path = parsedUrlObject?.path ?? filePathOrUrl;
+  const privateDocumentPrefix = `${PRIVATE_SUBMISSION_DEMO_BUCKET}/`;
+  const isPrivateDocumentReference = filePathOrUrl.startsWith(privateDocumentPrefix);
+  const bucket = parsedUrlObject?.bucket ??
+    (isPrivateDocumentReference ? PRIVATE_SUBMISSION_DEMO_BUCKET : PRIVATE_SUBMISSION_BUCKET);
+  const path = parsedUrlObject?.path ??
+    (isPrivateDocumentReference
+      ? filePathOrUrl.slice(privateDocumentPrefix.length)
+      : filePathOrUrl);
   if (
-    (bucket !== PRIVATE_SUBMISSION_BUCKET && bucket !== LEGACY_SUBMISSION_BUCKET) ||
-    !isOwnedSubmissionPath(path, authId)
+    (bucket !== PRIVATE_SUBMISSION_BUCKET &&
+      bucket !== PRIVATE_SUBMISSION_DEMO_BUCKET &&
+      bucket !== LEGACY_SUBMISSION_BUCKET) ||
+    !isOwnedSubmissionPath(path, authId, bucket)
   ) {
     throw new Error("Submission files must be owner-scoped in a recognized storage bucket.");
   }

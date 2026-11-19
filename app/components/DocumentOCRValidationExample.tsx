@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
-import { Clock3, FileText, LoaderCircle, UploadCloud, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  LoaderCircle,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { scanDocument } from "@/lib/ocrValidation";
 import FormFieldLabel from "@/app/components/FormFieldLabel";
 
@@ -16,6 +24,10 @@ export type OcrStrategy =
   | "validIdFront"
   | "validIdBack";
 type ScannerDocumentType = "front_id" | "validIdFront" | "validIdBack" | "certificate";
+type VerificationBadge = {
+  label: string;
+  tone: "green" | "amber" | "blue";
+};
 
 export type DocumentOCRState = {
   status: "idle" | "scanning" | "success" | "needs_review" | "error";
@@ -45,6 +57,7 @@ type DocumentUploadCardProps = {
   lastName?: string;
   onOcrStateChange?: (state: DocumentOCRState) => void;
   onFailedOcrAttempt?: () => void;
+  verificationBadge?: VerificationBadge;
 };
 
 export function evaluateDocumentOcr(
@@ -193,6 +206,7 @@ export function DocumentUploadCard({
   lastName,
   onOcrStateChange,
   onFailedOcrAttempt,
+  verificationBadge,
 }: DocumentUploadCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
@@ -301,9 +315,17 @@ export function DocumentUploadCard({
             birthdateMatched: undefined,
           }
         : await scanDocument(file, scannerType, {
-            firstName: ocrStrategy === "validIdFront" || ocrStrategy === "front-id" || ocrStrategy === "residency" ? firstName : undefined,
-            lastName: ocrStrategy === "validIdFront" || ocrStrategy === "front-id" || ocrStrategy === "residency" ? lastName : undefined,
-            middleInitial: ocrStrategy === "validIdFront" || ocrStrategy === "front-id" ? middleInitial : undefined,
+            firstName: ocrStrategy === "validIdFront"
+              ? undefined
+              : ocrStrategy === "front-id" || ocrStrategy === "residency"
+                ? firstName
+                : undefined,
+            lastName: ocrStrategy === "validIdFront"
+              ? undefined
+              : ocrStrategy === "front-id" || ocrStrategy === "residency"
+                ? lastName
+                : undefined,
+            middleInitial: ocrStrategy === "front-id" ? middleInitial : undefined,
           });
       if (generation !== generationRef.current) return;
 
@@ -407,6 +429,15 @@ export function DocumentUploadCard({
     compactIdErrorMessage && detailedOcrErrorMessage
       ? detailedOcrErrorMessage
       : ocrErrorMessage;
+  const badge = verificationBadge ?? {
+    label: ocrStatus.status === "scanning" ? "Checking file..." : "For Verification",
+    tone: "blue" as const,
+  };
+  const badgeToneClass = {
+    green: "border-emerald-200 bg-emerald-100/95 text-emerald-800",
+    amber: "border-amber-200 bg-amber-100/95 text-amber-800",
+    blue: "border-sky-200/90 bg-sky-100/95 text-[#0F3D5C]",
+  }[badge.tone];
   const cardHeightClass = compact ? "min-h-32" : "min-h-52";
   const dropzoneStateClasses = selectedFile
     ? `border-2 border-dashed border-amber-400 ${hasImageBackground ? "bg-cover bg-center bg-no-repeat" : "bg-slate-700"}`
@@ -488,12 +519,16 @@ export function DocumentUploadCard({
                   role={ocrStatus.status === "scanning" ? "status" : undefined}
                   aria-live="polite"
                   title="This file still requires in-person verification at the barangay."
-                  className={`inline-flex items-center gap-1 rounded-full border border-sky-200/90 bg-sky-100/95 font-semibold text-[#0F3D5C] shadow-sm ${compact ? "mt-1 px-2 py-0.5 text-[9px]" : "mt-1 px-2 py-0.5 text-[10px]"}`}
+                  className={`inline-flex items-center gap-1 rounded-full border font-semibold shadow-sm ${badgeToneClass} ${compact ? "mt-1 px-2 py-0.5 text-[9px]" : "mt-1 px-2 py-0.5 text-[10px]"}`}
                 >
                   {ocrStatus.status === "scanning"
                     ? <LoaderCircle className="h-3 w-3 animate-spin text-cyan-800" aria-hidden="true" />
-                    : <Clock3 className="h-3 w-3 text-cyan-800" aria-hidden="true" />}
-                  {ocrStatus.status === "scanning" ? "Checking file..." : "For Verification"}
+                    : badge.tone === "green"
+                      ? <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                      : badge.tone === "amber"
+                        ? <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                        : <Clock3 className="h-3 w-3 text-cyan-800" aria-hidden="true" />}
+                  {badge.label}
                 </span>
               ) : null}
               {ocrErrorMessage ? (

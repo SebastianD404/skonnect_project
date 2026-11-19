@@ -28,6 +28,8 @@ const grantee: GranteeTableRow = {
   yearLevel: "Grade 12",
   currentJourneySemesterIndex: 0,
   validatedJourneySemesterIndexes: [],
+  journeyNodes: [],
+  journeyConfigured: false,
   status: "ACTIVE",
   graduationReadyAt: null,
   exitClearanceStatus: "NONE",
@@ -103,6 +105,95 @@ describe("GranteeStatusTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
 
     expect(onClearSearch).toHaveBeenCalledOnce();
+  });
+
+  it("shows the unconfigured journey fallback only in the row-hover popover", () => {
+    const { container } = renderTable();
+
+    expect(screen.queryByText("Academic journey not configured")).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Y\d+ S\d+/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Academic Journey" })).not.toBeInTheDocument();
+
+    fireEvent.mouseEnter(container.querySelector("table tbody tr")!);
+
+    expect(screen.getByText("Academic journey not configured")).toHaveClass(
+      "text-xs",
+      "text-slate-300",
+    );
+    expect(screen.getByRole("tooltip", { name: "Academic Journey for Mira Santos" })).toHaveClass(
+      "pointer-events-none",
+      "z-50",
+      "bg-[#0B192C]",
+      "rounded-xl",
+      "shadow-xl",
+    );
+  });
+
+  it("renders the straight-line journey with fraction, term tooltips, and state colors on row hover", () => {
+    const journeyNodes: GranteeTableRow["journeyNodes"] = [
+      {
+        index: 0,
+        semester: "2025-2026 First Semester",
+        yearNumber: 3,
+        semesterNumber: 1,
+        academicTermCaption: "2025-2026 · 1st Sem",
+        status: "VALIDATED",
+      },
+      {
+        index: 1,
+        semester: "2025-2026 Second Semester",
+        yearNumber: 3,
+        semesterNumber: 2,
+        academicTermCaption: "2025-2026 · 2nd Sem",
+        status: "VALIDATED",
+      },
+      {
+        index: 2,
+        semester: "2026-2027 First Semester",
+        yearNumber: 4,
+        semesterNumber: 1,
+        academicTermCaption: "2026-2027 · 1st Sem",
+        status: "VALIDATED",
+      },
+      {
+        index: 3,
+        semester: "2026-2027 Second Semester",
+        yearNumber: 4,
+        semesterNumber: 2,
+        academicTermCaption: "2026-2027 · 2nd Sem",
+        status: "CURRENT",
+      },
+    ];
+    const { container } = renderTable({
+      granteeRow: {
+        ...grantee,
+        journeyNodes,
+        journeyConfigured: true,
+        validatedJourneySemesterIndexes: [0, 1, 2],
+      },
+    });
+
+    fireEvent.mouseEnter(container.querySelector("table tbody tr")!);
+
+    expect(screen.getByText("3/4")).toBeInTheDocument();
+    const currentNode = document.body.querySelectorAll(
+      '[title="Y4 S2 · 2026–2027 2nd Sem — Current Step"]',
+    );
+    expect(currentNode).toHaveLength(1);
+    expect(currentNode[0].querySelector("span.rounded-full")).toHaveClass(
+      "bg-amber-400",
+      "ring-2",
+      "ring-amber-400/30",
+    );
+    const validatedNode = document.body.querySelector(
+      '[title="Y3 S1 · 2025–2026 1st Sem — Validated"]',
+    );
+    expect(validatedNode?.querySelector("span.rounded-full")).toHaveClass(
+      "bg-emerald-500",
+    );
+    expect(document.body.querySelector('[title="Graduation"] svg')).toHaveClass(
+      "text-slate-400",
+    );
   });
 
   it("matches a comma-separated profile name across the grantee name fields", async () => {

@@ -4,6 +4,7 @@ import { getOcrAdminActor } from "@/lib/ocr/admin-access";
 import {
   getLegacySubmissionStorageObject,
   getSubmissionStorageObject,
+  PRIVATE_SUBMISSION_DEMO_BUCKET,
 } from "@/lib/ocr/storage";
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -15,7 +16,8 @@ type SubmissionFileObject = {
 
 function getSubmissionFileObject(filePath: string, authId: string): SubmissionFileObject {
   const privatePrefix = `grantee-submissions/${authId}/`;
-  return filePath.startsWith(privatePrefix)
+  const demoPrivatePrefix = `${PRIVATE_SUBMISSION_DEMO_BUCKET}/grantee-submissions/${authId}/`;
+  return filePath.startsWith(privatePrefix) || filePath.startsWith(demoPrivatePrefix)
     ? getSubmissionStorageObject(filePath, authId)
     : getLegacySubmissionStorageObject(filePath, authId);
 }

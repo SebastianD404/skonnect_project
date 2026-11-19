@@ -15,6 +15,10 @@ import { isGranteeDueForGraduation } from "@/lib/grantee-due-for-graduation";
 
 export const dynamic = "force-dynamic";
 
+function normalizeJourneySemesterNumber(value: number | null): 1 | 2 | null {
+  return value === 1 || value === 2 ? value : null;
+}
+
 function normalizeTokens(value: string) {
   return value
     .toLowerCase()
@@ -105,6 +109,9 @@ export default async function AdminGranteesPage({ searchParams }: {
       entrySemester: true,
       journeyStart: true,
       journeyEnd: true,
+      journeyStartAcademicYear: true,
+      journeyStartSemester: true,
+      journeyEndSemester: true,
       dateEnrolled: true,
       submissions: {
         orderBy: { submittedAt: "desc" },
@@ -123,6 +130,9 @@ export default async function AdminGranteesPage({ searchParams }: {
       yearLevel: grantee.yearLevel,
       journeyStart: grantee.journeyStart,
       journeyEnd: grantee.journeyEnd,
+      startAcademicYear: grantee.journeyStartAcademicYear,
+      startSemester: normalizeJourneySemesterNumber(grantee.journeyStartSemester),
+      endSemester: normalizeJourneySemesterNumber(grantee.journeyEndSemester),
       entryTerm: grantee.entryAcademicYear && grantee.entrySemester
         ? `${grantee.entryAcademicYear} ${grantee.entrySemester}`
         : undefined,
@@ -173,6 +183,9 @@ export default async function AdminGranteesPage({ searchParams }: {
         entrySemester: true,
         journeyStart: true,
         journeyEnd: true,
+        journeyStartAcademicYear: true,
+        journeyStartSemester: true,
+        journeyEndSemester: true,
         school: true,
         dateEnrolled: true,
         graduatedAt: true,
@@ -233,6 +246,9 @@ export default async function AdminGranteesPage({ searchParams }: {
       yearLevel: grantee.yearLevel,
       journeyStart: grantee.journeyStart,
       journeyEnd: grantee.journeyEnd,
+      startAcademicYear: grantee.journeyStartAcademicYear,
+      startSemester: normalizeJourneySemesterNumber(grantee.journeyStartSemester),
+      endSemester: normalizeJourneySemesterNumber(grantee.journeyEndSemester),
       entryTerm: grantee.entryAcademicYear && grantee.entrySemester
         ? `${grantee.entryAcademicYear} ${grantee.entrySemester}`
         : undefined,
@@ -254,6 +270,21 @@ export default async function AdminGranteesPage({ searchParams }: {
       yearLevel: grantee.yearLevel,
       currentJourneySemesterIndex: journeyProgress.currentSemesterIndex,
       validatedJourneySemesterIndexes: journeyProgress.validatedSemesterIndexes,
+      journeyNodes: journeyProgress.nodes.map((node) => ({
+        index: node.index,
+        semester: node.semester,
+        yearNumber: node.yearNumber,
+        semesterNumber: node.semesterNumber,
+        academicTermCaption: node.academicTermCaption,
+        status: node.status,
+      })),
+      journeyConfigured: Boolean(
+        grantee.journeyStart &&
+        grantee.journeyEnd &&
+        grantee.journeyStartAcademicYear &&
+        normalizeJourneySemesterNumber(grantee.journeyStartSemester) &&
+        normalizeJourneySemesterNumber(grantee.journeyEndSemester),
+      ),
       isDueForGraduation:
         grantee.exitClearanceStatus !== "CLEARED" &&
         isGranteeDueForGraduation({

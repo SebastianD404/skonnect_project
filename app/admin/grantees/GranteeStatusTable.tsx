@@ -1,12 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Archive, Eye, GraduationCap, Loader2, Search, X } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import type { AcademicJourneyNode } from "@/lib/academic-journey";
 import { normalizeSkeapSchoolName } from "@/lib/skeap-school";
 import AdminTablePaginationFooter from "../AdminTablePaginationFooter";
 import AcademicJourneyHoverCard from "./AcademicJourneyHoverCard";
+
+type JourneyStepperNode = Pick<
+  AcademicJourneyNode,
+  "index" | "semester" | "yearNumber" | "semesterNumber" | "academicTermCaption" | "status"
+>;
 
 export interface GranteeTableRow {
   id: string;
@@ -20,6 +26,8 @@ export interface GranteeTableRow {
   yearLevel: string;
   currentJourneySemesterIndex: number;
   validatedJourneySemesterIndexes: number[];
+  journeyNodes: JourneyStepperNode[];
+  journeyConfigured: boolean;
   isDueForGraduation?: boolean;
   status: "ACTIVE" | "PROBATIONARY" | "GRADUATED" | "REMOVED" | "REVOKED";
   graduationReadyAt: string | null;
@@ -145,8 +153,37 @@ export function GranteeStatusTable({
   onReviewGrantee?: (grantee: GranteeTableRow) => void;
 }) {
   const [pendingGranteeId, setPendingGranteeId] = useState<string | null>(null);
+  const [hoveredJourney, setHoveredJourney] = useState<{
+    grantee: GranteeTableRow;
+    anchor: HTMLTableRowElement;
+  } | null>(null);
+  const journeyCloseTimer = useRef<number | null>(null);
   const [isViewingGrantee, startViewTransition] = useTransition();
   const router = useRouter();
+
+  useEffect(() => () => {
+    if (journeyCloseTimer.current !== null) {
+      window.clearTimeout(journeyCloseTimer.current);
+    }
+  }, []);
+
+  const showJourney = (grantee: GranteeTableRow, anchor: HTMLTableRowElement) => {
+    if (journeyCloseTimer.current !== null) {
+      window.clearTimeout(journeyCloseTimer.current);
+      journeyCloseTimer.current = null;
+    }
+    setHoveredJourney({ grantee, anchor });
+  };
+
+  const scheduleJourneyClose = (anchor: HTMLTableRowElement) => {
+    if (journeyCloseTimer.current !== null) {
+      window.clearTimeout(journeyCloseTimer.current);
+    }
+    journeyCloseTimer.current = window.setTimeout(() => {
+      setHoveredJourney((current) => current?.anchor === anchor ? null : current);
+      journeyCloseTimer.current = null;
+    }, 120);
+  };
 
   const handleViewGrantee = (grantee: GranteeTableRow) => {
     const href = grantee.detailsHref;
@@ -354,15 +391,6 @@ export function GranteeStatusTable({
                     ) : "—"}
                   </dd>
                 </div>
-                <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Semester progress</dt>
-                  <dd className="mt-0.5 font-semibold text-slate-800">
-                    Semester {grantee.currentJourneySemesterIndex + 1}
-                  </dd>
-                  <dd className="text-[11px] text-slate-500">
-                    {grantee.validatedJourneySemesterIndexes.length} validated
-                  </dd>
-                </div>
               </dl>
 
               <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
@@ -431,14 +459,31 @@ export function GranteeStatusTable({
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white text-sm" aria-busy={isLoading}>
             {isLoading ? <GranteeTableSkeletonRows /> : grantees.map((grantee) => (
-                  <tr key={grantee.id} className="h-[72px] transition-colors hover:bg-slate-50/50">
+                  <tr
+                    key={grantee.id}
+                    tabIndex={0}
+                    aria-label={`Academic Journey for ${grantee.fullName}`}
+                    aria-describedby={
+                      hoveredJourney?.grantee.id === grantee.id
+                        ? `academic-journey-${grantee.id}`
+                        : undefined
+                    }
+                    onMouseEnter={(event) => showJourney(grantee, event.currentTarget)}
+                    onMouseLeave={(event) => scheduleJourneyClose(event.currentTarget)}
+                    onFocus={(event) => showJourney(grantee, event.currentTarget)}
+                    onBlur={(event) => {
+                      if (
+                        event.relatedTarget instanceof Node &&
+                        event.currentTarget.contains(event.relatedTarget)
+                      ) {
+                        return;
+                      }
+                      scheduleJourneyClose(event.currentTarget);
+                    }}
+                    className="group/row h-[72px] transition-colors hover:bg-slate-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-600"
+                  >
                     <td className="min-w-0 px-3 py-4 sm:px-4">
-                      <div className="group/journey relative flex items-center gap-3">
-                        <AcademicJourneyHoverCard
-                          fullName={grantee.fullName}
-                          currentSemesterIndex={grantee.currentJourneySemesterIndex}
-                          validatedSemesterIndexes={grantee.validatedJourneySemesterIndexes}
-                        />
+                      <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F3D5C] text-xs font-bold text-white">
                           {grantee.fullName
                             .split(" ")
@@ -561,6 +606,16 @@ export function GranteeStatusTable({
             ))}
           </tbody>
         </table>
+        {hoveredJourney ? (
+          <AcademicJourneyHoverCard
+            id={hoveredJourney.grantee.id}
+            fullName={hoveredJourney.grantee.fullName}
+            anchor={hoveredJourney.anchor}
+            nodes={hoveredJourney.grantee.journeyNodes}
+            validatedCount={hoveredJourney.grantee.validatedJourneySemesterIndexes.length}
+            configured={hoveredJourney.grantee.journeyConfigured}
+          />
+        ) : null}
         {!isLoading && grantees.length === 0 ? (
           emptyState
         ) : null}

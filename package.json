@@ -14,6 +14,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
     "db:seed:demo": "tsx prisma/seed.ts",
+    "seed:grad-demo": "tsx prisma/seed-graduation-demo.ts",
     "test:audit": "vitest run lib/audit/metadata.test.ts",
     "reminders": "npx tsx scripts/send-reminders.ts",
     "patch:averages": "node scripts/patch-missing-submission-averages.js",

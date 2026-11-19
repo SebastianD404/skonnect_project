@@ -16,7 +16,7 @@ import {
   type DocumentOCRState,
 } from "@/app/components/DocumentOCRValidationExample";
 import FormFieldLabel from "@/app/components/FormFieldLabel";
-import { doesOcrTextMatchName } from "@/lib/ocrNameVerification";
+import { getOcrNameVerificationStatus } from "@/lib/ocrNameVerification";
 import { compressImageForUpload } from "@/lib/image-compression";
 import { ChevronDown, Eye, EyeOff, Info, MapPin } from "lucide-react";
 import KkProfilingSuccessInterstitial from "@/app/programs/kk-profiling/KkProfilingSuccessInterstitial";
@@ -260,6 +260,16 @@ export default function KKProfilingForm({
     !hasHardDocumentError &&
     (Object.values(failedOcrAttempts).some((attempts) => attempts >= 3) ||
       Object.values(ocrValidationState).some((state) => state.manualReviewRequired));
+  const frontNameVerificationStatus =
+    idFiles.front && ocrValidationState.front.status !== "idle"
+      ? ocrValidationState.front.status === "scanning"
+        ? "scanning"
+        : getOcrNameVerificationStatus(
+            form.firstName,
+            form.lastName,
+            ocrValidationState.front.text ?? "",
+          )
+      : null;
   useEffect(() => {
     if (validationErrorField) {
       const target = document.getElementById(`kk-profile-${validationErrorField}`);
@@ -583,25 +593,6 @@ export default function KKProfilingForm({
     return results;
   }
 
-  function doesProfileNameMatchIdText() {
-    const firstName = String(form.firstName || "").trim();
-    const lastName = String(form.lastName || "").trim();
-
-    if (!firstName || !lastName) {
-      return true;
-    }
-
-    const frontText = ocrValidationState.front.status === "success"
-      ? String(ocrValidationState.front.text ?? "")
-      : "";
-
-    if (!frontText) {
-      return true;
-    }
-
-    return doesOcrTextMatchName(firstName, lastName, frontText, 0.8);
-  }
-
   function doesProfileBirthDateMatchIdText() {
     const profileDate = parseIsoDate(form.birthDate);
     if (!profileDate) {
@@ -771,10 +762,6 @@ export default function KKProfilingForm({
         label: "Documents",
         message: "Complete each document check or submit the ID images for SK Admin verification.",
       };
-    }
-
-    if (!manualReview && !doesProfileNameMatchIdText()) {
-      return { label: "Valid ID (Front and Back)", message: "Your name does not match the name on your ID." };
     }
 
     if (!manualReview && !doesProfileBirthDateMatchIdText()) {
@@ -1483,6 +1470,15 @@ export default function KKProfilingForm({
                   firstName={form.firstName}
                   middleInitial={form.middleInitial}
                   lastName={form.lastName}
+                  verificationBadge={
+                    frontNameVerificationStatus === "scanning"
+                      ? { label: "Checking file...", tone: "blue" }
+                      : frontNameVerificationStatus === "verified"
+                        ? { label: "Verified", tone: "green" }
+                        : frontNameVerificationStatus === "name_mismatch"
+                          ? { label: "Name Mismatch", tone: "amber" }
+                          : { label: "For Verification", tone: "blue" }
+                  }
                   onUpload={(file) => handleIdFileChange("front", file)}
                   onOcrStateChange={(state) => updateOcrDocumentState("front", state)}
                   onFailedOcrAttempt={() => recordFailedOcrAttempt("front")}
@@ -1504,6 +1500,11 @@ export default function KKProfilingForm({
                   onFailedOcrAttempt={() => recordFailedOcrAttempt("back")}
                 />
               </div>
+              {frontNameVerificationStatus === "name_mismatch" ? (
+                <p className="mt-2 text-xs leading-relaxed text-amber-800" role="status">
+                  Name on Front ID doesn&apos;t match {form.firstName.trim()} {form.lastName.trim()}. Upload your own valid ID, or submit as-is for SKAdmin review.
+                </p>
+              ) : null}
               {idHashCheckStatus === "checking" ? (
                 <p className="mt-2 text-xs text-slate-500" role="status">
                   Verifying document uniqueness...

@@ -26,6 +26,24 @@ describe("submission storage paths", () => {
     });
   });
 
+  it("accepts only owner-scoped demo files from the private-documents bucket", () => {
+    expect(
+      getSubmissionStorageObject(
+        "private-documents/grantee-submissions/auth-1/demo/grades.pdf",
+        "auth-1",
+      ),
+    ).toEqual({
+      bucket: "private-documents",
+      path: "grantee-submissions/auth-1/demo/grades.pdf",
+    });
+    expect(() =>
+      getSubmissionStorageObject(
+        "private-documents/grantee-submissions/auth-2/demo/grades.pdf",
+        "auth-1",
+      ),
+    ).toThrow("Submission files must be owner-scoped in a recognized storage bucket.");
+  });
+
   it("extracts a private bucket path from public and signed Supabase URLs", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
     expect(

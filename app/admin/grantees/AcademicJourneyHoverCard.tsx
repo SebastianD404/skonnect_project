@@ -1,8 +1,14 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import AcademicJourneyMap from "@/app/components/AcademicJourneyMap";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { AcademicJourneyNode } from "@/lib/academic-journey";
+import AcademicJourneyStepper from "./AcademicJourneyStepper";
+
+type JourneyStepperNode = Pick<
+  AcademicJourneyNode,
+  "index" | "semester" | "yearNumber" | "semesterNumber" | "academicTermCaption" | "status"
+>;
 
 type Position = {
   left: number;
@@ -10,117 +16,74 @@ type Position = {
 };
 
 export default function AcademicJourneyHoverCard({
+  id,
   fullName,
-  currentSemesterIndex,
-  validatedSemesterIndexes,
+  anchor,
+  nodes,
+  validatedCount,
+  configured,
 }: {
+  id: string;
   fullName: string;
-  currentSemesterIndex: number;
-  validatedSemesterIndexes: number[];
+  anchor: HTMLTableRowElement | null;
+  nodes: JourneyStepperNode[];
+  validatedCount: number;
+  configured: boolean;
 }) {
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<Position | null>(null);
-  const closeTimer = useRef<number | null>(null);
-  const triggerRef = useRef<HTMLElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => () => {
-    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
-  }, []);
-
-  function updatePosition(element: HTMLElement) {
-    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
-
-    const bounds = element.getBoundingClientRect();
-    const width = popoverRef.current?.getBoundingClientRect().width
-      ?? Math.min(380, window.innerWidth - 24);
-    const height = popoverRef.current?.getBoundingClientRect().height ?? 160;
-    const left = Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12));
-    const below = bounds.bottom + 8;
-    const top = below + height <= window.innerHeight - 12
-      ? below
-      : Math.max(12, bounds.top - height - 8);
-    setPosition({ left, top });
-  }
-
-  function openAt(element: HTMLElement) {
-    triggerRef.current = element;
-    updatePosition(element);
-  }
-
-  function scheduleClose() {
-    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => setPosition(null), 120);
-  }
-
-  function keepOpen() {
-    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
-  }
 
   useLayoutEffect(() => {
-    if (!position || !triggerRef.current || !popoverRef.current) return;
+    if (!anchor) return;
 
-    const updateMeasuredPosition = () => {
-      const element = triggerRef.current;
+    const updatePosition = () => {
+      const bounds = anchor.getBoundingClientRect();
       const popover = popoverRef.current;
-      if (!element || !popover) return;
+      const width = popover?.getBoundingClientRect().width
+        ?? Math.min(440, window.innerWidth - 24);
+      const height = popover?.getBoundingClientRect().height ?? 100;
+      const left = Math.max(12, Math.min(bounds.left + 12, window.innerWidth - width - 12));
+      const below = bounds.bottom + 8;
+      const top = below + height <= window.innerHeight - 12
+        ? below
+        : Math.max(12, bounds.top - height - 8);
 
-      const triggerBounds = element.getBoundingClientRect();
-      const popoverBounds = popover.getBoundingClientRect();
-      const left = Math.max(12, Math.min(triggerBounds.left, window.innerWidth - popoverBounds.width - 12));
-      const below = triggerBounds.bottom + 8;
-      const top = Math.min(
-        Math.max(12, below + popoverBounds.height <= window.innerHeight - 12
-          ? below
-          : triggerBounds.top - popoverBounds.height - 8),
-        window.innerHeight - popoverBounds.height - 12
+      setPosition((current) =>
+        current?.left === left && current.top === top ? current : { left, top },
       );
-
-      setPosition((current) => (
-        current && current.left === left && current.top === top
-          ? current
-          : { left, top: Math.max(12, top) }
-      ));
     };
 
-    updateMeasuredPosition();
-    window.addEventListener("resize", updateMeasuredPosition);
-    window.addEventListener("scroll", updateMeasuredPosition, true);
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
     return () => {
-      window.removeEventListener("resize", updateMeasuredPosition);
-      window.removeEventListener("scroll", updateMeasuredPosition, true);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [position]);
+  }, [anchor]);
 
-  return (
-    <>
-      <button
-        type="button"
-        aria-label={`Preview academic journey for ${fullName}`}
-        onMouseEnter={(event) => openAt(event.currentTarget)}
-        onMouseLeave={scheduleClose}
-        onFocus={(event) => openAt(event.currentTarget)}
-        onBlur={scheduleClose}
-        className="absolute inset-0 z-10 cursor-help rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-500"
+  if (!anchor || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={popoverRef}
+      id={`academic-journey-${id}`}
+      role="tooltip"
+      aria-label={`Academic Journey for ${fullName}`}
+      className="pointer-events-none fixed z-50 w-[440px] max-w-[calc(100vw-24px)] rounded-xl border border-slate-800 bg-[#0B192C] p-3 shadow-xl"
+      style={{
+        left: position?.left ?? 12,
+        top: position?.top ?? 12,
+        visibility: position ? "visible" : "hidden",
+      }}
+    >
+      <p className="mb-2 truncate text-xs font-semibold text-slate-100">{fullName}</p>
+      <AcademicJourneyStepper
+        nodes={nodes}
+        validatedCount={validatedCount}
+        configured={configured}
       />
-      {position && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              ref={popoverRef}
-              role="tooltip"
-              onMouseEnter={keepOpen}
-              onMouseLeave={scheduleClose}
-              className="fixed z-[100] h-auto w-[380px] max-w-[calc(100vw-24px)] rounded-xl border border-slate-700 bg-slate-900 p-4 text-white shadow-2xl animate-in fade-in zoom-in-95 duration-200"
-              style={{ left: position.left, top: position.top }}
-            >
-              <AcademicJourneyMap
-                currentSemesterIndex={currentSemesterIndex}
-                validatedSemesterIndexes={validatedSemesterIndexes}
-                compact
-              />
-            </div>,
-            document.body
-          )
-        : null}
-    </>
+    </div>,
+    document.body,
   );
 }
